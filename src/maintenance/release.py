@@ -845,7 +845,12 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # before unattended handoff, including confirmation/error routing and the
 # no-permission boundary. The dispatching lane must read this before handoff;
 # warranted always-loaded guidance, re-derived from the full-profile producer.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 935940
+# #1513 adds the MCP tool-name compatibility output and its metadata-only
+# artifact guidance to harness-session-inventory. This owner-approved growth
+# names the audit command and keeps config-only, unsupported and ambiguous
+# names from becoming invocation evidence; re-derived from the full-profile
+# skill_context_cost_payload() producer, not from accumulated deltas.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 936264
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

@@ -3183,6 +3183,7 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS: dict[str, dict[str, object]] = {
         "recommended_flow": [
             "scope_harnesses_and_wrappers",
             "redact_mcp_and_connector_configs",
+            "resolve_mcp_tool_name_compatibility",
             "classify_sessions_as_observed_prepared_missing_or_stale",
             "record_worktree_snapshot_when_available",
             "report_drift_without_cleanup_or_runtime_claims",

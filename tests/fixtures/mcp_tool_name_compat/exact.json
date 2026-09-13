@@ -1,0 +1,51 @@
+{
+  "adapter": {
+    "id": "opencode-mcp-tool-naming",
+    "version": "v1"
+  },
+  "advertised_tools": [
+    {
+      "evidence_refs": [
+        "session:observed-0"
+      ],
+      "name": "omh_status",
+      "observation": "registered"
+    },
+    {
+      "evidence_refs": [
+        "session:observed-1"
+      ],
+      "name": "omh_hud",
+      "observation": "registered"
+    },
+    {
+      "evidence_refs": [
+        "session:observed-2"
+      ],
+      "name": "omh_recommend",
+      "observation": "registered"
+    }
+  ],
+  "required_tools": [
+    {
+      "evidence_refs": [
+        "run:required"
+      ],
+      "logical_name": "omh_status"
+    },
+    {
+      "evidence_refs": [
+        "run:required"
+      ],
+      "logical_name": "omh_recommend"
+    },
+    {
+      "evidence_refs": [
+        "run:required"
+      ],
+      "logical_name": "omh_hud"
+    }
+  ],
+  "schema_version": "mcp_tool_name_compatibility_snapshot/v1",
+  "target_harness": "opencode"
+}

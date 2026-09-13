@@ -1268,6 +1268,7 @@ _FEATURE_SURFACE_SKILLS = (
             "harness_session_inventory/v1 card or guidance",
             "harness_session_adapter_matrix/v1",
             "mcp_inventory_drift_report/v1",
+            "mcp_tool_name_compatibility/v1",
             "worktree_lifecycle_snapshot/v1",
             "session_progress_slots/v1",
             "next action",
@@ -1277,6 +1278,7 @@ _FEATURE_SURFACE_SKILLS = (
             "harness_session_inventory/v1 metadata-only runtime or wrapper card when recorded",
             "harness_session_adapter_matrix/v1 with observed, prepared, missing, and stale adapters",
             "mcp_inventory_drift_report/v1 with secret-redacted config/source drift only",
+            "mcp_tool_name_compatibility/v1 with secret-redacted config/source drift only: agents use `omh harness mcp-tool-name-compatibility --snapshot <path>` for supplied naming metadata; config-only and unsupported adapters stay unobserved, ambiguous names are never selected, and no tools are invoked",
             "worktree_lifecycle_snapshot/v1 with merge-conflict and cleanup candidates when observed",
         ),
         final_checklist=(

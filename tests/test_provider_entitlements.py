@@ -574,6 +574,20 @@ class SetupInterviewTests(unittest.TestCase):
             self.assertNotIn("sk-secret-value", json.dumps(rows["options"]))
             self.assertNotIn("sk-secret-value", json.dumps(document))
 
+    def test_a_key_name_recorded_under_its_family_id_is_not_offered_twice(self) -> None:
+        # A document from before detection named OPENAI_API_KEY's account
+        # `openai`; detection now names it `openai-api`. One row, ticked.
+        options, preselected, kinds = setup_module._provider_entitlement_options(
+            [("openai-api", "openai", "OPENAI_API_KEY"), ("openai-codex", "openai-codex", "login")],
+            {"openai": "openai"},
+            "en",
+        )
+        values = [option["value"] for option in options]
+        self.assertNotIn("openai-api", values)
+        self.assertEqual(values[:2], ["openai-codex", "openai"])
+        self.assertEqual(preselected, ["openai-codex", "openai"])
+        self.assertEqual(kinds["openai"], "openai")
+
     def test_a_hermes_auth_login_is_offered_as_a_pre_ticked_row(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

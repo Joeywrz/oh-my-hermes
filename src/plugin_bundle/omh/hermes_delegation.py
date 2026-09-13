@@ -25,7 +25,7 @@ mixture routing is visible as such instead of masquerading as a routed one.
 from __future__ import annotations
 
 from . import runtime_paths
-from .provider_detection import detect_linked_providers
+from .provider_detection import detect_linked_providers, env_row_is_covered
 
 import json
 import os
@@ -555,10 +555,11 @@ def effective_provider_entitlements(
     """
     recorded, status = load_provider_entitlements(omh_home)
     excluded = set(recorded.get("excluded_providers", [])) if recorded is not None else set()
+    recorded_providers: dict[str, str] = dict(recorded["providers"]) if recorded is not None else {}
     rows: dict[str, dict[str, str]] = {
         row["id"]: {"id": row["id"], "kind": row["kind"], "source": row["source"], "evidence": row["evidence"]}
         for row in detect_linked_providers(hermes_home)
-        if row["id"] not in excluded
+        if row["id"] not in excluded and not env_row_is_covered(row, recorded_providers)
     }
     clis: list[str] = []
     if recorded is not None:

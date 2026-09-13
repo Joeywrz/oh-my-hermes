@@ -310,6 +310,32 @@ class LinkedEntitlementTests(unittest.TestCase):
         self.assertEqual(entitlements["providers"], {"zai": "zai"})
         self.assertEqual([(row["id"], row["source"]) for row in providers], [("zai", "env")])
 
+    def test_an_env_row_the_record_already_holds_is_one_account_not_two(self) -> None:
+        # The interview once recorded OPENAI_API_KEY under the family id
+        # `openai`; detection names Hermes' `openai-api`. One key, one row.
+        with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            omh_home = Path(tmp) / "omh"
+            hermes_home = Path(tmp) / "hermes"
+            _write(hermes_home / ".env", f"OPENAI_API_KEY={KEY_VALUE}\nZAI_API_KEY={KEY_VALUE}\n")
+            _write(hermes_home / "auth.json", _auth_store(providers={"openai-codex": {"access_token": TOKEN}}))
+            _write(
+                provider_entitlements_path(omh_home),
+                json.dumps({"schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION, "providers": {"openai": "openai", "my-zai": "zai"}}),
+            )
+            entitlements, _status, providers = effective_provider_entitlements(omh_home, hermes_home)
+        # `openai-api` (kind openai) is covered by the recorded `openai`; `zai`
+        # (kind zai) by the recorded `my-zai`; the Codex login is a distinct
+        # Hermes provider and stands.
+        self.assertEqual(
+            [(row["id"], row["source"]) for row in providers],
+            [("my-zai", "recorded"), ("openai", "recorded"), ("openai-codex", "login")],
+        )
+        self.assertEqual(set(entitlements["providers"]), {"my-zai", "openai", "openai-codex"})
+        self.assertTrue(detection.env_row_is_covered({"source": "env", "kind": "openai"}, {"openai": "openai"}))
+        self.assertTrue(detection.env_row_is_covered({"source": "env", "kind": "zai"}, {"my-zai": "zai"}))
+        self.assertFalse(detection.env_row_is_covered({"source": "login", "kind": "openai"}, {"openai": "openai"}))
+        self.assertFalse(detection.env_row_is_covered({"source": "env", "kind": "gemini"}, {"openai": "openai"}))
+
     def test_an_invalid_record_leaves_the_linked_providers_standing(self) -> None:
         with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
             omh_home, hermes_home = self._login_only(Path(tmp))

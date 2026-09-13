@@ -103,11 +103,16 @@ HERMES_PROVIDER_KINDS: dict[str, str] = {
 }
 
 # Variable NAME -> Hermes provider id, from the registry's `api_key_env_vars`
-# for the providers above. Generic tokens Hermes also accepts (GH_TOKEN,
-# GITHUB_TOKEN, HF_TOKEN) are deliberately absent: they are set for reasons
-# that have nothing to do with inference, and a relay they would imply
-# counts every model as served. CLAUDE_CODE_OAUTH_TOKEN is absent because
-# Hermes' registry lists it under `_IMPLICIT_ENV_VARS` (see the docstring).
+# for the providers above, plus three names the retired setup hint table
+# offered and Hermes' registry does not list -- MOONSHOT_API_KEY (Moonshot's
+# own platform spelling), OPENGATEWAY_API_KEY (OMH's gateway; see
+# `hermes_child_dispatch._PROVIDER_ENV`), QWEN_API_KEY -- kept so a machine
+# that answered the interview by one of them keeps being offered it.
+# Generic tokens Hermes also accepts (GH_TOKEN, GITHUB_TOKEN, HF_TOKEN) are
+# deliberately absent: they are set for reasons that have nothing to do with
+# inference, and a relay they would imply counts every model as served.
+# CLAUDE_CODE_OAUTH_TOKEN is absent because Hermes' registry lists it under
+# `_IMPLICIT_ENV_VARS` (see the docstring).
 HERMES_ENV_KEY_PROVIDERS: dict[str, str] = {
     "ANTHROPIC_API_KEY": "anthropic",
     "ANTHROPIC_TOKEN": "anthropic",
@@ -366,6 +371,22 @@ def detect_linked_providers(
             continue
         add(provider_id, HERMES_PROVIDER_KINDS[provider_id], LINKED_SOURCE_ENV, name)
     return sorted(rows.values(), key=lambda row: (LINKED_SOURCE_ORDER.index(row["source"]), row["id"]))
+
+
+def env_row_is_covered(row: Mapping[str, Any], recorded: Mapping[str, str]) -> bool:
+    """Whether an `env` row names an account the recorded document already holds.
+
+    The setup interview once recorded `OPENAI_API_KEY` as the id `openai`
+    (the family name); detection names the Hermes provider, `openai-api`.
+    Both describe one key, so an env row whose kind a recorded provider
+    already carries -- or whose kind IS a recorded id -- adds nothing and is
+    left out rather than shown as a second account. Login and config rows
+    are distinct Hermes providers in their own right and always stand.
+    """
+    if row.get("source") != LINKED_SOURCE_ENV:
+        return False
+    kind = str(row.get("kind") or "")
+    return kind in recorded or kind in set(recorded.values())
 
 
 def linked_provider_kinds(rows: Iterable[Mapping[str, Any]]) -> dict[str, str]:

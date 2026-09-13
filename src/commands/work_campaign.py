@@ -63,7 +63,8 @@ def cmd_campaign(args):
             payload = api.prepare(mode="campaign-orchestrator", accepted=args.accept, goal=args.goal,
                                   units=_read(args.units), acceptance_criteria=args.acceptance,
                                   verification_command=args.verify, workspace=Path(args.workspace),
-                                  omh_home=paths.omh_home, spawn_plan=_read(args.spawn_plan) if args.spawn_plan else None,
+                                  omh_home=paths.omh_home, hermes_home=paths.hermes_home,
+                                  spawn_plan=_read(args.spawn_plan) if args.spawn_plan else None,
                                   **{f"{role}_{field}": getattr(args, f"{role}_{field}")
                                      for role in ("owner", "worker") for field in ("model", "provider", "effort")})
         elif action == "show":

@@ -91,7 +91,16 @@ def _canonical_path(value, *, relative_to=None):
         path = Path(value).expanduser()
         if relative_to is not None and not path.is_absolute():
             path = relative_to / path
-        return path.resolve()
+        resolved = path.resolve()
+        # CPython 3.11 and 3.12 raise on a symlink loop; 3.13 resolves it
+        # without raising and hands the link itself back. A root that is
+        # still a symlink after resolution is therefore the same fault on
+        # every supported interpreter, and it must surface here, as a
+        # binding error, rather than downstream as a bare RuntimeError from
+        # the runtime reader's own symlink guard.
+        if resolved.is_symlink():
+            raise RuntimeBindingError("OMH runtime path could not be resolved")
+        return resolved
     except (OSError, RuntimeError):
         raise RuntimeBindingError("OMH runtime path could not be resolved") from None
 

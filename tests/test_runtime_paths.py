@@ -12,10 +12,34 @@ from unittest.mock import patch
 from _local_package import load_local_package
 
 load_local_package()
-from omh.plugin_bundle.omh import runtime_reader
+from omh.plugin_bundle.omh import runtime_paths, runtime_reader
 
 
 class RuntimePathsTests(unittest.TestCase):
+    def test_a_symlink_loop_is_a_binding_error_on_every_interpreter(self):
+        # CPython 3.11 and 3.12 raise from `Path.resolve()` on a loop; 3.13
+        # resolves it without raising and returns the link itself. The
+        # resolver must classify both shapes as a binding error, because the
+        # runtime reader's own symlink guard downstream raises a bare
+        # RuntimeError that no hook classifier catches (the 3.13 turn-start
+        # crash the filesystem-fault tests pin).
+        with tempfile.TemporaryDirectory() as tmp:
+            loop = Path(tmp) / "loop"
+            loop.symlink_to(loop)
+            with self.assertRaises(runtime_paths.RuntimeBindingError):
+                runtime_paths.expand_path(loop)
+            # The 3.13 shape, simulated on every interpreter: resolution
+            # returns the path unchanged and raises nothing.
+            with patch.object(Path, "resolve", lambda self, strict=False: self):
+                with self.assertRaises(runtime_paths.RuntimeBindingError):
+                    runtime_paths.expand_path(loop)
+            # A link to a real directory still resolves to its target.
+            target = Path(tmp) / "target"
+            target.mkdir()
+            link = Path(tmp) / "link"
+            link.symlink_to(target)
+            self.assertEqual(runtime_paths.expand_path(link), target.resolve())
+
     def test_scoped_readers_do_not_borrow_process_homes(self):
         home = ContextVar("test_home")
         values = ContextVar("test_values")

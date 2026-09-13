@@ -85,6 +85,28 @@ _SOURCE_METADATA_PATHS: dict[str, tuple[tuple[str, ...], ...]] = {
 }
 
 
+# Where chat platforms list the files a message carried.  Discord posts
+# `attachments` rows (`filename`, `content_type`), Slack posts `files` rows
+# (`name`, `mimetype`), Telegram nests one `document` object (`file_name`,
+# `mime_type`) under the message.  Only names and declared media types are
+# copied out; URLs, sizes, ids, and bytes never leave the event.
+_EVENT_ATTACHMENT_LIST_PATHS = (
+    ("attachments",),
+    ("files",),
+    ("message", "attachments"),
+    ("message", "files"),
+    ("event", "attachments"),
+    ("event", "files"),
+    ("data", "attachments"),
+    ("data", "files"),
+)
+_EVENT_ATTACHMENT_OBJECT_PATHS = (("document",), ("message", "document"))
+_ATTACHMENT_NAME_KEYS = ("name", "filename", "file_name")
+_ATTACHMENT_MEDIA_TYPE_KEYS = ("media_type", "content_type", "mimetype", "mime_type")
+_MAX_EVENT_ATTACHMENTS = 32
+_MAX_ATTACHMENT_TEXT = 160
+
+
 def extract_message_text(event: dict[str, Any] | str) -> str:
     if isinstance(event, str):
         return event.strip()
@@ -108,6 +130,45 @@ def extract_source_metadata(event: dict[str, Any] | str) -> dict[str, str]:
                 metadata[output_key] = str(value).strip()
                 break
     return metadata
+
+
+def extract_event_attachments(event: dict[str, Any] | str) -> list[dict[str, str]]:
+    """Name and declared media type of every file the chat event carried.
+
+    Metadata only: each row is `{"name", "media_type"}` with both values
+    bounded, and a row that names neither is dropped.  A string message has
+    no attachments.
+    """
+    if not isinstance(event, dict):
+        return []
+    rows: list[dict[str, str]] = []
+    candidates: list[Any] = []
+    for path in _EVENT_ATTACHMENT_LIST_PATHS:
+        value = value_at_path(event, path)
+        if isinstance(value, list):
+            candidates.extend(value)
+    for path in _EVENT_ATTACHMENT_OBJECT_PATHS:
+        value = value_at_path(event, path)
+        if isinstance(value, dict):
+            candidates.append(value)
+    for candidate in candidates[:_MAX_EVENT_ATTACHMENTS]:
+        if not isinstance(candidate, dict):
+            continue
+        row = {
+            "name": _bounded_attachment_text(candidate, _ATTACHMENT_NAME_KEYS),
+            "media_type": _bounded_attachment_text(candidate, _ATTACHMENT_MEDIA_TYPE_KEYS),
+        }
+        if row["name"] or row["media_type"]:
+            rows.append(row)
+    return rows
+
+
+def _bounded_attachment_text(candidate: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = candidate.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:_MAX_ATTACHMENT_TEXT]
+    return ""
 
 
 def compact_source_metadata(metadata: Any) -> dict[str, str]:

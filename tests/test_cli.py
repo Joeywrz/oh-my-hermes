@@ -10145,6 +10145,136 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(payload["source_metadata"]["channel_ref"], "c1")
         self.assertEqual(payload["source_metadata"]["user_ref"], "u1")
 
+    def test_coding_delegate_declares_an_attached_document_and_fails_closed(self) -> None:
+        """A PDF attached to the chat message becomes a declared
+        `raw_media:document` input on the handoff. Without fresh
+        route-scoped `input_modality_document` evidence the decision fails
+        closed and names the representations the caller can hand over
+        instead; the attachment's name and URL never reach the payload."""
+        with TemporaryDirectory() as tmp:
+            base = ["--omh-home", str(Path(tmp) / ".omh"), "--hermes-home", str(Path(tmp) / ".hermes")]
+            event = Path(tmp) / "event.json"
+            event.write_text(
+                json.dumps(
+                    {
+                        "id": "m7",
+                        "channel_id": "c1",
+                        "author": {"id": "u1"},
+                        "content": "implement the parser described in the attached spec with regression tests",
+                        "attachments": [
+                            {"id": "1", "filename": "parser-spec.pdf", "content_type": "application/pdf", "size": 4096, "url": "https://cdn.example/parser-spec.pdf"},
+                            {"id": "2", "filename": "notes.txt", "content_type": "text/plain"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            for executor in ("claude-code", "codex", "hermes"):
+                with self.subTest(executor=executor):
+                    status, stdout, stderr = run_cli(
+                        base + ["coding", "delegate", "--executor", executor, "--source", "discord", "--event-json", str(event)]
+                    )
+
+                    self.assertEqual(stderr, "")
+                    self.assertEqual(status, 0)
+                    payload = json.loads(stdout)
+                    self.assertEqual(payload["input_representation"], [{"representation": "raw_media", "modality": "document"}])
+                    handoffs = [payload[key] for key in ("executor_handoff", "prompt_handoff", "runtime_handoff") if key in payload]
+                    self.assertTrue(handoffs)
+                    for handoff in handoffs:
+                        decision = handoff["executor_modality_decision"]
+                        self.assertEqual(handoff["input_representation"], payload["input_representation"])
+                        self.assertEqual(decision["verdict"], "modality_unknown")
+                        self.assertEqual(decision["required_representations"][0]["capability"], "input_modality_document")
+                        self.assertEqual(decision["alternative_representations"], ["extracted_text", "ocr_output"])
+                        self.assertIn("read_file", decision["remaining_user_action"])
+                    self.assertNotIn("parser-spec", stdout)
+                    self.assertNotIn("cdn.example", stdout)
+                    self.assertNotIn("notes.txt", stdout)
+
+            text_only = Path(tmp) / "text-only.json"
+            text_only.write_text(
+                json.dumps({"id": "m8", "content": "implement the parser with regression tests", "attachments": [{"filename": "notes.txt", "content_type": "text/plain"}]}),
+                encoding="utf-8",
+            )
+            status, stdout, stderr = run_cli(base + ["coding", "delegate", "--executor", "codex", "--source", "discord", "--event-json", str(text_only)])
+            self.assertEqual(status, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertNotIn("input_representation", payload)
+            self.assertEqual(payload["executor_handoff"]["executor_modality_decision"]["verdict"], "dispatch")
+
+    def test_coding_delegate_input_representation_flag_declares_documents_and_transformations(self) -> None:
+        with TemporaryDirectory() as tmp:
+            base = ["--omh-home", str(Path(tmp) / ".omh"), "--hermes-home", str(Path(tmp) / ".hermes")]
+            message = "implement the parser described in the spec with regression tests"
+
+            status, stdout, stderr = run_cli(
+                base + ["coding", "delegate", "--executor", "codex", "--input-representation", "raw_media:document", "--input-representation", "local_file_reference:document", message]
+            )
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            payload = json.loads(stdout)
+            self.assertEqual(
+                payload["input_representation"],
+                [
+                    {"representation": "raw_media", "modality": "document"},
+                    {"representation": "local_file_reference", "modality": "document"},
+                ],
+            )
+            decision = payload["executor_handoff"]["executor_modality_decision"]
+            self.assertEqual(decision["verdict"], "modality_unknown")
+            self.assertEqual(decision["alternative_representations"], ["extracted_text", "ocr_output"])
+
+            transformation = Path(tmp) / "ocr.json"
+            transformation.write_text(json.dumps({"kind": "ocr", "status": "observed", "evidence_ref": "operator:ocr-run-7"}), encoding="utf-8")
+            status, stdout, stderr = run_cli(
+                base + ["coding", "delegate", "--executor", "codex", "--input-representation", "ocr_output", "--transformation-json", str(transformation), message]
+            )
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            decision = json.loads(stdout)["executor_handoff"]["executor_modality_decision"]
+            self.assertEqual(decision["transformation"], {"kind": "ocr", "status": "observed", "evidence_ref": "operator:ocr-run-7"})
+            self.assertEqual(decision["required_representations"][0]["capability"], "input_modality_text")
+
+            status, stdout, stderr = run_cli(base + ["coding", "delegate", "--executor", "codex", "--input-representation", "raw_media:scroll", message])
+            self.assertNotEqual(status, 0)
+            self.assertIn("raw_media requires one of: image, audio, video, document", stderr)
+
+    def test_chat_interact_declares_an_attached_document_for_the_coding_handoff(self) -> None:
+        with TemporaryDirectory() as tmp:
+            base = ["--omh-home", str(Path(tmp) / ".omh"), "--hermes-home", str(Path(tmp) / ".hermes")]
+            event = Path(tmp) / "event.json"
+            event.write_text(
+                json.dumps(
+                    {
+                        "event": {
+                            "id": "s1",
+                            "text": "implement the parser described in the attached spec with regression tests",
+                            "channel": "c1",
+                            "user": "u1",
+                            "files": [{"name": "parser-spec.pdf", "mimetype": "application/pdf", "url_private": "https://files.slack/x"}],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            status, stdout, stderr = run_cli(
+                base + ["chat", "interact", "--mode", "delegate", "--source", "slack", "--executor", "codex", "--event-json", str(event), "--json"]
+            )
+
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            payload = json.loads(stdout)
+            delegation = payload["delegation"]
+            self.assertEqual(delegation["input_representation"], [{"representation": "raw_media", "modality": "document"}])
+            decision = delegation["executor_handoff"]["executor_modality_decision"]
+            self.assertEqual(decision["verdict"], "modality_unknown")
+            self.assertEqual(decision["alternative_representations"], ["extracted_text", "ocr_output"])
+            self.assertNotIn("parser-spec", stdout)
+            self.assertNotIn("files.slack", stdout)
+
     def test_coding_delegate_codex_executor_handoff_is_metadata_safe(self) -> None:
         hostile = "refactor api; rm -rf / # nope"
 

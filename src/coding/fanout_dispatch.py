@@ -1155,8 +1155,17 @@ def _unit_capability_precheck(
     )
     verdict = str(decision["verdict"])
     if verdict != "dispatch":
-        return declared_owner, snapshot, [f"{verdict}: {decision['fallback_reason'] or decision['remaining_user_action']}"]
+        return declared_owner, snapshot, [f"{verdict}: {_modality_refusal_detail(decision)}"]
     return declared_owner, snapshot, []
+
+
+def _modality_refusal_detail(decision: Mapping[str, Any]) -> str:
+    """Why the media gate refused, followed by the one action that unblocks it."""
+    return "; ".join(
+        part
+        for part in (str(decision.get("fallback_reason", "") or ""), str(decision.get("remaining_user_action", "") or ""))
+        if part
+    )
 
 
 def fanout_dispatch_preflight(
@@ -2857,7 +2866,7 @@ def _retarget_dispatch(
             "unit_id": retarget_id,
             "owner": new_owner,
             "status": str(decision["verdict"]),
-            "reason": str(decision["fallback_reason"] or decision["remaining_user_action"]),
+            "reason": _modality_refusal_detail(decision),
             "retargeted_from": {"unit_id": unit_id, "owner": failed_owner},
         }
     retargeted = {

@@ -422,6 +422,29 @@ Rules:
   call is a dry preview that prints its exact SHA-256 and a confirmation
   command. Existing sidecars are validated before migration, so a drifted
   legacy payload is never silently re-blessed.
+- **Media and document inputs.** A unit that hands the owner more than text
+  declares it: `input_representation` is one value or a list drawn from
+  `raw_media:<modality>` and `local_file_reference:<modality>` (modalities
+  `image`, `audio`, `video`, `document` — a PDF, DOCX, PPTX, or other office
+  file is `document`), or the text forms `extracted_text`, `ocr_output`,
+  `transcript`, and `normalized_other`. The representation is declared by the
+  operator or derived from a chat message's attachment names and media types;
+  it is never inferred from task prose, and omh never reads the file. Each
+  media modality maps to one capability row (`input_modality_document` for a
+  document) that the frozen snapshot must carry as `host_observed`, fresh,
+  and scoped to the unit's exact provider, wire model, and endpoint mode.
+  Prepare freezes an `executor_modality_decision/v1` on the handoff, and
+  dispatch rebuilds it before readiness or spawn: a missing, stale, or
+  differently-routed row returns `modality_unknown`, a fresh `unavailable`
+  row returns `modality_unsupported`, and `ocr_output` or `transcript`
+  without an observed transformation returns
+  `modality_transformation_unobserved`. Every refusal carries a
+  `remaining_user_action` and an `alternative_representations` list naming
+  what unblocks it without changing owner — for a document, `extracted_text`
+  (text Hermes already read out of the file, for example with its `read_file`
+  tool) or `ocr_output` with an observed OCR transformation; for an image,
+  `ocr_output`; for audio or video, `transcript`. Image evidence never stands
+  in for document evidence, and the same sentence holds for every executor.
 - **Local trust boundary.** Contract provenance detects accidental or partial
   local drift. It is not authentication against a process or operator that can
   rewrite both the contract and its provenance under OMH home; such a writer

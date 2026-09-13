@@ -569,6 +569,14 @@ grow its context without bound even if it ignores the advice:
   `omh_context_artifact_ref/v1` refs (sha256, byte count) instead of the fully
   expanded prompt. Wrappers that dispatch the expanded prompt verbatim use
   `--include-message-full`.
+- A file attached to the message (`attachments` on Discord, `files` on Slack,
+  `message.document` on Telegram) is read for its name and media type only
+  and declared on the handoff as `raw_media:<modality>`; a PDF or office file
+  is `document`. The handoff's `executor_modality_decision` then requires
+  fresh route-scoped `input_modality_<modality>` evidence and otherwise fails
+  closed with the alternative representations named. Wrappers that hold the
+  file outside an event declare it with
+  `omh coding delegate --input-representation raw_media:document`.
 
 When Codex performs a review, wrappers can expose a human-readable review
 context summary without raw logs:

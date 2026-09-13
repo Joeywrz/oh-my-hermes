@@ -214,6 +214,18 @@ Expected behavior:
   lifecycle handoff that can be tracked through `omh coding lifecycle`.
 - `omh coding delegate --executor claude-code` or `--executor generic` returns
   a prompt-only handoff that does not create a lifecycle run.
+- `omh coding delegate --input-representation raw_media:document` (repeatable;
+  also `local_file_reference:<modality>`, `extracted_text`, `ocr_output` with
+  `--transformation-json`) declares a non-text input, and a PDF, office file,
+  image, audio, or video file attached to an `--event-json` message is
+  declared from its name and media type on its own. Every handoff then
+  carries `input_representation` plus an `executor_modality_decision/v1`
+  that dispatches only on fresh route-scoped `input_modality_<modality>`
+  evidence and otherwise fails closed with a `remaining_user_action` naming
+  the alternative representations (for a document, `extracted_text` via
+  Hermes `read_file` or `ocr_output`). `omh chat interact` derives the same
+  declaration from the event it receives. Attachment names, URLs, and bytes
+  never enter the payload.
 - `omh coding delegate --executor hermes` returns a runtime handoff plus
   `hermes_coding_team_path/v1` with solo, durable-goal, team, and swarm start
   choices. The path stays prepared-only until matching runtime observations are

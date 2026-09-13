@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from ..coding_delegation import CODING_EXECUTOR_TARGETS, build_coding_delegation_payload, coding_delegation_record_payload
+from ..coding.media_handoff_capabilities import input_representations_from_attachments, merged_input_representation
 from ..coding.diagnostic_execution import DiagnosticExecutionEngine
 from ..coding.fanout_failure_diagnostics import FailureDiagnostic, is_string_map, read_failure_diagnostic
 from ..coding.fanout_final_review_hook import FinalReviewWaveEngine
@@ -37,7 +38,7 @@ from ..hermes_planning import (
     build_plan_handoff_message,
     read_hermes_plan_artifact,
 )
-from ..ingress import CHAT_SOURCES, extract_message_text, extract_source_metadata
+from ..ingress import CHAT_SOURCES, extract_event_attachments, extract_message_text, extract_source_metadata
 from ..installer import OmhError
 from ..local_store import read_json_object
 from ..memory import memory_recall_pack_for_handoff, read_handoff_context_pack_file, record_attached_recall_usage
@@ -208,6 +209,7 @@ def cmd_coding_delegate(args: argparse.Namespace) -> int:
         plan_artifact: dict[str, object] | None = None
         context_pack = _context_pack(args)
         executor_target = _resolved_executor_for_delegate(args)
+        attached_representations: list[str] = []
         # `--explicit-owner-choice` is a SEPARATE, deliberate flag from
         # `--executor`: bare `--executor` alone stays exactly as conservative
         # as before (see `test_grounded_operator_examples_keep_non_coding_handoffs_conservative`
@@ -242,11 +244,20 @@ def cmd_coding_delegate(args: argparse.Namespace) -> int:
             event = json.loads(raw)
             message = extract_message_text(event)
             source_metadata = extract_source_metadata(event)
+            # A file the platform attached to the message is a declared media
+            # input: its name and media type (never its bytes) decide the
+            # modality the executor route has to prove it can take.
+            attached_representations = input_representations_from_attachments(extract_event_attachments(event))
         elif args.stdin:
             message = sys.stdin.read().strip()
         else:
             message = " ".join(args.message).strip()
         source_metadata.update(_explicit_source_metadata(args))
+        input_representation = merged_input_representation(
+            list(getattr(args, "input_representation", None) or []),
+            attached_representations,
+        )
+        transformation = _transformation(args)
         memory_recall_pack = memory_recall_pack_for_handoff(paths, message, executor_target=executor_target)
         payload = build_coding_delegation_payload(
             message,
@@ -270,6 +281,8 @@ def cmd_coding_delegate(args: argparse.Namespace) -> int:
             model_chains=effective_mixture_category_chains(paths.omh_home, paths.hermes_home),
             requested_model=getattr(args, "model", None) or "",
             requested_effort=getattr(args, "effort", None) or "",
+            input_representation=input_representation,
+            transformation=transformation,
         )
         record_attached_recall_usage(paths, payload)
         if plan_artifact:
@@ -717,6 +730,22 @@ def _context_pack(args: argparse.Namespace) -> dict[str, object] | None:
     if not path:
         return None
     return read_handoff_context_pack_file(path)
+
+
+def _transformation(args: argparse.Namespace) -> dict[str, object] | None:
+    """The observed-transformation record a transformed-text handoff declares.
+
+    Read as a small JSON object (`kind`, `status`, `evidence_ref`); the media
+    gate validates its shape and never trusts a status it cannot bind to a safe
+    evidence reference.
+    """
+    path = getattr(args, "transformation_json", None)
+    if not path:
+        return None
+    raw = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("--transformation-json must contain a JSON object")
+    return raw
 
 
 def cmd_coding_lifecycle_start(args: argparse.Namespace) -> int:
@@ -3599,6 +3628,22 @@ def _add_coding_commands(sub) -> None:
         "--effort",
         default=None,
         help="Reasoning effort already chosen for this request; supersedes the recommended effort.",
+    )
+    delegate.add_argument(
+        "--input-representation",
+        action="append",
+        default=None,
+        metavar="REPRESENTATION[:MODALITY]",
+        help=(
+            "Declare a non-text input the owner receives, for example raw_media:document for an attached PDF, "
+            "local_file_reference:image, extracted_text, or ocr_output. Repeatable. Files attached to an "
+            "--event-json message are declared from their name and media type on their own."
+        ),
+    )
+    delegate.add_argument(
+        "--transformation-json",
+        default=None,
+        help="JSON object with kind, status, and evidence_ref for an ocr_output or transcript handoff.",
     )
     delegate.set_defaults(func=cmd_coding_delegate)
 

@@ -128,6 +128,40 @@ Use the digest diff and missing rows as inputs to model optimization,
 onboarding, doctor triage, or a release checklist. They are evidence-bounded
 work items, not automatic route changes or provider-readiness claims.
 
+### Portfolio qualification
+
+Refresh the complete accepted inventory before calibration work, then qualify
+it without restricting discovery to known families or the seed snapshot:
+
+```sh
+uv run python -m omh.cli coding model-inventory --json > /tmp/model-inventory.json
+uv run python -m omh.cli coding model-portfolio-qualification \
+  --inventory /tmp/model-inventory.json --json
+```
+
+A locally empty refresh does not establish an empty provider catalog. Supply
+an accepted host inventory when local discovery cannot observe those ids;
+`tests/fixtures/model_portfolio_seed_inventory.json` preserves issue #1515's
+seed snapshot for offline regression, not a permanent supported-model list.
+An optional inventory `read_date` records the supplied ISO calendar date;
+absence stays null. Newly returned ids, including unknown families, always
+receive rows and default to `unmeasured` rather than automatic registration.
+
+Use repeatable `--required-model <id>` to block on absent or unmeasured
+qualification. `--intentional-exclusion <id>=<reason>` records an explicit
+caller runtime-contract exclusion; it is not evidence of measured failure.
+`--inventory -` reads stdin, with the audit's bounded JSON validation. The
+report never changes configuration or pays for an evaluation. Follow the
+existing research, calibration, placement, price, and measurement stages
+below; its optimization fields name evidence and missing stages, not a new
+process. Existing editorial decisions are labeled `editorial_not_measured`;
+new placements need observed role evidence and the independent qualification
+guard must pass. Paid measurement requires separate explicit approval.
+
+See [portfolio qualification in MODEL_OPTI.md](../MODEL_OPTI.md#portfolio-qualification)
+for supported / optimized / eligible / recommended / excluded meanings,
+unmeasured holds, bounded alias standing, and scoped retirement decisions.
+
 ## 2. Research, official first — four lanes, in parallel
 
 For Anthropic models the bundled `claude-api` skill's migration guide is the

@@ -40,6 +40,8 @@ class NamingRules:
 
 # OpenCode's toolName joins sanitized server/tool names with '_'; sanitize
 # preserves '-' and '_' and replaces each other punctuation character with '_'.
+# The v1 audit contract additionally folds '-' to '_' so dash, dot and underscore
+# spellings share a comparison key. This is not a host registration transform.
 # Compare supplied whole names only: never strip/invent a server prefix. There
 # is no name-length cap in this source; the separate audit cap is conservative.
 # Claude Code, Codex and Cursor remain unsupported until their full naming
@@ -47,8 +49,8 @@ class NamingRules:
 MCP_TOOL_NAMING_ADAPTERS: Mapping[tuple[str, str], NamingRules] = MappingProxyType({
     ("opencode-mcp-tool-naming", "v1"): NamingRules(
         target_harness="opencode",
-        separator_normalization="preserve_hyphen_and_underscore",
-        punctuation_pattern=r"[^a-zA-Z0-9_-]",
+        separator_normalization="hyphen_to_underscore",
+        punctuation_pattern=r"[^a-zA-Z0-9_]",
         maximum_name_length=None,
         source=(
             "https://github.com/anomalyco/opencode/blob/"

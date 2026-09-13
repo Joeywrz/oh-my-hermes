@@ -255,7 +255,8 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
                     (
                         f"plugin.yaml declares kind={manifest_conformance['kind']} and "
                         f"tools={len(manifest_conformance['declared_tools'])} "
-                        f"hooks={len(manifest_conformance['declared_hooks'])}"
+                        f"hooks={len(manifest_conformance['declared_hooks'])}; "
+                        f"requires_hermes={manifest_conformance['declared_hermes_range']}"
                         if manifest_conformance["ok"]
                         else (
                             "plugin.yaml does not match the Hermes standalone loader contract: "

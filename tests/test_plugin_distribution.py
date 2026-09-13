@@ -64,6 +64,92 @@ def load_installed_plugin(plugin_dir: Path):
     return module
 
 
+class PluginHermesCompatRangeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.paths = resolve_paths(root / ".omh", root / ".hermes")
+        self.base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+        status, stdout, stderr = run_cli(self.base + ["setup", "--with-plugin", "--no-interactive"])
+        self.assertEqual((status, stderr), (0, ""))
+        self.setup_payload = json.loads(stdout)
+        self.plugin_yaml = self.paths.hermes_plugin_dir / "plugin.yaml"
+
+    def test_declared_range_and_installed_conformance(self) -> None:
+        from omh.plugin_bundle.omh.host_compat import declared_range, parse_range, version_satisfies
+
+        requirement = declared_range(self.plugin_yaml)
+        self.assertEqual(requirement, ">=0.21.1,<0.22.0")
+        self.assertTrue(parse_range(requirement))
+        for version, supported in (("0.21.1", True), ("0.21.0", False), ("0.22.0", False)):
+            with self.subTest(version=version):
+                self.assertEqual(version_satisfies(version, requirement), supported)
+        inspection = inspect_plugin_bundle(self.paths)
+        self.assertTrue(inspection["plugin_distribution_ready"])
+        self.assertEqual(inspection["plugin_manifest_conformance"]["declared_hermes_range"], requirement)
+
+    def test_parser_grammar(self) -> None:
+        from omh.plugin_bundle.omh.host_compat import parse_range, version_satisfies
+
+        for operator, expected in ((">=", True), ("<=", True), (">", False), ("<", False), ("==", True), ("!=", False)):
+            with self.subTest(operator=operator):
+                self.assertEqual(version_satisfies("1.2.3", operator + "1.2.3"), expected)
+        self.assertTrue(version_satisfies("1.10.0", "> 1.2.9, <= 2.0.0"))
+        for invalid in ("", "not-a-range", "^0.21.1", ">=0.21", ">=0.21.1,", ">=0.21.1rc1", "==1.2.3 || ==2.0.0"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                parse_range(invalid)
+        with self.assertRaises(ValueError):
+            version_satisfies("1.2.3rc1", ">=1.2.3")
+
+    def _assert_invalid_declaration(self, replacement: str) -> None:
+        lines = self.plugin_yaml.read_text(encoding="utf-8").splitlines()
+        self.plugin_yaml.write_text("\n".join(
+            replacement if line.startswith("requires_hermes:") else line for line in lines
+        ) + "\n", encoding="utf-8")
+        inspection = inspect_plugin_bundle(self.paths)
+        self.assertFalse(inspection["plugin_manifest_conformance"]["ok"])
+        self.assertIn("requires_hermes", inspection["plugin_manifest_conformance"]["invalid_fields"])
+        self.assertFalse(inspection["plugin_distribution_ready"])
+        status, stdout, stderr = run_cli(self.base + ["doctor"])
+        self.assertEqual((status, stderr), (1, ""))
+        checks = {item["name"]: item for item in json.loads(stdout)["checks"]}
+        self.assertFalse(checks["plugin_manifest_conformance"]["ok"])
+        status, stdout, stderr = run_cli(self.base + ["probe"])
+        self.assertEqual((status, stderr), (0, ""))
+        self.assertFalse(json.loads(stdout)["plugin_distribution_ready"])
+
+    def test_conformance_fails_when_range_removed(self) -> None:
+        self._assert_invalid_declaration("")
+
+    def test_conformance_fails_when_range_corrupted(self) -> None:
+        self._assert_invalid_declaration('requires_hermes: "not-a-range"')
+
+    def test_conformance_fails_when_range_empty(self) -> None:
+        self._assert_invalid_declaration('requires_hermes: ""')
+
+    def test_declaration_check_is_not_runtime_evidence(self) -> None:
+        inspection = inspect_plugin_bundle(self.paths)
+        self.assertTrue(inspection["plugin_distribution_ready"])
+        self.assertFalse(inspection["plugin_runtime_observed"])
+        self.assertFalse(self.setup_payload["plugin_distribution"].get("plugin_runtime_observed", False))
+        with mock.patch("omh.maintenance.doctor.observe_real_loader_registration", return_value={
+            "observed": False, "ok": False, "reason": "hermes_not_installed",
+            "registered_tools": [], "registered_hooks": [],
+        }):
+            status, stdout, stderr = run_cli(self.base + ["doctor"])
+        self.assertEqual((status, stderr), (0, ""))
+        checks = {item["name"]: item for item in json.loads(stdout)["checks"]}
+        self.assertFalse(checks["plugin_loader_observed"]["observed"])
+        self.assertEqual(checks["plugin_loader_observed"]["severity"], "warning")
+        status, stdout, stderr = run_cli(self.base + ["probe"])
+        self.assertEqual((status, stderr), (0, ""))
+        payload = json.loads(stdout)
+        self.assertTrue(payload["plugin_distribution_ready"])
+        self.assertFalse(payload["plugin_runtime_observed"])
+        self.assertFalse(payload["native_integration_claim_ready"])
+
+
 class PluginDistributionTests(unittest.TestCase):
     def test_plugin_manifest_conformance_catches_missing_kind(self) -> None:
         with TemporaryDirectory() as tmp:

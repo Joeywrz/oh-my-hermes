@@ -11,6 +11,7 @@ from ..version import __version__
 from ..hashutil import sha256_file, sha256_text
 from ..local_store import atomic_write_json, discard_path, ensure_dir, is_directory_link, read_json_object, utc_now
 from ..paths import OmhPaths
+from ..plugin_bundle.omh.host_compat import HERMES_RANGE_FIELD, parse_range
 from ..plugin_bundle.omh.metadata import PROVIDED_HOOKS, PROVIDED_TOOLS, REQUIRED_HOOKS
 
 PLUGIN_NAME = "omh"
@@ -240,6 +241,11 @@ def _plugin_manifest_conformance(plugin_yaml: Path) -> dict[str, Any]:
     declared_tools = _manifest_list(plugin_yaml, "provides_tools")
     declared_hooks = _manifest_list(plugin_yaml, "provides_hooks")
     invalid_fields: list[str] = []
+    hermes_range = values.get(HERMES_RANGE_FIELD, "")
+    try:
+        parse_range(hermes_range)
+    except ValueError:
+        invalid_fields.append(HERMES_RANGE_FIELD)
     if values.get("name", "") != PLUGIN_NAME:
         invalid_fields.append("name")
     if kind != "standalone":
@@ -252,6 +258,7 @@ def _plugin_manifest_conformance(plugin_yaml: Path) -> dict[str, Any]:
         "ok": not invalid_fields,
         "name": values.get("name", ""),
         "kind": kind,
+        "declared_hermes_range": hermes_range,
         "declared_tools": declared_tools,
         "declared_hooks": declared_hooks,
         "invalid_fields": invalid_fields,

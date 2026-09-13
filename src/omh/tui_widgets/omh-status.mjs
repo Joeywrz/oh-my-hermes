@@ -1277,11 +1277,17 @@ export default function register(sdk) {
     const served = Object.fromEntries(payload.models.map(row => [row.alias, !!row.served]))
     const labels = Object.fromEntries(payload.models.map(row => [row.alias, safeText(row.label || row.alias)]))
     const inner = Math.max(40, width - 6)
+    // An invalid providers.json yields no document at all: its recorded
+    // kinds are dropped and a linked row it excluded counts again, so the
+    // providers line is missing the operator's own corrections. One
+    // conditional row says so; a valid or absent record adds none.
+    const entitlementsStatus = String(payload.entitlements_status || '')
+    const ignoredRecord = entitlementsStatus.startsWith('invalid:') ? entitlementsStatus.slice('invalid:'.length).trim() : ''
     // Dialog chrome, the providers line, the header, the detail block and
-    // the hint take fifteen rows; the category list gets the rest and
-    // windows around the cursor when the terminal is shorter than the
-    // twelve categories need.
-    const visible = Math.max(3, Math.min(categories.length, rows - 15))
+    // the hint take fifteen rows (sixteen with the ignored-record row); the
+    // category list gets the rest and windows around the cursor when the
+    // terminal is shorter than the twelve categories need.
+    const visible = Math.max(3, Math.min(categories.length, rows - 15 - (ignoredRecord ? 1 : 0)))
     const start = Math.max(0, Math.min(state.cursor - Math.floor(visible / 2), categories.length - visible))
     const lines = []
     // The providers the served marks are judged against, each with where it
@@ -1297,6 +1303,9 @@ export default function register(sdk) {
       h(Text, { color: t.color.muted }, `   ${padCells('providers', 11)}`),
       h(Text, { color: providers.length ? t.color.text : t.color.muted }, providerText),
     ))
+    if (ignoredRecord) {
+      lines.push(h(Text, { color: t.color.warn, wrap: 'truncate-end' }, `   ! providers.json ignored: ${safeText(ignoredRecord)} · its excluded providers count again`))
+    }
     lines.push(h(Text, { color: t.color.muted, wrap: 'truncate-end' }, `   ${padCells('CATEGORY', 19)}${padCells('  HEAD MODEL', 26)}${padCells('  EFFORT', 16)}STATE`))
     if (start > 0) lines.push(h(Text, { color: t.color.muted }, `   ↑ ${start} more`))
     categories.slice(start, start + visible).forEach((row, offset) => {

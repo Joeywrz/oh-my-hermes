@@ -612,6 +612,32 @@ def alias_is_served(
     return bool(kinds & set(families))
 
 
+def routes_to_unknown_providers(
+    routes: Mapping[str, tuple[str, str]],
+    entitlements: Mapping[str, Any] | None,
+) -> tuple[tuple[str, str], ...]:
+    """``(alias, provider)`` pairs whose route names a provider this machine does not hold.
+
+    The route branch of `alias_is_served`, read the other way round: a
+    route decides first, so an alias routed to a provider that is neither
+    recorded nor linked is unserved and sorts behind the served entries of
+    every chain that names it. That is the one way a route demotes a model,
+    and the surfaces that show chains say it out loud rather than leaving a
+    `!` mark to explain itself. Empty when nothing is recorded or linked:
+    with no providers to judge against every alias counts as served.
+    """
+    providers = (entitlements or {}).get("providers", {})
+    if not isinstance(providers, Mapping) or not providers:
+        return ()
+    return tuple(
+        sorted(
+            (alias, provider)
+            for alias, (provider, _model) in routes.items()
+            if provider not in providers
+        )
+    )
+
+
 def provider_family_for(provider_id: str, entitlements: Mapping[str, Any] | None) -> str:
     """The family a provider id belongs to, or "" when nothing records it.
 

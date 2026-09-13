@@ -1,0 +1,380 @@
+"""The surfaces that describe providers say which ones routing counts.
+
+Detection made linked providers reorder chains on their own; these tests
+hold `omh doctor`, `omh model-chains show`, and non-interactive `omh setup`
+to telling that truth: which providers counted and where each was found,
+whether the record applied, and the two silent faults -- an invalid
+`providers.json` (its kinds and exclusions dropped) and a route to a
+provider neither recorded nor linked (its alias demoted in every chain).
+Every reader here gets a temporary Hermes home too, so a developer's own
+`~/.hermes` never decides a verdict.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
+from _cli_harness import run_cli
+from _local_package import load_local_package
+
+load_local_package()
+
+from omh.commands import setup as setup_module  # noqa: E402
+from omh.commands.language import LANGUAGE_CODES, tr  # noqa: E402
+from omh.commands.model_chains import _print_state, _state  # noqa: E402
+from omh.maintenance.doctor import doctor_ok, run_doctor  # noqa: E402
+from omh.paths import OmhPaths  # noqa: E402
+from omh.plugin_bundle.omh.hermes_delegation import (  # noqa: E402
+    MODEL_PROVIDER_ROUTES_SCHEMA_VERSION,
+    PROVIDER_ENTITLEMENTS_SCHEMA_VERSION,
+    model_provider_routes_path,
+    provider_entitlements_path,
+    routes_to_unknown_providers,
+)
+
+
+def _paths(root: Path) -> OmhPaths:
+    paths = OmhPaths(root / ".omh", root / ".hermes")
+    paths.hermes_home.mkdir(parents=True, exist_ok=True)
+    return paths
+
+
+def _write_config(paths: OmhPaths, body: str) -> None:
+    paths.hermes_config_path.write_text(body, encoding="utf-8")
+
+
+def _write_record(paths: OmhPaths, providers: dict[str, str], *, excluded: list[str] | None = None) -> None:
+    document: dict[str, object] = {
+        "schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION,
+        "providers": providers,
+        "subscription_clis": [],
+    }
+    if excluded:
+        document["excluded_providers"] = excluded
+    path = provider_entitlements_path(paths.omh_home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+
+def _write_invalid_record(paths: OmhPaths) -> None:
+    path = provider_entitlements_path(paths.omh_home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{", encoding="utf-8")
+
+
+def _write_routes(paths: OmhPaths, models: dict[str, tuple[str, str]]) -> None:
+    path = model_provider_routes_path(paths.omh_home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": MODEL_PROVIDER_ROUTES_SCHEMA_VERSION,
+                "models": {alias: {"provider": provider, "model": model} for alias, (provider, model) in models.items()},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _doctor_check(paths: OmhPaths):
+    checks = run_doctor(paths)
+    return checks, next(check for check in checks if check.name == "provider_entitlements")
+
+
+class UnknownRouteRuleTests(unittest.TestCase):
+    def test_names_only_routes_to_a_provider_the_machine_does_not_hold(self) -> None:
+        routes = {"glm-5.3": ("work-relay", "zai/glm-5.3"), "kimi-k3": ("og", "kimi"), "gpt-6-astra": ("openai-codex", "gpt")}
+        entitlements = {"providers": {"og": "gateway", "openai-codex": "openai-codex"}, "subscription_clis": []}
+        self.assertEqual(routes_to_unknown_providers(routes, entitlements), (("glm-5.3", "work-relay"),))
+
+    def test_nothing_is_named_when_nothing_is_held(self) -> None:
+        # No providers to judge against: `alias_is_served` fails open, so no
+        # route demotes anything and the rule must not claim one does.
+        routes = {"glm-5.3": ("work-relay", "zai/glm-5.3")}
+        self.assertEqual(routes_to_unknown_providers(routes, None), ())
+        self.assertEqual(routes_to_unknown_providers(routes, {"providers": {}, "subscription_clis": []}), ())
+        self.assertEqual(routes_to_unknown_providers({}, {"providers": {"og": "gateway"}, "subscription_clis": []}), ())
+
+
+class DoctorProviderCheckTests(unittest.TestCase):
+    def test_counted_providers_and_exclusions_are_named_with_their_sources(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "providers:\n  og:\n    base_url: x\n  zai:\n    base_url: y\n")
+            (paths.hermes_home / ".env").write_text("ANTHROPIC_API_KEY=sk-secret-value\n", encoding="utf-8")
+            _write_record(paths, {"og": "gateway"}, excluded=["zai"])
+
+            _checks, check = _doctor_check(paths)
+
+            self.assertTrue(check.ok)
+            self.assertEqual(check.severity, "ok")
+            self.assertTrue(check.observed)
+            self.assertIn("providers.json applied", check.message)
+            self.assertIn("counted: og (recorded, providers.json), anthropic (env, ANTHROPIC_API_KEY)", check.message)
+            self.assertIn("excluded by the record: zai", check.message)
+            self.assertIn("model-providers.json absent", check.message)
+            self.assertNotIn("sk-secret-value", check.message)
+            self.assertNotIn("neither recorded nor linked", check.message)
+
+    def test_nothing_linked_or_recorded_is_said_plainly(self) -> None:
+        with TemporaryDirectory() as tmp:
+            _checks, check = _doctor_check(_paths(Path(tmp)))
+            self.assertTrue(check.ok)
+            self.assertEqual(check.severity, "ok")
+            self.assertIn("providers.json absent", check.message)
+            self.assertIn("counted: none linked to Hermes or recorded; every model counts as served", check.message)
+            self.assertNotIn("excluded by the record", check.message)
+
+    def test_an_invalid_record_warns_about_what_it_silently_drops(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "providers:\n  zai:\n    base_url: y\n")
+            _write_invalid_record(paths)
+
+            checks, check = _doctor_check(paths)
+
+            # A routing document the operator owns is not an install failure.
+            self.assertTrue(check.ok)
+            self.assertEqual(check.severity, "warning")
+            self.assertEqual(doctor_ok(checks), doctor_ok([item for item in checks if item.name != "provider_entitlements"]))
+            self.assertIn(f"{provider_entitlements_path(paths.omh_home)} is ignored (invalid: unreadable JSON)", check.message)
+            self.assertIn("its recorded kinds are dropped and its excluded providers count again", check.message)
+            # The linked row the record might have excluded is counted again,
+            # and the check shows exactly that.
+            self.assertIn("counted: zai (config, config.yaml)", check.message)
+            self.assertIn("omh setup", check.next_action)
+            self.assertIn("omh doctor", check.next_action)
+
+    def test_a_route_to_an_unknown_provider_is_named_as_a_demotion(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "providers:\n  og:\n    base_url: x\n")
+            _write_routes(paths, {"glm-5.3": ("work-relay", "zai/glm-5.3"), "kimi-k3": ("og", "kimi")})
+
+            checks, check = _doctor_check(paths)
+
+            self.assertTrue(check.ok)
+            self.assertEqual(check.severity, "warning")
+            self.assertEqual(doctor_ok(checks), doctor_ok([item for item in checks if item.name != "provider_entitlements"]))
+            self.assertIn("routed to a provider neither recorded nor linked: glm-5.3 -> work-relay", check.message)
+            self.assertIn("each sorts behind the served entries of every chain naming it", check.message)
+            # The route to the linked gateway is not a finding.
+            self.assertNotIn("kimi-k3 -> og", check.message)
+            self.assertIn("model-providers.json applied", check.message)
+
+    def test_a_route_to_an_unknown_provider_is_no_finding_when_nothing_is_held(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_routes(paths, {"glm-5.3": ("work-relay", "zai/glm-5.3")})
+            _checks, check = _doctor_check(paths)
+            self.assertEqual(check.severity, "ok")
+            self.assertNotIn("neither recorded nor linked", check.message)
+
+    def test_an_invalid_routes_document_warns_that_every_alias_dispatches_unchanged(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            path = model_provider_routes_path(paths.omh_home)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{", encoding="utf-8")
+            _checks, check = _doctor_check(paths)
+            self.assertTrue(check.ok)
+            self.assertEqual(check.severity, "warning")
+            self.assertIn(f"{path} is ignored (invalid: unreadable JSON): every alias dispatches unchanged", check.message)
+
+    def test_the_two_model_checks_form_the_model_routing_group_and_no_other(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "model:\n  default: anthropic/claude-opus-4.6\n  provider: auto\n")
+            _write_invalid_record(paths)
+            checks = run_doctor(paths)
+            summary = setup_module._doctor_operator_summary(checks)
+            groups = {group["name"]: group for group in summary["groups"]}
+            self.assertEqual(groups["model_routing"]["total"], 2)
+            self.assertEqual(groups["model_routing"]["passing"], 2)
+            self.assertEqual(groups["model_routing"]["status"], "warning")
+            self.assertEqual(groups["model_routing"]["failed"], [])
+            # The two checks belong to this group and to no other: a summary
+            # built from them alone leaves every other group empty.
+            members = [check for check in checks if check.name in {"hermes_model_routing", "provider_entitlements"}]
+            self.assertEqual(len(members), 2)
+            for group in setup_module._doctor_operator_summary(members)["groups"]:
+                self.assertEqual(group["total"], 2 if group["name"] == "model_routing" else 0, group["name"])
+        for code in LANGUAGE_CODES:
+            self.assertTrue(tr(code, "doctor_group_model_routing").strip())
+
+    def test_the_cli_prints_the_group_and_the_warning_with_its_fix(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = _paths(root)
+            _write_config(paths, "providers:\n  og:\n    base_url: x\n")
+            _write_routes(paths, {"glm-5.3": ("work-relay", "zai/glm-5.3")})
+            base = ["--omh-home", str(paths.omh_home), "--hermes-home", str(paths.hermes_home)]
+            with patch("omh.command_path.shutil.which", return_value="/usr/local/bin/omh"):
+                status, _stdout, stderr = run_cli(base + ["setup", "--yes"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+
+            with patch("omh.command_path.shutil.which", return_value="/usr/local/bin/omh"):
+                status, stdout, stderr = run_cli(base + ["doctor"], output_json=False)
+
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("Model routing: warning (2/2)", stdout)
+            self.assertIn("- provider_entitlements: routed to a provider neither recorded nor linked: glm-5.3 -> work-relay", stdout)
+            self.assertIn("Fix: Repair the named routing document", stdout)
+
+            with patch("omh.command_path.shutil.which", return_value="/usr/local/bin/omh"):
+                status, stdout, stderr = run_cli(base + ["doctor", "--json"], output_json=False)
+
+            payload = json.loads(stdout)
+            self.assertTrue(payload["ok"])
+            check = {item["name"]: item for item in payload["checks"]}["provider_entitlements"]
+            self.assertEqual(check["severity"], "warning")
+            self.assertEqual(payload["summary"]["status"], "ok")
+
+
+class ModelChainsShowTests(unittest.TestCase):
+    def test_state_carries_the_routes_status_and_the_unknown_provider_routes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "providers:\n  og:\n    base_url: x\n")
+            _write_routes(paths, {"glm-5.3": ("work-relay", "zai/glm-5.3"), "kimi-k3": ("og", "kimi")})
+
+            state = _state(paths.omh_home, paths.hermes_home)
+
+            self.assertEqual(state["schema_version"], "model_chain_state/v1")
+            self.assertEqual(state["routes_status"], "applied")
+            self.assertEqual(state["routes_path"], str(model_provider_routes_path(paths.omh_home)))
+            self.assertEqual(state["unserved_routes"], [{"alias": "glm-5.3", "provider": "work-relay"}])
+            out = io.StringIO()
+            with redirect_stdout(out):
+                _print_state(state)
+            text = out.getvalue()
+            self.assertIn(
+                "Routed to a provider neither recorded nor linked: glm-5.3 -> work-relay "
+                "(each sorts behind the served entries of every chain naming it)",
+                text,
+            )
+            # An applied routes document is not restated; the finding is.
+            self.assertNotIn("Provider routes:", text)
+            self.assertNotIn("providers.json is ignored", text)
+
+    def test_an_absent_routes_document_and_no_findings_print_the_status_only(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            state = _state(paths.omh_home, paths.hermes_home)
+            self.assertEqual(state["routes_status"], "absent")
+            self.assertEqual(state["unserved_routes"], [])
+            out = io.StringIO()
+            with redirect_stdout(out):
+                _print_state(state)
+            self.assertIn(f"Provider routes: {model_provider_routes_path(paths.omh_home)} [absent]", out.getvalue())
+            self.assertNotIn("Routed to a provider", out.getvalue())
+
+    def test_an_invalid_record_says_what_it_drops(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "providers:\n  zai:\n    base_url: y\n")
+            _write_invalid_record(paths)
+            state = _state(paths.omh_home, paths.hermes_home)
+            self.assertEqual(state["entitlements_status"], "invalid: unreadable JSON")
+            out = io.StringIO()
+            with redirect_stdout(out):
+                _print_state(state)
+            self.assertIn("[invalid: unreadable JSON]", out.getvalue())
+            self.assertIn("providers.json is ignored: its recorded kinds are dropped and its excluded providers count again", out.getvalue())
+            self.assertIn("Linked Hermes providers: zai (config)", out.getvalue())
+
+    def test_show_json_stays_additive(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_routes(paths, {"glm-5.3": ("work-relay", "zai/glm-5.3")})
+            base = ["--omh-home", str(paths.omh_home), "--hermes-home", str(paths.hermes_home)]
+            status, stdout, stderr = run_cli(base + ["model-chains", "show", "--json"], output_json=False)
+            self.assertEqual((status, stderr), (0, ""))
+            payload = json.loads(stdout)
+            self.assertEqual(payload["schema_version"], "model_chain_state/v1")
+            for key in ("path", "document_status", "entitlements_path", "entitlements_status", "providers", "categories"):
+                self.assertIn(key, payload)
+            self.assertEqual(payload["routes_status"], "applied")
+            # Nothing held: the route demotes nothing and the list says so.
+            self.assertEqual(payload["unserved_routes"], [])
+
+
+class SetupSummaryProviderTests(unittest.TestCase):
+    def _base(self, paths: OmhPaths) -> list[str]:
+        return ["--omh-home", str(paths.omh_home), "--hermes-home", str(paths.hermes_home)]
+
+    def test_a_yes_run_prints_the_counted_providers_and_json_carries_them(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "providers:\n  og:\n    base_url: x\n")
+            (paths.hermes_home / ".env").write_text("ZAI_API_KEY=sk-secret-value\n", encoding="utf-8")
+
+            status, stdout, stderr = run_cli(self._base(paths) + ["setup", "--yes"], output_json=False)
+
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("Model providers: og (config), zai (env) count; each model list puts the models they serve first.", stdout)
+            self.assertNotIn("sk-secret-value", stdout)
+
+            status, stdout, stderr = run_cli(self._base(paths) + ["setup", "--json"], output_json=False)
+
+            self.assertEqual(status, 0, stderr)
+            payload = json.loads(stdout)
+            summary = payload["operator_summary"]
+            self.assertEqual(summary["schema_version"], "setup_operator_summary/v1")
+            self.assertEqual(summary["providers"]["document_status"], "absent")
+            # The command resolves its homes; compare resolved to resolved.
+            self.assertEqual(
+                Path(summary["providers"]["document_path"]).resolve(),
+                provider_entitlements_path(paths.omh_home).resolve(),
+            )
+            self.assertEqual(
+                [(row["id"], row["source"], row["evidence"]) for row in summary["providers"]["counted"]],
+                [("og", "config", "config.yaml"), ("zai", "env", "ZAI_API_KEY")],
+            )
+            self.assertNotIn("sk-secret-value", stdout)
+
+    def test_nothing_linked_is_said_plainly(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            status, stdout, stderr = run_cli(self._base(paths) + ["setup", "--no-interactive"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("Model providers: none linked to Hermes or recorded yet, so every model counts as served.", stdout)
+
+    def test_an_invalid_record_is_named_with_what_still_counts(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "providers:\n  og:\n    base_url: x\n")
+            _write_invalid_record(paths)
+            status, stdout, stderr = run_cli(self._base(paths) + ["setup", "--yes"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("is ignored (invalid: unreadable JSON); its recorded kinds and excluded providers do not count", stdout)
+            self.assertIn("Counting: og (config).", stdout)
+            status, stdout, stderr = run_cli(self._base(paths) + ["setup", "--json"], output_json=False)
+            self.assertEqual(json.loads(stdout)["operator_summary"]["providers"]["document_status"], "invalid: unreadable JSON")
+
+    def test_a_dry_run_reads_the_same_providers_without_writing(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "providers:\n  og:\n    base_url: x\n")
+            status, stdout, stderr = run_cli(self._base(paths) + ["setup", "--dry-run", "--json"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual([row["id"] for row in payload["operator_summary"]["providers"]["counted"]], ["og"])
+            self.assertFalse(paths.omh_home.exists())
+
+    def test_every_language_renders_the_three_provider_lines(self) -> None:
+        for code in LANGUAGE_CODES:
+            with self.subTest(language=code):
+                self.assertTrue(tr(code, "setup_providers_line", providers="og (config)").strip())
+                self.assertTrue(tr(code, "setup_providers_none").strip())
+                self.assertTrue(tr(code, "setup_providers_invalid", path="p", status="s", providers="-").strip())
+
+
+if __name__ == "__main__":
+    unittest.main()

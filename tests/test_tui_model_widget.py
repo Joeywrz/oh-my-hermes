@@ -102,7 +102,7 @@ def _write_overrides(omh_home: Path, categories: dict[str, tuple[tuple[str, str]
 
 @unittest.skipUnless(NODE, "node is not installed; the widget harness needs it")
 class ModelWidgetTests(unittest.TestCase):
-    def _drive(self, keys: list[str], *, overrides: dict | None = None):
+    def _drive(self, keys: list[str], *, overrides: dict | None = None, entitlements_text: str | None = None):
         """Run the harness; return (harness result, override document or None, python payload)."""
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -111,6 +111,10 @@ class ModelWidgetTests(unittest.TestCase):
             shutil.copytree(BUNDLE_DIR, hermes_home / "plugins" / "omh", ignore=shutil.ignore_patterns("__pycache__"))
             if overrides:
                 _write_overrides(omh_home, overrides)
+            if entitlements_text is not None:
+                record = omh_home / "routing" / "providers.json"
+                record.parent.mkdir(parents=True, exist_ok=True)
+                record.write_text(entitlements_text, encoding="utf-8")
             payload = bundle.picker_rows(omh_home, hermes_home=hermes_home)
             widget = root / "omh-status.mjs"
             widget.write_bytes(widget_payload(Path(sys.executable)))
@@ -162,6 +166,18 @@ class ModelWidgetTests(unittest.TestCase):
         self.assertIn("● edited", result["frames"][-1])
         self.assertIn("1 unsaved change · ⏎ writes", result["frames"][-1])
         self.assertTrue(result["usage"])
+
+    def test_an_ignored_record_is_said_under_the_providers_line(self) -> None:
+        """The one row the CLI picker adds for an invalid providers.json, mirrored."""
+        result, _document, payload = self._drive(["quit"], entitlements_text="{")
+        self.assertEqual(payload["entitlements_status"], "invalid: unreadable JSON")
+        first = result["frames"][0]
+        self.assertIn("! providers.json ignored: unreadable JSON · its excluded providers count again", first)
+        self.assertEqual(first.count("providers.json ignored"), 1)
+        # A valid or absent record adds no such row.
+        result, _document, payload = self._drive(["quit"])
+        self.assertEqual(payload["entitlements_status"], "absent")
+        self.assertNotIn("providers.json ignored", result["frames"][0])
 
     def test_escape_after_edits_writes_nothing(self) -> None:
         result, document, _ = self._drive(["right", "minus", "quit"])

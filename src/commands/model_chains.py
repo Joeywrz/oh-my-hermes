@@ -38,8 +38,10 @@ from ..plugin_bundle.omh.hermes_delegation import (
     load_model_provider_routes,
     effective_provider_entitlements,
     mixture_chain_overrides_path,
+    model_provider_routes_path,
     parse_mixture_chain_overrides,
     provider_entitlements_path,
+    routes_to_unknown_providers,
 )
 from ..plugin_bundle.omh.model_chain_picker import (
     chain_text,
@@ -106,7 +108,7 @@ def _write_document(omh_home, document: dict[str, object]) -> str:
 def _state(omh_home, hermes_home=None) -> dict[str, object]:
     overrides, status = load_mixture_chain_overrides(omh_home)
     entitlements, entitlement_status, providers = effective_provider_entitlements(omh_home, hermes_home)
-    routes, _ = load_model_provider_routes(omh_home)
+    routes, routes_status = load_model_provider_routes(omh_home)
     categories = []
     for name, default_chain in HERMES_MIXTURE_CATEGORY_CHAINS.items():
         chain = overrides.get(name, default_chain)
@@ -140,6 +142,14 @@ def _state(omh_home, hermes_home=None) -> dict[str, object]:
         "entitlements_path": str(provider_entitlements_path(omh_home)),
         "entitlements_status": entitlement_status,
         "providers": [dict(row) for row in providers],
+        "routes_path": str(model_provider_routes_path(omh_home)),
+        "routes_status": routes_status,
+        # Aliases a route sends to a provider neither recorded nor linked:
+        # unserved, so behind every served entry in the chains naming them.
+        "unserved_routes": [
+            {"alias": alias, "provider": provider}
+            for alias, provider in routes_to_unknown_providers(routes, entitlements)
+        ],
         "categories": categories,
     }
 
@@ -153,11 +163,26 @@ def _print_state(state: dict[str, object]) -> None:
         print(f"  {row['category']}: {row['chain_text']}{marker}")
     print(f"Overrides file: {state['path']} [{state['document_status']}]")
     print(f"Provider entitlements: {state['entitlements_path']} [{state['entitlements_status']}]")
+    if str(state["entitlements_status"]).startswith("invalid:"):
+        # An invalid record yields no document: its kinds are dropped and a
+        # linked row it excluded counts again. Said here, not left to the
+        # bracketed status.
+        print("  providers.json is ignored: its recorded kinds are dropped and its excluded providers count again")
     linked = [row for row in state.get("providers", []) if row["source"] != "recorded"]
     if linked:
         print("Linked Hermes providers: " + ", ".join(f"{row['id']} ({row['source']})" for row in linked))
     else:
         print("Linked Hermes providers: none found (a `hermes auth` login, a config provider, or a key name counts)")
+    routes_status = str(state.get("routes_status", ""))
+    if routes_status != "applied":
+        print(f"Provider routes: {state.get('routes_path', '')} [{routes_status}]")
+    unserved_routes = state.get("unserved_routes", [])
+    if unserved_routes:
+        print(
+            "Routed to a provider neither recorded nor linked: "
+            + ", ".join(f"{row['alias']} -> {row['provider']}" for row in unserved_routes)
+            + " (each sorts behind the served entries of every chain naming it)"
+        )
     print("Edit a category with `omh model-chains set <category> \"model[:effort], ...\"`,")
     print("walk all of them with `omh model-chains interview`, or edit the JSON directly.")
 

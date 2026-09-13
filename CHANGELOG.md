@@ -4,6 +4,26 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **Every provider surface says which providers count.** With linked
+  providers reordering chains on their own, the surfaces that describe
+  providers now tell that truth. `omh doctor` gains a `provider_entitlements`
+  check, grouped with `hermes_model_routing` under a new `model_routing`
+  group: it names every provider counted with where it was found, the
+  `providers.json` and `model-providers.json` statuses, the ids the record
+  excludes, and warns (without flipping the exit code) when `providers.json`
+  is invalid — its recorded kinds are dropped and its excluded providers
+  count again — or when a route names a provider neither recorded nor
+  linked, whose alias sorts behind the served entries of every chain naming
+  it. `omh model-chains show` prints the same ignored-record consequence,
+  the routes document status when it is not applied, and the aliases routed
+  to an unknown provider (`routes_path`, `routes_status`, `unserved_routes`
+  in the JSON, schema unchanged). Non-interactive `omh setup` (`--yes`,
+  `--json`, a non-TTY) reports the counted providers and the record's status
+  as an additive `providers` field and a printed line. The CLI picker and
+  `/omh-model` show one row when `providers.json` is invalid. The interview
+  copy in all four languages no longer claims that skipping keeps the
+  built-in order, and two docs pages say "recorded or linked" where they
+  framed the record as the only route.
 - **DeepSeek V4.1 Flash override measured and revised.** On the first day a
   served route existed (`og` added `deepseek/deepseek-flash`), the
   `deepseek-v4.1-flash` high-effort override ran the #1463 five-arm pair on

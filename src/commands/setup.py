@@ -1548,6 +1548,7 @@ def _setup_operator_summary(
             "hermes_config_path": str(paths.hermes_config_path),
         },
         "command_path": inspect_omh_command_path(),
+        "providers": _provider_operator_summary(paths),
         "state_log": {},
     }
     if not dry_run:
@@ -1558,6 +1559,28 @@ def _setup_operator_summary(
         if isinstance(managed_skills, dict):
             summary["managed_skills"] = managed_skills
     return summary
+
+
+def _provider_operator_summary(paths: OmhPaths) -> dict[str, object]:
+    """The providers routing counts after this setup, and the record's status.
+
+    A `--yes`, `--json`, or non-TTY setup asks no provider question, and
+    before this field it also said nothing about providers -- while the
+    chains were already reordering around whatever Hermes is linked to.
+    `counted` is every provider row routing judges served marks against,
+    each with where it was found (`recorded`, `login`, `config`, `env`);
+    `document_status` is the record's own status, so an `invalid:` record
+    (whose kinds and exclusions are dropped) is visible here too. Read-only;
+    ids and names only.
+    """
+    from ..plugin_bundle.omh.hermes_delegation import effective_provider_entitlements, provider_entitlements_path
+
+    _entitlements, document_status, rows = effective_provider_entitlements(paths.omh_home, paths.hermes_home)
+    return {
+        "document_path": str(provider_entitlements_path(paths.omh_home)),
+        "document_status": document_status,
+        "counted": [dict(row) for row in rows],
+    }
 
 
 def _setup_scope(args: argparse.Namespace) -> str:
@@ -1591,6 +1614,7 @@ def _doctor_operator_summary(checks: list[object]) -> dict[str, object]:
             _doctor_group("runtime", check_dicts, ("runtime_artifacts", "workflow_state", "runtime_state")),
             _doctor_group("hermes_registration", check_dicts, ("hermes_config", "external_dir", "identity_conflicts", "runtime_context")),
             _doctor_group("targets", check_dicts, ("target_registry", "target_topology")),
+            _doctor_group("model_routing", check_dicts, ("hermes_model_routing", "provider_entitlements")),
             _doctor_group("optional_surfaces", check_dicts, ("plugin_", "team_profile_packs", "structural_search", "trigger_language_packs")),
         ],
     }
@@ -2714,11 +2738,13 @@ def _ask_provider_entitlements(args: argparse.Namespace, paths: OmhPaths, langua
     operator left ticked.
 
     The list's last row is "leave everything as it is", and choosing it writes
-    NOTHING: no entitlement document, no dispatch-model seed, so the seeded
-    chain order stays in effect and the machine behaves exactly as it does for
-    someone who never answered. It is exclusive -- ticking it beside a
-    provider is contradictory, so the prompt refuses and asks again rather
-    than guessing which half the operator meant. That row replaced a separate
+    NOTHING: no entitlement document, no dispatch-model seed. An earlier
+    record stays, the linked providers keep counting on their own, and the
+    machine behaves exactly as it does for someone who never answered --
+    which is the seeded chain order only when nothing is linked either. It
+    is exclusive -- ticking it beside a provider is contradictory, so the
+    prompt refuses and asks again rather than guessing which half the
+    operator meant. That row replaced a separate
     gate question ("Record which providers ... ?") whose "no" did precisely
     this; keeping both would have been two ways to say the same thing, and the
     one inside the list is the one the operator can see next to what it
@@ -2820,7 +2846,8 @@ def _ask_provider_entitlements(args: argparse.Namespace, paths: OmhPaths, langua
     if _PROVIDER_SKIP_CHOICE in chosen:
         # "Leave everything as it is": no document, no seed, no further
         # question. Same contract as the Maestro category question's "no" --
-        # the shipped chain order stays in effect until the operator opts in.
+        # nothing the operator did not already have takes effect. The linked
+        # providers routing counts on its own keep counting.
         args._provider_entitlements = None
         print(tr(language, "provider_entitlements_skipped"))
         return
@@ -3619,6 +3646,9 @@ def _print_setup_summary(payload: dict[str, object], *, language: str = "en") ->
         print(
             f"  {tr(language, 'target_topology', mode=topology.get('mode', 'unknown'), count=topology.get('known_target_count', 0))}"
         )
+    providers = operator_summary.get("providers")
+    if isinstance(providers, dict):
+        print(f"  {_provider_summary_line(providers, language=language)}")
     plugin = payload.get("plugin_distribution")
     if isinstance(plugin, dict):
         print(f"  {tr(language, 'plugin_bridge', status=_plugin_status_label(language, str(plugin.get('status', 'installed'))))}")
@@ -3654,6 +3684,28 @@ def _print_setup_summary(payload: dict[str, object], *, language: str = "en") ->
     verdict = payload.get("tui_verdict")
     if isinstance(verdict, dict):
         _print_tui_verdict_block(verdict, language=language)
+
+
+def _provider_summary_line(providers: dict[str, object], *, language: str) -> str:
+    """One line naming the providers routing counts, or why it counts none."""
+    status = str(providers.get("document_status", ""))
+    counted = providers.get("counted", [])
+    rows = [row for row in counted if isinstance(row, dict)] if isinstance(counted, list) else []
+    if status.startswith("invalid:"):
+        return tr(
+            language,
+            "setup_providers_invalid",
+            path=str(providers.get("document_path", "")),
+            status=status,
+            providers=", ".join(f"{row.get('id', '')} ({row.get('source', '')})" for row in rows) or "-",
+        )
+    if not rows:
+        return tr(language, "setup_providers_none")
+    return tr(
+        language,
+        "setup_providers_line",
+        providers=", ".join(f"{row.get('id', '')} ({row.get('source', '')})" for row in rows),
+    )
 
 
 def _print_doctor_summary(payload: dict[str, object], *, language: str = "en") -> None:

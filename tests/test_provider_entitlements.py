@@ -434,6 +434,31 @@ class MultiChoicePromptTests(unittest.TestCase):
             self.assertNotIn("provider_hold_prompt", MESSAGES[code])
             self.assertNotIn("provider_entitlements_prompt", MESSAGES[code])
 
+    def test_the_interview_copy_does_not_claim_the_built_in_order_survives_a_skip(self) -> None:
+        """Linked providers reorder chains whether or not the interview is answered.
+
+        Before detection the three strings were true: nothing counted until
+        the operator answered. Now the record only corrects what is already
+        counted, so every language has to say that skipping keeps the linked
+        providers counting, and that the record sits on top of them.
+        """
+        retired = ("built-in model order", "기본 모델 순서", "組み込みのモデル順序", "内置的模型顺序", "内置模型列表")
+        for code in LANGUAGE_CODES:
+            for key in ("provider_entitlements_note", "provider_skip_desc", "provider_entitlements_skipped"):
+                with self.subTest(language=code, key=key):
+                    text = tr(code, key)
+                    for phrase in retired:
+                        self.assertNotIn(phrase, text)
+        self.assertIn("count on their own and arrive pre-ticked", tr("en", "provider_entitlements_note"))
+        self.assertIn("on top of that", tr("en", "provider_entitlements_note"))
+        self.assertIn("keep counting", tr("en", "provider_skip_desc"))
+        self.assertIn("an earlier record stays as it is", tr("en", "provider_skip_desc"))
+        self.assertIn("keep counting on their own", tr("en", "provider_entitlements_skipped"))
+        for code in ("ko", "ja", "zh"):
+            self.assertIn("Hermes", tr(code, "provider_skip_desc"))
+            self.assertIn("Hermes", tr(code, "provider_entitlements_skipped"))
+            self.assertIn("providers.json", tr(code, "provider_entitlements_note"))
+
 
 class SetupInterviewTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -717,7 +742,10 @@ class SetupInterviewTests(unittest.TestCase):
             # yes/no runs after it.
             free_form.assert_not_called()
             yes_no.assert_not_called()
-            self.assertIn("built-in model order stays in effect", out.getvalue())
+            # Skip leaves the linked providers counting; it does not restore
+            # the built-in order, and the copy must not say it does.
+            self.assertIn("providers linked to Hermes keep counting", out.getvalue())
+            self.assertNotIn("built-in", out.getvalue())
 
     def test_ticking_nothing_records_an_empty_document_which_skip_does_not(self) -> None:
         """The two ways of answering "no" are distinct, and both keep the order.

@@ -1,0 +1,540 @@
+
+oh-my-hermes/references/workflow-registry.md
+# OMH Workflow Registry
+The always-on `oh-my-hermes` skill keeps only the compact lane map and recovery rules.
+For a compact name plus one-line description shortlist of every routable skill, load `references/catalog-index.md`.
+These surfaces are generated command references, not installed Hermes workflow skills.
+`omh coding dynamic-workflow` prepares `dynamic_coding_workflow/v1`, `workflow.json`, and `workflow-chart.svg` under `.omh/coding/dynamic-workflows/`.
+- `guide`: `oh-my-hermes`, `meta-router`, `model-setup`, `parallel-tools`, `websearch-setup`, `morning-brief`, `gateway-intent-card`, `voice-operator`, `browser-operator`, `workspace-file-operator`, `command-operator`, `connector-operator`, `live-info-operator`, `external-connector-readiness`, `prompt-import-readiness`, `content-operator`, `media-input-operator`, `data-analysis`
+When Hermes exposes installed skill descriptions to the model, use this registry as the routing map:
+- `product-docs`: `product-docs`, `OMH documentation`, `oh-my-hermes documentation`, `what is OMH`, `what is oh-my-hermes`, `how does OMH work`, `OMH capability catalog`, `OMH skill catalog`, `OMH model routing`
+- `model-setup`: `model-setup`, `hermes model setup`, `set up my models`, `set up my model`, `configure my models`, `configure model provider`, `connect my model provider`, `set up model role slots`, `switch my session model`
+- `parallel-tools`: `parallel-tools`, `parallel tools`, `hermes parallel tools setup`, `update hermes for parallel tools`, `check parallel tool support`, `enable parallel tool calls`, `verify parallel tools capability`, `check hermes version for parallel tools`, `헤르메스 업데이트 확인해줘`
+- `buzz`: `connect Hermes to Buzz`, `Buzz community agent`, `Buzz gateway setup`, `Buzz media attachment`, `Buzz relay self-hosting`, `Buzz connection diagnostics`, `버즈 커뮤니티 연결`, `Buzz 메시지 첨부`
+- `agent-board`: `agent-board`, `agent board`, `kanban`, `multi-agent`, `multi agent`, `multi agent board`, `multiple hermes agents`, `multiple hermes profiles`, `hermes profiles`
+- `executor-runtime-readiness`: `executor-runtime-readiness`, `executor readiness`, `runtime readiness`, `codex readiness`, `claude code readiness`, `hermes coding readiness`, `executor tools`, `missing tools`, `missing runtime tools`
+
+oh-my-hermes/references/catalog-index.md
+# OMH Skill Catalog Index
+Generated shortlist surface: every routable OMH skill's name and one-line description, regenerated from the catalog on every `omh setup`/`omh update`. Shortlist candidate workflows here first; `omh recommend "<request>" --json --limit 3` stays authoritative for confirmation and policy metadata (next action, evidence boundary). Never paste full catalog dumps into chat context.
+Trigger phrases and the role registry live in `references/workflow-registry.md`; descriptions stay in this separate file because merging both registries would breach the per-reference byte budget.
+- `omh-accessibility-audit`: [omh] Hermes Accessibility Audit workflow: prepare WCAG, keyboard, focus, screen-reader, target-size, and reflow evidence gates for UI surfaces.
+- `omh-achievements`: [omh] Hermes achievements observation workflow: summarize hermes-achievements badges, tiers, recent unlocks, and progress from local plugin artifacts.
+- `omh-adversarial-consensus`: [omh] Hermes Adversarial Consensus workflow: independent perspectives attack a proposal, then distill into a bundle a separate planner consumes.
+- `omh-agent-board`: [omh] Hermes agent board workflow: coordinate multiple Hermes profiles or agents with task, handoff, heartbeat, blocker, and completion states.
+- `omh-agent-evaluation`: [omh] Hermes Agent Evaluation workflow: compare executor or agent choices on reproducible tasks using quality, cost, time, tool, and evidence metrics.
+- `omh-agent-ops-review`: [omh] Hermes agent ops review workflow: help managers inspect AI-agent progress, blockers, quality gates, and throughput levers.
+- `omh-ai-slop-cleaner`: [omh] Hermes AI slop cleaner workflow: delete AI-generated slop, dead code, and duplication while observable behavior stays identical.
+- `omh-apple-design`: [omh] Hermes Apple design workflow: prepare native Apple UI or Apple marketing product-visual direction, review, and improvement briefs with evidence-backed remediation handoffs.
+- `omh-ask`: [omh] Hermes adaptation for consulting an external advisor when configured.
+- `omh-automation-blueprint`: [omh] Hermes Scheduled Ops Blueprint workflow: design recurring Hermes operations with schedule, delivery, silence policy, context chain, and prepared-vs-observed status.
+- `omh-autoresearch-goal`: [omh] Hermes adaptation for durable research-goal execution.
+- `omh-award-bar-score`: [omh] Hermes award-bar score workflow: score a web surface against published design-award judging axes and name the binding constraint.
+- `omh-backend`: [omh] Hermes backend workflow: prepare server, API, and data-layer contracts — auth boundary, error paths, response shape, and schema/migration discipline — before implementation.
+- `omh-best-practice-research`: [omh] Hermes adaptation for bounded official/upstream best-practice research.
+- `omh-build-failure-triage`: [omh] Hermes Build Failure Triage workflow: classify build, typecheck, lint, test, CI, and DCO failures into minimal safe fix handoffs.
+- `omh-buzz`: [omh] Connect and operate Hermes as a native Buzz community agent, deliver local media with verified relay receipts, or diagnose a self-hosted Buzz relay without inventing transport evidence.
+- `omh-cancel`: [omh] Hermes adaptation for ending active workflow state cleanly.
+- `omh-capability-toggle`: [omh] Hermes adaptation for turning one OMH capability family on or off so an install can be tailored instead of taken whole.
+- `omh-code-review`: [omh] Hermes Code Review workflow: bug-first review with evidence.
+- `omh-codebase-onboarding`: [omh] Hermes Codebase Onboarding workflow: create a repo map, reading path, glossary, risk map, and first-task runway for unfamiliar codebases.
+- `omh-codebase-uml`: [omh] OMH Codebase UML workflow: turn a repository into one readable, interface-level PlantUML architecture picture - packages or modules, the public symbols other units actually import, bounded import edges - and get it rendered to a single PNG a chat surface can show.
+- `omh-codegraph-refresh`: [omh] Hermes Codegraph Refresh workflow: refresh local code intelligence, summarize repo structure, and prepare task-scoped codegraph handoff context without overclaiming execution.
+- `omh-content-operator`: [omh] Hermes content operator workflow: scope publish-ready writing, rewriting, summarization, translation, release-note, newsletter, customer-copy, social-copy, README-copy, and email-draft work with audience, tone, style, source, review, and hallucination gates.
+- `omh-context-budget-review`: [omh] Hermes Context Budget Review workflow: plan compact context, token/cost budgets, summarization checkpoints, and overflow recovery before long agent work.
+- `omh-cto-loop`: [omh] Hermes CTO Loop workflow: roadmap, PM, technical tradeoffs, risk, delivery, release, and follow-up operating cadence.
+- `omh-data-analysis`: [omh] Hermes data analysis workflow: scope supplied data with provenance, causal-claim, and hallucination guards.
+- `ulw-interview`: [omh] Hermes Deep Interview workflow: one-question-at-a-time clarification.
+- `omh-deliverable-package`: [omh] Hermes deliverable package workflow: track PPT, PDF, XLSX, DOCX, HWP, Markdown, and attachments through prepared, generated, QA, approved, and attached states.
+- `omh-deploy-and-monitor`: [omh] Hermes Deploy-and-Monitor workflow: release checklist, deploy decision, health signals, rollback gate, and post-deploy status.
+- `omh-design-orchestration`: [omh] Hermes design orchestration workflow: prepare a bounded design direction, existing-lane composition, and executor-neutral handoff.
+- `omh-design-quality-gate`: [omh] Hermes Design Quality Gate workflow: enforce superior content, design, layout, publishing, and visual QA gates.
+- `omh-doctor`: [omh] Hermes adaptation for diagnosing oh-my-hermes installation health.
+- `omh-executor-runtime-readiness`: [omh] Executor runtime readiness - compare Codex, Claude Code, Hermes coding, and oh-my runtimes by tools and handoff mode; use external-connector-readiness for a named plugin or API, and toolbelt-readiness for the whole capability inventory.
+- `omh-feedback-triage`: [omh] Hermes Feedback Triage workflow: cluster customer signals and choose the next workflow.
+- `omh-frontend`: [omh] Hermes frontend workflow: prepare design-system-driven web and terminal (TUI) UI creation, redesign, polish, accessibility, performance, and visual QA handoffs.
+- `omh-frontend-refactor`: [omh] Hermes frontend refactor workflow: behavior-preserving refactor of UI code - preview the full change plan first, apply as a second explicit step, and work impact-ordered from state architecture down to naming polish.
+- `omh-gateway-intent-card`: [omh] Hermes gateway intent workflow: normalize Discord, Slack, Telegram, and other gateway sessions into origin, thread, delivery, silent, attachment, and status-update policy.
+- `omh-github-event-ops`: [omh] Hermes GitHub event operations workflow: route PR, issue, CI, and review webhook events into triage, review, or fix handoff cards.
+- `omh-harness-session-inventory`: [omh] Hermes harness session inventory workflow: normalize Codex, Claude Code, Hermes, OpenCode, Cursor, MCP host, worktree, and wrapper session metadata into one drift-aware inventory.
+- `omh-idea-to-deploy`: [omh] Hermes Idea-to-Deploy workflow: shape an app idea into decisions, delivery handoff, verification, release, and monitoring status.
+- `omh-inference-serving`: [omh] OMH Inference Serving workflow: choose the serving engine and quantization from decision tables, prepare deployment as an idempotent runbook with observed-only verification, and measure the endpoint with the standard TTFT/TPOT/goodput protocol.
+- `omh-llm-app-dev`: [omh] Hermes LLM App Development workflow: prepare a build handoff for an LLM-powered feature with a pinned provider boundary, schema-first outputs, versioned prompt files, grounded retrieval, and an eval suite as a shipped deliverable.
+- `ulw-loop`: [omh] Hermes Loop workflow: agentic interviewer -> planner -> researcher -> builder -> reviewer cycles until a real gate.
+- `omh-materials-package`: [omh] Hermes Materials Package workflow: decks, PDFs, spreadsheets, documents, HWP, Markdown, and binary export handoffs.
+- `omh-meeting-brief`: [omh] Hermes Meeting Brief workflow: agenda, prompts, decisions, and record template.
+- `omh-memory-new`: [omh] Capture one bounded durable project or product memory candidate through explicit remember, refuse, or defer review; for existing Hermes memory use omh-memory-sync, and for a past decision use decision-recall.
+- `omh-memory-sync`: [omh] English-canonical Hermes memory-review guidance: inspect USER.md and MEMORY.md claims and prepare a native write diff without invoking, applying, or observing a native write; for a new fact use memory-new, and for a past decision use decision-recall.
+- `omh-meta-router`: [omh] Meta-routing guidance for a leading /omh command: reason over the imperative task, consult the live workflow catalog, and select or chain the right workflow(s).
+- `omh-model-optimization`: [omh] OMH Model Optimization workflow: when a model family ships a new generation or changes its serving contract, walk the recognition, research, calibration, routing, and measurement process that keeps model handling honest and current.
+- `omh-model-setup`: [omh] Hermes Model Setup workflow: diagnose role-slot model configuration, guide provider connection, and apply changes only after diff approval.
+- `omh-native-debugging`: [omh] Hermes native-debugging workflow: prepare hypothesis-driven debugging of native binaries and instruct the executor to drive a DAP debugger instead of printf.
+- `omh-routing`: [omh] Router guidance for using oh-my-hermes workflow skills inside Hermes Agent.
+- `omh-operating-rhythm`: [omh] Hermes Operating Rhythm workflow: meeting minutes, scrum/sprint records, retros, decisions, and follow-up history.
+- `omh-ops-observability-card`: [omh] Hermes ops observability workflow: prepare an operations command-board for wrapper-safe token, cost, latency, run history, queue, failure-mode, external metric-provider, and service-quality evidence boundaries.
+- `omh-ops-review`: [omh] Hermes Ops Review workflow: status, risks, blockers, priorities, and follow-ups.
+- `omh-paper-learning`: [omh] Hermes Paper Learning workflow: explain a supplied paper or paper/PDF at a selected level while preserving full section coverage and source evidence boundaries.
+- `omh-parallel-tools`: [omh] Hermes Parallel Tools workflow: check version currency and parallel-tool capability status, then apply an update only after diff approval.
+- `omh-performance-goal`: [omh] Hermes adaptation for measurable performance-goal execution.
+- `omh-plan`: [omh] Hermes Plan workflow: structured planning before execution.
+- `omh-docs`: [omh] Current-source-first documentation for OMH itself: product identity, public capability catalog, model routing, local state, and long-term memory.
+- `omh-production-audit`: [omh] Hermes Production Audit workflow: evaluate release, deploy, security, observability, rollback, docs, and support readiness without claiming production access.
+- `ulw-plan`: [omh] Hermes Ralplan workflow: consensus planning with review gates.
+- `omh-refactor-plan`: [omh] Hermes refactor planning workflow: turn a decided boundary-changing refactor into a phased plan - reconnaissance, contracts-first phase order, per-phase verification and rollback, a files table, and an explicit approval gate before any edit.
+- `omh-reliability-review`: [omh] Hermes Reliability Review workflow: postmortems, SLOs, error budgets, incident follow-ups, and service reliability evidence.
+- `omh-report-package`: [omh] Hermes Report Package workflow: weekly/monthly reports, executive briefs, PPT-ready outlines, and upload packages.
+- `omh-rules-distill`: [omh] Hermes Rules Distill workflow: extract repeated principles from skills, prompts, traces, reviews, and failures into reviewed rule candidates without auto-mutating guidance.
+- `omh-running-work-board`: [omh] Hermes adaptation for showing which coding units are running right now, on which runtime and model, with observed tokens and elapsed time.
+- `omh-rust`: [omh] Hermes Rust workflow: prepare Rust changes with ownership, error, and API discipline, and escalate any unsafe, FFI, or lock-free change to the UB checklist.
+- `omh-security-safety-review`: [omh] Hermes Security Safety Review workflow: review prompt, tool, secret, dependency, destructive-action, and explicit local plugin risks before agent or code execution.
+- `omh-skill`: [omh] Hermes adaptation for managing local skills.
+- `omh-skill-health`: [omh] Skill Health workflow: prepare a metadata-only OMH skill portfolio dashboard with stale surfaces, observed failure signals, pending amendments, and top actions.
+- `omh-tech-debt-audit`: [omh] Hermes Tech Debt Audit workflow: build the severity-by-effort debt ledger from observed repo evidence - orient, audit the named dimensions with file:line citations, rank fixes and quick wins - and reconcile RESOLVED/NEW/CARRIED against the previous ledger on rerun.
+- `ulw-qa`: [omh] Hermes UltraQA workflow: adversarial QA and fix loops.
+- `omh-verification-gate`: [omh] Hermes Verification Gate workflow: define and record build, lint, typecheck, test, security, docs, generated-output, and CI evidence before completion or merge.
+- `omh-visual-qa`: [omh] Hermes visual-qa workflow: prepare observed-only rendered QA gates for web, frontend, image, document, and TUI surfaces.
+- `omh-websearch-setup`: [omh] Hermes Web Search Setup workflow: diagnose scraper and auxiliary extract-model configuration, guide account setup, and apply each change as its own diff approval.
+- `omh-wiki`: [omh] Hermes adaptation for wiki construction blueprints and retained knowledge capture with destination-aware external knowledge connection guidance.
+- `omh-workflow-learning`: [omh] Hermes workflow learning workflow: classify and review self-improvement store routes as an auxiliary review lane before durable writes, then record workflow attempts as metadata-only traces, evals, review queues, patch proposals, regression cases, audits, indexes, and exports.
+- `omh-workspace-audit`: [omh] Hermes Workspace Audit workflow: map repository, skill, prompt, plugin, MCP, hook, config, and runtime surfaces before strengthening or operating OMH.
+
+oh-my-hermes/references/harness-registry.md
+# OMH Harness Registry
+- `hermes-setup`: Walk a local Hermes setup change through.... L: `prerequisite_check_recorded` -> `read_only_diagnosis_recorded` -> `guidance_delivered` -> `+2 more`. A: `show_setup_diagnosis`, `approve_config_diff`, `record_setup_verification`, `+1 more`.
+- `scheduled-ops-blueprint`: Prepare recurring Hermes operations as.... L: `blueprint_scope_recorded` -> `schedule_policy_prepared` -> `delivery_policy_prepared` -> `+3 more`. A: `show_blueprint`, `revise_schedule`, `confirm_delivery_policy`, `+3 more`.
+- `agent-board`: Coordinate multi-Hermes-agent or profile work as.... L: `board_scoped` -> `cards_prepared` -> `heartbeat_recorded_when_available` -> `+1 more`. A: `show_board`, `move_card`, `record_heartbeat`, `+2 more`.
+- `memory-sync`: English-canonical Hermes memory-review guidance:.... L: `memory_candidates_scoped` -> `conflicts_ranked` -> `review_actions_prepared` -> `+2 more`. A: `show_memory_review`, `prepare_memory_diff`, `approve_diff_application`, `+1 more`.
+3. Current-source or best-practice questions use the `research` harness and stay in Hermes-side evidence gathering before any coding handoff.
+
+oh-my-hermes/references/wrapper-routing.md
+# OMH Wrapper Routing
+This reference is for Discord, Slack, hosted Hermes, plugin, or backend adapters. It is not normal end-user UX.
+Wrappers can run `omh chat route` before dispatching a plain chat message to Hermes:
+omh chat route --source discord --record "risky refactor"
+Use `route.routing_prompt_template` with `{message}` replaced by the received chat message as the prompt forwarded to Hermes. If the wrapper wants a pre-expanded prompt, pass `--include-message` and forward `route.routing_prompt`.
+Prefer `omh_interact` when the plugin/tool surface is available because it returns `chat_interaction/v1` and can record a metadata-only wrapper session. Use `omh_recommend` only when Hermes needs route hints without a session record. The plugin-authored metadata has producer provenance so it stays distinguishable from wrapper/backend metadata.
+Do not make a normal chat user approve `omh list`, `omh recommend`, `omh chat interact`, or other backend commands just to see workflow options. Render compact summaries, context briefs, pickers, quickstart, probe, or status cards instead.
+Installed OMH skills render a prefixed frontmatter `name` so the host status line is distinguishable from a Hermes built-in: domain skills carry `omh-` and the workflow-engine skills carry `ulw-` (for example `Reading skill ulw-work` for `ultrawork`, `ulw-plan` for `ralplan`, `ulw-loop` for `loop`). The router skill renders as `omh-routing`.
+That label names the installed `skills/<label>/` directory and the host status line only. The canonical catalog name still owns the install manifest `name`, routing keys, and every `omh` CLI argument, so `omh recommend`, `omh runtime record --skill <name>`, and trigger strings keep using canonical names. Earlier label eras (`omh-ultrawork`, `ulw-ultrawork`) remain accepted as routing aliases of the same workflow, so text echoed from a stale install still resolves — but always render the current label.
+When a chat message is implementation-shaped and a wrapper wants a concrete executor handoff, run `omh coding delegate` after or instead of generic chat routing:
+omh coding delegate --source discord --executor codex --record "risky refactor"
+The payload is deterministic local adapter data: recommended workflow, harness, executor/runtime profile, acceptance criteria, verification expectations, and handoff prompt template. Hermes still narrates the user-facing state.
+Implementation-shaped has a floor. A settings-only or single configuration change (a gateway channel policy, a mention rule, one config key) that the wrapper or Hermes can apply directly is a direct configuration action: apply it, verify the new value, and report it. Do not open a durable goal ledger, start a goal loop, or prepare an executor handoff for it. Escalate to a coding handoff only when the request needs code edits, tests, or multi-step implementation work that configuration cannot express.
+Check `executor_readiness/v1` for Codex, Claude Code, Hermes, or oh-my runtime profiles before first dispatch. If readiness is `missing` or `blocked`, ask the user to choose another coding agent, configure PATH, continue in Hermes, or use prompt/runtime handoff; retry only after that state changes. A readiness probe is not dispatch, execution, verification, review, CI, or merge evidence.
+executor notes out of Hermes chat context. Use `omh chat codex-progress` or the
+`codex_progress_summary/v1`, `omh_context_artifact_ref/v1`, compact evidence
+research, or workflow runs. Emit `omh_progress_event/v1` when a meaningful state
+artifacts; pass only event summaries and refs into Hermes chat context.
+Wrappers can run `omh memory inspect`, `omh memory pack`, and `omh memory apply` to review OMH-local or wrapper-supplied context before preparing a handoff. This emits `memory_review_card/v1` and `handoff_context_pack/v1` artifacts only; it does not read or mutate opaque Hermes internal memory.
+For planning-shaped requests, wrappers or operators can run `omh hermes plan` to create a deterministic `hermes_plan/v1` scaffold. The stdout `wrapper_contract` is the adapter contract for follow-on work; after acceptance, pass the accepted plan artifact or generated context pack to `omh coding delegate --from-plan` instead of treating Discord/channel summary text as the executor plan.
+This is a deterministic wrapper-side decision layer. By default, stdout and runtime artifacts avoid duplicating the raw prompt body. It does not patch Hermes core or require platform network access from `omh`.
+
+oh-my-hermes/references/coding-handoff-progress-reporting.md
+# OMH Coding Handoff Progress Reporting
+Hermes must remain an active status narrator after it prepares or observes a
+omh coding fanout clarifications <fanout-id>
+omh coding fanout answer <fanout-id> --unit <unit> --decision <decision-id> --attempt-id <attempt> --round <n> --answer <value>
+omh coding fanout answer <fanout-id> --unit <unit> --decision <decision-id> --attempt-id <attempt> --round <n> --cancel
+`omh coding fanout dispatch ... --resume-journal <journal> --unit <unit>` reuses
+
+oh-my-hermes/references/operator-maintenance.md
+# OMH Operator Maintenance
+Short OMH maintenance commands are operator commands, not workflow or coding requests.
+Exact or near-exact requests such as `omh update`, `omh setup`, `omh doctor`, `omh uninstall`, `omh install`, `omh list`, `omh 업데이트해줘`, `omh 닥터 돌려줘`, `omh 삭제해줘`, and `omh 셋업해줘` route as `operator_maintenance_command` with task type `omh_cli_maintenance`.
+Say: "I will run the OMH maintenance update path; code changes require a separate request." Adapt `update` to the requested command.
+The requested command output and optional doctor status can become observed evidence. Future Hermes reload, plugin runtime use, coding work, review, CI, and repository mutation stay unobserved unless separately verified.
+
+oh-my-hermes/references/evidence-boundaries.md
+# OMH Evidence Boundaries
+OMH is a Hermes-native wrapper orchestration layer. It keeps Hermes responsible for chat intake, clarification, source-backed research, planning, and status narration while coding-heavy work is prepared as explicit handoff and tracked only when observed.
+omh coding delegate --source discord --executor codex --record "risky refactor"
+omh runtime delegate --run <run-id> --requested --not-observed --result not_observed
+Record only what is observed. If Hermes or a chosen oh-my runtime does not expose delegation metadata, use `not_observed` or `not_available` instead of implying a specialist lane ran.
+Wrappers may report `omh_target_topology/v1` when a workspace moves between one Hermes agent target and multiple Hermes agent targets. Treat that topology as setup evidence only. If `active_agent_count` is greater than one, bind this workflow to the current target and thread, name the target boundary in status, and do not claim another Hermes agent observed, accepted, or executed the workflow unless target-specific evidence exists.
+## Hermes Compatibility
+- Use Hermes tools and subagents when available.
+- Replace unavailable question renderers with one direct question through the current Hermes surface.
+
+oh-my-hermes/references/skill-common-rail.md
+# OMH Skill Common Rail
+Every generated OMH workflow skill shares this policy. It is kept here once instead of
+Load this reference when harness selection, a missing Hermes runtime capability,
+## OMH Context Rail
+- OMH is a Hermes workflow layer, not a standalone executor.
+- Product context: OMH is a Hermes-native workflow pack: choose skills, shape work, prepare artifacts, show status, and hand off with evidence boundaries.
+- Cross-skill context: every OMH skill: match lane; generic tool can render or execute.
+- Normal users talk to Hermes; OMH CLI is infra.
+- Boundary: Prepared OMH routing/cards/handoffs/artifacts are not observed execution, image generation, delivery, review, CI, merge-readiness, or merge evidence.
+## Hermes Compatibility Contract
+- Use Hermes-native tools, file operations, and subagent/delegation features when available; do not require unavailable runtime tools, role prompts, or overlays.
+- Start from the representative harness registry in `oh-my-hermes` when the workflow needs coding, research, planning, goal execution, architecture, critique, QA, or documentation lanes.
+Hermes-native artifact:
+- question renderers -> one concise question in the current Hermes interface,
+- native subagents -> Hermes delegation when available, otherwise sequential lanes,
+Skills record their own start with `omh runtime record --skill <name> --harness <harness> --status started`.
+omh runtime delegate --run <run-id> --requested --not-observed --result not_observed
+Record observed delegation results when Hermes or the wrapper exposes them. If delegation is
+`omh_execution_wait_strategy/v1` is the metadata-only record of that choice — the observed handle,
+state is written only through the control plane: `omh state start --workflow <name>
+(payload field `omh_active_workflow`, context line `[OMH Active Workflow]`) even when the
+no prompt or note text, and `compaction_observed` stays `not_observed` because OMH never
+End or replace the state explicitly: `omh state finish --workflow <name> --outcome
+finished|blocked|failed|cancelled --session-ref <session>` or `omh state start` for an
+with error types and recovery commands, and `omh state status` reports
+Respect `omh_target_topology/v1` when a wrapper reports it: bind state to the current target/thread, adapt only the parts of this workflow that benefit from multiple Hermes agents, and fall back to single-target behavior when `active_agent_count` is one.
+When wrapper metadata includes `memory_review_card/v1` or `handoff_context_pack/v1`, treat it as reviewed OMH-local or wrapper-supplied context only. Use conflict-free context summaries to shape plans and handoffs, but do not claim Hermes internal memory was read or changed.
+5. If Hermes cannot provide a required runtime capability, say so and use the fallback above.
+
+oh-my-hermes/references/structural-code-search.md
+# OMH Structural Code Search
+to install anything. OMH detects presence only (`omh doctor` / `omh probe`); it
+Figures were measured against ast-grep 0.45.1 on the oh-my-hermes repository's
+- The repository is not Python. `omh codegraph` is stdlib-`ast` and
+wrong. OMH pins no executor CLI version and never requires one.
+
+oh-my-hermes/references/workflow-artifacts.md
+Agent/operator surface only. Normal users remain chat-first: ask Hermes for the outcome. No command below executes work or implies approval.
+omh runtime workflow-artifact <workflow> <operation> --input <json-file-or->
+Public contract and synthetic command inputs: [`docs/WORKFLOW-ARTIFACTS.md`](https://github.com/rlaope/oh-my-hermes/blob/main/docs/WORKFLOW-ARTIFACTS.md).
+
+wiki/references/wiki-blueprint.md
+
+wiki/references/wiki-patterns.md
+conditions is a guess wearing a name. Pair with `references/wiki-operations.md` for the rules that keep
+
+wiki/references/wiki-operations.md
+
+wiki/references/wiki-ecosystem.md
+Upstream `0xNyk/awesome-hermes-agent` entries whose OMH coverage names the `wiki` surface, derived from the
+## hermes-agent-docs
+- Source: https://github.com/mudrii/hermes-agent-docs
+- Summary: Comprehensive community documentation for Hermes Agent. Covers v0.2.0 in detail, useful supplement to the official docs for deployment patterns.
+- OMH coverage: partial (adoption priority medium)
+## Hermes Console
+- Source: https://github.com/dannyshmueli/obsidian-hermes-console
+- Summary: Obsidian integration for Hermes Agent. Runs Hermes in a tabbed terminal inside Obsidian and bridges selected-note/cursor context through a local companion plugin, with background status alerts when agent runs finish.
+- OMH coverage: partial (adoption priority high)
+## HermesWiki
+- Source: https://github.com/martymcenroe/HermesWiki
+- Summary: Community-maintained wiki with practical patterns and deployment advice for building autonomous agents with Hermes.
+- OMH coverage: partial (adoption priority medium)
+- OMH coverage: partial (adoption priority high)
+- OMH coverage: partial (adoption priority high)
+- OMH coverage: partial (adoption priority high)
+- OMH coverage: partial (adoption priority high)
+
+code-review/references/review-dispatch.md
+
+code-review/references/review-response.md
+
+code-review/references/smell-baseline.md
+
+context/references/project-terms.md
+Normal users describe the intent in Hermes chat. Agent/operator control-plane work may preview repository-root `PROJECT_TERMS.md`; preview is `prepared_not_observed`, reports no predicted candidate ids, and writes nothing. Before staging, show the machine-only projection and ask for explicit confirmation. Staging is atomic and pending-only. Approval is a separate review action.
+The separation of domain language from decision work adapts ideas from Matt Pocock's `domain-modeling` skill at `mattpocock/skills@84fdeffd12f2ee307994d1eb6feb48173b6e0502`, MIT License, Copyright 2026 Matt Pocock. OMH uses its own strict source and reviewed-memory contracts.
+
+context/references/decision-frontier.md
+Ask for explicit confirmation before starting. First inspect repository and source evidence for facts Hermes can discover. The user owns product decisions; do not ask them to retrieve facts available locally.
+The dependency tree, frontier rounds, recommendation pattern, fact/decision split, and shared-understanding stop condition adapt ideas from Matt Pocock's `grilling` skill at `mattpocock/skills@84fdeffd12f2ee307994d1eb6feb48173b6e0502`, MIT License, Copyright 2026 Matt Pocock. OMH keeps planning and executor handoff as separate confirmed phases.
+
+product-docs/references/product-and-sources.md
+Load this reference for OMH identity, getting-started, architecture, command,
+1. Read live GitHub metadata for `rlaope/oh-my-hermes`: repository description,
+3. For command semantics, inspect the current `omh --help`, targeted
+   `omh <command> --help`, and the implementation when help leaves ambiguity.
+identity to verify is a Hermes-native coding harness and engineering-
+intelligence layer: natural-language intake in Hermes, optimized coding
+- `version_or_commit`: the observed OMH version or commit when available;
+
+product-docs/references/capability-map.md
+Load this reference for questions about what OMH can do, which skill fits a
+  `skills/omh-routing/references/catalog-index.md` and
+  `skills/omh-routing/references/workflow-registry.md` on the disclosed official
+  ref, or run `omh docs workflows --json` from a version-pinned checkout.
+- `omh list --json` reports only the current installed manifest. Count those
+- Use `omh recommend "<intent>" --json --limit 3` for a bounded recommendation;
+
+product-docs/references/model-routing-and-local-state.md
+policy, installed-profile questions, or where OMH stores local metadata.
+omh list --json
+omh model-chains show
+omh coding category-maestro show
+omh capability-policy status
+omh status
+omh <command> --help
+`omh doctor --json` is a diagnostic, not passive inspection: when its state
+Record the command, selected profile/home, and observed OMH version or commit.
+`OMH_HOME` and `--omh-home` can override it, while `--scope project` resolves
+Presence varies by OMH version, setup profile, enabled capability, scope, and
+
+product-docs/references/long-term-memory.md
+Load this reference for questions about what OMH remembers, how reviewed
+project context differs from Hermes memory, and which read-only sources explain
+- OMH project memory is reviewed, project-scoped context under `.omh/memory/`.
+- Hermes long-term memory belongs to Hermes Agent. The bridge in
+  `src/plugin_bundle/omh/hermes_memory.py` may read Hermes `MEMORY.md`,
+  `USER.md`, memory-limit configuration, and approved OMH records to produce a
+  metadata-only comparison. It cannot mutate Hermes memory.
+The docs skill must not inspect or print raw Hermes memory merely because the
+under its resolved OMH home. Its presence and shape vary by version/profile and
+do not prove that Hermes or a coding owner used the content.
+Use `omh memory --help` and narrowly targeted read-only memory inspection
+
+context-budget-review/references/cache-placement.md
+Every major serving stack caches prompt prefixes by exact bytes: Anthropic prefix caching (explicit breakpoints, discounted reads), OpenAI automatic prefix caching, Gemini implicit caching, DeepSeek context caching. A single changed byte at position N re-bills everything at and after N. OMH never calls a provider; this card disciplines the text OMH generates and the guidance it prepares for the host.
+3. **Changes travel as appended messages.** Mid-run skill, state, or instruction changes are appended conversation messages, never edits to the system prompt or to a session-start file — a mid-run system-prompt rewrite rebuilds the whole cache (the failure mode behind NousResearch/hermes-agent#13631 and #4319).
+
+context-budget-review/references/route-capacity.md
+to the route it was computed for and states what OMH can and cannot observe.
+`[OMH Context Budget]`, or when someone asks which route the budget rests on.
+Hermes never learns provider capacity by itself. An agent or operator publishes
+omh context budget-plan prepare --session-ref <session> --executor-profile <profile> --provider <provider> --model <wire-model> --capacity capacity.json --must-keep keep.json
+omh context budget-plan rebind  --session-ref <session> --executor-profile <profile> --provider <provider> --model <wire-model> --capacity capacity.json
+omh context budget-plan status  --session-ref <session> [--json]
+`observed_at` are the caller's evidence clocks; OMH adds no TTL and consults no
+adds `omh_context_budget` (`context_budget_continuation/v1`) plus one
+`[OMH Context Budget]` line. The host supplies only the wire model. Only an
+tells OMH which provider served the call.
+
+buzz/references/setup.md
+# Hermes Native Buzz Gateway Setup
+Use this lane to connect or repair a Hermes gateway that should participate as
+a native agent in a Buzz community. Hermes owns the adapter; do not build a
+- The target Hermes home/profile.
+the target Hermes `.env`; non-secret gateway settings belong in Hermes config.
+1. Read the current official Hermes Buzz guide and the stable Buzz release
+2. Check whether `hermes` and the configured Buzz CLI executable exist.
+4. Prefer `hermes gateway setup` and select Buzz. Use direct config editing
+5. Keep `BUZZ_PRIVATE_KEY` in the Hermes `.env`. Never put it in argv, logs,
+7. Start or restart the Hermes gateway only when the user asked for execution.
+| transport | Hermes reports WebSocket or polling activity for Buzz |
+| inbound | a new addressed event reaches Hermes without history replay |
+
+buzz/references/media.md
+2. Use the live Hermes Buzz context or gateway evidence to obtain the current
+Prefer Hermes' normal `MEDIA:/absolute/path` delivery. If the native response
+`omh_buzz_delivery_evidence/v1` reason codes include
+
+buzz/references/self-host.md
+8. External client and Hermes connectivity.
+
+loop/references/goal-constraint-discipline.md
+Each concept on the left maps onto OMH state that already exists; nothing here invents new state.
+| concept | OMH goal-engineering equivalent |
+The constraint-first prioritization above adapts Eliyahu M. Goldratt's Theory of Constraints as presented in *The Goal* (1984). No upstream text is reproduced. OMH maps the mechanisms onto its own goal ledger, queue, permission envelope, and evidence vocabulary, and keeps prepared analysis separate from observed evidence.
+
+loop/references/measured-loop-discipline.md
+OMH validates no such field today. The contract is a discipline the loop keeps in its own state; no schema enforces `harness_mutable`, and no gate rejects a loop that edits the harness judging it. This is a deliberate deferral, stated here because a reader would otherwise assume the enforcement exists.
+OMH emits no such ledger. It is the loop's own running record and a companion to the JSON artifacts, never a replacement for them, and its rows stay `prepared` until they carry evidence refs.
+- The binding constraint from `references/goal-constraint-discipline.md` still chooses which attempt to make. The metric only chooses whether that attempt is kept.
+The measured-loop discipline above adapts the operating practices of the `karpathy/autoresearch` project. No upstream text is reproduced. OMH maps the mechanisms onto its own loop cycle, queue, permission envelope, and evidence vocabulary, and keeps a metric decision separate from completion evidence.
+
+maestro/references/executor-prompt-composition.md
+Run `omh coding executor-skills --profile <profile> [--project-root <root>] [--unit-role <role>]` before composing anything. It is a thin, read-only wrapper over local discovery: `--profile` selects which executor's declared skills to read (`claude-code`, `codex`, or `omo-runtime`; `hermes` is rejected -- Hermes-native lanes never route through this command), `--project-root` also probes project-local Claude Code skills, and `--unit-role` additionally returns a suggested sequence and, when a genuine arrangement choice exists, a selection card.
+Dispatch ends at spawn and exit -- it never merges (`docs/FANOUT.md`, `DISPATCH_CLAIM_BOUNDARY` in `src/coding/fanout_dispatch.py`). What happens after a unit's process exits is a separate, explicit phase the operator or reviewing agent owns, not something this engine or `omh coding fanout dispatch` performs on its own:
+1. **Collect each unit's result.** Read the unit's `fanout_unit_result/v1` evidence -- the sidecar file the unit wrote (`unit_result_source: sidecar`) or, when no sidecar exists, the validated stdout fenced block (`unit_result_source: stdout_fenced_block`) -- and note the unit's branch/worktree state (`<repo>-fanout-<unit>` on `agent/<unit>`, one per unit, never auto-deleted; `omh coding fanout show` joins the frozen contract with the per-unit run record).
+3. **The merge itself is an explicit operator or reviewing-agent action.** No OMH command merges branches -- not dispatch, not a status or brief command. Merging the unit branches, in the contract's `merge_order`, is a manual git operation the operator or reviewing agent performs after integration verification and review pass; a dispatch receipt is never merge evidence, the same boundary this engine already holds for dispatch itself.
+
+adversarial-consensus/references/consensus-protocol.md
+Everything here is a prepared prompt contract. OMH runs no perspective and observes no round. A stated round transition is a declaration, not evidence that the round happened.
+
+ultrawork/references/tdd-red-green.md
+Commit the failing test as a checkpoint before the first implementation edit. The red commit makes tampering diff-visible: any later change to the test files appears in `git diff <red-commit>.. -- <test paths>` and must be explained in the lane report. The `omh_gather_evidence` tool accepts `git diff` probes for exactly this check.
+Hermes bundles the superpowers `test-driven-development` skill. When it is loaded, follow its cycle; this reference reinforces it and never overrides it. What OMH adds is the evidence vocabulary: the observed red-before-green rule, the red-commit checkpoint, and the `prepared_not_observed` labeling of unwitnessed cycles.
+This discipline adapts the red/green/refactor practice popularized by Kent Beck and the obra/superpowers `test-driven-development` skill that Hermes bundles. No upstream text is reproduced. OMH maps the mechanisms onto its own lane, evidence, and `prepared_not_observed` vocabulary.
+
+ultrawork/references/dependency-topology.md
+
+ultrawork/references/campaign-orchestrator.md
+Installed Hermes at `f159e581` has no native per-dispatch model, provider, or effort binding for `delegate_task`, so the native binding is unsupported and is never inferred from a version number or schema field. Kanban rows carry task-local model, provider, and effort pins; the CLI reads existing rows and dependency edges through a read-only database connection and treats them as observed metadata only. Pins are not execution and not confinement. The installed profile resolver also adds `kanban` to a profile that lists only `file`, so the host cannot attest the leaf tool boundary this recipe needs. Because of that, `bind` reports `prepared_binding_observed` with execution `not_observed`, and `start` (native binding) returns `fallback_parent_led` instead of claiming a live Fable or Astra run. A wrapper implementing the full adapter protocol can drive the controller; that wrapper is not shipped here.
+This is an agent, wrapper, and operator surface under `omh coding`, not an everyday human command. The argv below is the current parser; `--json` is accepted by every subcommand.
+omh coding campaign prepare --goal GOAL --units UNITS.json --acceptance CRITERION [--acceptance ...] \
+omh coding campaign show CAMPAIGN_ID
+omh coding campaign start CAMPAIGN_ID
+omh coding campaign bind CAMPAIGN_ID [--binding {native,kanban}] [--tasks TASKS.json] [--worker-profile NAME]
+omh coding campaign plan CAMPAIGN_ID --units UNITS.json
+omh coding campaign dispatch CAMPAIGN_ID --unit UNIT_ID
+omh coding campaign accept CAMPAIGN_ID --unit UNIT_ID
+omh coding campaign conflict CAMPAIGN_ID --unit UNIT_ID [--unit ...] --invariant TEXT
+omh coding campaign resolve CAMPAIGN_ID
+omh coding campaign queue-broad CAMPAIGN_ID
+omh coding campaign complete CAMPAIGN_ID
+omh coding campaign cancel CAMPAIGN_ID
+omh coding campaign fail CAMPAIGN_ID
+omh coding campaign timeout CAMPAIGN_ID
+omh coding campaign recover CAMPAIGN_ID
+omh coding campaign fallback CAMPAIGN_ID
+omh coding campaign canary [--input OBSERVATIONS.json]
+Records live only under the selected OMH home's `runtime/campaigns`, bounded in count, size, and event history, with no prompt bodies, transcripts, provider errors, or raw logs. The default canary report has no observations and reports rates as `null`, never zero. Imported comparisons must be paired baseline and campaign measurements with actual record and input digests and a host-runtime measurement receipt; fixture or unpaired rows are excluded.
+
+idea-to-deploy/references/project-bootstrap.md
+   - Cache-stable: zero volatile bytes. No dates, no counts, no status lines - anything that changes between sessions belongs in a message, not in this file. See `omh-context-budget-review/references/cache-placement.md` for the full placement discipline behind this rule.
+
+llm-app-dev/references/build-rails.md
+Everything here is a prepared handoff contract. OMH makes no provider call, runs no eval, and observes no token count. A rail decision recorded here is a design, not evidence that any code exists.
+Named here for ordering; the shape of the deliverables and the comparison record are in `references/eval-harness.md`.
+The five rails cover every LLM feature. Three further contracts apply only when the feature touches live state, and they are kept in `references/stateful-contracts.md` so an extractor or a RAG answerer does not carry requirements it cannot use. Load that reference when the feature has any of these properties:
+
+llm-app-dev/references/eval-harness.md
+This is a prepared contract. OMH runs no eval and observes no result. A designed comparison is not a comparison that happened.
+For a feature that loaded `references/stateful-contracts.md`, the golden set contains these contract cases:
+
+llm-app-dev/references/public-board.md
+Everything here is a prepared handoff contract. OMH publishes nothing, registers nothing, and observes no delivery. A prepared publication step stays `prepared_not_observed` until a host-recorded approval and an observed connector result both exist.
+
+llm-app-dev/references/stateful-contracts.md
+Load this reference only when the build handoff has one of these properties. An extraction, classification, summarization, or retrieval feature that never presents a record, never changes shared state, and never remembers a person stays under `references/build-rails.md` alone and does not carry these requirements.
+Everything here is a prepared handoff contract. OMH implements no record store, transaction, presentation channel, or memory backend, and observes none. Every guarantee below is enforced by the owning backend, the host that mediates the model, or the client that renders the view. Prompt text cannot supply any of them; the prompt can only be written so that a model which follows it never needs a guarantee the host does not enforce.
+This section describes what the owning backend must enforce and what the handoff must tell the executor to build there. OMH does not implement the transaction and does not implement the store.
+Each path drops deleted, expired, and inaccessible facts. An uncertain or stale fact is omitted, and the feature asks for the current value when the task depends on it. Personal context is kept out of the shared cacheable prompt prefix. Retrieval volume is not a success metric; memory behavior is measured through the fixtures in `references/eval-harness.md`.
+
+finance-analysis/references/procedure.md
+
+legal-compliance-review/references/procedure.md
+
+curriculum-design/references/procedure.md
+
+sales-development/references/procedure.md
+
+decision-prototype/references/procedure.md
+
+lifecycle-growth/references/procedure.md
+
+product-discovery-validation/references/procedure.md
+Prepare participant criteria, a past-behavior interview guide, consent and privacy constraints, bias controls, the human task that recruits and interviews, and the contract for how bounded summaries re-enter the ledger; OMH contacts nobody.
+
+sales-pipeline-review/references/procedure.md
+
+decision-prototype/references/full-contract.md
+Hermes role: `planner`
+Keep the decision question, hypothesis, budget, scratch boundary, measurement method, and decision receipt in Hermes. When a selected executor or runtime (Codex, Claude Code, Hermes runtime/handoff, or a generic executor) will run the experiment, prepare an executor-neutral handoff with exact commands and expected observations; it stays `prepared_not_observed` until observed outputs exist. A prototype result is decision grounding only: promotion into production requires a separate accepted `ralplan` plan and its own implementation handoff.
+Detailed procedure steps: `references/procedure.md`.
+
+lifecycle-growth/references/full-contract.md
+Hermes role: `operator`
+Keep lifecycle framing, audience and safety policy, experiment design, and readout interpretation in Hermes. A prepared journey or experiment plan is not a send, a flag change, a delivered message, a displayed treatment, a user action, a business outcome, or a causal result. Hand external sends and flag mutations to `connector-operator`, copy to `content-operator`, supplied-data calculation to `data-analysis`, recurring scheduling to `automation-blueprint`, and validated product changes to `product-brief`, each only after the human approval gate and only reported from observed evidence.
+Detailed procedure steps: `references/procedure.md`.
+
+product-discovery-validation/references/full-contract.md
+Hermes role: `planner`
+Keep decision framing, evidence classification, assumption ranking, test precommitment, and the discovery decision in Hermes. A prepared plan, ledger, portfolio, or receipt is not participant recruitment, an interview, a survey, a payment, a prototype, a PRD, code, or a launch. Prepare a `product-brief` handoff only from a `persevere` receipt the decision owner accepted; route a single empirical prototype question to `decision-prototype`; reach `idea-to-deploy` only after the resulting product brief and plan are accepted.
+Detailed procedure steps: `references/procedure.md`.
+
+sales-pipeline-review/references/full-contract.md
+Hermes role: `operator`
+Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Hermes reviews supplied records; it does not replace a CRM, store or sync CRM data, mutate opportunities, create dashboards or alerts, send outreach, book revenue, or claim seller or buyer commitments that were not observed.
+Detailed procedure steps: `references/procedure.md`.
+
+research/references/briefing-format.md
+OMH holds no translation table for the scaffolding, because one would have to be maintained for every language the engine can write in. Supply the labels with the payload instead: `role_labels` maps a role to its label in the document's language, `captions` does the same for the section headings, and anything left unnamed falls back to English. Translating the body while leaving the captions unset is the failure this field exists to prevent.
+
+frontend/references/design-system-contract.md
+`omh design data --kind palette|font|ux [--context <product context>]` prints
+review prompts in `references/taste-foundations.md`.
+No upstream text is reproduced; the wording here is OMH's own, and OMH keeps
+analogies only; OMH is not affiliated with, endorsed by, or sponsored by any
+
+frontend/references/taste-foundations.md
+No upstream text is reproduced; the wording here is OMH's own, and OMH keeps
+analogies only; OMH is not affiliated with, endorsed by, or sponsored by any
+
+frontend/references/reference-token-extraction.md
+what was extracted in the Research Log. OMH itself never launches a
+No upstream text is reproduced; the wording here is OMH's own, and OMH keeps
+analogies only; OMH is not affiliated with, endorsed by, or sponsored by any
+
+frontend/references/tui-craft.md
+No upstream text is reproduced; the wording here is OMH's own, and OMH keeps
+analogies only; OMH is not affiliated with, endorsed by, or sponsored by any
+
+frontend/references/screenshot-loop.md
+OMH never launches a browser or takes a screenshot. The loop runs
+No upstream text is reproduced; the wording here is OMH's own, and OMH keeps
+analogies only; OMH is not affiliated with, endorsed by, or sponsored by any
+
+design-quality-gate/references/design-critique-rubric.md
+  `omh-frontend/references/taste-foundations.md`.
+`omh-visual-qa/references/visual-verdict-contract.md`. Use them together —
+  `omh-frontend/references/taste-foundations.md` — then judge inside it: an
+No upstream text is reproduced; the wording here is OMH's own, and OMH keeps
+analogies only; OMH is not affiliated with, endorsed by, or sponsored by any
+
+visual-qa/references/visual-verdict-contract.md
+`omh-design-quality-gate/references/design-critique-rubric.md`, judged against
+OMH prepares this contract; it does not run it. Captures, edits, and reruns
+handoff, never assumed. What OMH holds is the shape of the verdict, the
+No upstream text is reproduced; the wording here is OMH's own, and OMH keeps
+analogies only; OMH is not affiliated with, endorsed by, or sponsored by any
+
+apple-design/references/platform-foundations.md
+
+apple-design/references/materials-and-accessibility.md
+
+apple-design/references/product-visual-production.md
+
+apple-design/references/web-production-libraries.md
+coding owner integrates any of them; OMH does not install, vendor, or fetch
+  `omh-frontend/references/scroll-motion-libraries.md`, with the Lenis source
+
+apple-design/references/review-playbook.md
+- OMH recommendation, accessed 2026-09-05: evidence-shaped findings and owner handoffs below.
+
+award-bar-score/references/award-judging-model.md
+  `omh-frontend/references/web-vitals-budgets.md` own those budgets.
+scores submissions; OMH does not, and no score prepared here predicts a
+on the same date. No page text, markup, or asset is reproduced here. OMH is
+
+agent-ops-review/references/instrumentation-ladder.md
+
+inference-serving/references/serving-runbooks.md
+
+inference-serving/references/serving-bench.md
+
+tech-debt-audit/references/debt-dimensions.md
+
+frontend/references/web-vitals-budgets.md
+
+frontend/references/scroll-motion-libraries.md
+and the integration contract for the one OMH has reviewed.
+- GSAP is recorded in `omh-apple-design/references/web-production-libraries.md`
+OMH does not install, vendor, pin, or fetch any of this at runtime. Before
+metric it moves. Name the budget from `references/web-vitals-budgets.md`
+
+accessibility-audit/references/a11y-rules.md
+
+agent-evaluation/references/self-evaluation-loops.md
+
+strategy-brief/references/decision-records.md
+
+refactor-plan/references/refactor-phases.md
+
+frontend-refactor/references/refactor-passes.md
+2. **State architecture** - the whole of `references/state-discipline.md`; run
+
+frontend-refactor/references/state-discipline.md
+
+ai-slop-cleaner/references/cleanup-passes.md
+
+backend/references/service-contract.md
+Everything here is prepared guidance. OMH starts no server, calls no endpoint, and runs no test. A written contract is not a running service.
+6. **Storage.** Only now design tables and indexes; the access patterns are known by this point. Migration order goes in `references/schema-migration.md`.
+boundary are OMH's own, and OMH keeps its no-execution boundary: every command
+
+backend/references/schema-migration.md
+Load this when the prepared backend change touches storage. OMH writes no migration and applies none; this is the order the plan has to have before an executor runs anything.
+boundary are OMH's own, and OMH keeps its no-execution boundary: every command
+
+rust/references/rust-discipline.md
+Load this when preparing a Rust change. The escalation check in `references/ub-escalation.md` runs first and is not optional; this reference covers the ordinary-Rust half of the contract.
+OMH runs no toolchain. Every command below is one the executor runs and reports.
+Add the repository's own gates rather than assuming this list is complete. When the change is escalated, the Miri and sanitizer gates from `references/ub-escalation.md` are appended and are blocking.
+boundary are OMH's own, and OMH keeps its no-execution boundary: every command
+
+rust/references/ub-escalation.md
+OMH runs neither Miri nor a sanitizer. Every command below is one the executor runs and reports.
+Ordinary Rust that touches none of the above is **not escalated**, and `references/rust-discipline.md` is the whole bar.
+boundary are OMH's own, and OMH keeps its no-execution boundary: every command
+
+native-debugging/references/native-debug-loop.md
+Load this when preparing a debugging plan for a native binary, crash, or memory fault. OMH executes nothing: every command, breakpoint, and read below is something the executor performs and reports back.
+boundary are OMH's own, and OMH keeps its no-execution boundary: every command

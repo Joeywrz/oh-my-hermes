@@ -85,6 +85,13 @@ def documentation_scope_patterns() -> tuple[str, ...]:
 def documentation_page_classifications() -> tuple[PageClassification, ...]:
     return (
         PageClassification(
+            "docs/AGENT-SKILLS.md",
+            "public",
+            "required",
+            "Portable projection installation and host capability boundaries, linked from docs/README.md.",
+            "docs-specialist",
+        ),
+        PageClassification(
             "docs/ADDING-A-SKILL.md",
             "repo_internal",
             "exempt",

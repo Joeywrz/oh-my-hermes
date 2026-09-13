@@ -98,6 +98,9 @@ jobs:
       - name: Generated workflow docs check
         if: matrix.shard == 0
         run: python -m omh.cli docs workflows --check
+      - name: Generated Agent Skills projection check
+        if: matrix.shard == 0
+        run: python -m omh.cli docs agent-skills --check
       - name: Generated role docs check
         if: matrix.shard == 0
         run: python -m omh.cli docs roles --check

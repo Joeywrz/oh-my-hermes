@@ -246,6 +246,10 @@ ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def cmd_install(args: argparse.Namespace) -> int:
+    if getattr(args, "target", "hermes") == "agents":
+        return _cmd_install_agents(args)
+    if getattr(args, "agents_scope", None) or getattr(args, "status", False):
+        raise OmhError("install --scope and --status require --target agents; Hermes scope goes before install")
     language = _resolve_language(args)
     if _wants_json(args):
         payload = _install_result(args)
@@ -259,6 +263,38 @@ def cmd_install(args: argparse.Namespace) -> int:
         skills = payload.get("skills", [])
         progress.done(tr(language, "done_skills_ready", count=len(skills) if isinstance(skills, list) else 0))
         _print_install_summary(payload, command=operation, language=language)
+    return 0
+
+
+def _cmd_install_agents(args: argparse.Namespace) -> int:
+    from ..install.agent_skills_projection import agent_skills_status, agent_skills_targets, install_agent_skills
+
+    if not args.agents_scope:
+        raise OmhError("install --target agents requires --scope repo|user")
+    if (args.from_skills_dir or args.source or args.version or args.package_url
+            or args.source_ref or args.full or args.core or args.channel != "preview"):
+        raise OmhError("Agent Skills installs generate the complete portable catalog; Hermes source/profile/release options do not apply")
+    try:
+        target, mirror = agent_skills_targets(args.agents_scope)
+        payload = (
+            agent_skills_status(target, mirror=mirror)
+            if args.status or args.dry_run else install_agent_skills(target, mirror=mirror)
+        )
+    except (OSError, ValueError) as exc:
+        raise OmhError(f"Agent Skills projection failed: {exc}") from exc
+    payload["scope"] = args.agents_scope
+    payload["dry_run"] = args.dry_run
+    if args.json:
+        _print_json(payload)
+    else:
+        print(f"Agent Skills projection: {payload['projection']}")
+        print(f"Drift: {str(payload['drift']).replace('_', '-')}")
+        for directory in payload["target_dirs"]:
+            print(f"Target: {directory}")
+        for relative in payload["locally_modified"]:
+            print(f"Locally modified: {relative}")
+        print(f"Next action: {payload['next_action']}")
+        print(payload["claim_boundary"])
     return 0
 
 
@@ -4947,6 +4983,9 @@ def _add_top_level_commands(sub) -> None:
 
     install = sub.add_parser("install", help="Refresh the managed OMH skill pack without changing Hermes registration.")
     _add_common_install_options(install)
+    install.add_argument("--target", choices=("hermes", "agents"), default="hermes", help="Generate managed Hermes skills or the portable Agent Skills projection.")
+    install.add_argument("--scope", dest="agents_scope", choices=("repo", "user"), help="Agent Skills destination: git-root or user-home .agents/skills plus a .claude/skills copy in either scope.")
+    install.add_argument("--status", action="store_true", help="Inspect Agent Skills freshness and local modifications without writing.")
     install.add_argument("--json", action="store_true", help="Print the full machine-readable install payload.")
     install.set_defaults(func=cmd_install)
 

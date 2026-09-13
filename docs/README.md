@@ -32,6 +32,7 @@ references rather than normal user steps.
 | Goal | Read |
 | --- | --- |
 | Install, update, repair, or remove OMH | [Installation](INSTALLATION.md) |
+| Use OMH workflows in Claude Code, Codex, Cursor, opencode, OpenClaw, or pi | [Agent Skills projection](AGENT-SKILLS.md) |
 | Publish npm/Bun and Homebrew artifacts | [Package-manager distribution](DISTRIBUTION.md) |
 | Configure editable Hermes/Maestro model routing | [Installation: Guided Model Setup](INSTALLATION.md#guided-model-setup) |
 | Install on native Windows, and know what is POSIX-only there | [Installation: Windows](INSTALLATION.md#windows) |

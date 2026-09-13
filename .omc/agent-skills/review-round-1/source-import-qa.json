@@ -1,0 +1,83 @@
+{
+  "passed": true,
+  "commands": [
+    {
+      "argv": [
+        "uv",
+        "venv",
+        "--python",
+        "/Users/khope@sionic.ai/Desktop/khope/oh-my-hermes-worktrees/agent-skills-projection/.venv/bin/python",
+        "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/venv"
+      ],
+      "cwd": "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6",
+      "exit": 0,
+      "stdout": "",
+      "stderr": "Using CPython 3.13.15 interpreter at: /Users/khope@sionic.ai/Desktop/khope/oh-my-hermes-worktrees/agent-skills-projection/.venv/bin/python\nCreating virtual environment at: venv\nActivate with: source venv/bin/activate\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/venv/bin/python",
+        "/Users/khope@sionic.ai/Desktop/khope/oh-my-hermes-worktrees/agent-skills-projection/.omc/agent-skills/review-round-1/dist/oh_my_hermes-2.0.3-py3-none-any.whl"
+      ],
+      "cwd": "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6",
+      "exit": 0,
+      "stdout": "",
+      "stderr": "Using Python 3.13.15 environment at: venv\nResolved 1 package in 3ms\nPrepared 1 package in 231ms\nInstalled 1 package in 15ms\n + oh-my-hermes==2.0.3 (from file:///Users/khope@sionic.ai/Desktop/khope/oh-my-hermes-worktrees/agent-skills-projection/.omc/agent-skills/review-round-1/dist/oh_my_hermes-2.0.3-py3-none-any.whl)\n"
+    },
+    {
+      "argv": [
+        "git",
+        "init",
+        "-q",
+        "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/repo"
+      ],
+      "cwd": "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6",
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/venv/bin/omh",
+        "install",
+        "--target",
+        "agents",
+        "--scope",
+        "repo",
+        "--json"
+      ],
+      "cwd": "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/repo",
+      "exit": 0,
+      "stdout": "{\"catalog_revision\":\"1c27d61e6e7d5d77eeb19c986ceb14556ba5af35f1aa25d9e718c9fcd27bf01b\",\"claim_boundary\":\"Generated local guidance only. Fresh files do not prove host discovery, selection, loading, execution, review, CI, or merge.\",\"drift\":\"clean\",\"dry_run\":false,\"host_observation\":\"not_observed\",\"installed_revisions\":[\"1c27d61e6e7d5d77eeb19c986ceb14556ba5af35f1aa25d9e718c9fcd27bf01b\",\"1c27d61e6e7d5d77eeb19c986ceb14556ba5af35f1aa25d9e718c9fcd27bf01b\"],\"locally_modified\":[],\"next_action\":\"No repair needed; host use remains not_observed.\",\"projection\":\"fresh\",\"schema_version\":\"omh_agent_skills_projection/v1\",\"scope\":\"repo\",\"target_dirs\":[\"/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/repo/.agents/skills\",\"/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/repo/.claude/skills\"]}\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/venv/bin/omh",
+        "--omh-home",
+        "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/imported",
+        "--hermes-home",
+        "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/hermes",
+        "install",
+        "--from-skills-dir",
+        "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/repo",
+        "--json"
+      ],
+      "cwd": "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6",
+      "exit": 0,
+      "stdout": "{\"catalog_revision\":\"6812c4b2d63e99a2a3af1d3891760bb880192463a8f5f44c0321c3dfdfaaca7e\",\"command_package\":{\"operation\":\"install\",\"package_manager\":\"installer\",\"reason\":\"managed skills were refreshed from an explicit skill source; the command package was not changed\",\"schema_version\":\"command_package_status/v1\",\"source\":\"explicit_skill_source\",\"status\":\"unchanged\",\"update_instruction\":\"curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh\",\"updated\":false},\"context_cost_warning\":{\"core_profile_skill_count\":10,\"extra_skill_count\":113,\"installed_skill_count\":123,\"message\":\"full profile installs all 123 packaged skills, 113 more than the 10-skill core default; every installed skill adds per-turn context weight to every Hermes request, so prefer core unless this workspace genuinely needs the complete catalog.\",\"profile\":\"full\",\"schema_version\":\"omh_skill_profile_context_cost_warning/v1\"},\"flat_layout_skills_removed\":[],\"flat_layout_skills_retained\":[],\"installed_at\":\"2026-09-13T02:48:31Z\",\"language\":\"en\",\"managed_skills\":{\"count\":1,\"schema_version\":\"managed_skills_status/v1\",\"skills_dir\":\"/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/imported/skills\",\"status\":\"updated\"},\"operation\":\"install\",\"package\":\"oh-my-hermes\",\"pruned_skills\":[],\"release_artifact_kind\":\"repository-archive\",\"release_artifact_note\":\"full repository archive, ~44 MB including assets, tests, and site; this download can take minutes\",\"release_channel\":\"preview\",\"release_package_url\":\"https://github.com/rlaope/oh-my-hermes/archive/refs/heads/main.zip\",\"release_source_ref\":\"main\",\"release_update\":{\"changed\":false,\"command_package_changed\":false,\"current\":{\"package_version\":\"2.0.3\",\"release_channel\":\"preview\",\"release_package_url\":\"https://github.com/rlaope/oh-my-hermes/archive/refs/heads/main.zip\",\"release_source_ref\":\"main\",\"release_version\":\"\"},\"display\":{\"package_url_change\":\"(none) -> https://github.com/rlaope/oh-my-hermes/archive/refs/heads/main.zip\",\"source_ref_change\":\"(none) -> main\",\"version_change\":\"(none) -> 2.0.3\"},\"metadata_changed\":false,\"previous\":{\"package_version\":\"\",\"release_channel\":\"\",\"release_package_url\":\"\",\"release_source_ref\":\"\",\"release_version\":\"\"},\"schema_version\":\"release_update_status/v1\",\"status\":\"refreshed\"},\"release_version\":\"\",\"runtime_state_key\":\"last_install\",\"runtime_state_path\":\"/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/imported/runtime/state.json\",\"schema_version\":1,\"skill_profile\":\"full\",\"skill_profile_state\":{\"context_cost_note\":\"Every installed skill adds per-turn context weight to every Hermes request, so an install that still carries full-only skills costs full-profile context even when the recorded profile is core.\",\"core_profile_skill_count\":10,\"effective_profile\":\"none\",\"full_only_installed_skills\":[],\"full_profile_skill_count\":123,\"installed_catalog_skill_count\":0,\"installed_skill_count\":1,\"matches_requested_profile\":false,\"next_action\":\"\",\"non_destructive_default\":\"omh setup, install, and update never delete installed skills, so a full install keeps its skills after the recorded profile changes; run `omh skill-profile reconcile --to core` explicitly to shrink an existing full install.\",\"prompt_cost\":{\"claim_boundary\":\"These are OMH-local filesystem estimates, not observed serialized request bytes, selected skill bodies, provider input tokens, or cache counters. Use `hermes prompt-size --json` for host-observed prompt accounting.\",\"core_fixed_index_bytes\":0,\"estimated_index_line_bytes\":69,\"evidence_status\":\"prepared_estimate_not_host_observed\",\"full_only_fixed_index_bytes\":0,\"installed_skill_body_bytes\":465,\"observation_command\":\"hermes prompt-size --json\",\"schema_version\":\"omh_skill_prompt_cost_estimate/v1\"},\"requested_profile\":\"full\",\"retained_exception\":false,\"schema_version\":\"omh_skill_profile_state/v1\",\"unmanaged_skill_count\":1},\"skills\":[{\"name\":\"omh-custom-skill\",\"path\":\"workflow/omh-custom-skill/SKILL.md\",\"sha256\":\"408dc26607283c78b5f9ce1d594d19e088f5a2fdb62f200e26116e69394d7e54\",\"source\":\"/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/repo\"}],\"skills_dir\":\"/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/imported/skills\",\"source\":\"/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6/repo\",\"version\":\"2.0.3\",\"workflow_content\":{\"current_sha256\":\"566d0518da60413444210fea7b105958874bae6dc9da9db6e60863060b43fa4a\",\"known\":false,\"reason\":\"no previous manifest hash was recorded\"}}\n",
+      "stderr": ""
+    }
+  ],
+  "imported_skill_names": [
+    "omh-custom-skill"
+  ],
+  "cleanup": {
+    "root": "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-source-import-qa-5hiidtu6",
+    "removed": true
+  }
+}

@@ -59,6 +59,15 @@ directory level below a tap path.
 _Avoid_: `SkillDefinition.category` (the catalog's fine-grained phase field,
 which Hermes never reads), capability family
 
+**Agent Skills projection**:
+A separately generated, portability-reviewed view of the catalog under
+`agent-skills/`. Hosts discover installed copies in `.agents/skills/`;
+both repo and user scopes also copy them into `.claude/skills/` under the same
+scope root for Claude Code. This is not a
+managed Hermes skill, a plugin, an RPC tool, or a runtime port. A fresh copy is
+not evidence that a host loaded or executed it. See [Agent Skills](docs/AGENT-SKILLS.md).
+_Avoid_: managed skill, Hermes plugin, execution adapter
+
 **Skill catalog**:
 The source of truth for every skill and its metadata (`src/skills/catalog.py`
 plus render code). Skills, `docs/WORKFLOWS.md`, `docs/ROLES.md`, and the demo

@@ -148,6 +148,21 @@ class FamilyPrefixParityTests(unittest.TestCase):
         self.assertEqual(model_family("minimaxi-m3"), "unknown")
         self.assertEqual(model_family("minimax/abab6.5s-chat"), "unknown")
 
+    def test_qwen_dotted_minor_versions_are_bounded_family_aliases(self) -> None:
+        from omh.coding.unit_prompt_protocol import (
+            MAIN_AGENT_COMPOSITION_CALIBRATIONS,
+            composition_calibration_for_model,
+        )
+
+        for model in ("qwen/qwen3.8-max-0902", "qwen/qwen3.8-flash"):
+            self.assertEqual(model_family(model), "qwen")
+            self.assertEqual(
+                composition_calibration_for_model(model),
+                MAIN_AGENT_COMPOSITION_CALIBRATIONS["qwen"],
+            )
+        for model in ("qwen3", "qwen3x-max", "qwen/abab-style"):
+            self.assertEqual(model_family(model), "unknown")
+
     def test_vendor_prefixed_model_ids_alias_to_design_families(self) -> None:
         self.assertEqual(model_family("digitalocean/openai-gpt-5.6-sol"), "gpt")
         self.assertEqual(model_family("digitalocean/anthropic-claude-opus-5"), "claude")

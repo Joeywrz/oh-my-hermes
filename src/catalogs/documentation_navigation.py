@@ -124,14 +124,6 @@ def documentation_page_classifications() -> tuple[PageClassification, ...]:
             "docs-specialist",
         ),
         PageClassification(
-            "docs/MODEL-ONBOARDING.md",
-            "maintainer_procedure",
-            "exempt",
-            "Repository-side maintainer procedure. Indexed by the AGENTS.md Repository "
-            "Maintenance Procedures table, which is the single entry point for all three sweeps.",
-            "docs-specialist",
-        ),
-        PageClassification(
             "docs/REVIEW-SWEEP.md",
             "maintainer_procedure",
             "exempt",

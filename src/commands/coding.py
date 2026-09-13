@@ -167,6 +167,40 @@ def cmd_coding_model_contract_audit(args: argparse.Namespace) -> int:
     return coverage_exit_code(report)
 
 
+def cmd_coding_model_portfolio_qualification(args: argparse.Namespace) -> int:
+    from ..coding.model_contract_coverage import coverage_exit_code
+    from ..coding.model_portfolio_qualification import build_model_portfolio_qualification
+
+    exclusions: dict[str, str] = {}
+    for value in args.intentional_exclusion:
+        model, separator, reason = value.partition("=")
+        if not separator or not model.strip() or not reason.strip():
+            raise OmhError("intentional exclusion must be <model-id>=<reason>")
+        key = model.strip().casefold()
+        if key in exclusions and exclusions[key] != reason.strip():
+            raise OmhError("conflicting intentional exclusion reasons")
+        exclusions[key] = reason.strip()
+    try:
+        report = build_model_portfolio_qualification(
+            _read_model_contract_inventory(args.inventory),
+            required_models=args.required_model,
+            intentional_exclusions=exclusions,
+        )
+    except ValueError as exc:
+        raise OmhError(str(exc)) from exc
+    if _wants_json(args):
+        _print_json(report)
+    else:
+        summary = report["comparison"]["summary"]
+        print(f"Model portfolio qualification: {summary['outcome']}")
+        print(f"Comparison digest: {report['comparison_digest']}")
+        print("Dispositions: " + ", ".join(
+            f"{name}={count}" for name, count in summary["disposition_counts"].items()
+        ))
+        print(str(report["claim_boundary"]))
+    return coverage_exit_code(report)
+
+
 def cmd_coding_delegate(args: argparse.Namespace) -> int:
     try:
         paths = _paths(args)
@@ -3401,6 +3435,25 @@ def _add_coding_commands(sub) -> None:
         help="Emit the stable model_contract_coverage/v1 payload.",
     )
     model_contract_audit.set_defaults(func=cmd_coding_model_contract_audit)
+
+    portfolio = coding_sub.add_parser(
+        "model-portfolio-qualification",
+        help="Qualify every supplied model against reviewed metadata; network-free, reporting-only.",
+    )
+    portfolio.add_argument(
+        "--inventory", required=True,
+        help="Local JSON inventory path, or - for stdin (maximum 1048576 bytes).",
+    )
+    portfolio.add_argument(
+        "--required-model", action="append", default=[],
+        help="Model id whose absent or unmeasured qualification blocks; repeatable.",
+    )
+    portfolio.add_argument(
+        "--intentional-exclusion", action="append", default=[], metavar="ID=REASON",
+        help="Caller-declared runtime-contract exclusion with a reason; repeatable, not measured failure evidence.",
+    )
+    portfolio.add_argument("--json", action="store_true", help="Emit model_portfolio_qualification/v1.")
+    portfolio.set_defaults(func=cmd_coding_model_portfolio_qualification)
 
     complexity = coding_sub.add_parser(
         "complexity",

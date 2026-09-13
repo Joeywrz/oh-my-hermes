@@ -443,7 +443,7 @@ def _missing_dimensions(requested_model: str, *, excluded: bool) -> dict[str, ob
         "contract": {"status": status},
         "docs": {"paths": [], "sources": [], "status": status},
         "effort": {"status": status},
-        "family_recognition": {"family": family, "status": "recognized" if family else status},
+        "family_recognition": {"family": family, "status": "recognized" if family not in ("", "unknown") else status},
         "price": {"status": "absent" if not excluded else status},
         "provider_eligibility": {"families": [], "status": status},
     }

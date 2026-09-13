@@ -76,8 +76,58 @@ QUALIFICATION_HOLDS: Final[dict[str, dict[str, object]]] = {
         "step-3.7-flash", "nemotron-3-super-120b-a12b", "fugu-ultra",
     )
 }
-RECOMMENDATION_DECISIONS: Final[dict[str, tuple[str, ...]]] = {}
-RETIREMENT_DECISIONS: Final[dict[str, dict[str, object]]] = {}
+# Existing owner-approved editorial placements, reviewed 2026-09-13 against
+# model_recommendations.py. This independent registry is deliberately NOT
+# computed from the catalog: adding a candidate or a new role must fail the
+# qualification guard until its evidence decision lands in the same change.
+# No new measured advantage is claimed by grandfathering these placements.
+RECOMMENDATION_DECISIONS: Final[dict[str, tuple[str, ...]]] = {
+    "claude-fable-5-1": (
+        "categories:architect", "categories:artistry", "categories:capable",
+        "categories:quick", "categories:visual-engineering", "role_suggestions:main",
+    ),
+    "claude-haiku-4-5": ("categories:simple-work",),
+    "claude-opus-5": (
+        "categories:capable", "categories:unspecified-high", "categories:unspecified-low",
+        "last_resort:any", "role_suggestions:main",
+    ),
+    "deepseek-flash": ("categories:deep", "categories:simple-work", "categories:unspecified-low"),
+    "gemini-3.1-pro": ("categories:artistry", "categories:writing", "domain_affinities:x_platform_data"),
+    "glm-5.3": ("categories:capable", "categories:unspecified-low"),
+    "glm-5.3-flash": ("categories:quick",),
+    "gpt-5.6-luna": ("categories:quick", "categories:simple-work"),
+    "gpt-5.6-sol": ("last_resort:any",),
+    "gpt-5.6-terra": ("categories:deep", "role_suggestions:main"),
+    "gpt-6-astra": (
+        "categories:architect", "categories:deep-work", "categories:ultrabrain", "role_suggestions:main",
+    ),
+    "grok-code-fast": ("domain_affinities:x_platform_data",),
+    "kimi-k3": (
+        "categories:architect", "categories:artistry", "categories:capable", "categories:quick",
+        "categories:unspecified-high", "categories:visual-engineering", "categories:writing",
+        "domain_affinities:x_platform_data", "role_suggestions:main",
+    ),
+    "qwen3-coder": ("categories:writing",),
+}
+RETIREMENT_DECISIONS: Final[dict[str, dict[str, object]]] = {
+    model: {
+        "disposition": "excluded_superseded",
+        "successor": successor,
+        "reason": f"Owner retired this generation from {scope}; successor is {successor}.",
+        "scope": scope,
+        "decision_date": "2026-09-11",
+        "evidence_state": "editorial_not_measured",
+        "evidence_pointers": ["docs/MODEL-ONBOARDING.md#4-place-routing", "src/coding/model_recommendations.py"],
+    }
+    for model, successor, scope in (
+        ("claude-fable-5", "claude-fable-5-1", "all_shipped_chains"),
+        ("glm-5.2", "glm-5.3", "all_shipped_chains"),
+        ("glm-5.2-ultrafast", "glm-5.3-flash", "all_shipped_chains"),
+        ("deepseek-v3.2", "deepseek-v4.1-flash", "all_shipped_chains"),
+        # Sol remains the cheap GPT last resort: exclusion is slot-scoped.
+        ("gpt-5.6-sol", "gpt-6-astra", "frontier_slots"),
+    )
+}
 
 
 def _canonical_id(model_id: str) -> str:

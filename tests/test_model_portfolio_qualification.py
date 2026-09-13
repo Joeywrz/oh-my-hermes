@@ -28,14 +28,16 @@ def rows_for(*models, **kwargs):
 
 
 def assert_shipped_qualified(test, catalog):
-    candidates = [candidate for section in SECTIONS
-                  for chain in catalog[section].values() for candidate in chain]
-    rows = rows_for(*(candidate["model_alias"] for candidate in candidates))
-    for candidate in candidates:
+    candidates = [(section, category, candidate) for section in SECTIONS
+                  for category, chain in catalog[section].items() for candidate in chain]
+    rows = rows_for(*(candidate["model_alias"] for _, _, candidate in candidates))
+    for section, category, candidate in candidates:
         alias = candidate["model_alias"]
         test.assertEqual(rows[alias]["disposition"], "recommended", alias)
         test.assertTrue(candidate["reasoning"].strip(), alias)
-        test.assertTrue(rows[alias]["recommendation_eligibility"], alias)
+        scopes = {(entry["surface"], entry["category"])
+                  for entry in rows[alias]["recommendation_eligibility"]}
+        test.assertIn((section, category), scopes, alias)
 
 
 class PortfolioTests(unittest.TestCase):
@@ -166,6 +168,16 @@ class PortfolioTests(unittest.TestCase):
         excluded = rows_for("gpt-6-astra", intentional_exclusions={"gpt-6-astra": "operator hold"})
         self.assertEqual(excluded["gpt-6-astra"]["disposition"], "excluded_runtime_incompatible")
         self.assertFalse(excluded["gpt-6-astra"]["recommendation_eligibility"])
+
+    def test_guard_rejects_new_roles_and_excluded_candidates(self):
+        for alias in ("gpt-5.6-sol", "claude-fable-5"):
+            mutated = deepcopy(SHIPPED_MODEL_RECOMMENDATIONS)
+            candidate = deepcopy(mutated["categories"]["ultrabrain"][0])
+            candidate["model_alias"] = alias
+            mutated["categories"]["ultrabrain"].append(candidate)
+            with self.subTest(alias=alias), patch.dict(SHIPPED_MODEL_RECOMMENDATIONS, mutated):
+                with self.assertRaises(AssertionError):
+                    assert_shipped_qualified(self, SHIPPED_MODEL_RECOMMENDATIONS)
 
     def test_optimization_stages_are_evidence_not_completion_claims(self):
         row = rows_for("gpt-6-astra")["gpt-6-astra"]

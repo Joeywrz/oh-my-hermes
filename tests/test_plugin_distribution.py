@@ -150,6 +150,64 @@ class PluginHermesCompatRangeTests(unittest.TestCase):
         self.assertFalse(payload["native_integration_claim_ready"])
 
 
+class PluginHermesCompatMatrixTests(unittest.TestCase):
+    def test_bundled_matrix_matches_declared_range_and_names_tests(self) -> None:
+        from omh.install.plugin_compat import HERMES_COMPAT_MATRIX, compat_matrix_drift
+
+        self.assertEqual(compat_matrix_drift(), [])
+        for entry in HERMES_COMPAT_MATRIX:
+            suite = unittest.defaultTestLoader.loadTestsFromName(entry["verified_by"])
+            self.assertGreater(suite.countTestCases(), 0)
+            self.assertFalse(unittest.defaultTestLoader.errors)
+            self.assertIn("hermes_cli.__version__", entry["host_contracts"])
+
+    def test_matrix_drift_blocks_release_cli(self) -> None:
+        from omh.install import plugin_compat
+
+        for matrix in ((), ({**plugin_compat.HERMES_COMPAT_MATRIX[0], "version": "0.20.0"},)):
+            with self.subTest(matrix=matrix), TemporaryDirectory() as tmp, mock.patch.object(
+                plugin_compat, "HERMES_COMPAT_MATRIX", matrix,
+            ):
+                findings = plugin_compat.compat_matrix_drift()
+                self.assertTrue(findings)
+                self.assertTrue(all(">=0.21.1,<0.22.0" in finding for finding in findings))
+                if matrix:
+                    self.assertIn("0.20.0", " ".join(findings))
+                root = Path(tmp)
+                status, stdout, stderr = run_cli([
+                    "--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes"),
+                    "release", "product-readiness", "--json",
+                ])
+                self.assertEqual((status, stderr), (1, ""))
+                payload = json.loads(stdout)
+                self.assertEqual(payload["status"], "needs_attention")
+                gate = next(item for item in payload["gates"] if item["id"] == "plugin_compat_matrix")
+                self.assertEqual(gate["status"], "failed")
+                self.assertTrue(gate["blocking"])
+
+    def test_declaration_without_covering_entry_and_invalid_range_fail(self) -> None:
+        from omh.install import plugin_compat
+
+        for requirement in (">=0.22.0,<0.23.0", "not-a-range", ""):
+            with self.subTest(requirement=requirement), mock.patch.object(
+                plugin_compat, "declared_range", return_value=requirement,
+            ):
+                self.assertTrue(plugin_compat.compat_matrix_drift())
+        with mock.patch.object(plugin_compat, "declared_range", side_effect=ValueError("missing")):
+            self.assertTrue(plugin_compat.compat_matrix_drift())
+
+    def test_every_out_of_range_entry_is_reported(self) -> None:
+        from omh.install import plugin_compat
+
+        matrix = tuple({**plugin_compat.HERMES_COMPAT_MATRIX[0], "version": version}
+                       for version in ("0.20.0", "0.21.1", "0.22.0"))
+        with mock.patch.object(plugin_compat, "HERMES_COMPAT_MATRIX", matrix):
+            findings = plugin_compat.compat_matrix_drift()
+        self.assertEqual(len(findings), 2)
+        self.assertIn("0.20.0", findings[0])
+        self.assertIn("0.22.0", findings[1])
+
+
 class PluginHermesAdmissionTests(unittest.TestCase):
     bundle = Path(__file__).resolve().parents[1] / "src" / "plugin_bundle" / "omh"
 

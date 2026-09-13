@@ -20,6 +20,7 @@ from ..command_path import (
     inspect_installed_command_path,
     path_check_kind,
 )
+from ..install.plugin_compat import compat_matrix_drift
 from ..local_store import atomic_write_json, read_json_object_result, utc_now
 from .changelog import ChangelogError, MAX_CHANGELOG_BYTES, extract_notes
 from .release_notes import notes_metadata, read_bounded, read_notes
@@ -1008,6 +1009,16 @@ def release_readiness_checklist(
             "Unit tests prove local contracts only; they do not prove Hermes loaded the installed skills.",
         ),
         ReleaseChecklistItem(
+            "plugin_compat_matrix",
+            "Verify bundled plugin Hermes compatibility",
+            "PYTHONPATH=tests uv run python -m unittest tests.test_plugin_distribution.PluginHermesAdmissionTests -v",
+            "contract-quality",
+            True,
+            False,
+            "The declared range and tested matrix agree; admission rejects unsupported hosts and admits supported hosts.",
+            "Real-host tests require Hermes; a skipped host fixture is not runtime loading evidence.",
+        ),
+        ReleaseChecklistItem(
             "compileall",
             "Compile Python sources",
             "uv run python -m compileall -q src tests",
@@ -1534,6 +1545,7 @@ def _product_readiness_report_from_evidence(
     }
     required_checklist_ids = {
         "unit_tests",
+        "plugin_compat_matrix",
         "docs_workflows_check",
         "documentation_claims",
         "harness_validate",
@@ -1594,7 +1606,19 @@ def _product_readiness_report_from_evidence(
     common_request_gate_errors = common_request_coverage_errors(common_request_coverage)
     hermes_ux_summary = hermes_ux.get("summary", {}) if isinstance(hermes_ux.get("summary"), Mapping) else {}
     hermes_ux_errors = hermes_ux_quality_errors(hermes_ux)
+    plugin_compat_errors = compat_matrix_drift()
     gates = [
+        _product_readiness_gate(
+            "plugin_compat_matrix",
+            "Bundled plugin Hermes compatibility matrix",
+            "passed" if not plugin_compat_errors else "failed",
+            True,
+            "Declared runtime range compared with named tested-host entries.",
+            "PYTHONPATH=tests uv run python -m unittest tests.test_plugin_distribution.PluginHermesAdmissionTests -v",
+            plugin_compat_errors,
+            [],
+            "Local release-contract coherence only; this check does not observe Hermes loading or invocation.",
+        ),
         _product_readiness_gate(
             "skill_content",
             "Installed package skill content",

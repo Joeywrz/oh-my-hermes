@@ -175,7 +175,9 @@ def _channel_feedback_input(feedback_ledger: Mapping[str, Any]) -> dict[str, Any
     entries = feedback_ledger["entries"]
     if not isinstance(entries, list):
         raise ValueError("channel feedback entries must be a list")
-    values["entries"] = [_channel_feedback_entry(entry, allow_missing=True) for entry in entries]
+    values["entries"] = [
+        _channel_feedback_entry(entry, discovery_id=values["discovery_id"], allow_missing=True) for entry in entries
+    ]
     return values
 
 

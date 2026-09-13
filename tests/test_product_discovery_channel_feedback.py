@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -84,6 +85,48 @@ class ChannelFeedbackBuilderTests(unittest.TestCase):
                 nested = "entries" if "entries" in artifact else "held_observations"
                 self.assertTrue(validate_product_discovery_artifact({**artifact, nested: [{}]}))
 
+    def test_ledger_entries_inherit_discovery_identity_without_mutating_input(self):
+        semantic = feedback_semantic()
+        before = deepcopy(semantic)
+        ledger = build_channel_feedback_ledger(**semantic)
+        self.assertEqual([row.get("discovery_id") for row in ledger["entries"]],
+                         [DISCOVERY_ID] * len(semantic["entries"]))
+        self.assertEqual(semantic, before)
+        self.assertEqual(validate_product_discovery_artifact(ledger), [])
+        self.assertEqual(build_channel_feedback_ledger(**{**semantic, "entries": ledger["entries"]}), ledger)
+
+    def test_historical_channel_ledger_remains_readable_with_its_original_digest(self):
+        from omh.system.paths import resolve_paths
+        from omh.workflows.product_discovery_validation import (
+            append_product_discovery_artifact, channel_feedback_ledger_for_history, read_product_discovery_artifacts,
+        )
+
+        # Captured from the pre-fix QA-1 CLI producer, not rebuilt by the current builder.
+        legacy = json.loads((Path(__file__).parent / "fixtures" /
+                             "channel-feedback-ledger-v1-before-entry-identity.json").read_text())
+        before = deepcopy(legacy)
+        self.assertEqual(validate_product_discovery_artifact(legacy), [])
+        bound = channel_feedback_ledger_for_history(legacy)
+        self.assertNotEqual(bound["artifact_id"], legacy["artifact_id"])
+        self.assertEqual([row["discovery_id"] for row in bound["entries"]], [DISCOVERY_ID] * len(bound["entries"]))
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(omh_home=Path(tmp) / "omh", hermes_home=Path(tmp) / "hermes")
+            for artifact in (legacy, bound):
+                append_product_discovery_artifact(paths, artifact)
+            self.assertEqual(read_product_discovery_artifacts(paths, discovery_id=DISCOVERY_ID), [before, bound])
+        self.assertEqual(legacy, before)
+        changed = deepcopy(legacy)
+        changed["entries"][0]["effect"] = "supports"
+        self.assertTrue(validate_product_discovery_artifact(changed))
+        changed = deepcopy(bound)
+        changed["entries"][0].pop("discovery_id")
+        self.assertTrue(validate_product_discovery_artifact(changed))
+
+    def test_ledger_entry_discovery_identity_cannot_be_foreign_or_unsafe(self):
+        for identity in ("discovery-foreign", "https://private.example", None, {}):
+            with self.subTest(identity=identity), self.assertRaises(ValueError):
+                build_channel_feedback_ledger(**feedback_semantic([feedback_entry(discovery_id=identity)]))
+
     def test_ledger_requires_unique_closed_opaque_observations(self):
         entry = feedback_entry()
         cases = [[entry, {**entry, "feedback_id": "feedback-copy"}],
@@ -122,6 +165,17 @@ class ChannelFeedbackEvaluationTests(unittest.TestCase):
 
         inputs = feedback_inputs(**kwargs)
         return evaluate_channel_feedback(**inputs, feedback_ledger=feedback_semantic(entries, inputs=inputs), now=NOW)
+
+    def test_semantic_and_artifact_feedback_bind_the_same_history_identity(self):
+        from omh.workflows.product_discovery_validation import evaluate_channel_feedback
+
+        semantic = feedback_semantic()
+        ledger = build_channel_feedback_ledger(**semantic)
+        semantic_result = evaluate_channel_feedback(**feedback_inputs(), feedback_ledger=semantic, now=NOW)
+        artifact_result = evaluate_channel_feedback(**feedback_inputs(), feedback_ledger=ledger, now=NOW)
+        self.assertEqual(semantic_result, artifact_result)
+        self.assertEqual(semantic_result["feedback_ledger_ref"], ledger["artifact_id"])
+        self.assertEqual(semantic_result["channel_reachability"], "supports")
 
     def test_channel_only_contradiction(self):
         result = self.evaluate([feedback_entry(effect="contradicts"), feedback_entry("opportunity_direction")])

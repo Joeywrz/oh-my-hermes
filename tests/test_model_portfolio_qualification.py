@@ -135,6 +135,9 @@ class PortfolioTests(unittest.TestCase):
             self.assertEqual(row["evidence_state"], "unmeasured")
             self.assertTrue(row["decision"]["evidence_pointers"])
             self.assertFalse(row["recommendation_eligibility"])
+        required = build_model_portfolio_qualification({"models": list(ids)}, required_models=ids)
+        self.assertTrue(required["blocking"])
+        self.assertEqual(set(required["comparison"]["summary"]["required_gaps"]), set(ids))
 
     def test_retirements_preserve_scoped_sol_last_resort(self):
         successors = {"claude-fable-5": "claude-fable-5-1", "glm-5.2": "glm-5.3",

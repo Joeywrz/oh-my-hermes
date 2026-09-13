@@ -52,7 +52,30 @@ _SECTIONS: Final = ("categories", "role_suggestions", "domain_affinities", "last
 
 # Reviewed decisions, NOT a supported-model allowlist. Anything absent from
 # these tables still gets a row, but never gets recommendation standing.
-QUALIFICATION_HOLDS: Final[dict[str, dict[str, object]]] = {}
+# The inventory establishes presence; the calibration tables establish the
+# missing pair. Neither establishes poor quality or runtime incompatibility.
+# These explicit holds exclude promotion, while keeping the honest unmeasured
+# disposition until research and separately approved measurement close them.
+QUALIFICATION_HOLDS: Final[dict[str, dict[str, object]]] = {
+    model: {
+        "disposition": "unmeasured",
+        "reason": "Qualification held: no dedicated calibration pair or role-evaluation evidence; generic guidance is not optimization.",
+        "dimension": "calibration_evidence",
+        "evidence_state": "unmeasured",
+        "evidence_pointers": [
+            "https://github.com/rlaope/oh-my-hermes/issues/1515",
+            "src/coding/unit_prompt_protocol.py:HIGH_EFFORT_CALIBRATIONS",
+            "src/coding/unit_prompt_protocol.py:MAIN_AGENT_COMPOSITION_CALIBRATIONS",
+            "MODEL_OPTI.md#coverage-matrix-and-known-gaps",
+        ],
+        "decision_date": "2026-09-13",
+        "scope": "qualification_hold",
+    }
+    for model in (
+        "minimax-m3", "mimo-v2.5-pro", "hy4-preview", "hy3",
+        "step-3.7-flash", "nemotron-3-super-120b-a12b", "fugu-ultra",
+    )
+}
 RECOMMENDATION_DECISIONS: Final[dict[str, tuple[str, ...]]] = {}
 RETIREMENT_DECISIONS: Final[dict[str, dict[str, object]]] = {}
 
@@ -264,7 +287,7 @@ def build_model_portfolio_qualification(
     required_gaps = []
     for model in required:
         row = by_id.get(model.casefold())
-        if row is None or (row["disposition"] == "unmeasured" and not row["decision"]):
+        if row is None or row["disposition"] == "unmeasured":
             required_gaps.append(model)
     counts = {disposition: 0 for disposition in PORTFOLIO_DISPOSITIONS}
     for row in rows:

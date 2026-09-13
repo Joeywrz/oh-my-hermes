@@ -14,7 +14,7 @@ from .decision_prototypes import (
     prepare_decision_prototype,
     validate_decision_prototype,
 )
-from .decision_receipt_handoffs import build_decision_receipt_handoff
+from .decision_receipt_handoffs import build_channel_aware_product_brief_handoff, build_decision_receipt_handoff
 from .lifecycle_growth_contracts import (
     evaluate_lifecycle_growth,
     prepare_lifecycle_growth,
@@ -195,6 +195,12 @@ def _discovery_evaluate(_paths: OmhPaths, payload: Mapping[str, Any]) -> dict[st
 
 
 def _discovery_handoff(_paths: OmhPaths, payload: Mapping[str, Any]) -> dict[str, Any]:
+    if "receipt" in payload or "disposition" in payload:
+        if set(payload) != {"receipt", "disposition"}:
+            raise WorkflowArtifactOperationError("channel feedback handoff keys are invalid")
+        return build_channel_aware_product_brief_handoff(
+            _required_mapping(payload, "receipt"), _required_mapping(payload, "disposition")
+        )
     return build_decision_receipt_handoff(payload, target_workflow="product-brief")
 
 

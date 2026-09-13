@@ -290,6 +290,73 @@ class WorkflowArtifactCommandTests(unittest.TestCase):
             self.assertEqual((code, error), (0, ""))
             self.assertEqual(json.loads(output)["result"], ledger)
 
+    def test_channel_aware_handoff_accepts_receipt_and_disposition_without_promoting(self) -> None:
+        with TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            semantic = self._semantic_example("product-discovery-validation-build-semantic.json")
+            semantic["ledger"]["entries"] = _ledger()["entries"]
+            code, output, error = self._run(home, "product-discovery-validation", "build", semantic)
+            self.assertEqual((code, error), (0, ""))
+            package = json.loads(output)["result"]
+            code, output, error = self._run(home, "product-discovery-validation", "evaluate", {
+                "package": package, "now": "2030-01-01T02:00:00+00:00",
+            })
+            self.assertEqual((code, error), (0, ""))
+            receipt = json.loads(output)["result"]
+            self.assertEqual(receipt["problem_gate"], "validated")
+            code, output, error = self._run_example(
+                home, "product-discovery-validation", "channel-feedback",
+                "product-discovery-validation-channel-feedback.json",
+            )
+            self.assertEqual((code, error), (0, ""))
+            disposition = json.loads(output)["result"]["disposition"]
+            code, output, error = self._run(home, "product-discovery-validation", "handoff", {
+                "receipt": receipt, "disposition": disposition,
+            })
+            self.assertEqual((code, error), (0, ""))
+            handoff = json.loads(output)["result"]
+            self.assertEqual(handoff["decision_state"], "blocked")
+            self.assertEqual(handoff["blocked_reason"], "discovery_segment_reachability_contradicted")
+            self.assertEqual(handoff["product_brief_context"], {})
+            self.assertEqual(handoff["decision"]["problem_gate"], "validated")
+            self.assertEqual(handoff["production_authority"], "none")
+
+    def test_channel_handoff_envelope_is_closed_and_never_drops_feedback(self) -> None:
+        from test_decision_receipt_handoffs import _discovery_receipt
+        from test_product_discovery_channel_feedback import disposition_fields
+        from omh.workflows.product_discovery_artifacts import build_channel_feedback_disposition
+
+        receipt = _discovery_receipt()
+        disposition = build_channel_feedback_disposition(**disposition_fields())
+        with TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            for payload in ({"receipt": receipt}, {"disposition": disposition},
+                            {"receipt": receipt, "disposition": disposition, "extra": True},
+                            {"receipt": [], "disposition": disposition},
+                            {"receipt": receipt, "disposition": None},
+                            {**receipt, "disposition": disposition}):
+                with self.subTest(payload=payload):
+                    code, output, error = self._run(home, "product-discovery-validation", "handoff", payload)
+                    self.assertEqual(code, 2)
+                    self.assertEqual(output, "")
+                    self.assertNotIn("Traceback", error)
+            for companion in ({}, {**disposition, "handoff_held": True},
+                              build_channel_feedback_disposition(**{**disposition_fields(), "discovery_id": "discovery-foreign"})):
+                code, output, error = self._run(home, "product-discovery-validation", "handoff", {
+                    "receipt": receipt, "disposition": companion,
+                })
+                self.assertEqual((code, error), (0, ""))
+                handoff = json.loads(output)["result"]
+                self.assertEqual(handoff["decision_state"], "blocked")
+                self.assertEqual(handoff["blocked_reason"], "discovery_channel_feedback_hold")
+                self.assertEqual(handoff["product_brief_context"], {})
+            for payload in (receipt, {"receipt": receipt, "disposition": disposition}):
+                code, output, error = self._run(home, "product-discovery-validation", "handoff", payload)
+                self.assertEqual((code, error), (0, ""))
+                handoff = json.loads(output)["result"]
+                self.assertEqual(handoff["decision_state"], "validated")
+                self.assertTrue(handoff["product_brief_context"])
+
     def test_channel_feedback_returns_companion_artifacts_and_stable_holds(self) -> None:
         from test_product_discovery_channel_feedback import NOW, feedback_entry, feedback_inputs, feedback_semantic
 

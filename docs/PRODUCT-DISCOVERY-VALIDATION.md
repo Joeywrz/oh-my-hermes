@@ -46,6 +46,8 @@ Both companions use the existing explicit `append` operation. Append a new frame
 
 ## Product-brief handoff
 
+The agent/operator CLI `handoff` operation accepts either a legacy receipt alone or an object with exactly `receipt` and `disposition`, containing the receipt and its `channel_feedback_disposition/v1` companion. The pair uses the channel-aware guard: a matched reachability contradiction returns exit 0, `decision_state: "blocked"`, `blocked_reason: "discovery_segment_reachability_contradicted"`, and `product_brief_context: {}`. Invalid or foreign companion objects return the stable `discovery_channel_feedback_hold` disposition, never product context. Missing envelope fields, extra keys, and non-object fields are exit-2 errors. Receipt-only callers retain their existing behavior; no history is loaded implicitly.
+
 `product_brief_consumption(receipt)` returns a compact handoff only for a valid `persevere` receipt with `problem_gate == "validated"` and `solution_work_permitted == true`. It contains opaque problem/segment references, the learning boundary, residual risks, and next route; it has no transcript field. Refuted, expired, malformed, or inconclusive records return `{}`.
 
 ## Durable re-entry

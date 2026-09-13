@@ -10,6 +10,27 @@ install.ps1 text eol=lf
 # line endings must be identical on every checkout.
 skills/**/*.md text eol=lf
 agent-skills/**/*.md text eol=lf
+
+# Generated clone adapters are byte-gated on POSIX and Windows. Keep scripts
+# (PowerShell 5.1/7 accept LF) AND JSON inventories independent of autocrlf.
+.cursor/install.sh text eol=lf
+.cursor/install.ps1 text eol=lf
+.cursor/manifest.json text eol=lf
+.claude/install.sh text eol=lf
+.claude/install.ps1 text eol=lf
+.claude/manifest.json text eol=lf
+.codex/install.sh text eol=lf
+.codex/install.ps1 text eol=lf
+.codex/manifest.json text eol=lf
+.opencode/install.sh text eol=lf
+.opencode/install.ps1 text eol=lf
+.opencode/manifest.json text eol=lf
+.openclaw/install.sh text eol=lf
+.openclaw/install.ps1 text eol=lf
+.openclaw/manifest.json text eol=lf
+.pi/install.sh text eol=lf
+.pi/install.ps1 text eol=lf
+.pi/manifest.json text eol=lf
 docs/WORKFLOWS.md text eol=lf
 docs/ROLES.md text eol=lf
 src/plugin_bundle/omh/tools/capability_families.json text eol=lf

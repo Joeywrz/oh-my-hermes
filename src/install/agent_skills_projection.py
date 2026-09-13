@@ -32,7 +32,17 @@ def agent_skill_files() -> dict[str, str]:
     return files
 
 
-def agent_skills_targets(scope: str) -> tuple[Path, Path | None]:
+def agent_skills_targets(scope: str, *, host: str | None = None) -> tuple[Path, Path | None]:
+    if host is not None:
+        from ..skills.host_adapters import host_adapter_manifest
+
+        manifest = host_adapter_manifest(host, agent_skill_files())
+        if scope not in manifest["targets"]:
+            raise ValueError("Agent Skills scope must be repo or user")
+        # Clone installers need neither Python nor git: repo scope is explicitly
+        # the current project directory, identically in this host-selected path.
+        base = Path.home().resolve() if scope == "user" else Path.cwd().resolve()
+        return base / manifest["targets"][scope], None
     if scope == "user":
         home = Path.home().resolve()
         return home / ".agents/skills", home / ".claude/skills"

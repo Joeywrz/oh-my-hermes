@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, Final
 
-from ..system.append_only_store import opaque_ref
+from ..system.append_only_store import RAW_OR_HIDDEN_KEYS, opaque_ref
 
 
 DISCOVERY_DECISION_FRAME_SCHEMA_VERSION: Final = "discovery_decision_frame/v1"
@@ -17,6 +17,19 @@ CUSTOMER_DISCOVERY_PLAN_SCHEMA_VERSION: Final = "customer_discovery_plan/v1"
 ASSUMPTION_TEST_PORTFOLIO_SCHEMA_VERSION: Final = "assumption_test_portfolio/v1"
 DISCOVERY_DECISION_RECEIPT_SCHEMA_VERSION: Final = "discovery_decision_receipt/v1"
 INITIAL_GTM_HYPOTHESIS_SCHEMA_VERSION: Final = "initial_gtm_hypothesis/v1"
+CHANNEL_FEEDBACK_LEDGER_SCHEMA_VERSION: Final = "channel_feedback_ledger/v1"
+CHANNEL_FEEDBACK_DISPOSITION_SCHEMA_VERSION: Final = "channel_feedback_disposition/v1"
+CHANNEL_FEEDBACK_AFFECTED_TARGETS: Final = ("channel_reachability", "opportunity_direction")
+CHANNEL_FEEDBACK_EFFECTS: Final = ("supports", "contradicts", "unknown")
+CHANNEL_FEEDBACK_HOLD_REASONS: Final = (
+    "channel_feedback_missing", "channel_feedback_stale", "channel_feedback_duplicate",
+    "channel_feedback_foreign_segment", "channel_feedback_wrong_channel", "channel_feedback_wrong_test",
+    "channel_feedback_contradictory", "channel_feedback_unresolved",
+)
+CHANNEL_FEEDBACK_ENTRY_KEYS: Final = frozenset({
+    "feedback_id", "test_id", "channel_ref", "criterion_ref", "segment_ref", "affected_target", "effect",
+    "source_class", "source_ref", "observed_at", "sample_count", "confidence_limit",
+})
 
 EVIDENCE_SOURCE_CLASSES: Final = (
     "external_human",
@@ -116,6 +129,100 @@ def _artifact(schema_version: str, discovery_id: str, fields: Mapping[str, Any],
         **fields,
         "claim_boundary": _CLAIM_BOUNDARY,
     }
+
+
+def _channel_feedback_entry(entry: Mapping[str, Any], *, allow_missing: bool = False) -> dict[str, Any]:
+    if not isinstance(entry, Mapping) or any(not isinstance(key, str) for key in entry):
+        raise ValueError("channel feedback entry must be an object with string keys")
+    if any(key.lower() in RAW_OR_HIDDEN_KEYS or key == "raw_transcript" for key in entry):
+        raise ValueError("channel feedback must not carry raw or hidden keys")
+    if set(entry) - CHANNEL_FEEDBACK_ENTRY_KEYS:
+        raise ValueError("channel feedback entry has unsupported keys")
+    if not allow_missing and set(entry) != CHANNEL_FEEDBACK_ENTRY_KEYS:
+        raise ValueError("channel feedback entry is missing keys")
+    normalized = dict(entry)
+    for field in ("feedback_id", "test_id", "channel_ref", "criterion_ref", "segment_ref", "source_ref"):
+        if field in entry:
+            normalized[field] = _ref(entry[field], field)
+    if "observed_at" in entry:
+        normalized["observed_at"] = _stamp(entry["observed_at"], "observed_at")
+    for field, choices in (("affected_target", CHANNEL_FEEDBACK_AFFECTED_TARGETS),
+                           ("effect", CHANNEL_FEEDBACK_EFFECTS), ("source_class", EVIDENCE_SOURCE_CLASSES),
+                           ("confidence_limit", ("bounded", "limited", "unknown"))):
+        if field in entry and entry[field] not in choices:
+            raise ValueError(f"channel feedback {field} is unsupported")
+    if "sample_count" in entry:
+        count = entry["sample_count"]
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            raise ValueError("channel feedback sample_count must be a positive integer")
+    return normalized
+
+
+def build_channel_feedback_ledger(*, discovery_id: str, gtm_artifact_id: str, initial_channel_ref: str,
+                                  segment_ref: str, entries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Build an appendable ledger; incomplete or copied rows belong in refusal history."""
+    if not isinstance(entries, Sequence) or isinstance(entries, (str, bytes)):
+        raise ValueError("entries must be a list")
+    normalized = [_channel_feedback_entry(entry) for entry in entries]
+    if len({entry["feedback_id"] for entry in normalized}) != len(normalized):
+        raise ValueError("feedback_id values must be unique")
+    if len({(entry["test_id"], entry["source_ref"], entry["affected_target"]) for entry in normalized}) != len(normalized):
+        raise ValueError("duplicate channel feedback source for one precommitted test and target")
+    result = _artifact(CHANNEL_FEEDBACK_LEDGER_SCHEMA_VERSION, discovery_id, {
+        "gtm_artifact_id": _ref(gtm_artifact_id, "gtm_artifact_id"),
+        "initial_channel_ref": _ref(initial_channel_ref, "initial_channel_ref"),
+        "segment_ref": _ref(segment_ref, "segment_ref"), "entries": normalized,
+    }, status="reentered")
+    result["claim_boundary"] = _CHANNEL_FEEDBACK_CLAIM_BOUNDARY
+    return result
+
+
+_CHANNEL_FEEDBACK_CLAIM_BOUNDARY: Final = (
+    "Supplied observations and local evaluation are not market execution, customer validation, or product outcome evidence. "
+    "These metadata-only companions preserve bounded references and do not modify earlier discovery decisions."
+)
+
+
+def build_channel_feedback_disposition(*, discovery_id: str, frame_ref: str, gtm_artifact_id: str,
+        portfolio_ref: str, feedback_ledger_ref: str, initial_channel_ref: str, segment_ref: str, evaluated_at: str,
+        channel_reachability: str, opportunity_direction: str, rejected_channel_hypothesis_refs: Sequence[str],
+        held_observations: Sequence[Mapping[str, Any]], proposed_followup: str) -> dict[str, Any]:
+    """Derive closed gate and route fields, never a replacement problem receipt."""
+    effects = (channel_reachability, opportunity_direction)
+    if any(effect not in CHANNEL_FEEDBACK_EFFECTS for effect in effects):
+        raise ValueError("channel feedback effect is unsupported")
+    if proposed_followup not in ("none", "bounded_channel_retest", "gtm_pivot", "reevaluate_discovery"):
+        raise ValueError("channel feedback proposed_followup is unsupported")
+    if not isinstance(held_observations, Sequence) or isinstance(held_observations, (str, bytes)):
+        raise ValueError("held_observations must be a list")
+    held = []
+    for row in held_observations:
+        if not isinstance(row, Mapping) or set(row) != {"feedback_ref", "reason"}:
+            raise ValueError("held observation keys are invalid")
+        if row["reason"] not in CHANNEL_FEEDBACK_HOLD_REASONS:
+            raise ValueError("channel feedback hold reason is unsupported")
+        held.append({"feedback_ref": _ref(row["feedback_ref"], "feedback_ref"), "reason": row["reason"]})
+    rejected = _refs(rejected_channel_hypothesis_refs, "rejected_channel_hypothesis_refs", minimum=0)
+    safe_gtm = _ref(gtm_artifact_id, "gtm_artifact_id")
+    if rejected and (rejected != [safe_gtm] or channel_reachability != "contradicts"):
+        raise ValueError("rejected channel hypothesis must match a contradicted initial GTM hypothesis")
+    if proposed_followup in ("gtm_pivot", "reevaluate_discovery") and not rejected:
+        raise ValueError("precommitted channel followup requires a rejected hypothesis")
+    held_handoff = bool(held) or any(effect != "supports" for effect in effects) or proposed_followup != "none"
+    disposition = "inconclusive" if held or "unknown" in effects else "held" if held_handoff else "supported"
+    result = _artifact(CHANNEL_FEEDBACK_DISPOSITION_SCHEMA_VERSION, discovery_id, {
+        "frame_ref": _ref(frame_ref, "frame_ref"), "gtm_artifact_id": safe_gtm,
+        "portfolio_ref": _ref(portfolio_ref, "portfolio_ref"),
+        "feedback_ledger_ref": _ref(feedback_ledger_ref, "feedback_ledger_ref"),
+        "initial_channel_ref": _ref(initial_channel_ref, "initial_channel_ref"), "segment_ref": _ref(segment_ref, "segment_ref"),
+        "evaluated_at": _stamp(evaluated_at, "evaluated_at"),
+        "channel_reachability": channel_reachability, "opportunity_direction": opportunity_direction,
+        "rejected_channel_hypothesis_refs": rejected, "held_observations": held,
+        "proposed_followup": proposed_followup, "disposition": disposition, "handoff_held": held_handoff,
+        "next_route": DISCOVERY_CONTINUATION_ROUTE if held_handoff else "product-brief",
+    }, status="derived_from_supplied_metadata")
+    result["claim_boundary"] = _CHANNEL_FEEDBACK_CLAIM_BOUNDARY
+    return result
 
 
 def build_discovery_decision_frame(*, discovery_id: str, problem_ref: str, segment_ref: str, segment_definition_state: str, alternative_refs: Sequence[str], decision_owner_ref: str, learning_budget_ref: str, deadline_at: str, kill_criteria_refs: Sequence[str]) -> dict[str, Any]:

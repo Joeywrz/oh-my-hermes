@@ -8,7 +8,7 @@ from typing import Final, TypeAlias
 from .decision_prototypes import compact_decision_prototype_receipt, validate_decision_prototype
 from .product_discovery_artifact_validation import validate_product_discovery_artifact
 from .product_discovery_artifacts import audience_is_defined
-from .product_discovery_validation import product_brief_consumption
+from .product_discovery_validation import product_brief_consumption, product_brief_consumption_with_feedback
 
 
 JsonScalar: TypeAlias = str | int | float | bool | None
@@ -127,7 +127,28 @@ def _product_brief_handoff(receipt: DecisionArtifact) -> DecisionReceiptHandoff:
     }
 
 
-def _discovery_blocked_reason(receipt: DecisionArtifact) -> str:
+def build_channel_aware_product_brief_handoff(
+    receipt: DecisionArtifact, disposition: DecisionArtifact
+) -> DecisionReceiptHandoff:
+    """Hold supplied channel feedback without changing legacy receipt consumers."""
+    handoff = build_decision_receipt_handoff(receipt, target_workflow="product-brief")
+    context = product_brief_consumption_with_feedback(receipt, disposition)
+    if not context:
+        handoff["decision_state"] = "blocked"
+        handoff["blocked_reason"] = _discovery_blocked_reason(receipt, disposition=disposition)
+        handoff["product_brief_context"] = {}
+    return handoff
+
+
+def _discovery_blocked_reason(receipt: DecisionArtifact, *, disposition: DecisionArtifact | None = None) -> str:
+    if disposition is not None:
+        if (not validate_product_discovery_artifact(disposition)
+                and disposition.get("schema_version") == "channel_feedback_disposition/v1"
+                and disposition.get("discovery_id") == receipt["discovery_id"]
+                and disposition.get("segment_ref") == receipt["segment_ref"]
+                and disposition.get("channel_reachability") == "contradicts"):
+            return "discovery_segment_reachability_contradicted"
+        return "discovery_channel_feedback_hold"
     if receipt["problem_gate"] == "refuted":
         return "discovery_problem_refuted"
     if not audience_is_defined(str(receipt["segment_definition_state"])):

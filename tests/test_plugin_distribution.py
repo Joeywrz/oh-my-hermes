@@ -222,9 +222,12 @@ class PluginHermesAdmissionTests(unittest.TestCase):
             if version is not None:
                 host.__version__ = version
             with self.subTest(version=version), mock.patch.dict(sys.modules, {"hermes_cli": host}):
+                plugin = load_installed_plugin(self.bundle)
+                context = FakeHermesContext()
                 with self.assertRaises(RuntimeError):
-                    load_installed_plugin(self.bundle)
-                self.assertFalse(hasattr(sys.modules["_test_omh_installed_plugin"], "register"))
+                    plugin.register(context)
+                self.assertEqual(context.tools, {})
+                self.assertEqual(context.hooks, {})
 
     def test_in_process_admission_accepts_and_validates_registration(self) -> None:
         from omh.install.plugin_pack import _register_smoke
@@ -251,9 +254,12 @@ class PluginHermesAdmissionTests(unittest.TestCase):
             for declaration in ("", 'requires_hermes: "not-a-range"\n'):
                 (bundle / "plugin.yaml").write_text(declaration, encoding="utf-8")
                 with self.subTest(declaration=declaration), mock.patch.dict(sys.modules, {"hermes_cli": host}):
+                    plugin = load_installed_plugin(bundle)
+                    context = FakeHermesContext()
                     with self.assertRaises(RuntimeError):
-                        load_installed_plugin(bundle)
-                    self.assertFalse(hasattr(sys.modules["_test_omh_installed_plugin"], "register"))
+                        plugin.register(context)
+                    self.assertEqual(context.tools, {})
+                    self.assertEqual(context.hooks, {})
 
     def test_rejection_message_is_bounded_and_metadata_only(self) -> None:
         from omh.plugin_bundle.omh.host_compat import admission_error
@@ -263,8 +269,9 @@ class PluginHermesAdmissionTests(unittest.TestCase):
         host.__version__ = "0.22.0"
         with mock.patch.dict(os.environ, dict(zip(("API_KEY", "PROMPT", "PRIVATE_PATH"), canaries))), \
                 mock.patch.dict(sys.modules, {"hermes_cli": host}):
+            plugin = load_installed_plugin(self.bundle)
             with self.assertRaises(RuntimeError) as raised:
-                load_installed_plugin(self.bundle)
+                plugin.register(FakeHermesContext())
         error = str(raised.exception)
         self.assertRegex(error, r'^omh plugin requires Hermes "[^"\n]+"; running Hermes \d+\.\d+\.\d+$')
         self.assertIn(">=0.21.1,<0.22.0", error)
@@ -297,11 +304,13 @@ class PluginHermesAdmissionTests(unittest.TestCase):
                 'requires_hermes: ">=999.0.0"' if line.startswith("requires_hermes:") else line
                 for line in manifest.read_text(encoding="utf-8").splitlines()
             ) + "\n", encoding="utf-8")
-            # A marker distinguishes pre-register rejection from rollback after registration.
+            # Mark the first registration side effect, after entry-point admission.
             init = bundle / "__init__.py"
-            init.write_text(init.read_text(encoding="utf-8").replace(
-                "def register(ctx: _PluginContext) -> None:\n",
-                'def register(ctx: _PluginContext) -> None:\n    raise AssertionError("REGISTER_REACHED")\n',
+            source = init.read_text(encoding="utf-8")
+            boundary = "    runtime_paths.note_host_registration(ctx)\n"
+            self.assertEqual(source.count(boundary), 1)
+            init.write_text(source.replace(
+                boundary, '    raise AssertionError("REGISTER_REACHED")\n',
             ), encoding="utf-8")
             observation = observe_real_loader_registration(bundle)
         self.assertTrue(observation["observed"], observation)

@@ -1,0 +1,129 @@
+{
+  "feedback_ledger": {
+    "discovery_id": "discovery-0123456789abcdef",
+    "entries": [
+      {
+        "affected_target": "channel_reachability",
+        "channel_ref": "channel-community",
+        "confidence_limit": "bounded",
+        "criterion_ref": "criterion-channel-unreachable",
+        "effect": "contradicts",
+        "feedback_id": "feedback-channel",
+        "observed_at": "2030-01-01T01:00:00+00:00",
+        "sample_count": 2,
+        "segment_ref": "segment-new-teams",
+        "source_class": "external_human",
+        "source_ref": "source-example-channel",
+        "test_id": "test-initial-channel"
+      },
+      {
+        "affected_target": "opportunity_direction",
+        "channel_ref": "channel-community",
+        "confidence_limit": "bounded",
+        "criterion_ref": "criterion-channel-reachable",
+        "effect": "supports",
+        "feedback_id": "feedback-opportunity",
+        "observed_at": "2030-01-01T01:00:00+00:00",
+        "sample_count": 2,
+        "segment_ref": "segment-new-teams",
+        "source_class": "external_human",
+        "source_ref": "source-example-opportunity",
+        "test_id": "test-initial-channel"
+      }
+    ],
+    "gtm_artifact_id": "discovery-89c03b7b3c87cbbf",
+    "initial_channel_ref": "channel-community",
+    "segment_ref": "segment-new-teams"
+  },
+  "frame": {
+    "alternative_refs": [
+      "alternative-spreadsheet"
+    ],
+    "artifact_id": "discovery-8058aa7d9cbc99c3",
+    "claim_boundary": "This metadata-only artifact preserves bounded references and declared or derived discovery state. It does not recruit, contact, inspect customers, replay transcripts, build a prototype or PRD, execute a test, or establish product-market fit.",
+    "deadline_at": "2030-01-02T00:00:00+00:00",
+    "decision_owner_ref": "owner-product",
+    "discovery_id": "discovery-0123456789abcdef",
+    "kill_criteria_refs": [
+      "criterion-no-repeated-problem"
+    ],
+    "learning_budget_ref": "budget-discovery-1",
+    "problem_ref": "problem-onboarding-dropoff",
+    "schema_version": "discovery_decision_frame/v1",
+    "segment_definition_state": "recruitable",
+    "segment_ref": "segment-new-teams",
+    "status": "prepared_not_observed"
+  },
+  "gtm": {
+    "artifact_id": "discovery-89c03b7b3c87cbbf",
+    "beachhead_segment_ref": "segment-new-teams",
+    "buyer_ref": "buyer-ops-lead",
+    "claim_boundary": "This metadata-only artifact preserves bounded references and declared or derived discovery state. It does not recruit, contact, inspect customers, replay transcripts, build a prototype or PRD, execute a test, or establish product-market fit.",
+    "current_alternative_ref": "alternative-spreadsheet",
+    "discovery_id": "discovery-0123456789abcdef",
+    "first_cohort_ref": "cohort-five-teams",
+    "initial_channel_ref": "channel-community",
+    "learning_metric_refs": [
+      "metric-repeated-problem"
+    ],
+    "pricing_hypothesis_ref": "pricing-time-saved",
+    "schema_version": "initial_gtm_hypothesis/v1",
+    "status": "prepared_not_observed",
+    "user_ref": "user-operator",
+    "value_proposition_ref": "value-reduce-manual-work"
+  },
+  "now": "2030-01-01T02:00:00+00:00",
+  "portfolio": {
+    "artifact_id": "discovery-7783076c9969483b",
+    "assumptions": [
+      {
+        "assumption_id": "assumption-repeated-dropoff",
+        "category": "value",
+        "cost_cap_ref": "cost-cap-1",
+        "deadline_at": "2030-01-02T00:00:00+00:00",
+        "decision_impact": 5,
+        "evidence_gap": 5,
+        "failure_criterion_ref": "criterion-no-repeated-problem",
+        "failure_decision": "pivot",
+        "inconclusive_criterion_ref": "criterion-insufficient-sample",
+        "owner_ref": "owner-product",
+        "precommitted_at": "2030-01-01T00:00:00+00:00",
+        "priority": 25,
+        "required_evidence_classes": [
+          "external_human"
+        ],
+        "sample_target": 2,
+        "scope_segment_ref": "segment-new-teams",
+        "smallest_test_ref": "test-past-behavior-interviews",
+        "success_criterion_ref": "criterion-repeated-problem",
+        "test_id": "test-problem-interviews"
+      },
+      {
+        "assumption_id": "assumption-initial-channel",
+        "category": "go_to_market",
+        "cost_cap_ref": "cost-cap-1",
+        "deadline_at": "2030-01-02T00:00:00+00:00",
+        "decision_impact": 5,
+        "evidence_gap": 5,
+        "failure_criterion_ref": "criterion-channel-unreachable",
+        "failure_decision": "pivot",
+        "inconclusive_criterion_ref": "criterion-channel-unresolved",
+        "owner_ref": "owner-product",
+        "precommitted_at": "2030-01-01T00:00:00+00:00",
+        "priority": 25,
+        "required_evidence_classes": [
+          "external_human"
+        ],
+        "sample_target": 2,
+        "scope_segment_ref": "segment-new-teams",
+        "smallest_test_ref": "test-bounded-channel",
+        "success_criterion_ref": "criterion-channel-reachable",
+        "test_id": "test-initial-channel"
+      }
+    ],
+    "claim_boundary": "This metadata-only artifact preserves bounded references and declared or derived discovery state. It does not recruit, contact, inspect customers, replay transcripts, build a prototype or PRD, execute a test, or establish product-market fit.",
+    "discovery_id": "discovery-0123456789abcdef",
+    "schema_version": "assumption_test_portfolio/v1",
+    "status": "precommitted"
+  }
+}

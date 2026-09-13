@@ -7,7 +7,10 @@ from typing import Any
 
 from ..system.append_only_store import RAW_OR_HIDDEN_KEYS
 from .product_discovery_artifacts import (
+    _artifact,
     build_assumption_test_portfolio,
+    build_channel_feedback_ledger,
+    build_channel_feedback_disposition,
     build_customer_discovery_plan,
     build_discovery_decision_frame,
     build_discovery_decision_receipt,
@@ -18,6 +21,8 @@ from .product_discovery_artifacts import (
 
 _COMMON_KEYS = frozenset({"schema_version", "artifact_id", "discovery_id", "status", "claim_boundary"})
 _SCHEMA_KEYS = {
+    "channel_feedback_ledger/v1": _COMMON_KEYS | {"gtm_artifact_id", "initial_channel_ref", "segment_ref", "entries"},
+    "channel_feedback_disposition/v1": _COMMON_KEYS | {"frame_ref", "gtm_artifact_id", "portfolio_ref", "feedback_ledger_ref", "initial_channel_ref", "segment_ref", "evaluated_at", "channel_reachability", "opportunity_direction", "rejected_channel_hypothesis_refs", "held_observations", "proposed_followup", "disposition", "handoff_held", "next_route"},
     "discovery_decision_frame/v1": _COMMON_KEYS | {"problem_ref", "segment_ref", "segment_definition_state", "alternative_refs", "decision_owner_ref", "learning_budget_ref", "deadline_at", "kill_criteria_refs"},
     "discovery_evidence_ledger/v1": _COMMON_KEYS | {"entries"},
     "customer_discovery_plan/v1": _COMMON_KEYS | {"participant_criteria_ref", "interview_focuses", "consent_privacy_ref", "bias_control_refs", "human_task_ref", "evidence_reentry_required"},
@@ -50,6 +55,13 @@ def validate_product_discovery_artifact(record: Any) -> list[str]:
             errors.append(f"product discovery artifact has unsupported keys: {extra}")
         return errors
     match schema:
+        case "channel_feedback_ledger/v1":
+            return _validated(record, lambda: _stored_channel_feedback_ledger(record))
+        case "channel_feedback_disposition/v1":
+            values = _fields(record)
+            for field in ("disposition", "handoff_held", "next_route"):
+                values.pop(field)
+            return _validated(record, lambda: build_channel_feedback_disposition(**values))
         case "discovery_decision_frame/v1":
             return _validated(record, lambda: build_discovery_decision_frame(**_fields(record)))
         case "discovery_evidence_ledger/v1":
@@ -70,6 +82,19 @@ def validate_product_discovery_artifact(record: Any) -> list[str]:
             return _validated(record, lambda: build_initial_gtm_hypothesis(**_fields(record)))
         case _:
             return ["product discovery artifact schema_version is unsupported"]
+
+
+def _stored_channel_feedback_ledger(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate historical rows without rewriting their original content digest."""
+    expected = build_channel_feedback_ledger(**_fields(record))
+    for supplied, normalized in zip(record["entries"], expected["entries"]):
+        if "discovery_id" not in supplied:
+            normalized.pop("discovery_id")
+    fields = _fields(expected)
+    discovery_id = fields.pop("discovery_id")
+    expected["artifact_id"] = _artifact(expected["schema_version"], discovery_id, fields,
+                                        status=expected["status"])["artifact_id"]
+    return expected
 
 
 def _fields(record: Mapping[str, Any]) -> dict[str, Any]:

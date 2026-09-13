@@ -2,7 +2,22 @@ from __future__ import annotations
 
 from functools import partial
 from importlib import import_module
+from pathlib import Path
 from typing import Protocol
+
+from .host_compat import admission_error
+
+
+def _admit_host() -> None:
+    try:
+        host = import_module("hermes_cli")
+    except ModuleNotFoundError as exc:
+        if exc.name == "hermes_cli":
+            return  # OMH's host-free import/register smoke is not runtime loading.
+        raise
+    error = admission_error(getattr(host, "__version__", None), Path(__file__).with_name("plugin.yaml"))
+    if error is not None:
+        raise RuntimeError(error)
 
 
 class _PluginContext(Protocol):
@@ -80,6 +95,9 @@ def register(ctx: _PluginContext) -> None:
     Naming ``register_memory_provider`` here is also what makes this directory
     visible to Hermes' provider discovery, which text-scans ``__init__.py``.
     """
+    # Metadata/parser imports serve the maintenance CLI, even on unsupported hosts.
+    # Admit only at the loader entry, before any registration side effects.
+    _admit_host()
     from . import runtime_paths
     runtime_paths.note_host_registration(ctx)
     from .memory_provider import OmhMemoryProvider

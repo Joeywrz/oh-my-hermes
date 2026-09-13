@@ -1,7 +1,7 @@
 """Catalog-generated Agent Skills files, independent of Hermes configuration.
 
-Each install scope has two copy destinations and one manifest contract, duplicated
-at both roots. Roots come only from the current invocation, never the manifest.
+Host-selected installs have one portable receipt; unselected installs duplicate
+one manifest at both roots. Roots come from the invocation, never the manifest.
 A partial write cannot report fresh: status compares every destination's bytes.
 """
 from __future__ import annotations
@@ -32,7 +32,17 @@ def agent_skill_files() -> dict[str, str]:
     return files
 
 
-def agent_skills_targets(scope: str) -> tuple[Path, Path | None]:
+def agent_skills_targets(scope: str, *, host: str | None = None) -> tuple[Path, Path | None]:
+    if host is not None:
+        from ..skills.host_adapters import host_adapter_manifest
+
+        manifest = host_adapter_manifest(host, agent_skill_files())
+        if scope not in manifest["targets"]:
+            raise ValueError("Agent Skills scope must be repo or user")
+        # Clone installers need neither Python nor git: repo scope is explicitly
+        # the current project directory, identically in this host-selected path.
+        base = Path.home().resolve() if scope == "user" else Path.cwd().resolve()
+        return base / manifest["targets"][scope], None
     if scope == "user":
         home = Path.home().resolve()
         return home / ".agents/skills", home / ".claude/skills"
@@ -87,13 +97,14 @@ def _read_manifest(root: Path) -> dict[str, Any] | None:
     return payload
 
 
-def _manifest(files: dict[str, str], roots: tuple[Path, ...]) -> dict[str, Any]:
+def agent_skills_manifest(files: dict[str, str], *, roots: tuple[Path, ...] = ()) -> dict[str, Any]:
+    """Portable single-target receipt, or the existing absolute mirrored receipt."""
     hashes = {name: sha256_text(content) for name, content in sorted(files.items())}
     revision = sha256_text("\n".join(f"{name}\0{digest}" for name, digest in hashes.items()))
     return {
         "schema_version": SCHEMA_VERSION,
         "catalog_revision": revision,
-        "target_dirs": [str(root) for root in roots],
+        "target_dirs": [str(root) for root in roots] if len(roots) > 1 else ["."],
         "files": hashes,
     }
 
@@ -101,7 +112,7 @@ def _manifest(files: dict[str, str], roots: tuple[Path, ...]) -> dict[str, Any]:
 def agent_skills_status(target: Path, *, mirror: Path | None = None) -> dict[str, Any]:
     roots = (target.absolute(),) if mirror is None else (target.absolute(), mirror.absolute())
     files = agent_skill_files()
-    expected = _manifest(files, roots)
+    expected = agent_skills_manifest(files, roots=roots)
     modified: list[str] = []
     states = []
     installed_revisions = []
@@ -126,7 +137,7 @@ def agent_skills_status(target: Path, *, mirror: Path | None = None) -> dict[str
         "schema_version": SCHEMA_VERSION,
         "catalog_revision": expected["catalog_revision"],
         "installed_revisions": installed_revisions,
-        "target_dirs": expected["target_dirs"],
+        "target_dirs": [str(root) for root in roots],
         "projection": projection,
         "drift": "locally_modified" if modified else "unknown" if "missing" in states else "clean",
         "locally_modified": sorted(modified),
@@ -152,7 +163,7 @@ def install_agent_skills(target: Path, *, mirror: Path | None = None) -> dict[st
             owned = relative in (previous or {}).get("files", {})
             if path.exists() and not owned and (not path.is_file() or path.read_bytes() != content.encode("utf-8")):
                 raise ValueError(f"Agent Skills refuses unowned file collision: {path}")
-    manifest = _manifest(files, roots)
+    manifest = agent_skills_manifest(files, roots=roots)
     manifest_text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     for root, previous in zip(roots, manifests):
         for relative, content in files.items():

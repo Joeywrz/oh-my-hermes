@@ -1,0 +1,40 @@
+{
+  "artifact_id": "discovery-6ea6650d533924a8",
+  "claim_boundary": "Supplied observations and local evaluation are not market execution, customer validation, or product outcome evidence. These metadata-only companions preserve bounded references and do not modify earlier discovery decisions.",
+  "discovery_id": "discovery-0123456789abcdef",
+  "entries": [
+    {
+      "affected_target": "channel_reachability",
+      "channel_ref": "channel-community",
+      "confidence_limit": "bounded",
+      "criterion_ref": "criterion-channel-unreachable",
+      "effect": "contradicts",
+      "feedback_id": "feedback-channel",
+      "observed_at": "2030-01-01T01:00:00+00:00",
+      "sample_count": 2,
+      "segment_ref": "segment-new-teams",
+      "source_class": "external_human",
+      "source_ref": "source-example-channel",
+      "test_id": "test-initial-channel"
+    },
+    {
+      "affected_target": "opportunity_direction",
+      "channel_ref": "channel-community",
+      "confidence_limit": "bounded",
+      "criterion_ref": "criterion-channel-reachable",
+      "effect": "supports",
+      "feedback_id": "feedback-opportunity",
+      "observed_at": "2030-01-01T01:00:00+00:00",
+      "sample_count": 2,
+      "segment_ref": "segment-new-teams",
+      "source_class": "external_human",
+      "source_ref": "source-example-opportunity",
+      "test_id": "test-initial-channel"
+    }
+  ],
+  "gtm_artifact_id": "discovery-89c03b7b3c87cbbf",
+  "initial_channel_ref": "channel-community",
+  "schema_version": "channel_feedback_ledger/v1",
+  "segment_ref": "segment-new-teams",
+  "status": "reentered"
+}

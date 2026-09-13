@@ -49,7 +49,7 @@ identical prompt. Nothing else about the pipeline changes per model.
 | `kimi` | `kimi-` | `kimi-k3`, `kimi-k3-ultrafast` |
 | `glm` | `glm-` | `glm-5.3`, `glm-5.3-flash`, `glm-5.2-ultrafast` |
 | `grok` | `grok-` | `grok-code-fast-1` |
-| `qwen` | `qwen-`, alias `qwen3-` | `qwen3-coder` |
+| `qwen` | `qwen-`, aliases `qwen3-` and `qwen3.` | `qwen3-coder`, `qwen/qwen3.8-flash` |
 | `deepseek` | `deepseek-` | `deepseek-v4.1-flash`, `deepseek-flash` (the first-party pointer), `deepseek/deepseek-v4.1-flash` |
 | `mistral` | `mistral-` | Mistral Large / Medium ids |
 | `llama` | `llama-` | open-weights Llama ids, any serving host |
@@ -1018,3 +1018,115 @@ Gaps close by evidence, not by copywriting: a new calibration entry needs an
 observed failure mode (or provider-stated characteristic) worth countering,
 lands in both tables at once (parity-gated), and states its reason and source
 in this document.
+
+## Portfolio qualification
+
+`omh coding model-portfolio-qualification` reports the complete supplied
+inventory as `model_portfolio_qualification/v1`. It does not rank models,
+change chains, infer entitlement, or call a provider. These states differ:
+
+| State | Meaning | Example |
+| --- | --- | --- |
+| Supported | Present in the caller's accepted inventory, not necessarily recognized or usable on this account | `minimax/minimax-m3` in the seed fixture |
+| Optimized | Model-specific guidance has documented trait-to-counter provenance; calibration presence alone does not prove improvement | `gpt-6-astra` has an exact calibration pair; consult its measurement stage separately |
+| Eligible | A reviewed decision permits a particular model-and-role placement; it does not imply selection or global promotion | `kimi-k3` is eligible for `architect`, even behind another chain head |
+| Recommended | An eligible placement actually appears in a shipped chain | `deepseek-flash` in `deep`, with its explicit versioned pointer relationship |
+| Excluded | A reviewed decision deliberately withholds placement and records its scope and evidence | `claude-fable-5` is superseded by `claude-fable-5-1` |
+
+New discoveries default to `unmeasured`, even if their family is recognized
+or an exact contract is inherited. Family coverage describes which table
+will resolve, not whether that generation has been optimized: `qwen3.8-*`
+now resolves to Qwen guidance, but remains unmeasured for placement. The
+existing Qwen guidance describes Qwen3-Coder; recognizing another minor
+version does not establish that it shares Coder's non-thinking contract.
+
+The independent decision registry in
+`src/coding/model_portfolio_qualification.py` records existing owner-approved
+editorial placements as `editorial_not_measured`, not
+`observed_role_evaluation`. It approves model-and-role pairs, not every role
+for a model. The guard walks categories, main-role suggestions, domain
+placements, and last resort; adding an unmeasured or excluded candidate, or
+an unapproved role for an existing candidate, fails. No new recommendations
+are introduced by this report. New placements require role-specific observed
+evidence (or an evidenced provider-diversity fallback) and a placement reason;
+an arbitrary new registry entry is not a substitute for review.
+
+MiniMax M3, MiMo V2.5 Pro, HY4 Preview, HY3, Step 3.7 Flash, Nemotron 3 Super,
+and Fugu Ultra have explicit qualification holds pointing to the inventory
+and the absent dedicated calibration pair. Their coverage reads
+`intentional_exclusion`, their underlying resolution remains visible, and
+their disposition stays `unmeasured`. A lack of research is not evidence of
+poor quality, expensive execution, unreliable tools, or runtime rejection.
+Holds still block required qualification. Other newly discovered ids receive
+an unmeasured row without requiring a registry edit. No paid evaluation runs
+implicitly; it needs separate approval through the onboarding measurement
+recipe. Quality, tool reliability, latency, and cost evidence remain separate;
+a documented list price is not a measured efficiency advantage.
+
+The closed dispositions also support `eligible_not_selected`,
+`excluded_quality_dominated`, `excluded_efficiency_dominated`,
+`excluded_tool_unreliable`, `excluded_runtime_incompatible`, and
+`excluded_superseded`. Only use a dominance disposition when its cited
+comparison establishes that dimension; this pass fabricates none. Caller
+`--intentional-exclusion ID=REASON` declares a runtime-contract exclusion,
+not an observed model failure. Retirements carry successor, scope, and owner
+decision date. Sol's retirement is frontier-slot-only: it remains recommended
+in last resort. Older ids stay routable, priced, and provider-mapped.
+
+The report imports the contract audit's inventory parser, unions `models`,
+`available_models`, and discovery observations, and preserves case-variant
+identities in `aliases`. Provider-qualified and bare ids remain separate
+inventory rows. Served aliases are a separate field: only declared
+same-mode/tier pointers share standing. Dotted `claude-fable-5.1` does not
+inherit dashed `claude-fable-5-1` by similarity; Astra's unknown suffixes
+stay missing. Dated snapshots retain their original projection provenance
+under `declared_inheritance` coverage. DeepSeek's pointer read boundary is
+explicit, not a second contract.
+
+Supply `read_date` as an ISO calendar date when known; otherwise the report
+returns null rather than inventing freshness. No current timestamp enters
+the comparison or its stable JSON digest. Required ids absent from inventory
+appear in `summary.required_gaps`, not invented inventory rows. Required
+unmeasured rows block with exit 1; advisory gaps return 0; invalid or oversized
+input returns 2. Optimization stages cite shipped metadata, research
+references, calibration, placement, price, and measurement follow-up without
+claiming that a cited recipe has run. See
+[model onboarding](docs/MODEL-ONBOARDING.md#portfolio-qualification) for the CLI loop.
+
+### Issue #1515 QA adjudication
+
+The [issue contract](https://github.com/rlaope/oh-my-hermes/issues/1515),
+not a stronger design-brief expectation, governs these boundaries:
+
+- **Qwen calibration (AC6):** "`qwen3.8-*` IDs no longer fall through to
+  generic handling" applies to both calibration resolvers. The dotted-minor
+  alias already reaches Qwen composition guidance and the high-effort block
+  through the recorded route in `fanout prepare` -> `build_unit_prompt`.
+  `coding delegate` prepares a different handoff and does not invoke that unit
+  renderer; absence of the unit block there is not a failed family lookup.
+  Regression coverage prepares the actual fanout contract through the CLI,
+  renders its unit, and compares both blocks with the shipped tables, with
+  malformed-spelling negative controls. No exact contract or measured
+  generation-specific optimization is inferred.
+- **Unresearched families (AC7):** "MiniMax and every currently generic or
+  newly discovered family receive either dedicated calibration or an explicit
+  evidence-backed exclusion" must be read with "unmeasured, which must not be
+  confused with either recommended or rejected" and "if it cannot run, the
+  model remains `unmeasured`." The seven explicit holds above exclude
+  qualification and recommendation, not model usability or quality. Their
+  reasons and evidence pointers identify the missing calibration pair;
+  required qualification still blocks. No `excluded_*` disposition in the
+  issue's closed vocabulary means "never measured". Requiring one here would
+  fabricate a failure finding. Tests retain generic resolution, explicit
+  holds, empty eligibility, and absent measurement evidence.
+- **Dominance and retirement (AC13):** "Models dominated on quality, tool
+  reliability, latency, or cost are recorded with an explicit exclusion
+  reason" does not require a nonzero dominance count. The issue also excludes
+  "Fabricating quality or efficiency conclusions when live evaluation has
+  not run." The seed inventory therefore has zero measured dominance
+  exclusions; Astra list-price tiers alone do not establish dominance.
+  Reviewable editorial retirements already exist for Fable 5 and GLM 5.2 in
+  that inventory, with the owner-decision evidence in onboarding section 4.
+  Sol retains its frontier-slot retirement and last-resort recommendation.
+  Tests pin zero unsupported dominance findings separately from those honest,
+  evidence-linked retirement decisions.

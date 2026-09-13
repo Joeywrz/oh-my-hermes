@@ -217,6 +217,50 @@ class SharedPreambleCacheTests(unittest.TestCase):
 
 
 class CalibrationSelectionTests(unittest.TestCase):
+    def test_dotted_qwen_cli_contract_reaches_both_calibration_tables(self) -> None:
+        from omh.coding.model_contracts import model_contract_projection
+
+        cases = {
+            "qwen/qwen3.8-max-0902": "qwen",
+            "qwen/qwen3.8-flash": "qwen",
+            "qwen3.8-max-0902": "qwen",
+            "qwen3.8-flash": "qwen",
+            "qwen/qwen3x-flash": "generic",
+            "qwen/qwen3": "generic",
+        }
+        for model, calibration_key in cases.items():
+            with self.subTest(model=model):
+                units = [
+                    {"unit_id": "target", "title": "Parser fix", "owner": "hermes",
+                     "file_scope": ["src/"], "role": "implementation",
+                     "model": model, "reasoning_effort": "xhigh"},
+                    {"unit_id": "docs", "title": "Docs", "owner": "hermes",
+                     "file_scope": ["docs/"]},
+                ]
+                status, stdout, stderr = run_cli(
+                    ["coding", "fanout", "prepare", "--goal", _GOAL, "--units", "-"],
+                    stdin_text=json.dumps(units),
+                )
+                self.assertEqual((status, stderr), (0, ""))
+                unit = next(u for u in json.loads(stdout)["units"] if u["unit_id"] == "target")
+                route = unit["handoff"]["model_route"]
+                self.assertEqual(route["selected_model"], model)
+                self.assertEqual(route["selected_reasoning_effort"], "xhigh")
+                self.assertEqual(route["model_family"], "unknown" if calibration_key == "generic" else "qwen")
+                self.assertEqual(calibration_for_route(route), HIGH_EFFORT_CALIBRATIONS[calibration_key])
+                # Compare shipped copies, not pinned prompt wording. This is the
+                # renderer dispatch consumes; coding delegate is not this surface.
+                prompt = build_unit_prompt(unit, _GOAL)
+                self.assertIn(HIGH_EFFORT_CALIBRATIONS[calibration_key], prompt)
+                other_key = "qwen" if calibration_key == "generic" else "generic"
+                self.assertNotIn(HIGH_EFFORT_CALIBRATIONS[other_key], prompt)
+                status, stdout, stderr = run_cli(
+                    ["coding", "composition-guide", "--model", model, "--json"]
+                )
+                self.assertEqual((status, stderr), (0, ""))
+                self.assertEqual(json.loads(stdout)["calibration"], MAIN_AGENT_COMPOSITION_CALIBRATIONS[calibration_key])
+                self.assertIsNone(model_contract_projection(model))
+
     def test_high_effort_codex_brain_gets_gpt_calibration(self) -> None:
         unit = _contract_unit(
             [

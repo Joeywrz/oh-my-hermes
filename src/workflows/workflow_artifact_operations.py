@@ -14,7 +14,7 @@ from .decision_prototypes import (
     prepare_decision_prototype,
     validate_decision_prototype,
 )
-from .decision_receipt_handoffs import build_decision_receipt_handoff
+from .decision_receipt_handoffs import build_channel_aware_product_brief_handoff, build_decision_receipt_handoff
 from .lifecycle_growth_contracts import (
     evaluate_lifecycle_growth,
     prepare_lifecycle_growth,
@@ -28,6 +28,8 @@ from .lifecycle_growth_configuration_values import ConfigurationInputError
 from .product_discovery_validation import (
     append_product_discovery_artifact,
     discovery_audience_gate,
+    discovery_audience_gate_with_feedback,
+    evaluate_channel_feedback,
     evaluate_product_discovery,
     prepare_product_discovery,
     validate_product_discovery_artifact,
@@ -37,6 +39,7 @@ from .sales_pipeline_handoff import prepare_sales_pipeline_handoff
 from .sales_pipeline_review import evaluate_sales_pipeline_review, prepare_sales_pipeline_review
 from .workflow_artifact_operations_build import (
     build_lifecycle_growth_artifacts,
+    build_channel_feedback_ledger_input,
     build_product_discovery_package,
 )
 from .workflow_artifact_operations_sales import (
@@ -54,7 +57,7 @@ Operation = Callable[[OmhPaths, Mapping[str, Any]], dict[str, Any]]
 WORKFLOW_ARTIFACT_OPERATIONS: Final[dict[str, tuple[str, ...]]] = {
     "decision-prototype": ("prepare", "validate", "observe", "receipt", "handoff", "persist"),
     "lifecycle-growth": ("build", "prepare", "validate", "evaluate", "readout", "audience", "promote", "graduate", "configuration", "metrics"),
-    "product-discovery-validation": ("build", "prepare", "validate", "audience-gate", "evaluate", "handoff", "append"),
+    "product-discovery-validation": ("build", "prepare", "validate", "audience-gate", "evaluate", "handoff", "append", "channel-feedback"),
     "sales-pipeline-review": ("prepare", "validate", "evaluate", "handoff"),
 }
 
@@ -175,11 +178,29 @@ def _discovery_audience_gate(_paths: OmhPaths, payload: Mapping[str, Any]) -> di
     return discovery_audience_gate(payload)
 
 
+def _discovery_channel_feedback(_paths: OmhPaths, payload: Mapping[str, Any]) -> dict[str, Any]:
+    if set(payload) != {"frame", "gtm", "portfolio", "feedback_ledger", "now"}:
+        raise WorkflowArtifactOperationError("channel feedback operation keys are invalid")
+    frame = _required_mapping(payload, "frame")
+    feedback = _required_mapping(payload, "feedback_ledger")
+    ledger = build_channel_feedback_ledger_input(feedback)
+    disposition = evaluate_channel_feedback(frame=frame, gtm=_required_mapping(payload, "gtm"),
+        portfolio=_required_mapping(payload, "portfolio"), feedback_ledger=feedback, now=_required_string(payload, "now"))
+    return {"ledger": ledger, "disposition": disposition,
+            "audience_gate": discovery_audience_gate_with_feedback(frame, disposition)}
+
+
 def _discovery_evaluate(_paths: OmhPaths, payload: Mapping[str, Any]) -> dict[str, Any]:
     return evaluate_product_discovery(_required_mapping(payload, "package"), now=_required_string(payload, "now"))
 
 
 def _discovery_handoff(_paths: OmhPaths, payload: Mapping[str, Any]) -> dict[str, Any]:
+    if "receipt" in payload or "disposition" in payload:
+        if set(payload) != {"receipt", "disposition"}:
+            raise WorkflowArtifactOperationError("channel feedback handoff keys are invalid")
+        return build_channel_aware_product_brief_handoff(
+            _required_mapping(payload, "receipt"), _required_mapping(payload, "disposition")
+        )
     return build_decision_receipt_handoff(payload, target_workflow="product-brief")
 
 
@@ -251,6 +272,7 @@ _DISPATCH: Final[dict[tuple[str, str], Operation]] = {
     ("product-discovery-validation", "evaluate"): _discovery_evaluate,
     ("product-discovery-validation", "handoff"): _discovery_handoff,
     ("product-discovery-validation", "append"): _discovery_append,
+    ("product-discovery-validation", "channel-feedback"): _discovery_channel_feedback,
     ("sales-pipeline-review", "prepare"): _sales_prepare,
     ("sales-pipeline-review", "validate"): _sales_validate,
     ("sales-pipeline-review", "evaluate"): _sales_evaluate,

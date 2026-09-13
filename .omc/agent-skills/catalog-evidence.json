@@ -1,0 +1,2851 @@
+{
+  "omh-routing": {
+    "canonical": "oh-my-hermes",
+    "why_this_exists": "`oh-my-hermes` exists to keep Hermes chat routing conservative: it maps plain requests to the right workflow, explains evidence boundaries, and avoids making every keyword look like hidden implementation.",
+    "required_inputs": [
+      "user request",
+      "installed skill descriptions",
+      "Hermes skill discovery context"
+    ],
+    "expected_outputs": [
+      "selected workflow guidance",
+      "chat_route_hint/v1 when a wrapper needs a lightweight preview",
+      "clarification question when routing is ambiguous"
+    ],
+    "final_checklist": [
+      "The selected workflow, confidence reason, evidence boundary, and user-facing next action are named.",
+      "Low-confidence or conflicting signals return a picker or clarification instead of forced routing.",
+      "Catalog answers are rendered without shell approval when wrapper metadata is sufficient."
+    ]
+  },
+  "omh-meta-router": {
+    "canonical": "meta-router",
+    "why_this_exists": "`meta-router` exists to turn a leading /omh command into a live catalog lookup: it reasons over the imperative task, selects or chains concrete workflows, and keeps the decision inside the observed/prepared evidence boundary instead of guessing from memory.",
+    "required_inputs": [
+      "leading /omh or ./omh command with an imperative remainder",
+      "live OMH catalog via bounded `omh recommend --json` queries",
+      "available shell/CLI or plugin tool surface"
+    ],
+    "expected_outputs": [
+      "selected workflow or chain with rationale",
+      "consulted catalog evidence from the bounded recommend output",
+      "observed-vs-prepared evidence boundary for the routing decision"
+    ],
+    "final_checklist": [
+      "The selected workflow, confidence reason, evidence boundary, and user-facing next action are named.",
+      "Low-confidence or conflicting signals return a picker or clarification instead of forced routing.",
+      "Catalog answers are rendered without shell approval when wrapper metadata is sufficient."
+    ]
+  },
+  "ulw-loop": {
+    "canonical": "loop",
+    "why_this_exists": "`loop` exists for goals whose correct implementation cannot be known upfront but can be discovered through bounded cycles of definition, action, verification, and revision without confusing planned cycles with observed progress.",
+    "required_inputs": [
+      "loopability assessment",
+      "north-star goal summary when present",
+      "bounded arena",
+      "observable problem",
+      "next verification",
+      "goal reframe",
+      "success criteria",
+      "permission profile",
+      "feedback or wait signal"
+    ],
+    "expected_outputs": [
+      "loopability_assessment/v1 task/project/ambition classification",
+      "loop_start_card/v1 setup prompt",
+      "loop_cycle/v2",
+      "loop_engineering/v1 pipeline/building-block snapshot",
+      "loop verification_policy for inner/outer checks",
+      "loop failure_mode_summary over verification gap, comprehension debt, and cognitive surrender",
+      "small-loop guidance: test as stop signal, plan -> execute -> verify, one task at a time",
+      "loop_status_card/v1 next action",
+      "loop_runtime/v1 queued tick with verification_plan refs",
+      "loop_queue_handoff/v1 only when permitted",
+      "executor-neutral handoff only when permitted",
+      "external-wait or checkpoint boundary",
+      "loop_goal_driver_handoff/v1 selected goal",
+      "loop_goal_driver_observation/v1 metadata-only activation and same-session contiguous turn evidence",
+      "loop_phase_transition/v1 evidence-backed progress record"
+    ],
+    "final_checklist": [
+      "The request is classified as task, project, north-star ambition, external-wait, or unclear before a loop starts.",
+      "The current loop_status_card/v1 names the queue item, tick status, verification_plan, and next action.",
+      "failure_mode_summary checks verification_gap, comprehension_debt, and cognitive_surrender before progress advances.",
+      "Completion is backed by linked goal/runtime evidence; queued loop ticks alone are not observed work.",
+      "Native `/goal` activation and continuation are backed by loop_goal_driver_observation/v1, and each observed role advance is backed by loop_phase_transition/v1."
+    ]
+  },
+  "ulw-context": {
+    "canonical": "context",
+    "why_this_exists": "`context` exists to reduce repository terminology drift without creating a second machine store or a vocabulary router: Hermes can answer lookups, facilitate dependency-aware alignment, and project approved results into existing review and handoff boundaries.",
+    "required_inputs": [
+      "the terminology question or alignment goal",
+      "repository evidence and optional root PROJECT_TERMS.md source status",
+      "active reviewed project terminology profile when one exists",
+      "unresolved decisions and their dependency relationships when an interview is needed"
+    ],
+    "expected_outputs": [
+      "direct source-labeled terminology answer or proposed terminology alignment",
+      "dependency-ready frontier with concise recommendations when decisions remain",
+      "explicit pending-candidate staging choice when machine mappings should be reviewed",
+      "confirmed shared-understanding summary and separately prepared planning or coding-owner handoff"
+    ],
+    "final_checklist": [
+      "Source status and reviewed-profile status are named without treating either as model-use evidence.",
+      "Safe lookups were answered directly and unresolved decisions were asked only when the user confirmed interview entry.",
+      "Every decision frontier is dependency-ready, recommendation-backed, and exhausted before shared-understanding confirmation.",
+      "Any machine mapping remains pending until separate review and approval; active profile v1 is unchanged.",
+      "Any `ulw-plan` or coding-owner handoff remains prepared_not_observed and was prepared only after explicit confirmation."
+    ]
+  },
+  "ulw-interview": {
+    "canonical": "deep-interview",
+    "why_this_exists": "`deep-interview` exists to stop Hermes from guessing through ambiguous product, workflow, or implementation intent; it converts uncertainty into a clarified brief before planning or handoff.",
+    "required_inputs": [
+      "initial request",
+      "known repo facts",
+      "current ambiguity"
+    ],
+    "expected_outputs": [
+      "clarified brief",
+      "non-goals",
+      "decision boundaries"
+    ],
+    "final_checklist": [
+      "The clarified brief names goals, non-goals, constraints, and one next planning or handoff path.",
+      "Remaining ambiguity is listed only when it changes the plan, risk, or stop condition.",
+      "No implementation handoff is prepared until the blocking decision is resolved."
+    ]
+  },
+  "omh-jit-learn": {
+    "canonical": "jit-learn",
+    "why_this_exists": "`jit-learn` exists to choose what is worth learning for the user's present problem and convert credible sources into an immediate application path, instead of returning a generic self-help shelf or a popularity list.",
+    "required_inputs": [
+      "reviewed context",
+      "urgency",
+      "current level",
+      "application window",
+      "time/format constraints"
+    ],
+    "expected_outputs": [
+      "confirmed target statement: Learn X now so I can do/decide Y in context Z by T.",
+      "source-backed Markdown learning brief",
+      "Books section, including an explicit no-qualifying-candidate reason when empty",
+      "Podcasts section, including an explicit no-qualifying-candidate reason when empty",
+      "Creators section, including an explicit no-qualifying-candidate reason when empty",
+      "Courses section, including an explicit no-qualifying-candidate reason when empty",
+      "for every recommendation: title, format, creator/publisher, link, source class, time to first value, specific fit now, first application, and caveats",
+      "competing learning targets, filtered-out defaults, unresolved gaps, and one recommended next action"
+    ],
+    "final_checklist": [
+      "At least one confirmation question was answered, no turn contained more than one question, and the shared interview ceiling was respected.",
+      "Urgency/trigger, current level, application window, and the target statement are explicit before research.",
+      "Every admitted recommendation is source-gated and popularity signals did not influence admission or rank.",
+      "Books, Podcasts, Creators, and Courses are present with complete fields or an honest empty-section reason.",
+      "Competing targets, filtered-out defaults, unresolved gaps, and one starting action are visible.",
+      "The final status says the brief is prepared and does not claim consumption, learning, application, progress, or blocker resolution."
+    ]
+  },
+  "ulw-work": {
+    "canonical": "ultrawork",
+    "why_this_exists": "`ultrawork` exists to choose one-owner, ordered-dependency, or independent-frontier execution for an accepted implementation plan without letting concurrency blur ownership, verification, worker protocol, worktree isolation, or observed runtime evidence. It also carries four named internal capabilities absorbed from sibling engines: `coordinated_scope` (coordinated worker lanes), `delivery_boundary` (one bounded plan-to-PR cycle), `single_owner_persistence` (one owner finishes and verifies), and `durable_checkpoint` (durable goal ledger with checkpoints and a final gate).",
+    "required_inputs": [
+      "accepted plan",
+      "work units with read/write scopes",
+      "dependency edges or shared invariants",
+      "verification commands"
+    ],
+    "expected_outputs": [
+      "runtime handoff prompts or lane instructions",
+      "status summary",
+      "review/CI evidence requirements",
+      "[capability:delivery_boundary] `durable_checkpoint` or selected executor/runtime handoff"
+    ],
+    "final_checklist": [
+      "Every concurrently runnable lane is disjoint by write scope, invariant, or responsibility, and every ordered unit carries an explicit acyclic dependency edge, before parallel handoffs are prepared.",
+      "Each lane has acceptance criteria, verification command, worker protocol expectation, and review owner.",
+      "When Hermes owns the coding path, use `hermes_coding_harness/v1` to separate builder, verifier, reviewer, docs, and PR lanes.",
+      "Worker ACK, dispatch, result, review, CI, and merge evidence are observed or explicitly missing.",
+      "Integration verification ran after lane results before the final status claims completion.",
+      "Changed behavior was exercised through the real user surface after diagnostics and relevant tests passed, and every spawned QA resource has a cleanup receipt.",
+      "The closing brief ends with the observed `omh_run_summary` line (elapsed seconds and token usage) or an explicit run-summary not_available statement \u2014 never a model-estimated number.",
+      "[capability:coordinated_scope] The integrated status names which coordination lanes are observed, blocked, or still prepared_not_observed.",
+      "[capability:coordinated_scope] Coordination teardown is explicit: released lanes are named and closed instead of lingering as implicit owners.",
+      "[capability:durable_checkpoint] The goal_status_card/v1 or goal_continuation/v1 names the next action and the final status says complete, blocked, or continue with the exact remaining checkpoint.",
+      "[capability:durable_checkpoint] All explicitly linked coding milestones have matching observed runtime evidence or stay prepared_not_observed and named as gaps without closing the goal.",
+      "[capability:durable_checkpoint] Long-running or background executor milestones report observed handles, current state, changed-file summaries, missing checks, and prepared-vs-observed boundaries while work is running.",
+      "[capability:durable_checkpoint] Branch, PR, CI, review, and merge claims are verified against local HEAD, remote branch SHA, PR head SHA, and merge commit before saying a fix landed."
+    ]
+  },
+  "ulw-maestro": {
+    "canonical": "maestro",
+    "why_this_exists": "`maestro` exists so a handoff to an already-chosen external coding CLI carries that CLI's own installed skills, a stated dispatchability boundary, and a captured session id instead of a guessed prompt; absent an explicit coding-owner choice, work runs inside the Hermes harness and no external coding CLI is selected, and this engine only loads once that explicit choice is already made.",
+    "required_inputs": [
+      "explicit coding-owner choice for this run",
+      "task or unit description",
+      "the chosen profile's discovered executor skill set"
+    ],
+    "expected_outputs": [
+      "a composed executor prompt arranged by the unit's role recipe",
+      "the handoff mode and dispatchability state named up front",
+      "a captured session or thread id, or an explicit unsteerable note"
+    ],
+    "final_checklist": [
+      "The selected coding or runtime owner is named before any implementation claim.",
+      "Prepared handoff, dispatch, execution, verification, review, CI, and merge states are separated.",
+      "The final status cites observed runtime evidence or keeps the work prepared_not_observed.",
+      "When Hermes is the selected coding owner this engine does not apply -- Hermes-native selection uses the Hermes runtime path, never this engine.",
+      "Dispatch never merges: collect each unit's fanout_unit_result/v1 evidence, verify the integrated combination of units (not just each one alone -- disjoint file scopes can still conflict at integration), and report merged/unmerged per unit in the closing brief. Merging the unit branches remains an explicit operator or reviewing-agent action; a dispatch receipt is never merge evidence."
+    ]
+  },
+  "ulw-research": {
+    "canonical": "research",
+    "why_this_exists": "`research` exists to make Hermes a careful research engine: it routes research demands to source-backed evidence gathering - from live web citations to studied reference implementations - verifies contested claims, and distills decision-grounding output so planning starts from evidence instead of guesses.",
+    "required_inputs": [
+      "research question",
+      "output audience - a human reader or a coding agent - asked before retrieval and never inferred",
+      "output format when the reader is human - markdown, a print-ready page, or both",
+      "output language when the reader is human - declared, never inferred from the request",
+      "target user/task if usability matters",
+      "usability/quality dimension if applicable",
+      "source boundaries",
+      "candidate reference implementations or repos when relevant",
+      "declared depth or wave budget when exhaustive grounding is requested - never inferred from phrasing",
+      "freshness, jurisdiction, or version constraints",
+      "requested as-of date or interval when the question is point-in-time"
+    ],
+    "expected_outputs": [
+      "source-backed synthesis",
+      "links or citations",
+      "source-quality notes",
+      "reference-implementation notes with pinned versions or permalinks",
+      "verified-claims ledger with an unresolved and refuted annex",
+      "plan-feed block: decision drivers, viable options with evidence, rejected candidates with reasons, risks, open questions",
+      "confidence and residual uncertainty",
+      "product_evidence_loop/v1",
+      "deep_research_dossier/v1",
+      "research_briefing/v1 with its markdown and print-ready page when the reader is human",
+      "temporal_source_receipt/v1 per historical claim and temporal_evidence_surfaces/v1 when the question is point-in-time"
+    ],
+    "final_checklist": [
+      "The research question, source boundaries, recency assumptions, and confidence level are named.",
+      "Observed sources, inference, synthesis, and unresolved retrieval gaps are separated.",
+      "Follow-up planning or handoff uses the research summary without calling it execution evidence."
+    ]
+  },
+  "omh-web-research": {
+    "canonical": "web-research",
+    "why_this_exists": "`web-research` exists so a current-facts question returns a cited answer in one retrieval round, without the declared depth budget, reference-implementation study, and dossier that `research` requires.",
+    "required_inputs": [
+      "question",
+      "freshness or version constraints",
+      "source boundaries when the topic is contested",
+      "requested as-of date or interval when the question is point-in-time"
+    ],
+    "expected_outputs": [
+      "cited answer",
+      "retrieval date per time-sensitive fact",
+      "source-quality notes",
+      "named retrieval gaps",
+      "web_research_brief/v1",
+      "temporal_source_receipt/v1 per historical claim and temporal_evidence_surfaces/v1 when the question is point-in-time"
+    ],
+    "final_checklist": [
+      "The research question, source boundaries, recency assumptions, and confidence level are named.",
+      "Observed sources, inference, synthesis, and unresolved retrieval gaps are separated.",
+      "Follow-up planning or handoff uses the research summary without calling it execution evidence."
+    ]
+  },
+  "omh-docs": {
+    "canonical": "product-docs",
+    "why_this_exists": "`omh-docs` gives Hermes one bounded, source-first way to explain OMH itself without turning product questions into generic workflow routing or silently changing the user's installation.",
+    "required_inputs": [
+      "OMH documentation question",
+      "public-product or current-local-install scope",
+      "freshness, version, or ref requirement when material"
+    ],
+    "expected_outputs": [
+      "source-backed answer",
+      "public-product and local-install facts kept separate",
+      "source URL or local command/path plus ref, version, or commit",
+      "named freshness or source-boundary gap"
+    ],
+    "final_checklist": [
+      "Every mutable public claim cites an official current source and ref, version, or commit.",
+      "Local facts name the passive command, disclosed diagnostic, or metadata path and remain separate from public-product facts.",
+      "No prohibited secret, raw-log, or unrelated-content source was read or printed.",
+      "Any requested mutation was routed to a specialized workflow and not performed without separate authorization."
+    ]
+  },
+  "omh-source-finder": {
+    "canonical": "source-finder",
+    "why_this_exists": "`source-finder` exists so Hermes can turn vague source discovery requests into typed candidates, acquisition status, and downstream workflow choice without pretending OMH searched, downloaded, or verified the material.",
+    "required_inputs": [
+      "source target or topic",
+      "desired source kinds",
+      "source boundaries or exclusion criteria",
+      "downstream intent when known"
+    ],
+    "expected_outputs": [
+      "source_finder_plan/v1",
+      "source_candidate/v1",
+      "source_candidate_set/v1",
+      "source_acquisition_status/v1",
+      "downstream workflow recommendation",
+      "not-evidence boundary"
+    ],
+    "final_checklist": [
+      "Source kinds, source boundaries, and downstream intent are named.",
+      "Each candidate has a source_candidate/v1 shape and acquisition state.",
+      "Observed states include provenance before being treated as evidence.",
+      "The next downstream workflow is recommended without claiming it ran.",
+      "Search, download, clone, extraction, hash, license, verification, and downstream processing gaps are explicit."
+    ]
+  },
+  "omh-research-brief": {
+    "canonical": "research-brief",
+    "why_this_exists": "`research-brief` exists to keep `research` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "business question",
+      "source boundary",
+      "recency or market scope"
+    ],
+    "expected_outputs": [
+      "evidence table",
+      "inference summary",
+      "confidence and uncertainty"
+    ],
+    "final_checklist": [
+      "The research question, source boundaries, recency assumptions, and confidence level are named.",
+      "Observed sources, inference, synthesis, and unresolved retrieval gaps are separated.",
+      "Follow-up planning or handoff uses the research summary without calling it execution evidence."
+    ]
+  },
+  "omh-research-department": {
+    "canonical": "research-department",
+    "why_this_exists": "`research-department` exists so Hermes users can start complex research-ops patterns without manually designing profiles, cron, knowledge storage, synthesis tooling, and delivery glue, while OMH keeps every runtime claim observed-only.",
+    "required_inputs": [
+      "topic or watch area",
+      "source boundaries",
+      "cadence",
+      "delivery target",
+      "knowledge-store preference",
+      "synthesis-tool preference"
+    ],
+    "expected_outputs": [
+      "research_department_plan/v1",
+      "source_inbox/v1",
+      "briefing_status/v1",
+      "not-evidence boundary"
+    ],
+    "final_checklist": [
+      "The research question, source boundaries, recency assumptions, and confidence level are named.",
+      "Observed sources, inference, synthesis, and unresolved retrieval gaps are separated.",
+      "Follow-up planning or handoff uses the research summary without calling it execution evidence."
+    ]
+  },
+  "omh-paper-learning": {
+    "canonical": "paper-learning",
+    "why_this_exists": "`paper-learning` exists so Hermes can act like a strong human tutor for papers: choose the right explanation level, walk through the full paper section by section, and keep PDF extraction and validation evidence honest.",
+    "required_inputs": [
+      "paper identity or attachment reference",
+      "observed text scope or extraction evidence",
+      "explanation level: very_easy, moderate, expert, or choose",
+      "coverage scope: full paper, selected sections, or supplied excerpt",
+      "output language when different from the source"
+    ],
+    "expected_outputs": [
+      "paper_learning_card/v1",
+      "explanation level metadata",
+      "source_state boundary",
+      "coverage ledger",
+      "section-by-section explanation outline",
+      "missing-section and not-observed list"
+    ],
+    "final_checklist": [
+      "The selected explanation level is one of: very_easy, moderate, expert, choose.",
+      "The source_state is recorded and scoped to observed text or extraction evidence.",
+      "The coverage ledger lists observed, missing, or prepared sections before claiming completion.",
+      "The explanation is section-aware and does not compress away claims, equations, figures, limitations, or reproducibility notes.",
+      "Not-observed boundaries remain visible: full_pdf_extraction, figure_ocr, external_citation_check, math_proof_validation, code_or_benchmark_reproduction, peer_review_or_claim_correctness."
+    ]
+  },
+  "omh-decide": {
+    "canonical": "strategy-brief",
+    "why_this_exists": "`strategy-brief` exists to keep `strategy` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "goal",
+      "known evidence",
+      "constraints",
+      "decision owner"
+    ],
+    "expected_outputs": [
+      "options",
+      "tradeoffs",
+      "recommended direction",
+      "decision note"
+    ],
+    "final_checklist": [
+      "The decision, options, tradeoffs, assumptions, and rejected alternatives are named.",
+      "Observed signals are separated from strategic inference.",
+      "Accepted decisions and implementation follow-ups are not conflated."
+    ]
+  },
+  "omh-meeting-brief": {
+    "canonical": "meeting-brief",
+    "why_this_exists": "`meeting-brief` exists to turn scattered context into a focused agenda, discussion prompts, decision points, and a record template without pretending the meeting already happened.",
+    "required_inputs": [
+      "meeting goal",
+      "audience",
+      "known context",
+      "decision topics"
+    ],
+    "expected_outputs": [
+      "agenda",
+      "discussion prompts",
+      "decisions needed",
+      "action-item template"
+    ],
+    "final_checklist": [
+      "The agenda, participants or audience, decisions needed, and record template are named.",
+      "Meeting prep, observed minutes, accepted decisions, and action ownership are separate states.",
+      "Missing context that would change the meeting structure is surfaced."
+    ]
+  },
+  "omh-feedback-triage": {
+    "canonical": "feedback-triage",
+    "why_this_exists": "`feedback-triage` exists to keep customer and community signals from jumping straight into roadmap or coding; it clusters evidence, ranks signals, and chooses the next workflow.",
+    "required_inputs": [
+      "feedback items or summary",
+      "source boundary",
+      "product area"
+    ],
+    "expected_outputs": [
+      "clusters",
+      "severity or opportunity ranking",
+      "next workflow recommendation",
+      "product_evidence_loop/v1"
+    ],
+    "final_checklist": [
+      "The source boundary, signal clusters, severity, and follow-up lane are named.",
+      "Bug, feature, research, strategy, and coding handoff outcomes stay separate.",
+      "The next workflow is recommended before any implementation claim."
+    ]
+  },
+  "omh-finance-analysis": {
+    "canonical": "finance-analysis",
+    "why_this_exists": "`finance-analysis` prepares a source-bounded decision brief without claiming an authoritative financial action.",
+    "required_inputs": [
+      "period",
+      "supplied finance source",
+      "decision question",
+      "calculation assumptions"
+    ],
+    "expected_outputs": [
+      "finance_scope_source_record/v1",
+      "finance_reconciliation_analysis_schedule/v1",
+      "finance_risk_register/v1",
+      "finance_decision_brief/v1"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-people-ops": {
+    "canonical": "people-ops",
+    "why_this_exists": "`people-ops` keeps recruiting and people-process guidance fair, structured, and evidence bounded before any human decision or external HR action.",
+    "required_inputs": [
+      "role or people-process outcome",
+      "available evidence",
+      "decision owner",
+      "policy constraints"
+    ],
+    "expected_outputs": [
+      "role/outcome and must-have versus trainable-criteria brief",
+      "structured interview scorecard and evidence-based debrief template",
+      "hiring-process, interviewer, and decision-owner plan",
+      "inclusion, privacy, policy, and missing-evidence flags with a next route"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-legal-compliance-review": {
+    "canonical": "legal-compliance-review",
+    "why_this_exists": "`legal-compliance-review` prepares scoped issues for human legal review without claiming counsel or filing authority.",
+    "required_inputs": [
+      "jurisdiction",
+      "document or process version",
+      "supplied authority",
+      "review objective"
+    ],
+    "expected_outputs": [
+      "legal_scope_authority_record/v1",
+      "legal_issue_traceability_matrix/v1",
+      "legal_risk_counsel_hold_register/v1",
+      "legal_review_disposition/v1"
+    ],
+    "final_checklist": [
+      "Findings or no-issue results are grounded in concrete file, artifact, command, or source evidence.",
+      "Open questions, residual risk, and missing verification are named.",
+      "Fixes or follow-up work are separate handoffs unless the user explicitly asked to implement them."
+    ]
+  },
+  "omh-support-operations": {
+    "canonical": "support-operations",
+    "why_this_exists": "`support-operations` turns a bounded customer case into response and escalation guidance without treating drafts or recommendations as helpdesk actions.",
+    "required_inputs": [
+      "support case",
+      "known facts",
+      "customer impact",
+      "available ownership or escalation path"
+    ],
+    "expected_outputs": [
+      "customer-safe reply draft with stated facts, unknowns, and tone",
+      "issue/severity/impact/escalation matrix",
+      "internal next-step and owner handoff brief",
+      "missing repro, account, entitlement, or approval evidence list"
+    ],
+    "final_checklist": [
+      "The source boundary, signal clusters, severity, and follow-up lane are named.",
+      "Bug, feature, research, strategy, and coding handoff outcomes stay separate.",
+      "The next workflow is recommended before any implementation claim."
+    ]
+  },
+  "omh-curriculum-design": {
+    "canonical": "curriculum-design",
+    "why_this_exists": "`curriculum-design` makes outcomes, sequence, assessment, and constraints reviewable before materials or LMS work.",
+    "required_inputs": [
+      "learners",
+      "learning goal",
+      "prerequisites",
+      "constraints"
+    ],
+    "expected_outputs": [
+      "curriculum_learner_outcome_brief/v1",
+      "curriculum_alignment_map/v1",
+      "curriculum_sequence_design/v1",
+      "curriculum_validation_disposition/v1"
+    ],
+    "final_checklist": [
+      "The plan names goals, non-goals, assumptions, acceptance criteria, and verification shape.",
+      "Draft recommendations, accepted decisions, and executor handoffs are separate states.",
+      "Rejected options or unresolved tradeoffs are recorded before handoff."
+    ]
+  },
+  "omh-localization-review": {
+    "canonical": "localization-review",
+    "why_this_exists": "`localization-review` makes terminology, context, cultural fit, and locale QA reviewable without treating a drafted translation as a published or visually validated release.",
+    "required_inputs": [
+      "locale",
+      "audience",
+      "source version",
+      "product or content context"
+    ],
+    "expected_outputs": [
+      "locale/audience/context and source-version brief",
+      "approved-term glossary and transcreation/localization choices",
+      "string/content issue matrix with context, severity, and review owner",
+      "locale QA acceptance criteria and handoff/observed-evidence gaps"
+    ],
+    "final_checklist": [
+      "Findings or no-issue results are grounded in concrete file, artifact, command, or source evidence.",
+      "Open questions, residual risk, and missing verification are named.",
+      "Fixes or follow-up work are separate handoffs unless the user explicitly asked to implement them."
+    ]
+  },
+  "omh-sales-development": {
+    "canonical": "sales-development",
+    "why_this_exists": "`sales-development` prepares evidence-bounded discovery and qualification guidance without claiming sales execution.",
+    "required_inputs": [
+      "account or segment",
+      "available evidence",
+      "buyer hypothesis",
+      "sales objective"
+    ],
+    "expected_outputs": [
+      "sales_opportunity_evidence_record/v1",
+      "sales_qualification_state/v1",
+      "sales_draft_sequence/v1",
+      "sales_handoff_disposition/v1"
+    ],
+    "final_checklist": [
+      "The decision, options, tradeoffs, assumptions, and rejected alternatives are named.",
+      "Observed signals are separated from strategic inference.",
+      "Accepted decisions and implementation follow-ups are not conflated."
+    ]
+  },
+  "omh-product-brief": {
+    "canonical": "product-brief",
+    "why_this_exists": "`product-brief` turns product evidence into a reviewable PRD and prioritization frame before delivery planning without treating a draft as an accepted roadmap commitment.",
+    "required_inputs": [
+      "product evidence",
+      "problem and user",
+      "goal and non-goals",
+      "decision owner"
+    ],
+    "expected_outputs": [
+      "problem, user, evidence, metric, goal, and non-goal brief",
+      "PRD with requirements, open questions, risks, dependencies, and acceptance shape",
+      "prioritization/roadmap options with tradeoffs and decision owner",
+      "explicit downstream route to ralplan, strategy-brief, or ultrawork only when its prerequisite is satisfied"
+    ],
+    "final_checklist": [
+      "The plan names goals, non-goals, assumptions, acceptance criteria, and verification shape.",
+      "Draft recommendations, accepted decisions, and executor handoffs are separate states.",
+      "Rejected options or unresolved tradeoffs are recorded before handoff."
+    ]
+  },
+  "omh-ops-review": {
+    "canonical": "ops-review",
+    "why_this_exists": "`ops-review` exists to keep `operations` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "status evidence",
+      "scope",
+      "time window",
+      "known risks"
+    ],
+    "expected_outputs": [
+      "status summary",
+      "risks",
+      "blockers",
+      "priorities",
+      "follow-up actions"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-operating-rhythm": {
+    "canonical": "operating-rhythm",
+    "why_this_exists": "`operating-rhythm` exists so recurring operating work has durable minutes, decisions, and follow-up history without pretending a meeting outcome was observed.",
+    "required_inputs": [
+      "cadence or meeting type",
+      "audience or participants",
+      "time window",
+      "source notes or explicit missing-notes boundary"
+    ],
+    "expected_outputs": [
+      "operation artifact",
+      "decision log",
+      "action item history",
+      "observed/prepared boundary"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-report-package": {
+    "canonical": "report-package",
+    "why_this_exists": "`report-package` exists to make reporting a first-class operations surface: Hermes can produce clean report and slide outlines while keeping approvals, delivery, and binary deck export as separate evidence.",
+    "required_inputs": [
+      "audience",
+      "reporting period or scope",
+      "supplied facts",
+      "missing data or assumptions"
+    ],
+    "expected_outputs": [
+      "report package",
+      "PPT-ready Markdown or JSON outline",
+      "assumptions and missing-input list",
+      "optional achievements badge section sourced from `omh achievements export --format md` when requested"
+    ],
+    "final_checklist": [
+      "The reporting window, inputs, audience, narrative, and evidence gaps are named.",
+      "Draft report, generated package, approval, and delivery are separate states.",
+      "The next action says whether to gather evidence, generate, revise, approve, or deliver."
+    ]
+  },
+  "omh-materials-package": {
+    "canonical": "materials-package",
+    "why_this_exists": "`materials-package` exists so Hermes can handle document, deck, spreadsheet, PDF, Word, Keynote, HWP, and Markdown work as a first-class material-processing workflow without becoming a hidden file generator.",
+    "required_inputs": [
+      "audience or recipient",
+      "source inputs",
+      "target format(s)",
+      "deadline or delivery context",
+      "missing data or assumptions"
+    ],
+    "expected_outputs": [
+      "material_artifact/v1 plan",
+      "format-specific QA ladder",
+      "executor-neutral generation handoff when needed",
+      "observed export boundary"
+    ],
+    "final_checklist": [
+      "The material source, target format, audience, structure, and QA expectation are named.",
+      "Binary export, rendering, formula recalculation, attachment, and delivery stay observed-only.",
+      "The next action identifies whether the package is planned, generated, QA-ready, or blocked."
+    ]
+  },
+  "omh-image-cards": {
+    "canonical": "img-summary",
+    "why_this_exists": "`img-summary` exists so Hermes can turn common communication work into provider-neutral image-card prompts while adapting format, domain mood, background, texture, lighting, camera, and poster grammar, and keeping generation, QA, and delivery as observed-only evidence.",
+    "required_inputs": [
+      "source/image",
+      "create/edit",
+      "format",
+      "ratio",
+      "headline or source text",
+      "audience",
+      "language mode",
+      "card sections, source excerpts, or preserve/remove constraints"
+    ],
+    "expected_outputs": [
+      "visual_prompt_card/v1",
+      "image_generation_setup/v1 when generator capability is missing",
+      "source-specific visual format",
+      "detected domain_key",
+      "domain-aware visual theme",
+      "poster_archetype/v1",
+      "poster archetype visual grammar",
+      "background, texture, camera, and lighting direction",
+      "image-safe card copy",
+      "generation prompt",
+      "image transformation brief when editing a supplied image",
+      "negative prompt",
+      "quality checks",
+      "visual evidence boundary",
+      "visual_generation_receipt/v1 when a producer reports an image attempt",
+      "requested route separate from observed route"
+    ],
+    "final_checklist": [
+      "The material source, target format, audience, structure, and QA expectation are named.",
+      "Binary export, rendering, formula recalculation, attachment, and delivery stay observed-only.",
+      "The next action identifies whether the package is planned, generated, QA-ready, or blocked."
+    ]
+  },
+  "omh-apple-design": {
+    "canonical": "apple-design",
+    "why_this_exists": "`apple-design` turns Apple UI design, review, and improvement requests into a platform-aware brief that respects native and web differences while preserving OMH's existing implementation and evidence owners.",
+    "required_inputs": [
+      "mode: design, review, or improve",
+      "visual target: Apple marketing/product visual, native Apple application, or Apple-inspired web UI",
+      "target, surface/state, supplied evidence, and available execution constraints"
+    ],
+    "expected_outputs": [
+      "apple_design_brief/v1",
+      "apple_visual_direction/v1",
+      "apple_design_finding/v1 with severity, location/evidence, impact, source/applicability, fix, owner, and missing checks",
+      "two to four design directions before visual work when direction is open",
+      "composed remediation route to frontend, design-quality-gate, accessibility-audit, visual-qa, or award-bar-score"
+    ],
+    "final_checklist": [
+      "Target, convention, state, and evidence are explicit.",
+      "Each direction or finding names evidence, source applicability, owner, and missing verification; product visuals name original art direction.",
+      "Implementation remains with the selected coding owner; accessibility and visual completion remain not_observed until their existing lanes record evidence."
+    ]
+  },
+  "omh-design-orchestration": {
+    "canonical": "design-orchestration",
+    "why_this_exists": "`design-orchestration` lets Hermes users say that they want design handled without making them manually compose four specialist lanes or confusing preparation with completed visual work.",
+    "required_inputs": [
+      "bounded target surface, audience, and primary task",
+      "at least one opaque project, user, or Hermes context reference",
+      "direction vocabulary and avoid-pattern selection",
+      "executor selection and observed visual evidence remain pending"
+    ],
+    "expected_outputs": [
+      "design_orchestration/v1",
+      "design_direction_set/v1 when the direction is still open",
+      "design intent and opaque context-reference boundary",
+      "prepared direction vocabulary",
+      "downstream composition: design-quality-gate, frontend, accessibility-audit, visual-qa",
+      "executor-neutral handoff with executor_selection_required",
+      "visual evidence requirements with visual_verdict not_observed"
+    ],
+    "final_checklist": [
+      "The bounded intent, opaque context references, direction vocabulary, and avoid patterns are explicit.",
+      "The four downstream lanes retain their direct ownership and the executor is still selection-required.",
+      "The visual evidence contract keeps visual_verdict not_observed until fresh captures are recorded by the visual-QA owner."
+    ]
+  },
+  "omh-design-quality-gate": {
+    "canonical": "design-quality-gate",
+    "why_this_exists": "`design-quality-gate` makes high-stakes visual deliverables premium and trustworthy by treating taste, content, layout, accessibility, and render QA as first-class evidence.",
+    "required_inputs": [
+      "surface/channel",
+      "audience and purpose",
+      "source content or gaps",
+      "style references",
+      "ordinary-output baseline or competitor/reference quality bar",
+      "viewport/page/export constraints",
+      "observed render QA for completion claims"
+    ],
+    "expected_outputs": [
+      "design_quality_gate/v1",
+      "content_quality_review/v1",
+      "surface_quality_matrix/v1",
+      "comparative_quality_rubric/v1",
+      "layout_validation_plan/v1",
+      "visual_qa_evidence/v1 when observed",
+      "publishing_readiness/v1",
+      "downstream route: frontend, materials-package, img-summary, or deliverable-package"
+    ],
+    "final_checklist": [
+      "The surface, audience, source content, baseline/reference bar, and artifact type are named.",
+      "The comparative_quality_rubric/v1 explains how the result must beat ordinary output.",
+      "The surface_quality_matrix/v1 covers web, deck/PPT, PDF/poster, accessibility, and CJK-relevant checks as applicable.",
+      "Prepared quality gates, generated artifacts, visual QA, export, publication, approval, and delivery remain separate states.",
+      "The next action names whether to revise content, prepare implementation/export handoff, gather render evidence, or report blocked QA."
+    ]
+  },
+  "omh-award-bar-score": {
+    "canonical": "award-bar-score",
+    "why_this_exists": "`award-bar-score` gives \"make it award-winning\" a measurable meaning: published axes, published weights, a published threshold, and the one axis holding the surface below it \u2014 instead of a taste argument nobody can settle.",
+    "required_inputs": [
+      "the target URL, route, or rendered capture being judged",
+      "the award model and its published axes, weights, and threshold",
+      "the surface's own accessibility and performance budgets",
+      "audience and primary user task"
+    ],
+    "expected_outputs": [
+      "award_bar_score/v1",
+      "per-axis scores with named evidence for UI, UX, and innovation",
+      "the weighted total and its distance from the published threshold",
+      "the binding constraint: the axis whose gain moves the total most",
+      "tradeoff_ledger/v1 when an innovation move costs accessibility or performance budget",
+      "downstream route: frontend, accessibility-audit, visual-qa, or design-quality-gate"
+    ],
+    "final_checklist": [
+      "Each of UI, UX, and innovation carries its own score and the rendered evidence it was read from.",
+      "The weighted total is computed from the stated weights and compared against the published threshold.",
+      "The binding constraint names one axis and what moving it requires.",
+      "Any innovation move that costs accessibility or performance budget is recorded as a tradeoff the user chooses.",
+      "No award, jury, placement, or selection outcome is claimed."
+    ]
+  },
+  "omh-frontend": {
+    "canonical": "frontend",
+    "why_this_exists": "`frontend` gives OMH a first-class web UI creation and polishing workflow so Hermes can prepare high-quality layout, design-system, accessibility, performance, and visual-QA handoffs without becoming the hidden coding or browser runtime.",
+    "required_inputs": [
+      "target app, page, route, or component",
+      "audience and primary user task",
+      "existing design system or missing-system gap",
+      "style references or quality bar",
+      "initial generation mode or redesign mode",
+      "DESIGN.md or design-system source of truth when available",
+      "framework/stack when known",
+      "routes, states, breakpoints, and locale/CJK risks",
+      "accessibility and performance constraints",
+      "observed browser evidence for completion claims"
+    ],
+    "expected_outputs": [
+      "frontend_design_brief/v1",
+      "frontend_initial_generation_contract/v1 when greenfield",
+      "design_system_contract/v1",
+      "design_reference_selection/v1",
+      "reference_packet/v1 when supplied",
+      "frontend_route_state_matrix/v1",
+      "frontend_component_state_inventory/v1",
+      "frontend_implementation_handoff/v1",
+      "accessibility_performance_expectations/v1",
+      "visual_qa_required/v1",
+      "observed_browser_evidence/v1 when observed"
+    ],
+    "final_checklist": [
+      "The target page/component, audience, primary task, references, and quality bar are named.",
+      "Greenfield work includes frontend_initial_generation_contract/v1 before implementation handoff.",
+      "The design_system_contract/v1 covers typography, spacing, palette, components, layout, motion, and responsive rules.",
+      "The frontend_route_state_matrix/v1 covers pages, 375/768/1280-style breakpoints, empty/loading/error, interaction, and CJK/locale risks.",
+      "The frontend_component_state_inventory/v1 covers reusable primitives and their default/hover/focus/active/disabled/loading/empty/error states.",
+      "The handoff names the executor/runtime owner and keeps code, browser, Lighthouse, accessibility, deployment, and visual QA evidence observed-only.",
+      "The next action is prepare_frontend_handoff, route to visual-qa, or report the missing evidence blocker."
+    ]
+  },
+  "omh-frontend-refactor": {
+    "canonical": "frontend-refactor",
+    "why_this_exists": "`frontend-refactor` exists so UI restructuring runs as a previewed, behavior-locked, impact-ordered process instead of ad-hoc rewrites: the plan comes before any edit, state fixes come before polish, and every change carries its safety reason.",
+    "required_inputs": [
+      "the target files or component, and the framework in use",
+      "current behavior evidence: tests, or the characterization checks to write first",
+      "the diff budget: micro pass only, one macro tier, or full ladder"
+    ],
+    "expected_outputs": [
+      "preview change plan with per-change line refs, before/after, safety reason, and category counts",
+      "impact-ordered pass selection naming what is deferred and why",
+      "characterization-test gate verdict before any macro change",
+      "apply-step handoff with the unsafe-in-isolation changes listed under notes, never half-applied"
+    ],
+    "final_checklist": [
+      "The preview plan was emitted before any file changed, and the apply step was an explicit second decision.",
+      "Behavior evidence exists on both sides of apply, and unsafe-in-isolation changes are listed as notes, not half-applied.",
+      "Pass order was impact-first and each finding names its category and safety reason.",
+      "Out-of-scope smells were routed: generic slop to `ai-slop-cleaner`, new UI to `frontend`, verdict-only review to `code-review`."
+    ]
+  },
+  "omh-backend": {
+    "canonical": "backend",
+    "why_this_exists": "`backend` gives OMH a first-class server-side workflow so Hermes can prepare auth boundaries, error paths, response shapes, and migration order without becoming the hidden runtime that executes them.",
+    "required_inputs": [
+      "the service, endpoint, or data surface being changed",
+      "callers and their trust level (public, partner, internal, machine)",
+      "language, framework, and datastore when known",
+      "authentication and authorization model in force",
+      "existing schema and migration tooling",
+      "backward-compatibility and rollout constraints",
+      "observed integration or load evidence for completion claims"
+    ],
+    "expected_outputs": [
+      "backend_service_contract/v1",
+      "auth_boundary_map/v1",
+      "error_path_table/v1",
+      "response_shape_contract/v1",
+      "schema_migration_plan/v1 when the change touches storage",
+      "backend_implementation_handoff/v1",
+      "observed_integration_evidence/v1 when observed"
+    ],
+    "final_checklist": [
+      "The surface, its callers, and each caller's trust level are named.",
+      "The auth_boundary_map/v1 states where trust changes and which check enforces it on every path.",
+      "The error_path_table/v1 covers each failure mode with status, body shape, retryability, and redaction rule.",
+      "The response_shape_contract/v1 is consistent across endpoints rather than per-endpoint improvisation.",
+      "Storage changes carry an expand/backfill/switch/contract order with a rollback point per step.",
+      "The handoff names the executor, the stack, and the per-stack reference to load first.",
+      "Implementation, migrations, integration runs, and deployment stay observed-only."
+    ]
+  },
+  "omh-rust": {
+    "canonical": "rust",
+    "why_this_exists": "`rust` closes OMH's zero-coverage Rust domain and makes the escalation from ordinary Rust work to undefined-behavior discipline a deterministic routing rule rather than something a model is trusted to notice.",
+    "required_inputs": [
+      "the crate, module, or function being changed",
+      "whether the change touches `unsafe`, raw pointers, FFI, `MaybeUninit`, or a lock-free primitive",
+      "the crate's edition, MSRV, and async runtime when relevant",
+      "existing error type and public API stability constraints",
+      "the gate commands the repository already runs",
+      "observed compiler, clippy, test, and Miri/sanitizer evidence for completion claims"
+    ],
+    "expected_outputs": [
+      "rust_change_contract/v1",
+      "ownership_shape/v1",
+      "error_and_api_contract/v1",
+      "rust_gate_list/v1",
+      "ub_escalation_verdict/v1",
+      "ub_discipline_checklist/v1 when the escalation triggers",
+      "observed_rust_gate_evidence/v1 when observed"
+    ],
+    "final_checklist": [
+      "The escalation verdict is stated with the trigger that decided it.",
+      "The ownership shape names owners, borrows across boundaries, and every deliberate clone.",
+      "The error type, its conversion boundary, and every surviving `unwrap`/`expect`/`panic!` are named.",
+      "The gate list names the exact commands the executor must run and pass.",
+      "An escalated change carries the Miri, sanitizer, and concurrency-testing requirements as blocking items.",
+      "Compiler, clippy, test, Miri, sanitizer, and loom results stay observed-only."
+    ]
+  },
+  "omh-native-debugging": {
+    "canonical": "native-debugging",
+    "why_this_exists": "`native-debugging` closes OMH's zero-coverage low-level domain by preparing a hypothesis-driven, DAP-first debugging plan for native binaries, while OMH itself continues to execute nothing.",
+    "required_inputs": [
+      "the binary, crash signature, or fault symptom",
+      "whether source and debug symbols are available",
+      "platform, architecture, and the reproduction command",
+      "how reliably the fault reproduces",
+      "existing crash logs, core dumps, or sanitizer output",
+      "observed debugger evidence for any resolution claim"
+    ],
+    "expected_outputs": [
+      "native_fault_statement/v1",
+      "hypothesis_set/v1 with at least three competing hypotheses",
+      "distinguishing_observation_plan/v1",
+      "debugger_session_plan/v1",
+      "native_debug_handoff/v1",
+      "observed_debugger_evidence/v1 when observed"
+    ],
+    "final_checklist": [
+      "The fault is stated as an observed symptom with a reproduction command, separate from any assumed cause.",
+      "At least three hypotheses span distinct axes and each carries its refuting observation.",
+      "The debugger session plan names the DAP adapter, breakpoints, watchpoints, threads, frames, and values to read.",
+      "The handoff says the executor drives the debugger and OMH executes nothing.",
+      "Reproduction, debugger output, root cause, and fix are reported as separate observed or not_observed states."
+    ]
+  },
+  "omh-accessibility-audit": {
+    "canonical": "accessibility-audit",
+    "why_this_exists": "`accessibility-audit` adapts ECC's accessibility-architect posture into an OMH-native workflow so frontend quality includes WCAG, keyboard, screen-reader, pointer, contrast, and reflow gates without pretending a plan is observed compliance.",
+    "required_inputs": [
+      "target app, page, route, component, or design system",
+      "platform: web, iOS, Android, desktop, TUI, or unknown",
+      "available UI evidence: code, screenshots, DOM snapshots, accessibility tree, browser captures, or design specs",
+      "interaction paths and critical tasks",
+      "required standard or policy such as WCAG 2.2 AA",
+      "known risk areas: keyboard traps, missing labels, low contrast, small targets, reflow, live regions, or CJK/localization",
+      "observed accessibility evidence for PASS claims"
+    ],
+    "expected_outputs": [
+      "accessibility_audit_plan/v1",
+      "wcag_success_criteria_matrix/v1",
+      "semantic_structure_review/v1",
+      "focus_and_keyboard_trace/v1 when observed",
+      "screen_reader_announcement_map/v1 when observed",
+      "target_size_and_pointer_review/v1",
+      "contrast_and_reflow_review/v1",
+      "accessibility_remediation_handoff/v1 when needed",
+      "accessibility_audit_verdict/v1"
+    ],
+    "final_checklist": [
+      "The platform, target surfaces, critical tasks, WCAG level, supplied evidence, and missing observations are explicit.",
+      "The wcag_success_criteria_matrix/v1 separates PASS/HOLD/BLOCK and maps each issue to user impact.",
+      "Semantic structure, focus/keyboard, screen-reader announcements, target size/pointer, contrast/reflow, and form/status behavior are separate checks.",
+      "PASS is unavailable unless evidence is fresh after the latest UI edit and covers critical tasks.",
+      "Remediation, frontend implementation, visual QA, browser proof, CI, release, and merge remain separate observed states."
+    ]
+  },
+  "omh-visual-qa": {
+    "canonical": "visual-qa",
+    "why_this_exists": "`visual-qa` gives OMH a completion gate for rendered surfaces so layout breaks, AI-looking polish gaps, CJK text problems, and mismatched-lineage screenshot claims cannot be mistaken for verified quality.",
+    "required_inputs": [
+      "surface type",
+      "target URL, route, file, image, or TUI command when available",
+      "intended design, baseline, or reference",
+      "pages, states, viewports, and locales to cover",
+      "complete page/state/viewport enumeration rather than a sample",
+      "target repository and exact source revision",
+      "known risk areas such as CJK, overflow, responsiveness, or accessibility",
+      "motion and interaction states that need capture",
+      "browser interaction paths, mutating-flow boundary, and test credentials policy when a live web UI is in scope",
+      "console, network, accessibility, and keyboard navigation checks required for browser QA claims",
+      "render/capture evidence bound to the target repository and revision for completion claims"
+    ],
+    "expected_outputs": [
+      "visual_qa_plan/v1",
+      "web_visual_qa_package/v2",
+      "viewport_state_capture_matrix/v1",
+      "message_attachment_projection/v1 for chat attachments",
+      "web_visual_qa_message_card/v1 for chat message summaries",
+      "render_capture_manifest/v1 when observed",
+      "browser_interaction_trace/v1 when observed",
+      "console_network_health/v1 when observed",
+      "click_path_state_trace/v1 when observed",
+      "accessibility_keyboard_trace/v1 when observed",
+      "visual_diff_evidence/v1 when observed",
+      "visual_hotspot_review/v1 when observed",
+      "motion_interaction_capture/v1 when observed",
+      "dual_oracle_visual_review/v1 when observed",
+      "cjk_layout_findings/v1 when applicable",
+      "visual_qa_verdict/v1",
+      "retry_or_blocker/v1"
+    ],
+    "final_checklist": [
+      "Interaction, console/network, click-path, keyboard/accessibility, diff, hotspot, motion, dual-review evidence, and blocker status are separate fields.",
+      "The verdict is PASS, REVISE, or BLOCK with concrete evidence IDs and exact missing evidence or fix requirements.",
+      "Implementation fixes stay separate from the observed verdict, routed back to the executor/frontend workflow and rechecked against the resulting revision."
+    ]
+  },
+  "omh-build-failure-triage": {
+    "canonical": "build-failure-triage",
+    "why_this_exists": "`build-failure-triage` adapts ECC's build-fix and PR-test-analysis posture into an OMH-native workflow so failed checks become evidence-backed minimal handoffs instead of ad hoc debugging or false-green verification claims.",
+    "required_inputs": [
+      "failing command, CI job, PR check, or tool name",
+      "fresh failure log, exit status, or observed check URL",
+      "repo root, branch, PR, or changed files under investigation",
+      "allowed remediation boundary: diagnose only, local fix handoff, or executor-owned patch",
+      "dependency-install and network permission boundaries",
+      "last known passing state when available"
+    ],
+    "expected_outputs": [
+      "build_failure_triage_plan/v1",
+      "failure_log_digest/v1",
+      "failure_cluster_matrix/v1",
+      "root_cause_hypothesis_set/v1",
+      "minimal_fix_handoff/v1 when remediation is requested",
+      "rerun_plan/v1",
+      "build_failure_triage_verdict/v1"
+    ],
+    "final_checklist": [
+      "The failing command/job, freshness, exit status, and log/source boundary are explicit.",
+      "Failure clusters separate syntax/type/lint/test/dependency/config/environment/DCO causes.",
+      "The proposed remediation is minimal, scoped to affected files, and separated from implementation evidence.",
+      "The rerun ladder names targeted, broad local, CI, and DCO checks without claiming they already passed.",
+      "The final verdict is FIX_READY, NEEDS_MORE_LOGS, BLOCKED_BY_ENVIRONMENT, or ROUTE_TO_VERIFICATION_GATE."
+    ]
+  },
+  "omh-workspace-audit": {
+    "canonical": "workspace-audit",
+    "why_this_exists": "`workspace-audit` gives OMH an ECC-inspired but OMH-native front door for understanding a large agent workspace before strengthening it, without turning inventory into hidden mutation or runtime proof.",
+    "required_inputs": [
+      "workspace or repo root",
+      "audit scope: repo, skills, prompts, plugins, MCP/tools, hooks, config, docs, runtime artifacts",
+      "known constraints such as no secrets, no network, or read-only mode",
+      "desired downstream decision or strengthening goal"
+    ],
+    "expected_outputs": [
+      "workspace_audit_plan/v1",
+      "surface_inventory/v1",
+      "capability_gap_matrix/v1",
+      "config_security_findings/v1",
+      "downstream_workflow_recommendation/v1",
+      "not-evidence boundary"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-production-audit": {
+    "canonical": "production-audit",
+    "why_this_exists": "`production-audit` gives OMH a preflight release surface so operators can see production risks before launch while OMH stays out of deploy and infrastructure execution.",
+    "required_inputs": [
+      "product, service, release, or artifact scope",
+      "target environment and release channel",
+      "known test, CI, deploy, observability, security, and support evidence",
+      "rollback owner and acceptable risk threshold"
+    ],
+    "expected_outputs": [
+      "production_audit_plan/v1",
+      "readiness_matrix/v1",
+      "release_gate_verdict/v1",
+      "rollback_and_monitoring_plan/v1",
+      "risk_register/v1",
+      "not-evidence boundary"
+    ],
+    "final_checklist": [
+      "Findings or no-issue results are grounded in concrete file, artifact, command, or source evidence.",
+      "Open questions, residual risk, and missing verification are named.",
+      "Fixes or follow-up work are separate handoffs unless the user explicitly asked to implement them."
+    ]
+  },
+  "omh-verification-gate": {
+    "canonical": "verification-gate",
+    "why_this_exists": "`verification-gate` gives OMH a deterministic evidence surface before done/merge claims, inspired by ECC-style gates but rebuilt around OMH's prepared-versus-observed contract.",
+    "required_inputs": [
+      "claim or change under verification",
+      "expected behavior and risk surface",
+      "available local commands and CI requirements",
+      "fresh observed outputs or explicit not-run gaps"
+    ],
+    "expected_outputs": [
+      "verification_gate_plan/v1",
+      "verification_matrix/v1",
+      "observed_check_results/v1 when observed",
+      "claim_verdict/v1",
+      "rerun_or_blocker/v1",
+      "not-evidence boundary"
+    ],
+    "final_checklist": [
+      "The scenario, expected behavior, observed result, and pass/fail basis are named.",
+      "Proposed fixes are separated from observed QA evidence.",
+      "Missing or failed verification routes back to plan, fix, or a narrower test."
+    ]
+  },
+  "omh-agent-evaluation": {
+    "canonical": "agent-evaluation",
+    "why_this_exists": "`agent-evaluation` gives OMH a way to improve executor choice empirically, not by vibes, while preserving executor-neutral product language across Codex, Claude Code, Hermes, and generic runtimes.",
+    "required_inputs": [
+      "candidate executors or agents",
+      "task set and fixtures",
+      "success criteria and scoring rubric",
+      "allowed tools, budget, timebox, and isolation policy",
+      "observed run artifacts when comparing completed attempts"
+    ],
+    "expected_outputs": [
+      "paired_run_decision/v1",
+      "not-evidence boundary"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-rules-distill": {
+    "canonical": "rules-distill",
+    "why_this_exists": "`rules-distill` gives OMH a disciplined way to learn from large skill ecosystems like ECC without wholesale copying: extract principles, review them, then patch OMH only through explicit verified work.",
+    "required_inputs": [
+      "source corpus: skills, prompts, traces, reviews, failures, or docs",
+      "destination boundary: AGENTS, skill catalog, prompt, docs, memory, or no-write review",
+      "rule granularity and acceptance criteria",
+      "reviewer or approval requirement"
+    ],
+    "expected_outputs": [
+      "rules_distillation_plan/v1",
+      "principle_candidate_set/v1",
+      "duplication_conflict_report/v1",
+      "review_queue/v1",
+      "approved_patch_handoff/v1 when approved",
+      "not-evidence boundary"
+    ],
+    "final_checklist": [
+      "The durable fact, source evidence, retrieval hint, and staleness risk are recorded.",
+      "Uncertain or conflicting knowledge is marked as review-needed rather than permanent truth.",
+      "Separate coding or docs tasks are extracted instead of buried in notes."
+    ]
+  },
+  "omh-codebase-onboarding": {
+    "canonical": "codebase-onboarding",
+    "why_this_exists": "`codebase-onboarding` adapts ECC's code-tour and onboarding surfaces into an OMH-native first-read workflow so unfamiliar repos become navigable before implementation pressure starts.",
+    "required_inputs": [
+      "repo root or supplied source context",
+      "target audience: operator, new contributor, maintainer, or executor",
+      "desired depth: quick map, architecture tour, first issue, or handoff pack",
+      "known constraints such as no network, no secrets, or read-only mode"
+    ],
+    "expected_outputs": [
+      "codebase_onboarding_plan/v1",
+      "repo_map/v1",
+      "reading_path/v1",
+      "domain_glossary/v1",
+      "risk_and_unknowns_map/v1",
+      "first_task_runway/v1",
+      "not-evidence boundary"
+    ],
+    "final_checklist": [
+      "The plan names goals, non-goals, assumptions, acceptance criteria, and verification shape.",
+      "Draft recommendations, accepted decisions, and executor handoffs are separate states.",
+      "Rejected options or unresolved tradeoffs are recorded before handoff."
+    ]
+  },
+  "omh-codegraph-refresh": {
+    "canonical": "codegraph-refresh",
+    "why_this_exists": "`codegraph-refresh` adapts ECC-style codemap freshness into OMH's local codegraph commands so operators can refresh navigation context before handoff without pretending code intelligence is execution evidence.",
+    "required_inputs": [
+      "repo root or current workspace",
+      "refresh depth: build, summary, write artifact, or task-scoped handoff",
+      "task or focus terms when a handoff pack is needed",
+      "staleness signal, read-only boundary, and allowed command execution"
+    ],
+    "expected_outputs": [
+      "codegraph_refresh_plan/v1",
+      "codegraph_command_plan/v1",
+      "staleness_and_scope_report/v1",
+      "codegraph_summary_request/v1",
+      "codegraph_handoff_context/v1 when task-scoped",
+      "not-evidence boundary"
+    ],
+    "final_checklist": [
+      "Repo root, refresh depth, task focus, command choices, and write policy are explicit.",
+      "Prepared command plans, observed outputs, generated artifacts, and executor handoff readiness are separated.",
+      "`omh_codegraph_summary/v1`, `omh_codegraph_context/v1`, or `.omh/codegraph/codegraph.json` is claimed only with observed command or file evidence.",
+      "Follow-up implementation, review, CI, and merge state are routed to their owning workflows instead of inferred from codegraph context."
+    ]
+  },
+  "omh-codebase-uml": {
+    "canonical": "codebase-uml",
+    "why_this_exists": "`codebase-uml` exists so 'visualize our codebase' produces one deterministic, readable picture instead of a hand-drawn guess: the interface each unit exposes is ranked by who imports it, the layout is bounded before PlantUML sees it, and every omission the bounding made is printed on the image.",
+    "required_inputs": [
+      "repo root or current workspace",
+      "view: whole repo at package level, one area by `--focus <path>`, or module level for a subsystem",
+      "delivery target (chat attachment, PR, doc) which fixes the format: PNG for chat, SVG only when asked",
+      "renderer readiness from the command's render plan (`plantuml` on PATH, or `PLANTUML_JAR` plus `java`)"
+    ],
+    "expected_outputs": [
+      "codebase_uml/v1 model (units, interfaces, edges, omissions) via `omh codegraph uml --json`",
+      "PlantUML source written by `omh codegraph uml --output <file>.puml`",
+      "uml_render_plan/v1 naming the exact render command or the blocker",
+      "one rendered PNG (or SVG on request) attached to the reply, with the omissions legend visible",
+      "not-evidence boundary"
+    ],
+    "final_checklist": [
+      "The view (package, focus, or module) matches the question asked, and only one view was rendered unless more were requested.",
+      "The render command and its observed result are recorded before the image is claimed.",
+      "The legend's omissions were read back to the user in the reply.",
+      "Follow-up exploration used narrower generated views, not recollection of the first picture."
+    ]
+  },
+  "omh-context-budget-review": {
+    "canonical": "context-budget-review",
+    "why_this_exists": "`context-budget-review` ports ECC's context-budget and token-budget instincts into OMH as a compactness gate that protects long-running work without redefining success around a smaller task.",
+    "required_inputs": [
+      "task or workflow scope",
+      "expected duration, artifacts, and handoff surfaces",
+      "available context sources and must-keep facts",
+      "token, cost, latency, or message-size constraints when known"
+    ],
+    "expected_outputs": [
+      "context_budget_plan/v1",
+      "must_keep_context_pack/v1",
+      "summarization_checkpoint_plan/v1",
+      "budget_risk_register/v1",
+      "overflow_recovery_route/v1",
+      "not-evidence boundary"
+    ],
+    "final_checklist": [
+      "The run or workflow scope, metric window, failure modes, and cost/latency boundary are named.",
+      "Local telemetry, provider truth, billing truth, and completion evidence are separate states.",
+      "Warnings name the next measurement or operator review action."
+    ]
+  },
+  "omh-security-safety-review": {
+    "canonical": "security-safety-review",
+    "why_this_exists": "`security-safety-review` adapts ECC's AgentShield and safety-review posture into OMH as a review-first gate for agentic coding and operator workflows without adding hidden scanners or external dependencies.",
+    "required_inputs": [
+      "target workflow, code change, prompt, tool, dependency, or release surface",
+      "available evidence: diff, config, package metadata, command plan, or runtime permissions",
+      "risk tolerance and allowed actions",
+      "known secrets, credentials, external services, or destructive operations to avoid"
+    ],
+    "expected_outputs": [
+      "security_safety_review_plan/v1",
+      "threat_surface_map/v1",
+      "permission_and_secret_risk_matrix/v1",
+      "prompt_injection_risk_review/v1",
+      "safe_action_policy/v1",
+      "plugin_risk_audit/v1 for one explicitly named local plugin directory",
+      "remediation_handoff/v1 when needed",
+      "not-evidence boundary"
+    ],
+    "final_checklist": [
+      "Findings or no-issue results are grounded in concrete file, artifact, command, or source evidence.",
+      "Open questions, residual risk, and missing verification are named.",
+      "Fixes or follow-up work are separate handoffs unless the user explicitly asked to implement them."
+    ]
+  },
+  "omh-automation-blueprint": {
+    "canonical": "automation-blueprint",
+    "why_this_exists": "`automation-blueprint` exists so Hermes can make recurring operational work feel native and scheduled without OMH becoming a hidden cron runner, transport bot, source retriever, or executor.",
+    "required_inputs": [
+      "recurring request",
+      "schedule or cadence hint",
+      "delivery target or current-thread default",
+      "silence/no-change preference"
+    ],
+    "expected_outputs": [
+      "hermes_ops_blueprint/v1 projection",
+      "hermes_recurring_intent/v1 paused lifecycle record when the user wants the recurring work saved",
+      "schedule/delivery/silence confirmation needs",
+      "status-card boundary",
+      "not-evidence list"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-reliability-review": {
+    "canonical": "reliability-review",
+    "why_this_exists": "`reliability-review` exists to make SRE-style review strict: service reliability claims must point to metrics or references, and remediation remains separate from the review narrative.",
+    "required_inputs": [
+      "service or incident scope",
+      "time window",
+      "metric/source references",
+      "known remediation items or gaps"
+    ],
+    "expected_outputs": [
+      "reliability review",
+      "evidence and missing-evidence list",
+      "remediation follow-up boundary"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-idea-to-deploy": {
+    "canonical": "idea-to-deploy",
+    "why_this_exists": "`idea-to-deploy` exists to keep `delivery` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "product idea",
+      "target user or customer signal",
+      "success metric",
+      "repo or app context"
+    ],
+    "expected_outputs": [
+      "stage rail",
+      "decision gates",
+      "executor handoff criteria",
+      "verification and deploy/monitor status boundaries"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-llm-app-dev": {
+    "canonical": "llm-app-dev",
+    "why_this_exists": "`llm-app-dev` exists because the failure modes of an LLM feature are not the failure modes of the code around it. A floating model alias, a prompt buried in a string literal, an output scraped out of prose with a regex, and a retrieval layer nobody measured all pass code review and all fail in production, and without a golden set nobody can tell whether the next prompt edit helped or hurt.",
+    "required_inputs": [
+      "the feature the model is supposed to perform",
+      "the exact provider and model ID under consideration",
+      "the shape of the output the caller consumes",
+      "the failing cases that must not regress"
+    ],
+    "expected_outputs": [
+      "rail decisions across provider boundary, structured output, prompt artifacts, retrieval grounding, evaluation",
+      "the output schema and the validate-and-repair path for a response that does not match it",
+      "the prompt artifact layout and its version identifier",
+      "the eval deliverables - golden set, task-level validators, baseline-vs-candidate comparison",
+      "the executor handoff and what stays unobserved until a run produces it"
+    ],
+    "final_checklist": [
+      "Every rail - provider boundary, structured output, prompt artifacts, retrieval grounding, evaluation - is either decided or explicitly deferred with a reason.",
+      "One client boundary owns the model ID, credentials, timeout, retry, and backoff, and no credential appears in source, prompts, tests, or examples.",
+      "The model ID is exact, and it is recorded next to any result meant to be compared.",
+      "Every model response is validated against a declared schema, with a bounded repair path and a loud failure - no prose scraping.",
+      "Prompts are files with a version identifier, and system rules, task instruction, and injected context are separated.",
+      "Untrusted retrieved or user-supplied content is fenced from the instruction channel and cannot change the task.",
+      "The eval deliverables - golden set, task-level validators, baseline-vs-candidate comparison - exist as committed artifacts, and retrieval is evaluated before generation when retrieval is in the path.",
+      "Token, latency, and cost figures come from an observed run or stay null; no design output is reported as an eval result, implementation, review, CI, or merge evidence.",
+      "If the feature communicates through a public board, the destination carries a public-audience label, each action class names its own authority and outbound data, the exact draft and its host-recorded approval reference travel with the request through compaction and executor handoff, and no publication is reported without an observed connector result."
+    ]
+  },
+  "omh-cto-loop": {
+    "canonical": "cto-loop",
+    "why_this_exists": "`cto-loop` exists to keep `leadership` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "operating signals",
+      "roadmap or release scope",
+      "known risks",
+      "decision owner"
+    ],
+    "expected_outputs": [
+      "priority frame",
+      "architecture tradeoffs",
+      "delivery risks",
+      "decision note",
+      "follow-up handoff candidates"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-deploy-and-monitor": {
+    "canonical": "deploy-and-monitor",
+    "why_this_exists": "`deploy-and-monitor` exists to keep `monitoring` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "release scope",
+      "environment",
+      "health signals",
+      "rollback owner"
+    ],
+    "expected_outputs": [
+      "pre-deploy checklist",
+      "deploy decision gate",
+      "monitoring watchlist",
+      "rollback criteria",
+      "post-deploy status boundary"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "ulw-qa": {
+    "canonical": "ultraqa",
+    "why_this_exists": "`ultraqa` exists to keep `verification` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "changed behavior",
+      "acceptance criteria",
+      "known risk areas"
+    ],
+    "expected_outputs": [
+      "adversarial scenarios",
+      "pass/fail evidence",
+      "fix recommendations"
+    ],
+    "final_checklist": [
+      "The scenario, expected behavior, observed result, and pass/fail basis are named.",
+      "Proposed fixes are separated from observed QA evidence.",
+      "Missing or failed verification routes back to plan, fix, or a narrower test."
+    ]
+  },
+  "omh-plan": {
+    "canonical": "plan",
+    "why_this_exists": "`plan` exists to keep `planning` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "requirements",
+      "constraints",
+      "known facts",
+      "non-goals"
+    ],
+    "expected_outputs": [
+      "plan",
+      "acceptance criteria",
+      "verification strategy"
+    ],
+    "final_checklist": [
+      "The plan names goals, non-goals, assumptions, acceptance criteria, and verification shape.",
+      "Draft recommendations, accepted decisions, and executor handoffs are separate states.",
+      "Rejected options or unresolved tradeoffs are recorded before handoff."
+    ]
+  },
+  "ulw-plan": {
+    "canonical": "ralplan",
+    "why_this_exists": "`ralplan` exists to make planning reviewable before execution: Hermes should gather codebase/source facts, compare options, expose risks, define acceptance criteria, and prepare a handoff without pretending implementation already happened.",
+    "required_inputs": [
+      "requirements",
+      "codebase facts",
+      "source or web evidence when needed, or an in-plan research stage to obtain it",
+      "options",
+      "tradeoffs",
+      "test shape"
+    ],
+    "expected_outputs": [
+      "reviewed plan",
+      "acceptance criteria",
+      "risk register",
+      "verification commands",
+      "handoff guidance"
+    ],
+    "final_checklist": [
+      "Observed repo facts and source/web evidence gaps are named.",
+      "At least two options or one chosen option plus rejected alternatives are recorded.",
+      "Risks, acceptance criteria, and verification commands are testable or explicitly blocked.",
+      "The plan exists as a recorded file-backed artifact, not only as chat narration.",
+      "The implementation handoff is prepared only after plan acceptance and remains prepared_not_observed.",
+      "The follow-on engine or executor path was started only after the user's explicit go-ahead in this conversation, never from plan acceptance alone."
+    ]
+  },
+  "omh-adversarial-consensus": {
+    "canonical": "adversarial-consensus",
+    "why_this_exists": "`adversarial-consensus` exists because agreement reached by perspectives that read each other is not review \u2014 it is convergence. Independent findings, an attack round nobody is allowed to defend against, and a distillation that may only subtract produce objections a single planning pass never surfaces, and the mandatory handoff keeps that bundle from being mistaken for the plan.",
+    "required_inputs": [
+      "the proposal, plan draft, or direction under review",
+      "the decision the review must inform",
+      "known constraints and non-negotiables",
+      "the perspective roster and why each angle is distinct"
+    ],
+    "expected_outputs": [
+      "per-perspective independent findings",
+      "cross-attack objections attributed to their author",
+      "defend, refine, or concede verdict per objection",
+      "distilled bundle in the fixed buckets Hard Constraints, Decisions, Risks, Open Questions",
+      "mandatory planner handoff naming the follow-on planning workflow"
+    ],
+    "final_checklist": [
+      "The roster is named with 3-5 distinct angles, and no two seats argue the same one.",
+      "Round-one findings were produced blind, and any perspective that could not be kept blind is named as a broken-independence caveat instead of being presented as independent.",
+      "Every cross-attack objection targets another perspective's finding, and no perspective defended itself in that round.",
+      "Every objection carries exactly one verdict \u2014 defended, refined, or conceded \u2014 and conceded findings are struck, not softened.",
+      "The bundle contains only Hard Constraints, Decisions, Risks, Open Questions, every line traces to a surviving finding, and nothing new was added at distillation.",
+      "The closing message states that the bundle is input, names the follow-on planning workflow, and claims no plan, acceptance, implementation, or verification evidence."
+    ]
+  },
+  "omh-code-review": {
+    "canonical": "code-review",
+    "why_this_exists": "`code-review` exists to make review bug-first and evidence-grounded: findings must cite concrete files, diffs, commands, or artifacts before any summary or fix proposal.",
+    "required_inputs": [
+      "diff or files",
+      "expected behavior",
+      "test evidence",
+      "the dispatch Claim and Requirements pointer (issue, plan, or spec section) when intent is reviewable"
+    ],
+    "expected_outputs": [
+      "ranked findings per axis",
+      "spec-axis verdict or a named not-assessed reason",
+      "open questions",
+      "test gaps",
+      "checked-and-clean and could-not-assess lists"
+    ],
+    "final_checklist": [
+      "Findings come first and are ranked by severity before summary or praise.",
+      "Every finding cites file, diff, command output, artifact, or expected behavior evidence.",
+      "Both axes appear in the report: correctness/risk findings, and a spec-axis verdict naming its Claim source or the `not_assessed` reason.",
+      "No-issue reviews still name residual risk, missing tests, and independent review evidence if unavailable.",
+      "The closing carries the checked-and-clean list and the could-not-assess list, each naming its surfaces.",
+      "Fix implementation, architecture follow-up, and CI/merge claims stay separate from the review result."
+    ]
+  },
+  "omh-ai-slop-cleaner": {
+    "canonical": "ai-slop-cleaner",
+    "why_this_exists": "`ai-slop-cleaner` exists to keep `maintenance` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "target smell, or a scoped file list when the user has not named one",
+      "current behavior",
+      "regression checks"
+    ],
+    "expected_outputs": [
+      "smell inventory naming each finding's category before any edit",
+      "small cleanup diff, one pass at a time",
+      "before/after verification",
+      "closing report: changed files, simplifications, behavior lock, remaining risks"
+    ],
+    "final_checklist": [
+      "The selected coding or runtime owner is named before any implementation claim.",
+      "Prepared handoff, dispatch, execution, verification, review, CI, and merge states are separated.",
+      "The final status cites observed runtime evidence or keeps the work prepared_not_observed.",
+      "When Hermes is the selected coding owner, use `hermes_coding_harness/v1` to keep builder, verifier, reviewer, docs, and PR lanes separate.",
+      "Report the current harness stage, owner, next action, and missing evidence without claiming PR creation, review, CI, merge-readiness, or merge until matching runtime observations exist."
+    ]
+  },
+  "omh-refactor-plan": {
+    "canonical": "refactor-plan",
+    "why_this_exists": "`refactor-plan` exists because boundary-changing refactors bounced between goal planning and behavior-preserving cleanup with neither owning the execution shape: the phase order, the per-phase rollback, and the files table that make a large refactor reviewable and abortable.",
+    "required_inputs": [
+      "the decided target shape (what moves where), or a pointer to the accepted plan that decided it",
+      "the affected-file evidence: import graph, codegraph handoff, or an observed file inventory",
+      "the regression gates that exist today (test suite, typecheck, generated-artifact checks)"
+    ],
+    "expected_outputs": [
+      "reconnaissance: affected files, ownership boundaries, hidden coupling, blast radius",
+      "phase plan in the fixed order - types/interfaces, implementations, callers, tests, cleanup - each with verification and rollback",
+      "files table: path, action, phase, blocks/blocked-by",
+      "the approval gate: the plan stops and waits for the user's go"
+    ],
+    "final_checklist": [
+      "Reconnaissance names affected files, boundaries, coupling, and blast radius from observed evidence.",
+      "Every phase carries its verification command and its rollback point, and ends at a shippable commit.",
+      "The files table covers every touched file with action, phase, and dependencies.",
+      "The plan stopped at the approval gate; no implementation began without the user's go."
+    ]
+  },
+  "omh-tech-debt-audit": {
+    "canonical": "tech-debt-audit",
+    "why_this_exists": "`tech-debt-audit` exists so accumulated debt becomes a ranked, reconcilable ledger instead of a one-off complaint: findings cite file:line, severity and effort make the trade-off explicit, quick wins are separated from big fixes, and reruns mark what was resolved instead of rediscovering it.",
+    "required_inputs": [
+      "the repo root or the scoped path list the audit is confined to",
+      "the stack truth from manifests (package/build files), not from memory of the tree",
+      "the previous ledger when one exists, so the rerun can reconcile instead of restart"
+    ],
+    "expected_outputs": [
+      "orientation summary: manifests read, churn ranking, largest files, test and CI entry points",
+      "findings table per `tech_debt_ledger/v1`: id, category, file:line, severity, effort, recommendation",
+      "top fixes ranked by severity and the quick wins ranked by payoff-per-effort",
+      "the looks-bad-but-is-actually-fine list, and the RESOLVED/NEW/CARRIED reconciliation on rerun"
+    ],
+    "final_checklist": [
+      "Orientation evidence is observed: manifests, churn ranking, and largest files are named, not assumed.",
+      "Every finding has id, dimension, file:line, severity, effort, and a bounded recommendation.",
+      "Quick wins and top fixes are ranked, and the looks-bad-but-is-actually-fine section is present.",
+      "On rerun, every prior finding is reconciled RESOLVED, CARRIED, or superseded - none silently dropped."
+    ]
+  },
+  "omh-best-practice-research": {
+    "canonical": "best-practice-research",
+    "why_this_exists": "`best-practice-research` exists to keep `research` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "chosen technology",
+      "question",
+      "version or environment constraints"
+    ],
+    "expected_outputs": [
+      "source-backed guidance",
+      "applicability notes",
+      "residual uncertainty"
+    ],
+    "final_checklist": [
+      "The research question, source boundaries, recency assumptions, and confidence level are named.",
+      "Observed sources, inference, synthesis, and unresolved retrieval gaps are separated.",
+      "Follow-up planning or handoff uses the research summary without calling it execution evidence."
+    ]
+  },
+  "omh-autoresearch-goal": {
+    "canonical": "autoresearch-goal",
+    "why_this_exists": "`autoresearch-goal` exists to keep `research` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "research objective",
+      "validator criteria",
+      "source boundaries"
+    ],
+    "expected_outputs": [
+      "research artifact",
+      "validator result",
+      "next questions"
+    ],
+    "final_checklist": [
+      "The research question, source boundaries, recency assumptions, and confidence level are named.",
+      "Observed sources, inference, synthesis, and unresolved retrieval gaps are separated.",
+      "Follow-up planning or handoff uses the research summary without calling it execution evidence."
+    ]
+  },
+  "omh-performance-goal": {
+    "canonical": "performance-goal",
+    "why_this_exists": "`performance-goal` exists to keep `optimization` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "metric",
+      "baseline",
+      "budget",
+      "benchmark command"
+    ],
+    "expected_outputs": [
+      "measurement delta",
+      "implementation summary",
+      "benchmark evidence"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-inference-serving": {
+    "canonical": "inference-serving",
+    "why_this_exists": "`inference-serving` exists so serving an LLM runs as one decided, gated, measured process instead of scattered flag folklore: the engine choice is a table, the deployment is an idempotent runbook whose only completion evidence is the observed verification, and the benchmark speaks the standard metric vocabulary.",
+    "required_inputs": [
+      "the model id(s) and where the weights live (HF id, local path, gated or not)",
+      "the hardware truth: GPUs and VRAM, or CPU/Apple Silicon, and single- vs multi-user load",
+      "the delivery surface: docker, Kubernetes, or bare process, and the port/ingress constraints",
+      "for benchmarks: the SLO (TTFT/TPOT bounds) and the load shape the number must represent"
+    ],
+    "expected_outputs": [
+      "engine and quantization verdict from the decision tables, with the rejected options named",
+      "deployment runbook with its gates (secret, existing-deployment), verification commands, and the four-places port invariant",
+      "benchmark plan naming metrics, load shape, dataset, and metadata to save",
+      "observed-only status: what ran, what was verified, what stays prepared"
+    ],
+    "final_checklist": [
+      "The engine/quantization verdict names the situation-table row it came from and the rejected options.",
+      "Every runbook step's status is prepared or observed, never assumed, and the port invariant was honored.",
+      "Benchmark numbers carry metrics, load shape, dataset, SLO, and saved metadata, or are not reported.",
+      "Anything the workflow started for measurement was stopped, and credentials never appear in artifacts."
+    ]
+  },
+  "omh-model-optimization": {
+    "canonical": "model-optimization",
+    "why_this_exists": "`model-optimization` exists so a new model release triggers one repeatable, evidence-ordered process instead of ad-hoc edits: recognition proves what the router sees, official-first research separates contracts from folklore, trait-to-counter keeps calibrations concrete, and the measurement close keeps them honest.",
+    "required_inputs": [
+      "the model id(s) as served, and the provider or gateway serving them",
+      "recognition probe output for each id",
+      "official release/contract documentation, with community harness findings labeled separately"
+    ],
+    "expected_outputs": [
+      "recognition and calibration coverage verdict for the family",
+      "trait-to-counter calibration draft (or a no-change verdict with reasons)",
+      "routing/pricing placement plan naming config surfaces vs repo changes",
+      "measurement plan naming the benchmark pair or the reason none can run yet"
+    ],
+    "final_checklist": [
+      "Recognition probe output exists for every new id, and the family label is the expected one.",
+      "Every research finding is labeled official or community with its source kept.",
+      "The calibration draft counters named traits and marks version-specific rules as such.",
+      "Routing and pricing changes name their surface (operator config vs repo change) and their approval state.",
+      "The measurement plan names the benchmark pair, or the recorded reason none can run, and the worse-measured-calibration rule is stated."
+    ]
+  },
+  "ulw-perf": {
+    "canonical": "ultraperf",
+    "why_this_exists": "`ultraperf` exists because most performance work starts unlocalized: something is slow, leaking, or expensive and nobody knows where. It forces measurement before edits, one hypothesis at a time, executor-owned changes, and a regression budget, so an optimization loop cannot end in unverified claims.",
+    "required_inputs": [
+      "symptom or suspected slow surface",
+      "workload or reproduction",
+      "runnable evaluator or measurement command",
+      "acceptable tolerance"
+    ],
+    "expected_outputs": [
+      "baseline record",
+      "ranked hot-path hypotheses",
+      "smallest reversible fix handoff",
+      "re-measured delta",
+      "regression budget and gate"
+    ],
+    "final_checklist": [
+      "Baseline, workload, environment, and evaluator command are recorded before any edit is proposed.",
+      "Each accepted fix names the measured hot path, the reversible change, and its owner.",
+      "Re-measured deltas cite observed evidence; unmeasured steps stay not_observed.",
+      "The regression budget and the gate that enforces it are stated with the tolerance."
+    ]
+  },
+  "omh-wiki": {
+    "canonical": "wiki",
+    "why_this_exists": "`wiki` exists to keep `knowledge` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "audience scale (personal, small group, team, or organization)",
+      "whether an agent is one of the readers",
+      "destination or existing store",
+      "knowledge types the wiki must hold",
+      "maintenance owner and cadence"
+    ],
+    "expected_outputs": [
+      "wiki_blueprint/v1 with organization model, rationale, breaking conditions, and one alternative",
+      "skeleton, entry points, conventions, maintenance routine, seed pages, and ecosystem candidates",
+      "destination-aware note guidance with retrieval hint and staleness warning",
+      "prepared-versus-observed external write boundary"
+    ],
+    "final_checklist": [
+      "Audience scale, destination, knowledge types, and maintenance owner are recorded or named as missing.",
+      "The proposed model carries its rationale, breaking conditions, and one alternative.",
+      "Skeleton, entry points, conventions, maintenance, and seed pages are concrete enough to start today.",
+      "Destination-specific guidance is prepared for the named store or the unknown destination gap is explicit.",
+      "No output claims an external write, store creation, connector run, or memory mutation without evidence.",
+      "Separate coding or connector tasks are extracted instead of buried in notes."
+    ]
+  },
+  "omh-ask": {
+    "canonical": "ask",
+    "why_this_exists": "`ask` exists to keep `review` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "question",
+      "context summary",
+      "why external advice helps"
+    ],
+    "expected_outputs": [
+      "advisor summary",
+      "accepted/rejected advice",
+      "decision note"
+    ],
+    "final_checklist": [
+      "Findings or no-issue results are grounded in concrete file, artifact, command, or source evidence.",
+      "Open questions, residual risk, and missing verification are named.",
+      "Fixes or follow-up work are separate handoffs unless the user explicitly asked to implement them."
+    ]
+  },
+  "omh-cancel": {
+    "canonical": "cancel",
+    "why_this_exists": "`cancel` exists to keep `operator` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "active workflow state",
+      "cancellation intent"
+    ],
+    "expected_outputs": [
+      "cleared state",
+      "safe stop summary"
+    ],
+    "final_checklist": [
+      "The local command, managed path, config surface, and state artifact inspected are named.",
+      "Blocking issues, warnings, and optional surfaces are separated.",
+      "The next repair action is explicit and does not claim a reload or runtime observation."
+    ]
+  },
+  "omh-skill": {
+    "canonical": "skill",
+    "why_this_exists": "`skill` exists to keep `operator` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.",
+    "required_inputs": [
+      "skill action",
+      "target skill name or directory"
+    ],
+    "expected_outputs": [
+      "skill inventory or mutation result",
+      "verification note"
+    ],
+    "final_checklist": [
+      "The local command, managed path, config surface, and state artifact inspected are named.",
+      "Blocking issues, warnings, and optional surfaces are separated.",
+      "The next repair action is explicit and does not claim a reload or runtime observation."
+    ]
+  },
+  "omh-doctor": {
+    "canonical": "doctor",
+    "why_this_exists": "`doctor` exists to turn confusing install/setup states into grouped, local health evidence and the next repair action without treating a check as a fix.",
+    "required_inputs": [
+      "omh home",
+      "Hermes home",
+      "observed issue"
+    ],
+    "expected_outputs": [
+      "health checks",
+      "fix guidance",
+      "known proof boundary"
+    ],
+    "final_checklist": [
+      "Command availability, managed skills, Hermes registration, runtime state, and optional surfaces are grouped separately.",
+      "Blocking issues and warnings are separated, with one next repair action named for each blocking area.",
+      "Plugin install, plugin import/register smoke, and Hermes runtime load are not collapsed into one claim.",
+      "The final status says whether setup/update/doctor repaired anything or only observed health."
+    ]
+  },
+  "omh-capability-toggle": {
+    "canonical": "capability-toggle",
+    "why_this_exists": "`capability-toggle` exists because OMH shipped one binary install lever -- 9 core skills or all of them -- so a user who wanted the coding surface but not the memory surface had to take both. It turns that into a per-family choice without uninstalling OMH.",
+    "required_inputs": [
+      "capability family",
+      "requested state"
+    ],
+    "expected_outputs": [
+      "policy change summary",
+      "what was removed versus retained",
+      "the exact command that reverses it"
+    ],
+    "final_checklist": [
+      "The affected family is named by its canonical id, not guessed from a partial word.",
+      "Removed workflows and retained core skills are listed separately.",
+      "The reversing command is stated so the change never reads as permanent.",
+      "Locally modified skill files are reported as retained exceptions rather than deleted."
+    ]
+  },
+  "omh-running-work-board": {
+    "canonical": "running-work-board",
+    "why_this_exists": "`running-work-board` exists because multi-session coding work was invisible: the runtime was tracked but the model was dropped, token counts had no write site at all, and a blocking dispatch could not report that it was still running. The board answers which model on which runtime, or says unknown.",
+    "required_inputs": [
+      "local coding artifacts"
+    ],
+    "expected_outputs": [
+      "per-unit runtime and model",
+      "observed tokens and elapsed",
+      "explicit unknowns"
+    ],
+    "final_checklist": [
+      "Runtime and model are named per unit, or explicitly reported as unknown.",
+      "Token counts and session references are observed values or the literal unknown, never estimates.",
+      "Elapsed time for an unfinished unit comes from its start marker, which cannot prove the unit is still alive.",
+      "The board is labelled observed activity, not result, verification, review, CI, or merge evidence."
+    ]
+  },
+  "omh-model-setup": {
+    "canonical": "model-setup",
+    "why_this_exists": "`model-setup` exists to turn local model history into a safe, user-confirmed activation flow: Hermes retains native aliases and providers, Maestro remains an external-handoff coordinator, and editable recommendations can fall through missing preferred models without turning metadata into availability or execution claims.",
+    "required_inputs": [
+      "metadata-only discovery report and its source/candidate states",
+      "user confirmation of which discovered models and providers are currently active",
+      "target Hermes role alias (main, realtime-search, or design), semantic category, X-platform domain, or external coding owner",
+      "optional user-edited recommendation overrides"
+    ],
+    "expected_outputs": [
+      "source-labeled candidate inventory separating historical observation from confirmed-active models",
+      "editable editorial recommendation chains resolved only against confirmed-active compatible candidates",
+      "Hermes-native alias/provider preview or a separate Maestro ordered external-handoff recommendation",
+      "verification checklist or an incomplete non-blocking setup advisory with exact next actions"
+    ],
+    "final_checklist": [
+      "If a prerequisite is unmet, mark that item \"not applicable\" and continue with the rest of the guide instead of blocking or guessing.",
+      "Success is applicable-only: verification passes when every applicable item is confirmed complete, not when every possible item exists.",
+      "Every emitted metadata identifier passed the safe allowlist and every candidate retains a closed source state.",
+      "Hermes-native configuration and Maestro external-handoff recommendations are reported as separate owner surfaces.",
+      "Every requested write was previewed, explicitly approved, digest-checked, and re-verified; unresolved model items did not block unrelated setup."
+    ]
+  },
+  "omh-parallel-tools": {
+    "canonical": "parallel-tools",
+    "why_this_exists": "`parallel-tools` exists to give a quick, read-first answer to whether parallel tool calls are current and enabled, with an update path only when currency is actually missing.",
+    "required_inputs": [
+      "installed Hermes version",
+      "current parallel-tool capability status"
+    ],
+    "expected_outputs": [
+      "read-only diagnosis of the installed version and parallel-tool capability status",
+      "a user-runnable update command to check or restore version currency",
+      "a capability status report naming which parallel-tool features are active"
+    ],
+    "final_checklist": [
+      "If a prerequisite is unmet, mark that item \"not applicable\" and continue with the rest of the guide instead of blocking or guessing.",
+      "Success is applicable-only: verification passes when every applicable item is confirmed complete, not when every possible item exists.",
+      "The reported capability status matches an observed read, not an assumed default."
+    ]
+  },
+  "omh-websearch-setup": {
+    "canonical": "websearch-setup",
+    "why_this_exists": "`websearch-setup` exists to make web search cost and routing configurable through two clearly separated, diff-approved steps instead of one opaque edit.",
+    "required_inputs": [
+      "scraper API key issued by the user's chosen web-extraction provider",
+      "target auxiliary web-extract model role slot"
+    ],
+    "expected_outputs": [
+      "read-only diagnosis of the current scraper `.env` key and auxiliary web-extract model routing state",
+      "a diff-approved `.env` write adding the scraper API key, approved on its own",
+      "a diff-approved routing block change assigning the auxiliary web-extract model, approved separately from the key write",
+      "verification checklist confirming both writes were applied"
+    ],
+    "final_checklist": [
+      "If a prerequisite is unmet, mark that item \"not applicable\" and continue with the rest of the guide instead of blocking or guessing.",
+      "Success is applicable-only: verification passes when every applicable item is confirmed complete, not when every possible item exists.",
+      "The scraper API key write and the auxiliary web-extract model write were verified as two separate, independently-approved changes."
+    ]
+  },
+  "omh-morning-brief": {
+    "canonical": "morning-brief",
+    "why_this_exists": "`morning-brief` exists to connect mail and calendar access for an on-demand brief while keeping the connection strictly read and draft-only and the user's credentials unstored.",
+    "required_inputs": [
+      "mail and calendar MCP connection status",
+      "OAuth token or app password supplied by the user"
+    ],
+    "expected_outputs": [
+      "read-only diagnosis of the current mail/calendar MCP connection state",
+      "diff-approved MCP config write scoped to read and draft-only access",
+      "an on-demand morning brief once connection is verified"
+    ],
+    "final_checklist": [
+      "If a prerequisite is unmet, mark that item \"not applicable\" and continue with the rest of the guide instead of blocking or guessing.",
+      "Success is applicable-only: verification passes when every applicable item is confirmed complete, not when every possible item exists.",
+      "The connection is confirmed read and draft-only, with Send permission never enabled, before the brief is reported ready."
+    ]
+  },
+  "omh-buzz": {
+    "canonical": "buzz",
+    "why_this_exists": "Hermes already owns the Buzz transport, but users need one discoverable OMH entry point that safely selects setup, attachment, or self-host operations and reports only the evidence actually observed.",
+    "required_inputs": [
+      "Buzz task: gateway setup, media delivery, or self-host diagnosis",
+      "target Hermes home or active Buzz conversation",
+      "observable stop condition"
+    ],
+    "expected_outputs": [
+      "selected Buzz workflow lane",
+      "bounded setup or diagnostic evidence",
+      "observed delivery stage or explicit unobserved boundary"
+    ],
+    "final_checklist": [
+      "Exactly one of setup, media, or self-host is selected from request meaning; no internal lane is public.",
+      "Secrets remain out of argv, logs, rendered output, and workflow artifacts.",
+      "Configuration, process, relay, event acceptance, subscription, and client rendering are separate claims.",
+      "Any state-changing self-host command remains user-driven and has an explicit rollback or backup boundary.",
+      "The final answer names what was observed, what remains unobserved, and the next smallest proof action."
+    ]
+  },
+  "omh-github-issue-intake": {
+    "canonical": "github-issue-intake",
+    "why_this_exists": "`github-issue-intake` exists so a public support-chat report can become a verified GitHub issue through one bounded, confirmation-gated lane instead of ad hoc chat narration or an unscoped bot write.",
+    "required_inputs": [
+      "public report or summary",
+      "source boundary",
+      "explicit target repository",
+      "desired outcome",
+      "scope boundary",
+      "missing evidence"
+    ],
+    "expected_outputs": [
+      "github_issue_intake/v1",
+      "direction check",
+      "duplicate status",
+      "issue package or connector handoff",
+      "read-back verification or explicit blocker"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-decision-prototype": {
+    "canonical": "decision-prototype",
+    "why_this_exists": "`decision-prototype` exists so one empirical uncertainty can be settled by a bounded, disposable experiment instead of endless interviewing or an experiment hidden inside production work; it records observed results apart from interpretation and feeds planning a receipt without claiming the prototype is implementation-ready.",
+    "required_inputs": [
+      "decision question",
+      "experiment budget",
+      "scratch boundary",
+      "measurement method"
+    ],
+    "expected_outputs": [
+      "decision_prototype/v1",
+      "prepared prototype handoff with exact commands and expected observations",
+      "observation ledger separating observed outputs from interpretation and confidence",
+      "decision receipt for planning with supported option, rejected option, residual risk, and evidence limits"
+    ],
+    "final_checklist": [
+      "Exactly one decision question with a stable decision id, alternatives, and a falsifiable hypothesis is recorded, or the request was refused with the missing question named.",
+      "Time, tool, file, and command budgets carry units, and the scratch directory or temporary worktree identity matches the observed workspace.",
+      "The artifact kind is the smallest that can answer the question, and any expansion into feature implementation was refused.",
+      "Execution status is one of prepared_not_observed, observed, timeout, or inconclusive; observed outputs, evidence references, interpretation, and confidence sit in separate fields.",
+      "Cleanup is observed before `discarded` is reported, and a cleanup failure is recorded distinctly.",
+      "The decision receipt names the supported option, rejected option, residual risk, evidence limits, and prototype-code reference permission, and no implementation handoff was prepared from it."
+    ]
+  },
+  "omh-lifecycle-growth": {
+    "canonical": "lifecycle-growth",
+    "why_this_exists": "`lifecycle-growth` exists so audience eligibility, consent and frequency safety, sticky exposure, causal measurement, and the stop decision travel together in one plan instead of being assembled ad hoc from analysis, copy, scheduling, and connector work.",
+    "required_inputs": [
+      "lifecycle objective and stage",
+      "target segment",
+      "event schema and baseline",
+      "channels or product surfaces",
+      "consent and policy constraints",
+      "experiment budget",
+      "decision owner"
+    ],
+    "expected_outputs": [
+      "lifecycle_growth_brief/v1",
+      "audience_trigger_policy/v1",
+      "lifecycle_safety_policy/v1",
+      "growth_experiment_plan/v1",
+      "growth_measurement_readout/v1",
+      "growth_handoff_disposition/v1"
+    ],
+    "final_checklist": [
+      "The target behavior, baseline, eligible audience, safety policy, experiment design, readout, and decision owner are named or marked HOLD.",
+      "Prepared plan, human approval, observed delivery or display, observed user action, observed outcome, and causal claim are reported as separate states.",
+      "The readout disposition is exactly `ship`, `rollback`, `review`, or `insufficient_data`, and every proposed handoff names its owning workflow, approver, and stop conditions."
+    ]
+  },
+  "omh-product-discovery-validation": {
+    "canonical": "product-discovery-validation",
+    "why_this_exists": "`product-discovery-validation` gives an early idea a bounded, evidence-typed path to a kill, pivot, persevere, or inconclusive decision so `product-brief` consumes validated inputs instead of judging raw discovery itself.",
+    "required_inputs": [
+      "problem hypothesis",
+      "target segment",
+      "known evidence and current alternatives",
+      "decision owner",
+      "learning budget and deadline",
+      "success, failure, and stop criteria"
+    ],
+    "expected_outputs": [
+      "discovery_decision_frame/v1",
+      "discovery_evidence_ledger/v1",
+      "customer_discovery_plan/v1",
+      "assumption_test_portfolio/v1",
+      "discovery_decision_receipt/v1",
+      "initial_gtm_hypothesis/v1"
+    ],
+    "final_checklist": [
+      "The problem gate state is recorded as validated, refuted, or inconclusive with the external-human or behavioral-data refs that decided it, all observed in the framed target segment.",
+      "The target segment is explicit enough to recruit or tied to observed behavioral data before any solution, PRD, prototype, or coding output leaves this workflow.",
+      "Every assumption test in the portfolio carries its precommitted success, failure, inconclusive, segment, deadline, cost, owner, and evidence re-entry fields.",
+      "The receipt names kill, pivot, persevere, or inconclusive, preserves rejected paths, and routes to `product-brief` only from an accepted persevere.",
+      "Every artifact is reported as prepared; interviews, tests, and prototypes stay not_observed until re-entered evidence exists."
+    ]
+  },
+  "omh-sales-pipeline-review": {
+    "canonical": "sales-pipeline-review",
+    "why_this_exists": "`sales-pipeline-review` prepares evidence-bounded portfolio pipeline, forecast, and follow-up reviews from supplied CRM snapshots without replacing a CRM, mutating records, or claiming revenue.",
+    "required_inputs": [
+      "pipeline snapshot",
+      "as-of time and review horizon",
+      "currency, amount, stage, and forecast definitions",
+      "prior forecast and actuals",
+      "decision owner"
+    ],
+    "expected_outputs": [
+      "sales_pipeline_scope/v1",
+      "sales_pipeline_health/v1",
+      "sales_forecast_assessment/v1",
+      "sales_outcome_learning_annex/v1",
+      "sales_renewal_risk_annex/v1",
+      "sales_pipeline_handoff/v1"
+    ],
+    "final_checklist": [
+      "The scope disposition is recorded before any figure: `HOLD` names the blocking gap, otherwise freshness, currency basis, amount and stage semantics, duplicates, and owners are confirmed from supplied data.",
+      "Health, forecast, and annex outputs cite supplied record references, keep stage, seller forecast, scenario, and observed commitment separate, and mark calibration or an annex `unavailable` or `unsupported` instead of filling it.",
+      "The handoff lists owner, due date, exit criterion, and evidence per follow-up, keeps every CRM correction proposed with an approval state, and reports mutation, storage, sync, alerts, and outreach as `not_observed` unless a connector result was observed."
+    ]
+  },
+  "omh-github-event-ops": {
+    "canonical": "github-event-ops",
+    "why_this_exists": "`github-event-ops` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "github-event-ops/v1 card or guidance",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-agent-board": {
+    "canonical": "agent-board",
+    "why_this_exists": "`agent-board` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "agent-board/v1 card or guidance",
+      "agent_board_request/v1 record from the `omh_agent_board` plugin tool",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Choose the coordination from the request: `durable` (restart survival, cross-profile pickup) prepares a `kanban_*` action on the named board; `bounded_research` prepares one `delegate_task` action. Never substitute one route for the other when its surface is missing.",
+      "Call `omh_agent_board` `prepare`, then invoke the returned `native_action` through the normal Hermes tool loop; OMH never calls a native tool itself and grants no host permission.",
+      "Report the request state exactly: `prepared`, `unavailable` (named `missing_capabilities`, zero native calls), `denied`, `observed`, or `failed`. A `complete` receipt implies no review approval, CI, or merge; a `running` readback is a claim, not dispatch proof.",
+      "Agent/operator reference: docs/AGENT-BOARD.md; wrapper actions example: examples/agent-board/native-actions.json."
+    ]
+  },
+  "omh-memory-new": {
+    "canonical": "memory-new",
+    "why_this_exists": "`memory-new` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "memory_new_candidate/v1",
+      "source class, target store, scope, and retention-class decision",
+      "remember/refuse/defer decision",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-memory-sync": {
+    "canonical": "memory-sync",
+    "why_this_exists": "`memory-sync` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "memory-sync/v1 card or guidance",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-gateway-intent-card": {
+    "canonical": "gateway-intent-card",
+    "why_this_exists": "`gateway-intent-card` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "gateway-intent-card/v1 card or guidance",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "The origin platform, thread/session boundary, delivery target, and update policy are named.",
+      "Prepared card or command output is separate from platform registration, send, attachment, or delivery evidence.",
+      "The next wrapper action is explicit and platform-safe."
+    ]
+  },
+  "omh-executor-runtime-readiness": {
+    "canonical": "executor-runtime-readiness",
+    "why_this_exists": "`executor-runtime-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "executor-runtime-readiness/v1 card or guidance",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "The selected coding or runtime owner is named before any implementation claim.",
+      "Prepared handoff, dispatch, execution, verification, review, CI, and merge states are separated.",
+      "The final status cites observed runtime evidence or keeps the work prepared_not_observed.",
+      "When Hermes is the selected coding owner, use `hermes_coding_harness/v1` to keep builder, verifier, reviewer, docs, and PR lanes separate.",
+      "Report the current harness stage, owner, next action, and missing evidence without claiming PR creation, review, CI, merge-readiness, or merge until matching runtime observations exist."
+    ]
+  },
+  "omh-deliverable-package": {
+    "canonical": "deliverable-package",
+    "why_this_exists": "`deliverable-package` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "deliverable-package/v1 card or guidance",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "The deliverable type, audience, source inputs, QA ladder, and delivery boundary are named.",
+      "Prepared generation, generated file, render QA, approval, attachment, and delivery are separate states.",
+      "The next action says whether to generate, revise, QA, approve, attach, or deliver."
+    ]
+  },
+  "omh-voice-input": {
+    "canonical": "voice-operator",
+    "why_this_exists": "`voice-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "voice-operator/v1 card or guidance",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "The short-input or voice-like request is clarified enough to avoid accidental action.",
+      "The next action is readable, reversible when possible, and confirmation-gated when risky.",
+      "Delivery, notification, or platform behavior is not claimed without wrapper evidence."
+    ]
+  },
+  "omh-browser": {
+    "canonical": "browser-operator",
+    "why_this_exists": "`browser-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "browser_task_card/v1",
+      "browser_interaction_scope/v1",
+      "browser_auth_boundary/v1",
+      "browser_observation_manifest/v1 when observed",
+      "browser_confirmation_gate/v1 when destructive",
+      "browser_adapter_capabilities/v1 when acquired",
+      "browser_session_lease/v1 when acquired",
+      "browser_page_state/v1 when observed",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Specify URL, allowed/prohibited actions, auth boundary, stop condition.",
+      "Gate credentials/login/payment/purchase/destruction/scraping/export; observed traces only.",
+      "Host request admission (not enablement/adapter presence) gates schemas/context/callbacks/writes. Refuse foreign/stale/expired/released/ambiguous targets; no index fallback.",
+      "omh_browser blocks native browser_*; inert by default. Opted-in effects need exact approval: docs/BROWSER-EFFECTS.md."
+    ]
+  },
+  "omh-files": {
+    "canonical": "workspace-file-operator",
+    "why_this_exists": "`workspace-file-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "workspace_file_task_card/v1",
+      "file_operation_scope/v1",
+      "file_observation_manifest/v1 when observed",
+      "file_confirmation_gate/v1 when destructive",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "The path root, allowed file operations, excluded paths, destructive-operation policy, and stop condition are explicit.",
+      "Delete, overwrite, move, rename, permission change, archive mutation, upload, and download are gated or marked missing.",
+      "Directory listings, file contents, hashes, diffs, and operation results are reported only from observed file evidence."
+    ]
+  },
+  "omh-terminal": {
+    "canonical": "command-operator",
+    "why_this_exists": "`command-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "command_task_card/v1",
+      "command_scope/v1",
+      "command_safety_gate/v1",
+      "command_result_manifest/v1 when observed",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Command text, working directory, environment assumptions, timeout, safety level, and stop condition are explicit.",
+      "Destructive, credential, network, filesystem mutation, install, deploy, and production commands are gated or marked missing.",
+      "Exit codes, stdout/stderr, test results, package-manager effects, and filesystem mutations are reported only from observed command evidence."
+    ]
+  },
+  "omh-apps": {
+    "canonical": "connector-operator",
+    "why_this_exists": "`connector-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "connector_task_card/v1",
+      "connector_scope/v1",
+      "connector_auth_boundary/v1",
+      "connector_confirmation_gate/v1 when mutating or sending",
+      "connector_result_manifest/v1 when observed",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Provider, target object, allowed action, payload summary, authority, confirmation policy, and stop condition are explicit.",
+      "Credentials, missing connector setup, external writes, sends, ticket mutations, calendar invites, CRM updates, and webhook delivery are gated or marked missing.",
+      "Message ids, ticket ids, provider responses, delivery receipts, and API effects are reported only from observed connector evidence."
+    ]
+  },
+  "omh-live-info": {
+    "canonical": "live-info-operator",
+    "why_this_exists": "`live-info-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "live_info_task_card/v1",
+      "live_info_scope/v1",
+      "freshness_boundary/v1",
+      "live_info_result_manifest/v1 when observed",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Domain, location or symbol, time window, provider preference, freshness, units, and stop condition are explicit.",
+      "Provider setup, API access, source quality, stale data, and missing location/symbol decisions are gated or marked missing.",
+      "Weather, price, score, exchange-rate, time-zone, map, place, and traffic facts are reported only from observed provider evidence."
+    ]
+  },
+  "omh-external-connector-readiness": {
+    "canonical": "external-connector-readiness",
+    "why_this_exists": "`external-connector-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "external_connector_readiness_card/v1",
+      "connector_capability_matrix/v1",
+      "auth_cost_boundary/v1",
+      "live_data_freshness_policy/v1 when live data is required",
+      "multimodal_routing_policy/v1 when screenshots, audio, video, or files are involved",
+      "fallback_route_policy/v1",
+      "connector_trial_manifest/v1 when observed",
+      "memory_provider_posture/v1 when the candidate is an optional memory provider",
+      "realtime_voice_trial_receipt/v1 when a supplied realtime voice trial is observed",
+      "realtime_voice_readiness/v1 verdict per voice dimension when a receipt is supplied",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Candidate connector, target domain, read/write scope, modality needs, provider owner, fallback workflow, and stop condition are explicit.",
+      "Cost, quota, credential, permission, live-data freshness, multimodal capture, safety, and compliance boundaries are marked ready, missing, risky, or not_observed.",
+      "Route live read-only lookups to live-info-operator, external writes to connector-operator, datasets/SQL to data-analysis, and missing tools to toolbelt-readiness before claiming results.",
+      "Provider responses, screenshots, audio/video/file captures, query outputs, message ids, and external mutations are reported only from observed trial evidence.",
+      "For a memory provider, disabling it, removing its local cache, deleting its remote memory, deleting the account, and switching away are reported as distinct operations with distinct postconditions.",
+      "Unknown deletion, isolation, or write semantics block automatic writes and irreversible adoption instead of resolving to an OMH or Hermes default.",
+      "For a realtime voice connector, keep turn integrity, latency, fallback, interruption, and spoken tool safety separate; report unsupported or unobserved dimensions as hold or block rather than as a pass."
+    ]
+  },
+  "omh-prompt-import-readiness": {
+    "canonical": "prompt-import-readiness",
+    "why_this_exists": "`prompt-import-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "prompt_import_readiness_card/v1",
+      "prompt_compatibility_audit/v1 for explicitly named local files",
+      "prompt_source_inventory/v1",
+      "prompt_format_matrix/v1",
+      "argument_interpolation_policy/v1",
+      "slash_command_collision_report/v1",
+      "prompt_trust_review/v1",
+      "prompt_import_manifest/v1 when observed",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Prompt sources, agent family, expected file formats, argument syntax, slash-command names, trust level, and stop condition are explicit.",
+      "Explicit-path audit reads and compatibility results are observed only in their audit output; source discovery, command registration, prompt mutation, slash-command activation, and dry-run execution remain marked not_observed.",
+      "Route broad candidate discovery to skill-scout, prompt/tool safety to security-safety-review, missing CLIs or directories to toolbelt-readiness, and approved implementation to a selected executor handoff.",
+      "Imported prompts, generated command files, registry updates, and dry-run results are reported only from observed prompt-import evidence."
+    ]
+  },
+  "omh-physical-device-readiness": {
+    "canonical": "physical-device-readiness",
+    "why_this_exists": "`physical-device-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "physical_device_readiness_card/v1",
+      "device_safety_envelope/v1",
+      "hazard_and_actuator_inventory/v1",
+      "sensor_camera_gate_policy/v1",
+      "operator_approval_policy/v1",
+      "dry_run_and_simulation_policy/v1",
+      "emergency_stop_and_rollback_plan/v1",
+      "device_trial_manifest/v1 when observed",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Device scope, actuator and hazard classes, sensor/camera gates, operator approval, dry-run policy, emergency stop, and stop condition are explicit.",
+      "Physical actions, heat commands, relay toggles, robot movement, print starts, camera inspections, and telemetry readings are marked observed, missing, risky, or not_observed.",
+      "Route external APIs or provider setup to external-connector-readiness, terminal commands to command-operator, safety concerns to security-safety-review, visual/camera checks to visual-qa, and missing tools to toolbelt-readiness.",
+      "Do not claim device movement, heat, print, relay, robot, camera, sensor, or emergency-stop success without observed device-trial evidence."
+    ]
+  },
+  "omh-content-operator": {
+    "canonical": "content-operator",
+    "why_this_exists": "`content-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "content_task_card/v1",
+      "source_scope/v1",
+      "audience_tone_style/v1",
+      "content_review_gate/v1",
+      "content_output_manifest/v1 when observed",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Audience, channel, language, tone, style guide, length, source scope, fact-risk, review owner, and stop condition are explicit.",
+      "Missing facts, source gaps, claims needing citations, legal/compliance needs, approval, publish/send authority, and file-export needs are gated or marked missing.",
+      "Published, sent, exported, approved, and fact-verified claims are reported only from observed evidence."
+    ]
+  },
+  "omh-media-input": {
+    "canonical": "media-input-operator",
+    "why_this_exists": "`media-input-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "media_input_task_card/v1",
+      "media_source_scope/v1",
+      "transcript_boundary/v1",
+      "media_summary_plan/v1",
+      "media_result_manifest/v1 when observed",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Media type, source location, permission boundary, transcript availability, language, requested output, timestamp requirement, and stop condition are explicit.",
+      "Downloads, uploads, ASR, transcript extraction, speaker labels, copyrighted media access, and provider setup are gated or marked missing.",
+      "Transcript text, OCR output, screenshot text, receipt fields, timestamps, quotes, action items, and media-summary claims are reported only from observed media or supplied transcript/extraction evidence."
+    ]
+  },
+  "omh-data-analysis": {
+    "canonical": "data-analysis",
+    "why_this_exists": "`data-analysis` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "data_analysis_task_card/v1",
+      "dataset_scope/v1",
+      "analysis_method_plan/v1",
+      "operations_data_harness/v1",
+      "product_evidence_loop/v1",
+      "analysis_result_summary/v1 when observed",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Dataset or corpus source, record scope, schema or extraction method, join assumptions, analysis question, method, and stop condition are explicit.",
+      "Numeric claims, anomalies, trends, segments, and log patterns are reported only from observed data or supplied evidence.",
+      "Causal claims require observed identification evidence.",
+      "Source acquisition, file conversion, report generation, and code fixes are routed to the narrower workflow when stronger."
+    ]
+  },
+  "omh-toolbelt-readiness": {
+    "canonical": "toolbelt-readiness",
+    "why_this_exists": "`toolbelt-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "toolbelt-readiness/v1 card or guidance",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-harness-session-inventory": {
+    "canonical": "harness-session-inventory",
+    "why_this_exists": "`harness-session-inventory` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "harness_session_inventory/v1 card or guidance",
+      "harness_session_adapter_matrix/v1",
+      "mcp_inventory_drift_report/v1",
+      "worktree_lifecycle_snapshot/v1",
+      "session_progress_slots/v1",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "The inventory scope names the harnesses, sessions, MCP hosts, connector configs, and worktrees being compared.",
+      "Prepared, observed, missing, stale, and drifted entries are separated before any health or progress claim.",
+      "The next action says whether to load a host, verify a connector, inspect a worktree, dispatch an executor, or stay blocked."
+    ]
+  },
+  "omh-ops-observability-card": {
+    "canonical": "ops-observability-card",
+    "why_this_exists": "`ops-observability-card` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "ops-observability-card/v1 card or guidance",
+      "external_metric_provider/v1 payload contract",
+      "external_metric_provider_adapter/v1 adapter contract",
+      "ops_service_quality_board/v1 service-quality board",
+      "typed service-quality downgrade gaps",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "The run or workflow scope, metric window, failure modes, and cost/latency boundary are named.",
+      "Local telemetry, provider truth, billing truth, and completion evidence are separate states.",
+      "Warnings name the next measurement or operator review action."
+    ]
+  },
+  "omh-achievements": {
+    "canonical": "achievements",
+    "why_this_exists": "`achievements` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "hermes_achievements_observation/v1 summary or badge list",
+      "recent unlocks and progress hints",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "The run or workflow scope, metric window, failure modes, and cost/latency boundary are named.",
+      "Local telemetry, provider truth, billing truth, and completion evidence are separate states.",
+      "Warnings name the next measurement or operator review action."
+    ]
+  },
+  "omh-agent-ops-review": {
+    "canonical": "agent-ops-review",
+    "why_this_exists": "`agent-ops-review` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "agent-ops-review/v1 card or guidance",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "The local command, managed path, config surface, and state artifact inspected are named.",
+      "Blocking issues, warnings, and optional surfaces are separated.",
+      "The next repair action is explicit and does not claim a reload or runtime observation."
+    ]
+  },
+  "omh-agent-debug": {
+    "canonical": "agent-debug",
+    "why_this_exists": "`agent-debug` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "agent_debug_report/v1",
+      "agent_failure_capture/v1",
+      "agent_failure_pattern_hypothesis/v1",
+      "contained_recovery_action/v1"
+    ],
+    "final_checklist": [
+      "Failure state, intended goal, recent tool sequence, and context pressure are captured.",
+      "Diagnosis distinguishes repeated command/tool loops, context drift, environment mismatch, service errors, and wrong-hypothesis tests.",
+      "Recovery action is contained, reversible, and does not claim implementation, verification, CI, merge, or future-loop fixes."
+    ]
+  },
+  "omh-failure-signal-audit": {
+    "canonical": "failure-signal-audit",
+    "why_this_exists": "`failure-signal-audit` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "failure_signal_audit_plan/v1",
+      "silent_failure_finding/v1 when observed",
+      "fallback_risk_matrix/v1",
+      "propagation_gap_map/v1",
+      "false_green_status_review/v1",
+      "remediation_handoff/v1 when needed"
+    ],
+    "final_checklist": [
+      "Audit scope, source surfaces, and evidence types are named.",
+      "Swallowed errors, dangerous fallbacks, propagation gaps, and false-green claims are reported as separate finding types.",
+      "Each finding names location or evidence ref, severity, user/operator impact, and a smallest safe remediation route.",
+      "No remediation, runtime repair, verification, CI, merge, or future reliability claim is made without observed follow-up evidence."
+    ]
+  },
+  "omh-instinct-ledger": {
+    "canonical": "instinct-ledger",
+    "why_this_exists": "`instinct-ledger` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "instinct_ledger_plan/v1",
+      "instinct_candidate/v1",
+      "project_instinct_scope_map/v1",
+      "instinct_promotion_review/v1",
+      "instinct_export_review/v1 when requested"
+    ],
+    "final_checklist": [
+      "Each instinct is atomic: one trigger, one action, one scope, confidence, evidence refs, and review state.",
+      "Project-specific conventions, global practices, project/global promotion candidates, imports, and exports are separated.",
+      "No hooks, memory writes, skill edits, global promotion, import/export, or behavior-change claims are made without observed approval and implementation evidence."
+    ]
+  },
+  "omh-skill-scout": {
+    "canonical": "skill-scout",
+    "why_this_exists": "`skill-scout` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "skill_scout_query/v1",
+      "local_skill_candidate_inventory/v1 when observed",
+      "external_skill_candidate_risk_review/v1 when observed",
+      "awesome_hermes_agent_coverage/v1 for upstream ecosystem comparison when requested",
+      "skill_adoption_decision_matrix/v1",
+      "skill_scout_recommendation/v1"
+    ],
+    "final_checklist": [
+      "Intent, keywords, source scope, and stop condition are explicit.",
+      "Local and external search evidence is separated from planned search.",
+      "No install, copy, write, credential, or trust claim is made without observed review or implementation."
+    ]
+  },
+  "omh-skill-health": {
+    "canonical": "skill-health",
+    "why_this_exists": "`skill-health` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "catalog, generated, reference, harness, and capability-surface status",
+      "observed failure signals, or an explicit statement that none were supplied",
+      "pending amendment review slots and top safe actions with owner lane and verification path"
+    ],
+    "final_checklist": [
+      "Dashboard scope, source surfaces, stale/duplicate criteria, and stop condition are explicit.",
+      "Install/setup health is routed to doctor; catalog operations are routed to skill; failure retrospectives are routed to workflow-learning.",
+      "No skill, prompt, doc, memory, or model behavior is claimed changed until a reviewed implementation records evidence."
+    ]
+  },
+  "omh-workflow-learning": {
+    "canonical": "workflow-learning",
+    "why_this_exists": "`workflow-learning` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "workflow-learning/v1 card or guidance",
+      "next action",
+      "prepared-vs-observed boundary"
+    ],
+    "final_checklist": [
+      "Confirm the workflow target, evidence boundary, and stop condition are named.",
+      "Report which outputs are prepared, observed, blocked, or missing.",
+      "Name the smallest next verification or handoff instead of claiming completion from narration."
+    ]
+  },
+  "omh-decision-recall": {
+    "canonical": "decision-recall",
+    "why_this_exists": "`decision-recall` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "rejected_decision_recall/v1",
+      "scoped rejected-decision matches",
+      "claim boundary"
+    ],
+    "final_checklist": [
+      "The query, scope, tags, stale policy, and match limit are explicit.",
+      "Only reviewed rejected candidates are returned; expired candidates stay excluded.",
+      "Recall output is not presented as approved memory, source freshness, or execution evidence."
+    ]
+  },
+  "omh-run-efficiency": {
+    "canonical": "run-efficiency",
+    "why_this_exists": "`run-efficiency` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "run_efficiency_report/v1",
+      "context utilization",
+      "not_observed provider and host gaps"
+    ],
+    "final_checklist": [
+      "The run ID, context budget, surfaces, and supplied observations are explicit.",
+      "Provider billing, cron, and host claims remain not_observed unless separately recorded.",
+      "The report does not intercept, route, or execute provider or host work."
+    ]
+  },
+  "omh-provider-profile-posture": {
+    "canonical": "provider-profile-posture",
+    "why_this_exists": "`provider-profile-posture` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.",
+    "required_inputs": [
+      "user request",
+      "target context",
+      "delivery or status expectation",
+      "known missing evidence"
+    ],
+    "expected_outputs": [
+      "provider_profile_posture/v1",
+      "metadata-only secret requirements",
+      "allowed and prohibited actions"
+    ],
+    "final_checklist": [
+      "Provider ID, profile ID, requested capabilities, and secret-presence metadata are explicit.",
+      "No secret value, credential validation, provider call, model route, wallet, or payment action is claimed.",
+      "Any host observation reference remains supplied metadata, not a live connector check."
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+test_hermes_projection_byte_stable (test_agent_skills_projection.AgentSkillsProjectionTests.test_hermes_projection_byte_stable) ... ok
+test_ulw_work_projection_has_no_hermes_framing (test_agent_skills_projection.AgentSkillsProjectionTests.test_ulw_work_projection_has_no_hermes_framing) ... ok
+test_requires_omh_cli_skills_carry_compatibility_frontmatter (test_agent_skills_projection.AgentSkillsProjectionTests.test_requires_omh_cli_skills_carry_compatibility_frontmatter) ... FAIL
+test_agent_descriptions_are_bounded_without_changing_hermes (test_agent_skills_projection.AgentSkillsProjectionTests.test_agent_descriptions_are_bounded_without_changing_hermes) ... FAIL
+
+======================================================================
+FAIL: test_requires_omh_cli_skills_carry_compatibility_frontmatter (test_agent_skills_projection.AgentSkillsProjectionTests.test_requires_omh_cli_skills_carry_compatibility_frontmatter)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khope@sionic.ai/Desktop/khope/oh-my-hermes-worktrees/agent-skills-projection/tests/test_agent_skills_projection.py", line 31, in test_requires_omh_cli_skills_carry_compatibility_frontmatter
+    self.assertNotIn("\ncompatibility:", frontmatter)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '\ncompatibility:' unexpectedly found in '\nname: "ulw-loop"\ndescription: "[omh] Hermes Loop workflow: agentic interviewer -> planner -> researcher -> builder -> reviewer cycles until a real gate. Use when the user says: loop, goal loop, long horizon goal, never stop, research plan goal feedback, token exhaustion resume, permission profile, star 10k."\ncompatibility: "Requires the omh CLI on PATH (pip install oh-my-hermes)."\nmetadata:\n  hermes:\n    tags: [workflow, oh-my-hermes, goal-loop]\n    category: goal-loop\n    phase: continuous-goal-loop\n    role: planner\n    quality_tier: loop-gated\n'
+
+======================================================================
+FAIL: test_agent_descriptions_are_bounded_without_changing_hermes (test_agent_skills_projection.AgentSkillsProjectionTests.test_agent_descriptions_are_bounded_without_changing_hermes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khope@sionic.ai/Desktop/khope/oh-my-hermes-worktrees/agent-skills-projection/tests/test_agent_skills_projection.py", line 77, in test_agent_descriptions_are_bounded_without_changing_hermes
+    self.assertGreater(len(frontmatter_description(definition)), 1024)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 996 not greater than 1024
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.160s
+
+FAILED (failures=2)

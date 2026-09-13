@@ -61,6 +61,34 @@ class HostAdapterTests(unittest.TestCase):
                         self.assertEqual(set(result.stdout.splitlines()[1:]), {p.split("/")[0] for p in expected})
                     self.assertFalse(((repo if user else home) / target.relative_to(home if user else repo)).exists())
 
+    @unittest.skipUnless(shutil.which("sh"), "POSIX shell unavailable")
+    def test_cli_script_tree_equality(self):
+        from contextlib import chdir
+        from unittest.mock import patch
+        for host in HOSTS:
+            for scope in ("repo", "user"):
+                with self.subTest(host=host, scope=scope), tempfile.TemporaryDirectory(prefix="omh parity ") as tmp:
+                    root = Path(tmp).resolve()
+                    cli_repo, script_repo = root / "cli-project", root / "script-project"
+                    cli_home, script_home = root / "cli-home", root / "script-home"
+                    for path in (cli_repo, script_repo, cli_home, script_home):
+                        path.mkdir()
+                    relative = ".claude/skills" if host == "claude" else ".agents/skills"
+                    cli_target = (cli_home if scope == "user" else cli_repo) / relative
+                    script_target = (script_home if scope == "user" else script_repo) / relative
+                    with chdir(cli_repo), patch.dict(os.environ, {"HOME": str(cli_home), "USERPROFILE": str(cli_home)}):
+                        code, output, error = run_cli(["install", "--target", "agents", "--host", host,
+                                                       "--scope", scope, "--json"])
+                    self.assertEqual(code, 0, error + output)
+                    result = subprocess.run(
+                        ["sh", str(ROOT / f".{host}/install.sh"), *(["--user"] if scope == "user" else [])],
+                        cwd=script_repo, env={**os.environ, "HOME": str(script_home), "USERPROFILE": str(script_home)},
+                        capture_output=True, text=True, timeout=60,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    # Compare every installed byte, including the managed receipt.
+                    self.assertEqual(tree(script_target), tree(cli_target))
+
     def test_manifest_source_digest_and_cli_lockstep(self):
         from contextlib import chdir
         import hashlib

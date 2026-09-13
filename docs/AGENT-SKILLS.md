@@ -59,9 +59,12 @@ omh install --target agents --host claude --scope user
 omh install --target agents --host cursor --status --json
 ```
 
-The CLI generates the same skill bytes from its installed package version and
-adds its managed-install status manifest. Use a matching version/checkout for
-byte equality. The CLI retains its collision checks and manifest-owned retired
+The CLI and both clone scripts write the same skill bytes and
+`.omh-agent-skills-manifest.json` receipt. With a matching package version/checkout,
+fresh installed trees are byte-identical, including the receipt, in either scope.
+Single-target receipts use `target_dirs: ["."]` relative to the receipt directory,
+not install-time absolute paths; CLI status still reports the actual absolute
+destination. The CLI retains its collision checks and manifest-owned retired
 file cleanup; the clone scripts deliberately copy only the committed pack.
 Neither path installs the Hermes-native `skills/` projection, registers the
 Hermes plugin, adds host rules/plugins/MCP tools, or proves host execution.
@@ -107,8 +110,12 @@ An explicit import rooted at the mirror still imports the selected source.
 `.omh-agent-skills-manifest.json` uses `schema_version:
 omh_agent_skills_projection/v1`, a content-addressed `catalog_revision`,
 `target_dirs`, and a `files` mapping from projection-relative path to SHA256.
-Both scopes write the **same manifest** at their two roots; each listed file digest
-applies to both copies. Manifest paths never choose the write destinations.
+Without a host selector, both scopes retain absolute `target_dirs` and write the
+**same manifest** at their two roots; each listed file digest applies to both
+copies. Host-selected single-target installs instead use the portable `["."]`
+receipt described above. Older absolute single-target receipts report stale
+(clean drift) until an explicit reinstall refreshes them. Manifest paths never
+choose the write destinations.
 
 Status separates `projection` (`fresh`, `stale`, `missing`) from `drift`
 (`clean`, `locally_modified`, `unknown`), and includes `locally_modified` and

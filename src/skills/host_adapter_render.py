@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from string import Template
 
+from ..install.agent_skills_projection import MANIFEST_NAME, agent_skills_manifest
 from .host_adapters import HOST_ADAPTERS, checksum_inventory, host_adapter_manifest
 
 
@@ -53,8 +54,9 @@ verify() {
     printf '%s\n' "$$checksums" | (cd "$$1" && checksum -c -) >/dev/null || fail 'Skill digest mismatch'
 }
 verify "$$source"
-# Preflight EVERY target before the first write. Do not follow destination links.
-printf '%s\n' "$$paths" | while IFS= read -r path; do
+# Preflight EVERY target before the first write, including the receipt.
+# Do not follow destination links.
+printf '%s\n' "$$paths" '$receipt_name' | while IFS= read -r path; do
     current="$$target/$$path"
     while [ "$$current" != "$$base" ]; do
         [ ! -L "$$current" ] || fail "Symlink destination: $$current"
@@ -68,6 +70,9 @@ printf '%s\n' "$$paths" | while IFS= read -r path; do
     cp "$$source/$$path" "$$target/$$path"
 done
 verify "$$target"
+cat > "$$target/$receipt_name" <<'OMH_RECEIPT'
+$receipt
+OMH_RECEIPT
 printf 'Installed $host skills in %s\n' "$$target"
 cat <<'OMH_SKILLS'
 $skills
@@ -128,8 +133,9 @@ function Assert-Digests([string]$$Root) {
     }
 }
 Assert-Digests $$source
-foreach ($$entry in $$entries) {
-    $$path = Join-Path $$target $$entry.Path
+# Preflight the receipt as well as every copied file before any write.
+foreach ($$relative in (@($$entries.Path) + '$receipt_name')) {
+    $$path = Join-Path $$target $$relative
     Assert-NoLink $$path $$base
     if ((Test-Path -LiteralPath $$path) -and -not (Test-Path -LiteralPath $$path -PathType Leaf)) {
         throw "Not a file: $$path"
@@ -141,6 +147,12 @@ foreach ($$entry in $$entries) {
     [IO.File]::Copy((Join-Path $$source $$entry.Path), $$path, $$true)
 }
 Assert-Digests $$target
+$$receipt = @'
+$receipt
+'@
+# Match the CLI's UTF-8 without BOM and LF bytes even on Windows PowerShell 5.1.
+[IO.File]::WriteAllText((Join-Path $$target '$receipt_name'),
+    $$receipt.Replace("`r`n", "`n") + "`n", [Text.UTF8Encoding]::new($$false))
 Write-Output "Installed $host skills in $$target"
 @'
 $skills
@@ -151,10 +163,13 @@ $skills
 def host_adapter_files(files: dict[str, str]) -> dict[str, str]:
     """All 18 committed files derive from the same source inventory/host rows."""
     result = {}
+    receipt = json.dumps(agent_skills_manifest(files), indent=2, sort_keys=True)
     for adapter in HOST_ADAPTERS:
         manifest = host_adapter_manifest(adapter.host, files)
         fields = {
             "host": manifest["host"],
+            "receipt_name": MANIFEST_NAME,
+            "receipt": receipt,
             "digest": manifest["source_digest"],
             "repo_path": manifest["targets"]["repo"],
             "user_path": manifest["targets"]["user"],

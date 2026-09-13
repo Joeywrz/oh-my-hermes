@@ -137,6 +137,11 @@ def _imported_modules(tree: ast.Module) -> list[tuple[str, tuple[str, ...], int]
 # is reachable only from an explicit operator command; none sits on the chat or
 # handoff-preparation path.
 PROCESS_SPAWN_ALLOWLIST: dict[str, str] = {
+    "src/install/agent_skills_projection.py": (
+        "explicit `omh install --target agents --scope repo` (including read-only --status); "
+        "runs only bounded local git rev-parse --show-toplevel with fsmonitor disabled, "
+        "optional locks suppressed, and ambient GIT_* targets removed; no executor or network."
+    ),
     "src/coding/workspace_preflight.py": (
         "reached only from the explicit `omh coding fanout dispatch` bridge, after that unit's "
         "worktree exists and before its agent CLI is spawned; runs only the bounded local git "
@@ -647,6 +652,11 @@ FORGE_PROGRAMS = frozenset({"gh", "hub", "glab", "tea"})
 # The complete set of git argv literals in `src/`, keyed by file and by the run
 # of literal words that follow `git`. Every one is local; none names a remote.
 GIT_ARGV_ALLOWLIST: dict[tuple[str, tuple[str, ...]], str] = {
+    ("src/install/agent_skills_projection.py", ("core.fsmonitor=false", "rev-parse")): (
+        "git -c core.fsmonitor=false --no-optional-locks rev-parse --show-toplevel finds the "
+        "current repository for explicit Agent Skills repo installation; bounded, read-only, "
+        "local-only, with no remote and no repository-configured fsmonitor execution."
+    ),
     ("src/coding/workspace_preflight.py", ("rev-parse",)): (
         "`git rev-parse --absolute-git-dir` locates the git directory of the unit's own worktree so "
         "the index-write probe can put its temporary index and scratch blob there; read-only and "

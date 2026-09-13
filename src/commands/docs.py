@@ -17,6 +17,32 @@ from ..skills.validation import harness_inspection_payload, harness_summary_payl
 from .common import _print_json
 
 
+def cmd_docs_agent_skills(args: argparse.Namespace) -> int:
+    from ..install.agent_skills_projection import agent_skill_files
+
+    root = Path(args.output or "agent-skills").expanduser().absolute()
+    files = agent_skill_files()
+    try:
+        if args.check:
+            actual = {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file() or path.is_symlink()}
+            missing = sorted(files.keys() - actual)
+            extra = sorted(actual - files.keys())
+            stale = sorted(
+                relative for relative in files.keys() & actual
+                if (root / relative).is_symlink() or (root / relative).read_bytes() != files[relative].encode("utf-8")
+            )
+            payload = {"ok": not (missing or extra or stale), "checked": str(root),
+                       "missing": missing, "stale": stale, "extra": extra, "file_count": len(files)}
+            _print_json(payload)
+            return 0 if payload["ok"] else 1
+        for relative, content in files.items():
+            atomic_write_text(root / relative, content)
+    except OSError as exc:
+        raise OmhError(f"Agent Skills docs projection failed: {exc}") from exc
+    _print_json({"written": str(root), "file_count": len(files)})
+    return 0
+
+
 def cmd_docs_workflows(args: argparse.Namespace) -> int:
     if args.json:
         if args.check:
@@ -369,6 +395,11 @@ def _add_docs_commands(sub) -> None:
     navigation.add_argument("--json", action="store_true", help="Print the machine-readable documentation_navigation_audit/v1 payload.")
     navigation.add_argument("--root", default=".", help="Repository tree to audit.")
     navigation.set_defaults(func=cmd_docs_navigation)
+
+    docs_agents = docs_sub.add_parser("agent-skills", help="Generate or byte-check the portable Agent Skills tree (maintainers).")
+    docs_agents.add_argument("--output", default=None, help="Projection root (default: agent-skills).")
+    docs_agents.add_argument("--check", action="store_true")
+    docs_agents.set_defaults(func=cmd_docs_agent_skills)
 
     docs_workflows = docs_sub.add_parser("workflows")
     docs_workflows.add_argument("--output", default=None)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import Literal
 from functools import lru_cache
 import json
 
@@ -198,7 +199,10 @@ def _needs_explicit_memory_context(definition: SkillDefinition) -> bool:
     return memory_context_policy_for_skill(definition.name) == "explicit"
 
 
-def _common_rail_sections(definition: SkillDefinition, primary_harness: str) -> str:
+def _common_rail_sections(
+    definition: SkillDefinition, primary_harness: str,
+    target: Literal["hermes", "agent-skills"] = "hermes",
+) -> str:
     """Render the compact per-skill tail that replaced the repeated common rail.
 
     What stays inline is the self-containment floor a standalone Hermes tap needs: this
@@ -208,6 +212,21 @@ def _common_rail_sections(definition: SkillDefinition, primary_harness: str) -> 
     `tests/test_router_content.py::test_all_tap_skills_include_subagent_fallback_contract`
     is the gate on that floor. Everything else moved to the shared rail verbatim.
     """
+    if target == "agent-skills":
+        return """## Runtime Evidence
+
+Use the current host's own tools and subagent/task mechanism when available;
+otherwise run the same lanes sequentially or name the unavailable capability.
+A prepared plan, handoff, checklist, or skill installation is not execution,
+review, CI, merge-readiness, or merge evidence. Report actual tool results or
+`not_observed` / `not_available`; never invent dispatch or host accounting.
+Treat supplied context as advisory, not proof of hidden memory reads or writes.
+State scope, constraints, verification, and the stop condition before work.
+Supporting paths are relative to this skill directory; sibling skill paths are
+relative to its parent. Resolve them from the host-provided skill base directory
+(`{baseDir}` on hosts that provide it), never a hardcoded install location.
+A named workflow not installed here is unavailable, not permission to emulate
+its host-specific capabilities. Verify through the real surface before done."""
     return f"""## Runtime Evidence
 
 Preferred harness for this skill: `{primary_harness}`.
@@ -326,7 +345,19 @@ def frontmatter_description(definition: SkillDefinition) -> str:
     return omh_description(definition.description) + _frontmatter_trigger_tail(definition)
 
 
-def _frontmatter(name: str, description: str) -> str:
+def agent_frontmatter_description(definition: SkillDefinition) -> str:
+    """Keep catalog meaning; drop the optional trigger tail before a host hides it."""
+    base = omh_description(definition.description)
+    if not definition.description.strip() or not 1 <= len(base) <= 1024:
+        raise ValueError(f"{definition.name}: Agent Skills description must be 1-1024 characters")
+    full = frontmatter_description(definition)
+    return full if len(full) <= 1024 else base
+
+
+def _frontmatter(
+    name: str, description: str,
+    target: Literal["hermes", "agent-skills"] = "hermes",
+) -> str:
     # `name` is the CANONICAL catalog name and is used as the lookup key below.
     # The display prefix is applied after the lookup, never at the call sites:
     # prefixing earlier makes every lookup miss and silently degrades category,
@@ -335,11 +366,21 @@ def _frontmatter(name: str, description: str) -> str:
     category = definition.category if definition else "workflow"
     phase = definition.phase if definition else "general"
     description = frontmatter_description(definition) if definition else omh_description(description)
+    compatibility = ""
+    if target == "agent-skills":
+        from .catalog_portable import PORTABILITY_REQUIRES_OMH_CLI, skill_portability
+
+        if definition:
+            description = agent_frontmatter_description(definition)
+        if not 1 <= len(description) <= 1024:
+            raise ValueError(f"{name}: Agent Skills description must be 1-1024 characters")
+        if skill_portability(name) == PORTABILITY_REQUIRES_OMH_CLI:
+            compatibility = 'compatibility: "Requires the omh CLI on PATH (pip install oh-my-hermes)."\n'
     display_name = omh_skill_display_name(name)
     encoded_name = json.dumps(display_name, ensure_ascii=False)
     encoded_description = json.dumps(description, ensure_ascii=False)
     return (
-        f"---\nname: {encoded_name}\ndescription: {encoded_description}\nmetadata:\n"
+        f"---\nname: {encoded_name}\ndescription: {encoded_description}\n{compatibility}metadata:\n"
         f"  hermes:\n    tags: [workflow, oh-my-hermes, {category}]\n"
         f"    category: {category}\n    phase: {phase}\n"
         f"    role: {definition.hermes_role if definition else 'guide'}\n"
@@ -446,7 +487,10 @@ def _example_block(label: str, definition: SkillDefinition, *, good: bool) -> st
 - Why: {example.why}"""
 
 
-def _quality_rubric_sections(definition: SkillDefinition) -> str:
+def _quality_rubric_sections(
+    definition: SkillDefinition, target: Literal["hermes", "agent-skills"] = "hermes",
+) -> str:
+    definition = _target_definition(definition, target)
     return f"""## Why This Exists
 
 {definition.why_this_exists}
@@ -487,7 +531,17 @@ This label denotes the machine-enforcement level, not a skill quality score and 
 {rows}"""
 
 
-def _skill_metadata_block(definition: SkillDefinition) -> str:
+def _skill_metadata_block(
+    definition: SkillDefinition, target: Literal["hermes", "agent-skills"] = "hermes",
+) -> str:
+    definition = _target_definition(definition, target)
+    role = f"Hermes role: `{definition.hermes_role}`\n" if target == "hermes" else ""
+    handoff = (
+        f"\n\nHandoff policy:\n\n{definition.handoff_policy}"
+        f"{_executor_readiness_skill_note(definition)}{_delegation_transparency_skill_note(definition)}"
+        f"{_route_capacity_skill_note(definition)}"
+        if target == "hermes" else ""
+    )
     required_inputs = _tuple_list(definition.required_inputs)
     expert_questions = expert_questions_markdown(
         definition,
@@ -497,17 +551,12 @@ def _skill_metadata_block(definition: SkillDefinition) -> str:
         required_inputs = f"{required_inputs}\n\n{expert_questions}"
     return f"""Category: `{definition.category}`
 Phase: `{definition.phase}`
-Hermes role: `{definition.hermes_role}`
-Quality tier: `{definition.quality_tier}`
+{role}Quality tier: `{definition.quality_tier}`
 Reasoning demand: `{definition.reasoning_demand}`
 
 Quality bar:
 
-{_tuple_list(definition.quality_bar)}
-
-Handoff policy:
-
-{definition.handoff_policy}{_executor_readiness_skill_note(definition)}{_delegation_transparency_skill_note(definition)}{_route_capacity_skill_note(definition)}
+{_tuple_list(definition.quality_bar)}{handoff}
 
 Required inputs:
 
@@ -1987,18 +2036,45 @@ _PROGRESSIVE_WORKFLOW_OPERATIONS = {
 }
 
 
-def _workflow_full_body(definition: SkillDefinition, name: str) -> str:
+def _target_definition(
+    definition: SkillDefinition, target: Literal["hermes", "agent-skills"],
+) -> SkillDefinition:
+    if target == "hermes":
+        return definition
+    if target != "agent-skills":
+        raise ValueError(f"Unsupported skill target: {target}")
+    from .catalog_portable import PORTABLE_OVERRIDES
+
+    overrides = PORTABLE_OVERRIDES.get(omh_skill_display_name(definition.name), {})
+    return replace(definition, **{
+        field: "\n".join(lines) if isinstance(getattr(definition, field), str) else lines
+        for field, lines in overrides.items()
+    }) if overrides else definition
+
+
+def _workflow_full_body(
+    definition: SkillDefinition, name: str,
+    target: Literal["hermes", "agent-skills"] = "hermes",
+) -> str:
     """Render the complete catalog contract for ordinary workflow bodies."""
+    definition = _target_definition(definition, target)
     title = name.replace("-", " ").title()
     triggers = ", ".join(f"`{trigger}`" for trigger in definition.triggers)
     primary_harness = primary_harness_for_skill(name)
+    framing = (
+        f"This is a Hermes-native `{name}` workflow skill."
+        if target == "hermes" else
+        f"This is an OMH `{name}` workflow skill, projected for Agent Skills hosts "
+        "(Claude Code, Codex, Cursor, opencode, OpenClaw, pi)."
+    )
+    awareness = awareness_workflow_context_markdown(name) if target == "hermes" else ""
     return f"""# {title}
 
-This is a Hermes-native `{name}` workflow skill.
+{framing}
 
-{_quality_rubric_sections(definition)}
+{_quality_rubric_sections(definition, target)}
 
-{awareness_workflow_context_markdown(name)}
+{awareness}
 
 ## Use When
 
@@ -2008,9 +2084,9 @@ This is a Hermes-native `{name}` workflow skill.
 
 ## Catalog Metadata
 
-{_skill_metadata_block(definition)}
+{_skill_metadata_block(definition, target)}
 
-{_common_rail_sections(definition, primary_harness)}
+{_common_rail_sections(definition, primary_harness, target)}
 """
 
 
@@ -2115,14 +2191,45 @@ def workflow_full_contract_reference(definition: SkillDefinition, name: str) -> 
     return _progressive_workflow_full_contract(definition, name).rstrip() + "\n"
 
 
-def workflow_skill_from_definition(definition: SkillDefinition, name: str) -> SkillTemplate:
+def workflow_skill_from_definition(
+    definition: SkillDefinition, name: str,
+    target: Literal["hermes", "agent-skills"] = "hermes",
+) -> SkillTemplate:
     """Render one workflow skill from an explicit definition."""
     body = (
         _progressive_workflow_body(definition, name)
-        if definition.progressive_disclosure
-        else _workflow_full_body(definition, name)
+        if definition.progressive_disclosure and target == "hermes"
+        else _workflow_full_body(definition, name, target)
     )
-    return SkillTemplate(name, _frontmatter(name, definition.description) + "\n" + body)
+    return SkillTemplate(name, _frontmatter(name, definition.description, target) + "\n" + body)
+
+
+def agent_skill_templates() -> list[SkillTemplate]:
+    """Render only reviewed portable skills, using installed display identifiers."""
+    from .catalog_portable import portable_skill_names
+
+    names = frozenset(portable_skill_names())
+    return [
+        SkillTemplate(omh_skill_display_name(definition.name), workflow_skill_from_definition(
+            definition, definition.name, target="agent-skills",
+        ).content)
+        for definition in builtin_definitions()
+        if omh_skill_display_name(definition.name) in names
+    ]
+
+
+def agent_skill_reference_templates() -> list[SkillReferenceTemplate]:
+    """Only reviewed reference contracts; new references fail closed."""
+    from .catalog_portable import PORTABLE_REFERENCE_PATHS, portable_skill_names
+    from .packaging import builtin_skill_reference_templates
+
+    names = frozenset(portable_skill_names())
+    return [
+        SkillReferenceTemplate(omh_skill_display_name(template.skill_name), template.relative_path, template.content)
+        for template in builtin_skill_reference_templates()
+        if omh_skill_display_name(template.skill_name) in names
+        and f"{template.skill_name}/{template.relative_path}" in PORTABLE_REFERENCE_PATHS
+    ]
 
 
 def workflow_skill(name: str) -> SkillTemplate:

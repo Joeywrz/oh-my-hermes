@@ -101,11 +101,13 @@ def _replace_frontmatter_description(raw: str, *, name: str, description: str) -
 def discover_skill_files(source_dir: Path) -> list[Path]:
     if not source_dir.exists():
         raise FileNotFoundError(f"source does not exist: {source_dir}")
-    # Agent artifacts may contain stale copies of shipped skills. They are not
-    # source inputs; keep explicitly selected roots and .claude/skills usable.
+    # Agent artifacts and the separate Agent Skills projection are not Hermes
+    # source inputs. Check relative components so an explicitly selected pack
+    # root still works, without mixing sibling projections during repo import.
+    excluded = {".omc", "agent-skills", ".agents"}
     return sorted(
         path for path in source_dir.rglob("SKILL.md")
-        if ".git" not in path.parts and ".omc" not in path.relative_to(source_dir).parts
+        if ".git" not in path.parts and not excluded.intersection(path.relative_to(source_dir).parts)
     )
 
 

@@ -52,12 +52,21 @@ class McpToolNameCompatibilityTests(unittest.TestCase):
 
     def test_exact_precedence_short_circuits_derivation(self) -> None:
         with patch("omh.workflows.mcp_tool_name_compatibility.NamingRules.normalize", side_effect=AssertionError):
-            row = self.row(snapshot("omh_status", "omh.status"))
+            row = self.row(snapshot("omh_status", "omh-status", "omh.status"))
         self.assertEqual(row["state"], "exact")
         self.assertEqual(row["candidates"], [])
 
-    def test_separator_difference_is_not_invented_compatibility(self) -> None:
-        self.assertEqual(self.row(snapshot("omh-status"))["state"], "missing")
+    def test_separator_difference_is_one_to_one_in_both_directions(self) -> None:
+        for logical_name, name in (
+            ("omh_status", "omh-status"), ("omh-status", "omh_status"),
+            ("omh.status", "omh-status"), ("omh-status", "omh.status"),
+        ):
+            with self.subTest(logical_name=logical_name, name=name):
+                row = self.row(snapshot(name, logical_name=logical_name))
+                self.assertEqual(row["state"], "compatible_one_to_one")
+                self.assertEqual(row["candidates"], [name])
+                self.assertEqual(row["adapter"]["version"], "v1")
+                self.assertFalse(row["auto_selected"])
 
     def test_punctuation_difference_is_one_to_one(self) -> None:
         row = self.row(snapshot("omh.status"))
@@ -89,7 +98,7 @@ class McpToolNameCompatibilityTests(unittest.TestCase):
             self.assertEqual(self.row(snapshot(logical_name="omh_hud"))["state"], "missing")
 
     def test_config_only_never_proves_compatibility(self) -> None:
-        for name in ("omh_status", "omh.status"):
+        for name in ("omh_status", "omh.status", "omh-status"):
             with self.subTest(name=name):
                 row = self.row(snapshot(name, observation="config_only"))
                 self.assertEqual(row["state"], "unobserved")
@@ -227,7 +236,8 @@ class McpToolNameCompatibilityCliTests(unittest.TestCase):
             ("exact", "exact"), ("registered", "exact"), ("config_only", "unobserved"),
             ("precedence", "exact"), ("one_candidate", "compatible_one_to_one"),
             ("ambiguous", "ambiguous"), ("scoped", "missing"),
-            ("separator_difference", "missing"), ("overlength", "unobserved"),
+            ("separator_difference", "compatible_one_to_one"), ("overlength", "unobserved"),
+            ("dash_to_dot", "compatible_one_to_one"), ("dot_to_dash", "compatible_one_to_one"),
             ("unsupported", "unobserved"),
         ):
             with self.subTest(fixture=fixture):
@@ -246,6 +256,32 @@ class McpToolNameCompatibilityCliTests(unittest.TestCase):
                 self.assertLess(len(stderr), 250)
                 self.assertNotIn("AKIA", stderr)
                 self.assertNotIn("Traceback", stderr)
+
+    def test_cli_literal_brief_dash_candidates(self) -> None:
+        for fixture, state, candidates, evidence_refs in (
+            ("brief_one_candidate", "compatible_one_to_one", ["omh-status"],
+             ["run:required", "session:observed-0"]),
+            ("brief_ambiguous", "ambiguous", ["omh-status", "omh.status"],
+             ["run:required", "session:observed-0", "session:second"]),
+        ):
+            with self.subTest(fixture=fixture):
+                path = self.fixtures / f"{fixture}.json"
+                value = json.loads(path.read_text(encoding="utf-8"))
+                status, stdout, stderr = self.cli(path)
+                self.assertEqual(status, 0, stderr)
+                self.assertEqual(stderr, "")
+                payload = json.loads(stdout)
+                self.assertEqual(payload["adapter"], {"id": "opencode-mcp-tool-naming", "version": "v1"})
+                self.assertEqual(len(payload["rows"]), 1)
+                row = payload["rows"][0]
+                self.assertEqual(row["state"], state)
+                self.assertEqual(row["candidates"], candidates)
+                self.assertEqual(row["evidence_refs"], evidence_refs)
+                self.assertFalse(row["auto_selected"])
+                self.assertNotIn("selected_name", row)
+                self.assertNotIn("recommended", row)
+                value["advertised_tools"].reverse()
+                self.assertEqual(payload, build_mcp_tool_name_compatibility_report((value,)))
 
     def test_cli_is_byte_identical_read_only_and_metadata_only(self) -> None:
         path = self.fixtures / "exact.json"

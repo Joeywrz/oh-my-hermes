@@ -49,7 +49,7 @@ identical prompt. Nothing else about the pipeline changes per model.
 | `kimi` | `kimi-` | `kimi-k3`, `kimi-k3-ultrafast` |
 | `glm` | `glm-` | `glm-5.3`, `glm-5.3-flash`, `glm-5.2-ultrafast` |
 | `grok` | `grok-` | `grok-code-fast-1` |
-| `qwen` | `qwen-`, alias `qwen3-` | `qwen3-coder` |
+| `qwen` | `qwen-`, aliases `qwen3-` and `qwen3.` | `qwen3-coder`, `qwen/qwen3.8-flash` |
 | `deepseek` | `deepseek-` | `deepseek-v4.1-flash`, `deepseek-flash` (the first-party pointer), `deepseek/deepseek-v4.1-flash` |
 | `mistral` | `mistral-` | Mistral Large / Medium ids |
 | `llama` | `llama-` | open-weights Llama ids, any serving host |

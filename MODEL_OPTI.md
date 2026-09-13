@@ -704,20 +704,25 @@ pairing so a benchmark claim can never mix in other prompt changes.
   Astra measurement found expensive on tasks a model will not pass.
 - **What OMH injects (subagent):** the resolved contract in one sentence —
   thinking is on and the runtime returns earlier reasoning on every tool
-  turn, so the visible reply carries the change, the verification output,
-  and the stop rather than a restatement of reasoning the context already
-  holds, and a turn that ends without a tool call carries its answer in the
-  visible text, never only in reasoning (the vendor's harness adapter
-  records that the live API rejects an assistant turn whose content is
-  empty because the answer sat in the reasoning channel); the family's
-  exact-literal-string edit rule, kept because the override replaces the
-  family block rather than extending it; and the blocker rule — when the
-  evidence in hand cannot satisfy a criterion, report the blocker with the
-  observed output rather than widening the search, and leave a passed
-  criterion closed. Three sentences; under the per-block ceiling. Nothing
-  in it asks the model to keep going: the Astra round showed that such a
-  sentence costs tokens exactly on the tasks the model fails, so the
-  long-horizon trait gets a stop-shaped counter.
+  turn, so the visible reply carries the change and the stop rather than a
+  restatement of reasoning the context already holds, and a turn that ends
+  without a tool call carries its answer in the visible text, never only in
+  reasoning (the vendor's harness adapter records that the live API rejects
+  an assistant turn whose content is empty because the answer sat in the
+  reasoning channel); the family's exact-literal-string edit rule, kept
+  because the override replaces the family block rather than extending it;
+  the blocker rule — when the evidence already in hand cannot satisfy a
+  criterion, report the blocker from that evidence rather than widening the
+  search, and leave a passed criterion closed; and the family block's
+  closing rule, verbatim — make the smallest correct change, verify once,
+  and stop. Four sentences; under the per-block ceiling. Nothing in it asks
+  the model for more output: the first wording asked the reply to carry
+  "the verification output" and the blocker report to carry "the observed
+  output", and the measurement below found that those two phrases cost 25%
+  more tokens than the family block for the same pass set, most of it
+  re-running checks on tasks the model was not going to pass — the same
+  "keeps working" signature the Astra round found, reached through a
+  request for output rather than a request to continue.
 - **What OMH injects (composer):** the visible composition is the ordered
   split, not a replay of planning already in context, and carries no
   synthetic thinking instructions; the shared preamble stays byte-identical
@@ -783,13 +788,35 @@ pairing so a benchmark claim can never mix in other prompt changes.
   approximation for a fanout wave, and the off-peak schedule stays in the
   contract. `deepseek-flash` inherits the row through the declared
   projection; an exact operator `model-prices.json` row wins first.
-- **Not measured:** no served V4.1 Flash route existed on the owner machine
-  on 2026-09-11 (the gateway listed `deepseek/deepseek-v4-flash` and
-  `deepseek/deepseek-v4-pro`; the vendor routes both to V4.1 Flash on its
-  own API, but a gateway's `/models` row is not that proof). The
-  `family` vs `optimized` pair on `benchmarks/live-model-tools/v1` (the
-  recipe in `docs/MODEL-ONBOARDING.md` §8) is the named follow-up; per §8
-  the override is revised or removed in the change that reports the number.
+- **Measured (2026-09-13, subagent block; issue #1463):** five arms on
+  `benchmarks/live-model-tools/v1`, evaluation split (30 instances, corpus
+  digest `c4ea899a…`), `hermes_current_session` path through the `og`
+  gateway's `deepseek/deepseek-flash` (served that morning; route receipt
+  recorded first), omh 2.0.3, Hermes 0.21.1, arm order baseline → family →
+  optimized → optimized at `low` → revised, all on one day. Pass rate tied
+  within noise (15 / 15 / 16 / 17 / 14 of 30; McNemar p = 1.0 everywhere
+  but optimized vs revised at 0.5, two discordant instances), with the
+  variance confined to the two search templates. Tokens decided it: the
+  original override cost 3,214,839 against the inherited `deepseek` block's
+  2,564,954 (+21,663 per instance, bootstrap CI95 [+6,550, +42,944], more in
+  24 / 30) and about the same as no calibration at all (3,360,197). Hermes'
+  session rows put it at 462 tool calls / 277 API turns versus 434 / 244 for
+  the family block, with the excess in `DIAGNOSTICS`, `BUGFIX` and `RENAME`:
+  the model re-ran checks on tasks it was not going to pass and
+  over-verified tasks it passed either way. "The verification output" and
+  "with the observed output" were the two phrases with that reading, and the
+  family's "verify once, and stop" was the sentence the override had dropped;
+  the block above is the revision that removes both phrases and restores the
+  rule: 2,327,037 tokens (−29,593 per instance against the original, CI95
+  [−50,559, −12,636]; −7,931 against the family block, CI95 [−22,782,
+  +3,395], indistinguishable), 368 tool calls, 230 API turns, 14 / 30. Per
+  §8 that is the "revise" outcome: the resolved-contract sentences stay, the
+  requests for output are gone, and the override now costs what the block it
+  replaced costs. The `low` arm (the `unspecified-low` placement) bought no
+  pass and an uncertain saving against `high` (−13,286 per instance, CI
+  spans zero), so the ladder stays documented, not ranked. Full tables and
+  the archive path in the benchmark README. Not measured: the composer block
+  (no fanout in this harness), `max`, any claim beyond this corpus.
 - **Source:** official (the DeepSeek-V4.1-Flash model card on Hugging Face,
   the API change log entry of 2026-09-10, the models-and-pricing page, the
   thinking-mode guide, and the `deepseek-ai/deepseek-harness` repository's

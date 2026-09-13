@@ -367,17 +367,23 @@ MODEL_HIGH_EFFORT_CALIBRATIONS: Final[dict[str, str]] = {
     # own harness adapter notes that the live API rejects an assistant turn
     # whose answer sits only in the reasoning channel. The family block's
     # conditional clauses (reasoning-capable or not, R1 or not) resolve
-    # here, so this block states the resolved contract; the counter for the
-    # long-horizon trait is a blocker-report rule, never a push.
+    # here, so this block states the resolved contract. Measured 2026-09-13
+    # (MODEL_OPTI.md): the first wording asked the visible reply to carry
+    # "the verification output" and the blocker report to carry "the
+    # observed output", and cost 25% more tokens than the family block for
+    # the same pass set, most of it re-running checks on tasks the model was
+    # not going to pass. Both phrases are gone; the family block's closing
+    # rule ("make the smallest correct change, verify once, and stop") is
+    # kept verbatim, because that is the sentence the override had dropped.
     "deepseek-v4.1-flash": (
         "High-effort calibration: this is DeepSeek V4.1 Flash with thinking on by default, and the "
         "runtime returns your earlier reasoning on every tool turn, so the visible reply carries the "
-        "change, the verification output, and the stop — not a restatement of reasoning the context "
-        "already holds — and a turn that ends without a tool call carries its answer in the visible "
-        "text, never only in reasoning. Edit by exact literal strings — a unique match with exact "
-        "whitespace — as this family's edit training expects. When the evidence in hand cannot satisfy "
-        "a criterion, report the blocker with the observed output rather than widening the search, "
-        "and leave a passed criterion closed."
+        "change and the stop — not a restatement of reasoning the context already holds — and a turn "
+        "that ends without a tool call carries its answer in the visible text, never only in "
+        "reasoning. Edit by exact literal strings — a unique match with exact whitespace — as this "
+        "family's edit training expects. When the evidence already in hand cannot satisfy a "
+        "criterion, report the blocker from that evidence rather than widening the search, and leave "
+        "a passed criterion closed. Make the smallest correct change, verify once, and stop."
     ),
 }
 MODEL_COMPOSITION_CALIBRATIONS: Final[dict[str, str]] = {

@@ -4,6 +4,18 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **DeepSeek V4.1 Flash override measured and revised.** On the first day a
+  served route existed (`og` added `deepseek/deepseek-flash`), the
+  `deepseek-v4.1-flash` high-effort override ran the #1463 five-arm pair on
+  `benchmarks/live-model-tools/v1`: pass rate tied within noise, but the
+  original wording cost 25% more tokens than the inherited `deepseek` block
+  (+21,663 per instance, CI95 [+6,550, +42,944]), re-running checks on tasks
+  the model was not going to pass. The two phrases that asked the reply to
+  carry "the verification output" and the blocker report "the observed
+  output" are gone and the family block's "verify once, and stop" is back;
+  the revised block measures at the family block's cost with the fewest tool
+  calls and API turns of any arm. Numbers in `MODEL_OPTI.md` and the
+  benchmark README; records archived outside git. Closes #1463.
 - **The bundled plugin declares its Hermes runtime range.** OMH admits
   Hermes `>=0.21.1,<0.22.0` before plugin registration and rejects unsupported
   hosts with the required and running versions. Missing or invalid declarations

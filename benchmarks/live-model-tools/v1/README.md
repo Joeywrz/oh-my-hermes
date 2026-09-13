@@ -305,3 +305,109 @@ What the numbers say, and no more:
 
 Results describe this pinned corpus, OMH version, Hermes version, model IDs,
 and conditions only. They do not establish universal model superiority.
+
+### 2026-09-13 `deepseek-flash` five-arm evaluation (issue #1463)
+
+The `deepseek-v4.1-flash` exact-model override
+(`MODEL_HIGH_EFFORT_CALIBRATIONS["deepseek-v4.1-flash"]`, #1465) measured
+against the block it replaced, on the first day a served V4.1 Flash route
+existed on the owner machine (the `og` gateway added `deepseek/deepseek-flash`
+that morning; route receipt: a one-shot `hermes` call whose usage file names
+`model deepseek/deepseek-flash`, `provider custom`, `cost_status unknown`).
+Same pinned evaluation corpus (30 instances, digest
+`c4ea899a8e727fcc531776e56306ff0e83d129e2248fe4362614b3d186fa7b33`),
+`hermes_current_session` path, `og` / `deepseek/deepseek-flash`
+(`--current-session-provider og`), omh 2.0.3 (calibration text read
+in-process from the bench checkout at `2299e386`; the `revised` arm from the
+branch that ships it), Hermes Agent 0.21.1 (2026.9.7), targeted manifest with
+that one live entry at `high` (a second manifest at `low` for the last arm).
+Arms ran sequentially, all on 2026-09-13 UTC (a Sunday, so the gateway billed
+every arm at DeepSeek's off-peak rate): baseline (09:03–09:17Z) → family
+(09:17–09:28Z) → optimized (a first attempt died at 13 / 30 when the machine
+ran out of memory and was discarded; the complete run is 09:34–09:49Z) →
+optimized at `low` (09:49–10:00Z) → revised (10:00–10:10Z). Not
+counterbalanced within an arm. Only validator passes count as success.
+
+| Arm | What the prompt carries | Passed | Total tokens | Mean tokens | Tool calls | API turns |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| baseline | bare contract, no calibration | 15 / 30 | 3,360,197 | 112,007 | 521 | 295 |
+| family | inherited `HIGH_EFFORT_CALIBRATIONS["deepseek"]` | 15 / 30 | 2,564,954 | 85,498 | 434 | 244 |
+| optimized | original `deepseek-v4.1-flash` override (#1465 wording) | 16 / 30 | 3,214,839 | 107,161 | 462 | 277 |
+| revised | `deepseek-v4.1-flash` override as shipped after this run | 14 / 30 | 2,327,037 | 77,568 | 368 | 230 |
+| optimized @ `low` | original override, effort `low` | 17 / 30 | 2,816,261 | 93,875 | 438 | 257 |
+
+Tool calls and API turns are out-of-harness observations read afterwards
+from the Hermes `sessions` table for each arm's contiguous window. The same
+rows split the tokens: cache-miss input / output / cache-hit input per arm
+were 288,558 / 103,191 / 2,968,448 (baseline), 266,171 / 79,647 / 2,219,136
+(family), 294,698 / 100,813 / 2,819,328 (optimized), 255,280 / 66,125 /
+2,005,632 (revised), 276,706 / 88,995 / 2,450,560 (`low`). Hermes replays
+`reasoning_content` on every DeepSeek tool turn, so cache hits are 85–90% of
+every arm's tokens and the harness `tokens` figure is that sum. The gateway
+reports no price (`cost_status unknown`, `cost_usd 0` in every record); at the
+gateway's published off-peak rates that day (0.15 / 0.60 / 0.003 per MTok)
+the arms cost about $0.114, $0.094, $0.113, $0.084 and $0.102 respectively —
+double that at the vendor's peak list rate.
+
+Per template (passes out of 3 / tokens over the 3 seeds):
+
+| Template (class) | baseline | family | optimized | revised | optimized @ low |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| RENAME (edit) | 3 / 249,606 | 3 / 238,386 | 3 / 338,124 | 3 / 247,060 | 3 / 292,791 |
+| BUGFIX (edit) | 3 / 472,272 | 3 / 308,894 | 3 / 462,369 | 3 / 272,843 | 3 / 325,661 |
+| PRECEDENCE (read) | 0 / 249,579 | 0 / 215,772 | 0 / 256,632 | 0 / 240,847 | 0 / 221,275 |
+| CALLFLOW (read) | 0 / 238,005 | 0 / 212,421 | 0 / 260,169 | 0 / 215,863 | 0 / 261,379 |
+| REFERENCES (search) | 1 / 202,556 | 3 / 154,555 | 3 / 197,527 | 2 / 163,690 | 3 / 156,160 |
+| PREDICATE (search) | 2 / 221,474 | 0 / 227,872 | 1 / 242,374 | 0 / 235,281 | 2 / 211,412 |
+| DEFINITION (lsp) | 0 / 617,275 | 0 / 405,835 | 0 / 400,306 | 0 / 328,377 | 0 / 439,031 |
+| DIAGNOSTICS (lsp) | 0 / 770,839 | 0 / 484,117 | 0 / 752,817 | 0 / 332,247 | 0 / 647,609 |
+| SCALE (routing) | 3 / 203,697 | 3 / 199,863 | 3 / 167,634 | 3 / 145,617 | 3 / 140,903 |
+| EXPLICIT (routing) | 3 / 134,894 | 3 / 117,239 | 3 / 136,887 | 3 / 145,212 | 3 / 120,040 |
+
+Paired token deltas per instance (10,000-sample bootstrap, seed 20260813):
+
+| Pair (b − a) | Mean Δ tokens | CI95 | b > a |
+| --- | ---: | ---: | ---: |
+| family − baseline | −26,508 | [−40,668, −13,894] | 6 / 30 |
+| optimized − baseline | −4,845 | [−20,027, +11,261] | 18 / 30 |
+| optimized − family | +21,663 | [+6,550, +42,944] | 24 / 30 |
+| revised − family | −7,931 | [−22,782, +3,395] | 18 / 30 |
+| revised − optimized | −29,593 | [−50,559, −12,636] | 7 / 30 |
+| low − optimized | −13,286 | [−36,871, +8,209] | 4 / 30 |
+| low − family | +8,377 | [−6,045, +28,137] | 18 / 30 |
+
+Pass rate is indistinguishable across the arms (McNemar p = 1.0 for every
+`analyze.py` pair except optimized vs revised at p = 0.5, two discordant
+instances), but unlike the Astra run the per-template sets are not identical:
+the two search templates flip between arms of this model (REFERENCES 1 / 3 /
+3 / 2 / 3, PREDICATE 2 / 0 / 1 / 0 / 2), which reads as run-to-run variance on
+those templates rather than a calibration effect, and the edit, routing, read
+and lsp classes are constant. The decision rests on cost, and cost was clear:
+the original override gave back most of what the family block had saved —
++21,663 tokens per instance over the family block (CI entirely positive,
+more in 24 / 30) with the excess in `DIAGNOSTICS` (+268,700 over three seeds,
+0 / 3 in both arms), `BUGFIX` (+153,475) and `RENAME` (+99,738): the model
+re-ran checks on tasks it was not going to pass and over-verified tasks it
+passed either way. The two phrases with that reading were "the visible reply
+carries … the verification output" and "report the blocker with the observed
+output"; the family block's closing rule ("make the smallest correct change,
+verify once, and stop") was the sentence the override had dropped. The revised
+block removes both phrases and restores that rule verbatim; it lands at
+−7,931 per instance against the family block (CI spans zero — indistinguishable,
+not better), −29,593 against the original, with the fewest tool calls and API
+turns of any arm. That is the wording now in `unit_prompt_protocol.py`; the
+`optimized` row is the wording it replaced.
+
+The `low` arm measures the override's `unspecified-low` placement: at `low`
+the original override cost −13,286 per instance against itself at `high` (CI
+spans zero) and +8,377 against the family block at `high`, with the same edit
+and routing passes — so on this corpus the rung buys no pass and a modest,
+uncertain saving; the documented `low` / `high` / `max` ladder is real but this
+corpus cannot rank it. Not measured: the composer block (no fanout in this
+harness), `max`, and any claim beyond this corpus. Records, manifests,
+receipts and analyses are archived outside git at
+`.omc/research/deepseek-flash-bench-2026-09-13/` in the owner's main checkout.
+
+Results describe this pinned corpus, OMH version, Hermes version, gateway,
+model id and conditions only. They do not establish universal model
+superiority.

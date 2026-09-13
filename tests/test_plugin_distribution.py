@@ -20,7 +20,7 @@ from tempfile import TemporaryDirectory
 
 from _cli_harness import run_cli
 from _local_package import load_local_package
-from _platform_support import requires_symlinks
+from _platform_support import requires_hermes_host, requires_symlinks
 
 load_local_package()
 
@@ -148,6 +148,121 @@ class PluginHermesCompatRangeTests(unittest.TestCase):
         self.assertTrue(payload["plugin_distribution_ready"])
         self.assertFalse(payload["plugin_runtime_observed"])
         self.assertFalse(payload["native_integration_claim_ready"])
+
+
+class PluginHermesAdmissionTests(unittest.TestCase):
+    bundle = Path(__file__).resolve().parents[1] / "src" / "plugin_bundle" / "omh"
+
+    def tearDown(self) -> None:
+        for name in list(sys.modules):
+            if name == "_test_omh_installed_plugin" or name.startswith("_test_omh_installed_plugin."):
+                sys.modules.pop(name, None)
+
+    def test_in_process_admission_rejects_before_register(self) -> None:
+        for version in ("0.21.0", "0.22.0", "1.0.0", None, "invalid"):
+            host = ModuleType("hermes_cli")
+            if version is not None:
+                host.__version__ = version
+            with self.subTest(version=version), mock.patch.dict(sys.modules, {"hermes_cli": host}):
+                with self.assertRaises(RuntimeError):
+                    load_installed_plugin(self.bundle)
+                self.assertFalse(hasattr(sys.modules["_test_omh_installed_plugin"], "register"))
+
+    def test_in_process_admission_accepts_and_validates_registration(self) -> None:
+        from omh.install.plugin_pack import _register_smoke
+        from omh.plugin_bundle.omh.host_compat import admission_error
+
+        self.assertIsNone(admission_error("0.21.1", self.bundle / "plugin.yaml"))
+        host = ModuleType("hermes_cli")
+        host.__version__ = "0.21.1"
+        with mock.patch.dict(sys.modules, {"hermes_cli": host}):
+            plugin = load_installed_plugin(self.bundle)
+            context = FakeHermesContext()
+            plugin.register(context)
+            self.assertEqual(sorted(context.tools), sorted(PROVIDED_TOOLS))
+            smoke = _register_smoke(self.bundle)
+        self.assertTrue(smoke["register_smoke"])
+        self.assertEqual(smoke["tool_schema_failures"], [])
+
+    def test_admission_fails_closed_on_invalid_declaration(self) -> None:
+        host = ModuleType("hermes_cli")
+        host.__version__ = "0.21.1"
+        with TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "omh"
+            shutil.copytree(self.bundle, bundle)
+            for declaration in ("", 'requires_hermes: "not-a-range"\n'):
+                (bundle / "plugin.yaml").write_text(declaration, encoding="utf-8")
+                with self.subTest(declaration=declaration), mock.patch.dict(sys.modules, {"hermes_cli": host}):
+                    with self.assertRaises(RuntimeError):
+                        load_installed_plugin(bundle)
+                    self.assertFalse(hasattr(sys.modules["_test_omh_installed_plugin"], "register"))
+
+    def test_rejection_message_is_bounded_and_metadata_only(self) -> None:
+        from omh.plugin_bundle.omh.host_compat import admission_error
+
+        canaries = ("sk-fixture-secret", "private prompt fixture", "/outside/plugin/private")
+        host = ModuleType("hermes_cli")
+        host.__version__ = "0.22.0"
+        with mock.patch.dict(os.environ, dict(zip(("API_KEY", "PROMPT", "PRIVATE_PATH"), canaries))), \
+                mock.patch.dict(sys.modules, {"hermes_cli": host}):
+            with self.assertRaises(RuntimeError) as raised:
+                load_installed_plugin(self.bundle)
+        error = str(raised.exception)
+        self.assertRegex(error, r'^omh plugin requires Hermes "[^"\n]+"; running Hermes \d+\.\d+\.\d+$')
+        self.assertIn(">=0.21.1,<0.22.0", error)
+        self.assertIn("0.22.0", error)
+        self.assertLessEqual(len(error), 300)
+        for canary in canaries:
+            self.assertNotIn(canary, error)
+        with TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "plugin.yaml"
+            manifest.write_text('requires_hermes: "' + canaries[0] + '"\n', encoding="utf-8")
+            error = admission_error(canaries[1], manifest)
+            self.assertIsNotNone(error)
+            self.assertLessEqual(len(error), 300)
+            for canary in canaries:
+                self.assertNotIn(canary, error)
+
+    @requires_hermes_host
+    def test_real_admission_rejects_unsupported_version_before_register(self) -> None:
+        from omh.install.plugin_loader_observation import _find_hermes_python
+
+        running = subprocess.run(
+            [str(_find_hermes_python()), "-c", "from hermes_cli import __version__; print(__version__)"],
+            capture_output=True, text=True, check=True, timeout=30,
+        ).stdout.strip()
+        with TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "omh"
+            shutil.copytree(self.bundle, bundle)
+            manifest = bundle / "plugin.yaml"
+            manifest.write_text("\n".join(
+                'requires_hermes: ">=999.0.0"' if line.startswith("requires_hermes:") else line
+                for line in manifest.read_text(encoding="utf-8").splitlines()
+            ) + "\n", encoding="utf-8")
+            # A marker distinguishes pre-register rejection from rollback after registration.
+            init = bundle / "__init__.py"
+            init.write_text(init.read_text(encoding="utf-8").replace(
+                "def register(ctx: _PluginContext) -> None:\n",
+                'def register(ctx: _PluginContext) -> None:\n    raise AssertionError("REGISTER_REACHED")\n',
+            ), encoding="utf-8")
+            observation = observe_real_loader_registration(bundle)
+        self.assertTrue(observation["observed"], observation)
+        self.assertFalse(observation["ok"])
+        self.assertFalse(observation["enabled"])
+        self.assertEqual(observation["registered_tools"], [])
+        self.assertEqual(observation["registered_hooks"], [])
+        self.assertIn(">=999.0.0", observation["error"])
+        self.assertIn(running, observation["error"])
+        self.assertNotIn("REGISTER_REACHED", observation["error"])
+
+    @requires_hermes_host
+    def test_real_admission_accepts_declared_range(self) -> None:
+        observation = observe_real_loader_registration(self.bundle)
+        self.assertTrue(observation["observed"], observation)
+        self.assertTrue(observation["ok"], observation)
+        self.assertTrue(observation["enabled"])
+        self.assertEqual(observation["registered_tools"], sorted(PROVIDED_TOOLS))
+        self.assertEqual(observation["registered_hooks"], sorted(PROVIDED_HOOKS))
 
 
 class PluginDistributionTests(unittest.TestCase):
@@ -758,6 +873,7 @@ print(json.dumps(observed, ensure_ascii=False))
             omh_home = root / ".omh"
             hermes_home = root / ".hermes"
             hermes_cli = ModuleType("hermes_cli")
+            hermes_cli.__version__ = "0.21.1"
             hermes_plugins = ModuleType("hermes_cli.plugins")
             setattr(hermes_cli, "plugins", hermes_plugins)
             setattr(

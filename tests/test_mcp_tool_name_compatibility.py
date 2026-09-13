@@ -283,5 +283,22 @@ class McpToolNameCompatibilityCliTests(unittest.TestCase):
             self.assertEqual([row["state"] for row in rows if row["target_harness"] == "generic"], ["unobserved"])
 
 
+class McpToolNameCompatibilityCatalogTests(unittest.TestCase):
+    def test_inventory_contract_declares_report_without_replacing_wrapper_schema(self) -> None:
+        from omh.skills.catalog import builtin_definitions, harness_definition
+        from omh.wrapper.contract import build_chat_interaction_payload
+
+        harness = harness_definition("harness-session-inventory")
+        self.assertIn("mcp_tool_name_compatibility/v1", harness.expected_outputs)
+        self.assertIn("mcp_tool_name_compatibility_recorded_when_available", harness.evidence_ladder)
+        skill = next(value for value in builtin_definitions() if value.name == "harness-session-inventory")
+        self.assertIn("mcp_tool_name_compatibility/v1", skill.expected_outputs)
+        payload = build_chat_interaction_payload("harness-session-inventory", source="discord")
+        state = payload["chat_response"]["state"]
+        self.assertEqual(state["artifact_schema"], "harness_session_inventory/v1")
+        flow = state["recommended_flow"]
+        self.assertEqual(flow[flow.index("redact_mcp_and_connector_configs") + 1], "resolve_mcp_tool_name_compatibility")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8190,6 +8190,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - harness_session_inventory/v1 card or guidance
   - harness_session_adapter_matrix/v1
   - mcp_inventory_drift_report/v1
+  - mcp_tool_name_compatibility/v1
   - worktree_lifecycle_snapshot/v1
   - session_progress_slots/v1
   - next action
@@ -8198,6 +8199,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - harness_session_inventory/v1 metadata-only runtime or wrapper card when recorded
   - harness_session_adapter_matrix/v1 with observed, prepared, missing, and stale adapters
   - mcp_inventory_drift_report/v1 with secret-redacted config/source drift only
+  - mcp_tool_name_compatibility/v1 with secret-redacted config/source drift only: agents use `omh harness mcp-tool-name-compatibility --snapshot <path>` for supplied naming metadata; config-only and unsupported adapters stay unobserved, ambiguous names are never selected, and no tools are invoked
   - worktree_lifecycle_snapshot/v1 with merge-conflict and cleanup candidates when observed
 - Safety rules:
   - A harness session inventory is not host load, MCP tool-call, connector availability, executor dispatch, worktree cleanup, merge-conflict resolution, or session progress evidence.
@@ -12711,6 +12713,7 @@ Normalize cross-harness session, wrapper, MCP, connector, and worktree state int
   - harness_session_inventory/v1
   - harness_session_adapter_matrix/v1
   - mcp_inventory_drift_report/v1
+  - mcp_tool_name_compatibility/v1
   - worktree_lifecycle_snapshot/v1
   - session_progress_slots/v1
   - drift and observation gaps
@@ -12725,6 +12728,7 @@ Normalize cross-harness session, wrapper, MCP, connector, and worktree state int
   - `inventory_scope_recorded`
   - `session_adapter_matrix_prepared`
   - `mcp_inventory_redacted`
+  - `mcp_tool_name_compatibility_recorded_when_available`
   - `worktree_lifecycle_snapshot_recorded_when_available`
   - `drift_gaps_recorded`
   - `host_load_observed_when_available`

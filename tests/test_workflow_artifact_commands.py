@@ -115,11 +115,12 @@ class WorkflowArtifactCommandTests(unittest.TestCase):
             self.assertEqual(json.loads(evaluate_stdout)["result"]["decision"], "inconclusive")
 
     def test_committed_examples_when_run_through_real_cli_return_their_declared_states(self) -> None:
-        # Given: complete synthetic-only JSON inputs committed for the four public workflows.
+        # Given: fictional JSON scenarios committed for the public workflow operations.
         cases = (
             ("decision-prototype", "prepare", "decision-prototype-prepare.json", "execution.status", "prepared_not_observed"),
             ("lifecycle-growth", "build", "lifecycle-growth-build-semantic.json", "safety.consent_state", "unknown"),
             ("product-discovery-validation", "build", "product-discovery-validation-build-semantic.json", "ledger.status", "reentered"),
+            ("product-discovery-validation", "channel-feedback", "product-discovery-validation-channel-feedback.json", "disposition.proposed_followup", "gtm_pivot"),
             ("sales-pipeline-review", "prepare", "sales-pipeline-review-prepare-ready.json", "status", "READY"),
         )
         with TemporaryDirectory() as temporary:
@@ -266,6 +267,53 @@ class WorkflowArtifactCommandTests(unittest.TestCase):
             # Then: the result is a metadata-only prepared package.
             self.assertEqual((status, stderr), (0, ""))
             self.assertEqual(json.loads(stdout)["result"]["frame"]["status"], "prepared_not_observed")
+
+    def test_channel_feedback_returns_companion_artifacts_and_stable_holds(self) -> None:
+        from test_product_discovery_channel_feedback import NOW, feedback_entry, feedback_inputs, feedback_semantic
+
+        with TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            payload = {**feedback_inputs(), "feedback_ledger": feedback_semantic(), "now": NOW}
+            status, stdout, stderr = self._run(home, "product-discovery-validation", "channel-feedback", payload)
+            self.assertEqual((status, stderr), (0, ""))
+            result = json.loads(stdout)["result"]
+            self.assertEqual(result["ledger"]["schema_version"], "channel_feedback_ledger/v1")
+            self.assertEqual(result["disposition"]["next_route"], "product-brief")
+            for artifact in (result["ledger"], result["disposition"]):
+                code, output, error = self._run(home, "product-discovery-validation", "validate", artifact)
+                self.assertEqual((code, error), (0, ""))
+                self.assertTrue(json.loads(output)["result"]["valid"])
+            missing = feedback_entry()
+            missing.pop("observed_at")
+            cases = (([missing], "channel_feedback_missing"),
+                     ([feedback_entry(observed_at="2029-01-01T00:00:00Z")], "channel_feedback_stale"),
+                     ([feedback_entry(), feedback_entry(feedback_id="feedback-copy")], "channel_feedback_duplicate"),
+                     ([feedback_entry(segment_ref="segment-other")], "channel_feedback_foreign_segment"),
+                     ([feedback_entry(channel_ref="channel-other")], "channel_feedback_wrong_channel"),
+                     ([feedback_entry(test_id="test-other")], "channel_feedback_wrong_test"),
+                     ([feedback_entry(), feedback_entry(effect="contradicts", feedback_id="feedback-conflict")], "channel_feedback_contradictory"))
+            for entries, reason in cases:
+                with self.subTest(reason=reason):
+                    payload["feedback_ledger"] = feedback_semantic(entries)
+                    code, output, error = self._run(home, "product-discovery-validation", "channel-feedback", payload)
+                    self.assertEqual((code, error), (0, ""))
+                    disposition = json.loads(output)["result"]["disposition"]
+                    self.assertIn(reason, [row["reason"] for row in disposition["held_observations"]])
+                    self.assertTrue(disposition["handoff_held"])
+
+    def test_channel_feedback_malformed_and_unsafe_inputs_are_errors(self) -> None:
+        from test_product_discovery_channel_feedback import NOW, feedback_entry, feedback_inputs, feedback_semantic
+
+        with TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            cases = ({}, [], {**feedback_inputs(), "feedback_ledger": feedback_semantic([feedback_entry(source_ref="https://private.example")]), "now": NOW},
+                     {**feedback_inputs(), "feedback_ledger": feedback_semantic([{**feedback_entry(), "raw_transcript": "private"}]), "now": NOW})
+            for payload in cases:
+                with self.subTest(payload=payload):
+                    code, output, error = self._run(home, "product-discovery-validation", "channel-feedback", payload)
+                    self.assertEqual(code, 2)
+                    self.assertEqual(output, "")
+                    self.assertNotIn("Traceback", error)
 
     def test_reject_product_discovery_when_input_is_malformed(self) -> None:
         # Given: malformed product-discovery input.

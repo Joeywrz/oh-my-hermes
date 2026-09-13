@@ -18,6 +18,7 @@ from .product_discovery_validation import (
     build_discovery_decision_frame,
     build_discovery_evidence_ledger,
     build_initial_gtm_hypothesis,
+    channel_feedback_ledger_for_history,
 )
 
 
@@ -71,6 +72,9 @@ _LIFECYCLE_FIELDS: Final = {
         }
     ),
 }
+_CHANNEL_FEEDBACK_FIELDS: Final = frozenset(
+    {"discovery_id", "gtm_artifact_id", "initial_channel_ref", "segment_ref", "entries"}
+)
 _DISCOVERY_FIELDS: Final = {
     "frame": frozenset(
         {
@@ -107,6 +111,12 @@ def build_lifecycle_growth_artifacts(payload: Mapping[str, Any]) -> dict[str, di
         "experiment": build_growth_experiment_plan(lifecycle_growth_id=lifecycle_growth_id, **experiment),
         "handoff": build_growth_handoff_disposition(lifecycle_growth_id=lifecycle_growth_id, **handoff),
     }
+
+
+def build_channel_feedback_ledger_input(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Build a companion from its own semantic boundary, never widen legacy build."""
+    values = _exact_mapping(payload, _CHANNEL_FEEDBACK_FIELDS, "channel feedback semantic input")
+    return channel_feedback_ledger_for_history(values)
 
 
 def build_product_discovery_package(payload: Mapping[str, Any]) -> dict[str, dict[str, Any]]:

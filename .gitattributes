@@ -9,6 +9,7 @@ install.ps1 text eol=lf
 # producers (tests/test_agent_board_kanban.py K7, docs --check gates), so their
 # line endings must be identical on every checkout.
 skills/**/*.md text eol=lf
+agent-skills/**/*.md text eol=lf
 docs/WORKFLOWS.md text eol=lf
 docs/ROLES.md text eol=lf
 src/plugin_bundle/omh/tools/capability_families.json text eol=lf

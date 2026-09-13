@@ -1,1 +1,0 @@
-{"checks": ["Q1", "Q2", "Q3", "Q4"], "cleanup": {"root": "/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/omh-agent-skills-qa-p2wz0v1s", "removed": true, "includes": ["git repo", "temporary HOME", "both user skill copies", "wheel venv", "npm cache"]}}

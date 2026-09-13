@@ -17,7 +17,7 @@ from ..hermes_delegation import (
     chain_alias_for,
     load_mixture_chain_overrides,
     load_model_provider_routes,
-    load_provider_entitlements,
+    effective_provider_entitlements,
     provider_serves_alias,
     providers_serving_alias,
     mixture_chain_overrides_path,
@@ -161,12 +161,13 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
     hermes_home = runtime_paths.plugin_home(args.get("hermes_home"), hermes=True)
     omh_home = runtime_paths.plugin_home(args.get("omh_home"))
     # Every chain read below honors the user's routing/model-chains.json
-    # overrides and the provider-entitlement reorder (routing/providers.json);
-    # the category vocabulary itself stays the shipped closed set. One
-    # function owns that composition so `omh model-chains show`, the HUD
-    # label projection, and this dispatch path never disagree on a head.
+    # overrides and the provider reorder (routing/providers.json plus the
+    # providers Hermes is linked to); the category vocabulary itself stays
+    # the shipped closed set. One function owns that composition so
+    # `omh model-chains show`, the HUD label projection, and this dispatch
+    # path never disagree on a head.
     _overrides, override_status = load_mixture_chain_overrides(omh_home)
-    chains = effective_mixture_category_chains(omh_home)
+    chains = effective_mixture_category_chains(omh_home, hermes_home)
     # Chains name models the way a person says them. A host that reaches
     # models through a provider needs a provider id and that provider's own
     # (often namespaced) model string; routing/model-providers.json supplies
@@ -437,7 +438,7 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
         # Refuse only what is known wrong -- an unrecorded provider, an alias
         # the catalog never described, or a multi-vendor account all answer
         # "unknown" and dispatch unchanged -- and refuse it beside the answer.
-        entitlements, _ = load_provider_entitlements(omh_home)
+        entitlements, _status, _providers = effective_provider_entitlements(omh_home, hermes_home)
         session_provider = read_session_provider(hermes_home)
         if provider_serves_alias(alias, session_provider, entitlements) is False:
             candidates = providers_serving_alias(alias, entitlements)

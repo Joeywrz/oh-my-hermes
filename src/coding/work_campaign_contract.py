@@ -103,7 +103,7 @@ def normalize_units(units, broad_command: str, spawn_plan=None) -> tuple[list[di
 
 def build_work_campaign(*, mode="ordinary", accepted=False, goal="", units=None,
                         parent_session_ref="", acceptance_criteria=None,
-                        verification_command="", workspace: str | Path = ".", omh_home=None,
+                        verification_command="", workspace: str | Path = ".", omh_home=None, hermes_home=None,
                         owner_model="", owner_provider="", owner_effort="",
                         worker_model="", worker_provider="", worker_effort="", spawn_plan=None):
     if mode != "campaign-orchestrator":
@@ -120,7 +120,7 @@ def build_work_campaign(*, mode="ordinary", accepted=False, goal="", units=None,
     root = Path(workspace).resolve(strict=True)
     if not root.is_dir():
         raise CampaignError("workspace_required")
-    routes = resolve_campaign_routes(omh_home=omh_home, owner_model=owner_model,
+    routes = resolve_campaign_routes(omh_home=omh_home, hermes_home=hermes_home, owner_model=owner_model,
                                     owner_provider=owner_provider, owner_effort=owner_effort,
                                     worker_model=worker_model, worker_provider=worker_provider,
                                     worker_effort=worker_effort)

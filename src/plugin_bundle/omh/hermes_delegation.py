@@ -25,6 +25,7 @@ mixture routing is visible as such instead of masquerading as a routed one.
 from __future__ import annotations
 
 from . import runtime_paths
+from .provider_detection import detect_linked_providers
 
 import json
 import os
@@ -232,21 +233,23 @@ def parse_mixture_chain_overrides(
 
 def effective_mixture_category_chains(
     omh_home: str | Path | None = None,
+    hermes_home: str | Path | None = None,
 ) -> dict[str, tuple[tuple[str, str], ...]]:
     """Shipped chains with the user's per-category replacements applied.
 
-    When the operator has recorded provider entitlements (`omh setup` asks;
-    see `load_provider_entitlements`), every chain is additionally shaped so
-    the entries no confirmed provider can serve sit behind the ones that can.
-    Shaping reorders; it never drops an entry, so a wrong answer costs one
-    rejected fall-through, never a missing model.
+    When this machine holds providers -- linked to Hermes, or recorded by
+    the `omh setup` interview; see `effective_provider_entitlements` --
+    every chain is additionally shaped so the entries no such provider can
+    serve sit behind the ones one can. Shaping reorders; it never drops an
+    entry, so a wrong answer costs one rejected fall-through, never a
+    missing model.
     """
     overrides, _ = load_mixture_chain_overrides(omh_home)
     chains = {
         name: overrides.get(name, chain)
         for name, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items()
     }
-    entitlements, _status = load_provider_entitlements(omh_home)
+    entitlements, _status, _providers = effective_provider_entitlements(omh_home, hermes_home)
     if entitlements is None:
         return chains
     routes, _ = load_model_provider_routes(omh_home)
@@ -461,7 +464,7 @@ def parse_provider_entitlements(raw: object) -> tuple[dict[str, Any] | None, str
         return None, "invalid: document must be a JSON object"
     if raw.get("schema_version") != PROVIDER_ENTITLEMENTS_SCHEMA_VERSION:
         return None, f"invalid: schema_version must be {PROVIDER_ENTITLEMENTS_SCHEMA_VERSION}"
-    unknown = sorted(set(raw) - {"schema_version", "providers", "subscription_clis"})
+    unknown = sorted(set(raw) - {"schema_version", "providers", "subscription_clis", "excluded_providers"})
     if unknown:
         return None, f"invalid: unsupported fields {unknown}"
     providers = raw.get("providers", {})
@@ -489,7 +492,89 @@ def parse_provider_entitlements(raw: object) -> tuple[dict[str, Any] | None, str
             )
         if profile not in normalized_clis:
             normalized_clis.append(profile)
-    return {"providers": normalized_providers, "subscription_clis": normalized_clis}, "applied"
+    # Optional, written only when the operator cleared a row detection had
+    # ticked: the ids here are linked to Hermes but must not count. Absent
+    # from every document written before detection existed, so the
+    # serialized shape of those documents is unchanged.
+    excluded = raw.get("excluded_providers", [])
+    if not isinstance(excluded, list):
+        return None, "invalid: excluded_providers must be a list"
+    normalized_excluded: list[str] = []
+    for provider_id in excluded:
+        if not isinstance(provider_id, str) or not _CHAIN_TOKEN_RE.fullmatch(provider_id):
+            return None, f"invalid: excluded provider id {provider_id!r} is not a plain identifier"
+        if provider_id in normalized_providers:
+            return None, f"invalid: provider {provider_id!r} is both recorded and excluded"
+        if provider_id not in normalized_excluded:
+            normalized_excluded.append(provider_id)
+    return {
+        "providers": normalized_providers,
+        "subscription_clis": normalized_clis,
+        "excluded_providers": normalized_excluded,
+    }, "applied"
+
+
+PROVIDER_ENTITLEMENT_SOURCE_RECORDED = "recorded"
+# Display order for the providers a surface lists: the operator's own word
+# first, then a login, a config key, a variable name.
+_PROVIDER_SOURCE_RANK: dict[str, int] = {
+    PROVIDER_ENTITLEMENT_SOURCE_RECORDED: 0,
+    "login": 1,
+    "config": 2,
+    "env": 3,
+}
+
+
+def effective_provider_entitlements(
+    omh_home: str | Path | None = None,
+    hermes_home: str | Path | None = None,
+) -> tuple[dict[str, Any] | None, str, tuple[dict[str, str], ...]]:
+    """The providers this machine holds: what Hermes is linked to, plus the record.
+
+    Returns ``(entitlements, document_status, providers)``. ``entitlements``
+    has the parsed document's shape and is ``None`` only when nothing is
+    recorded AND nothing is linked, so every consumer keeps its no-shaping
+    branch. ``document_status`` is `load_provider_entitlements`' own status,
+    unchanged, so a surface can still say whether the operator answered.
+    ``providers`` lists every provider counted, one row per id, with the
+    `source` it came from (`recorded`, `login`, `config`, `env`) and the
+    `evidence` (the document, a section of `auth.json`, a config key, a
+    variable NAME).
+
+    Detection (`provider_detection`) is the baseline: a provider Hermes can
+    already use counts the moment it is linked, without a second interview.
+    The recorded document is the operator's word on top of it -- its kind
+    wins for an id both name (they said `og` is a gateway; a config key only
+    guessed), its `excluded_providers` are the linked ids the operator
+    cleared in the interview and are dropped from the baseline (the one way
+    a linked provider stops counting short of unlinking it from Hermes),
+    and it is the only source of `subscription_clis`, because nothing on
+    disk says a CLI subscription is held. Beyond that neither side removes
+    the other's providers: the serving rule only ever moves a served entry
+    forward, so more evidence can promote, never demote.
+    """
+    recorded, status = load_provider_entitlements(omh_home)
+    excluded = set(recorded.get("excluded_providers", [])) if recorded is not None else set()
+    rows: dict[str, dict[str, str]] = {
+        row["id"]: {"id": row["id"], "kind": row["kind"], "source": row["source"], "evidence": row["evidence"]}
+        for row in detect_linked_providers(hermes_home)
+        if row["id"] not in excluded
+    }
+    clis: list[str] = []
+    if recorded is not None:
+        for provider_id, kind in recorded["providers"].items():
+            rows[provider_id] = {
+                "id": provider_id,
+                "kind": kind,
+                "source": PROVIDER_ENTITLEMENT_SOURCE_RECORDED,
+                "evidence": "providers.json",
+            }
+        clis = list(recorded["subscription_clis"])
+    if recorded is None and not rows:
+        return None, status, ()
+    ordered = tuple(sorted(rows.values(), key=lambda row: (_PROVIDER_SOURCE_RANK.get(row["source"], 9), row["id"])))
+    entitlements = {"providers": {row["id"]: row["kind"] for row in ordered}, "subscription_clis": clis}
+    return entitlements, status, ordered
 
 
 def alias_is_served(
@@ -1666,7 +1751,7 @@ def read_hermes_native_subagents(
     home = Path(hermes_home).expanduser() if hermes_home else runtime_paths.default_hermes_home()
     # Category labels honor the user's ~/.omh/routing/model-chains.json
     # overrides so a customized chain labels its children like a shipped one.
-    active_chains = effective_mixture_category_chains(omh_home)
+    active_chains = effective_mixture_category_chains(omh_home, home)
     provider_routes, _ = load_model_provider_routes(omh_home)
     price_overrides, _price_status = load_model_price_overrides(omh_home)
     route_provenance = load_delegation_route_provenance(omh_home)

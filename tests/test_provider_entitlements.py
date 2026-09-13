@@ -26,6 +26,7 @@ from omh.commands.language import LANGUAGE_CODES, MESSAGES, tr  # noqa: E402
 from omh.coding.model_routing import CLAUDE_FRONTIER_CHAIN_MODELS  # noqa: E402
 from omh.commands import setup as setup_module  # noqa: E402
 from omh.config_adapter import configured_provider_ids  # noqa: E402
+from omh.plugin_bundle.omh.provider_detection import env_key_names  # noqa: E402
 from omh.plugin_bundle.omh.hermes_delegation import (  # noqa: E402
     HERMES_MIXTURE_ALIAS_PROVIDER_FAMILIES,
     HERMES_MIXTURE_CATEGORY_CHAINS,
@@ -33,6 +34,7 @@ from omh.plugin_bundle.omh.hermes_delegation import (  # noqa: E402
     PROVIDER_FAMILY_VOCABULARY,
     alias_is_served,
     effective_mixture_category_chains,
+    effective_provider_entitlements,
     entitlement_shaped_chain,
     load_provider_entitlements,
     parse_provider_entitlements,
@@ -40,8 +42,8 @@ from omh.plugin_bundle.omh.hermes_delegation import (  # noqa: E402
 )
 
 
-def _entitlements(providers: dict[str, str], clis: list[str] | None = None) -> dict[str, object]:
-    return {"providers": providers, "subscription_clis": list(clis or [])}
+def _entitlements(providers: dict[str, str], clis: list[str] | None = None, excluded: list[str] | None = None) -> dict[str, object]:
+    return {"providers": providers, "subscription_clis": list(clis or []), "excluded_providers": list(excluded or [])}
 
 
 def _write(path: Path, document: object) -> None:
@@ -113,9 +115,25 @@ class ParseTests(unittest.TestCase):
         )
         self.assertEqual(status, "applied")
         self.assertEqual(parsed, _entitlements({"og": "gateway", "zai": "zai"}, ["claude-code"]))
+        # The optional exclusion list: linked ids the operator cleared.
+        parsed, status = parse_provider_entitlements(
+            {
+                "schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION,
+                "providers": {"zai": "zai"},
+                "excluded_providers": ["anthropic", "anthropic"],
+            }
+        )
+        self.assertEqual(status, "applied")
+        self.assertEqual(parsed, _entitlements({"zai": "zai"}, [], ["anthropic"]))
 
     def test_invalid_documents_yield_none(self) -> None:
         cases = [
+            ({"schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION, "excluded_providers": "zai"}, "must be a list"),
+            ({"schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION, "excluded_providers": ["bad id"]}, "plain identifier"),
+            (
+                {"schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION, "providers": {"zai": "zai"}, "excluded_providers": ["zai"]},
+                "both recorded and excluded",
+            ),
             ([], "must be a JSON object"),
             ({"schema_version": "nope"}, "schema_version"),
             ({"schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION, "extra": 1}, "unsupported fields"),
@@ -192,14 +210,14 @@ class ServingRuleTests(unittest.TestCase):
                 provider_entitlements_path(tmp),
                 {"schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION, "providers": {"zai": "zai"}, "subscription_clis": []},
             )
-            chains = effective_mixture_category_chains(tmp)
+            chains = effective_mixture_category_chains(tmp, Path(tmp) / "hermes")
             self.assertEqual(chains["quick"], (("glm-5.3", "low"), ("claude-opus-5", "low")))
             # An untouched category is shaped from the shipped default.
             self.assertEqual(chains["unspecified-low"][0][0], "glm-5.3")
 
     def test_absent_document_leaves_chains_untouched(self) -> None:
         with TemporaryDirectory() as tmp:
-            self.assertEqual(effective_mixture_category_chains(tmp), dict(HERMES_MIXTURE_CATEGORY_CHAINS))
+            self.assertEqual(effective_mixture_category_chains(tmp, Path(tmp) / "hermes"), dict(HERMES_MIXTURE_CATEGORY_CHAINS))
 
 
 class ChainSurfaceConsistencyTests(unittest.TestCase):
@@ -221,7 +239,8 @@ class ChainSurfaceConsistencyTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             home = self._home(tmp)
-            state = _state(home)
+            # A Hermes home with nothing linked, so the record alone decides.
+            state = _state(home, Path(tmp) / ".hermes")
             self.assertEqual(state["entitlements_status"], "applied")
             self.assertEqual(state["entitlements_path"], str(provider_entitlements_path(home)))
             architect = next(row for row in state["categories"] if row["category"] == "architect")
@@ -238,7 +257,8 @@ class ChainSurfaceConsistencyTests(unittest.TestCase):
             with redirect_stdout(out):
                 _print_state(state)
             self.assertIn("architect: gpt-6-astra:xhigh, claude-fable-5-1:xhigh, kimi-k3:xhigh", out.getvalue())
-            self.assertIn("(reordered by provider entitlements)", out.getvalue())
+            self.assertIn("(reordered by this machine's providers)", out.getvalue())
+            self.assertIn("Linked Hermes providers: none found", out.getvalue())
             self.assertIn(f"Provider entitlements: {provider_entitlements_path(home)} [applied]", out.getvalue())
 
     def test_route_tool_and_show_agree_on_the_head_and_the_fallback_walk(self) -> None:
@@ -395,6 +415,7 @@ class MultiChoicePromptTests(unittest.TestCase):
             "provider_select_intro_2",
             "provider_detected_config",
             "provider_detected_env",
+            "provider_detected_login",
             "provider_recorded_before",
             "provider_opengateway_desc",
             "provider_skip_label",
@@ -415,6 +436,15 @@ class MultiChoicePromptTests(unittest.TestCase):
 
 
 class SetupInterviewTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # The interview offers the shell's key names on purpose (a person
+        # confirms each row), so a developer's exported keys would otherwise
+        # decide these tests. Only the fixture's `.env` is read here; a test
+        # that wants the shell patches the seam itself.
+        patcher = patch.object(setup_module, "_env_key_names", side_effect=lambda paths: set(env_key_names(paths.hermes_home)))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _paths(self, root: Path):
         args = argparse.Namespace(omh_home=str(root / ".omh"), hermes_home=str(root / ".hermes"), scope=None)
         return setup_module._paths(args)
@@ -451,6 +481,9 @@ class SetupInterviewTests(unittest.TestCase):
             self.assertEqual(
                 document,
                 {
+                    # `zai` was found in the config and left unticked: the
+                    # clearing is recorded so routing stops counting it.
+                    "excluded_providers": ["zai"],
                     "providers": {"og": "gateway"},
                     "schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION,
                     "subscription_clis": ["claude-code"],
@@ -490,14 +523,17 @@ class SetupInterviewTests(unittest.TestCase):
             # No yes/no survives here: the gate is gone and no subscription CLI
             # is detected, so the list is the whole question.
             yes_no.assert_not_called()
-            # The previously recorded provider is pre-ticked; the configured one
-            # the operator declined last time is offered but not.
+            # The previously recorded provider is pre-ticked, and so is the
+            # configured one: routing already counts a linked provider, and a
+            # record written before exclusions existed says nothing about it.
             values = [option["value"] for option in rows["options"]]
             self.assertEqual(values[:2], ["og", "zai"])
-            self.assertEqual(rows["selected"], ["zai"])
-            # The recorded kind survives the re-run rather than reverting.
+            self.assertEqual(rows["selected"], ["og", "zai"])
+            # The recorded kind survives the re-run rather than reverting;
+            # the found row keeps the kind detection gave it.
             document = json.loads(provider_entitlements_path(paths.omh_home).read_text(encoding="utf-8"))
-            self.assertEqual(document["providers"], {"zai": "zai"})
+            self.assertEqual(document["providers"], {"og": "gateway", "zai": "zai"})
+            self.assertNotIn("excluded_providers", document)
 
     def test_env_key_names_surface_builtin_providers_without_reading_values(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -537,6 +573,42 @@ class SetupInterviewTests(unittest.TestCase):
             self.assertEqual(rows["options"][0]["description"], "found: ANTHROPIC_API_KEY is set here")
             self.assertNotIn("sk-secret-value", json.dumps(rows["options"]))
             self.assertNotIn("sk-secret-value", json.dumps(document))
+
+    def test_a_hermes_auth_login_is_offered_as_a_pre_ticked_row(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._paths(root)
+            self._config(paths, "model:\n  provider: auto\n")
+            (paths.hermes_home / "auth.json").write_text(
+                json.dumps({"version": 1, "providers": {"openai-codex": {"access_token": "tok-secret-value"}}}),
+                encoding="utf-8",
+            )
+            with patch.object(setup_module, "_env_key_names", return_value=set()):
+                candidates = setup_module._provider_candidates(paths)
+                # The login is the row; its kind is the registry family and
+                # the evidence is the login itself, not a key name.
+                self.assertEqual(candidates, [("openai-codex", "openai-codex", "login")])
+                args = argparse.Namespace()
+                rows: dict[str, object] = {}
+
+                def multi_choice(_title, _intro, options, *, selected, **_kwargs):
+                    rows["options"] = options
+                    rows["selected"] = list(selected)
+                    return list(selected)
+
+                with patch.object(
+                    setup_module, "_detect_external_cli_profiles", return_value={"claude-code": {"binary_present": False}, "codex": {"binary_present": False}}
+                ), patch.object(setup_module, "_ask_multi_choice", side_effect=multi_choice), patch.object(
+                    setup_module, "_ask", return_value=""
+                ), patch.object(setup_module, "_use_color", return_value=False):
+                    setup_module._ask_provider_entitlements(args, paths, "en")
+            document = json.loads(provider_entitlements_path(paths.omh_home).read_text(encoding="utf-8"))
+            self.assertEqual(document["providers"], {"openai-codex": "openai-codex"})
+            self.assertEqual(rows["selected"], ["openai-codex"])
+            self.assertEqual(rows["options"][0]["label"], "OpenAI Codex")
+            self.assertEqual(rows["options"][0]["description"], "found: logged in through hermes auth")
+            self.assertNotIn("tok-secret-value", json.dumps(rows["options"]))
+            self.assertNotIn("tok-secret-value", json.dumps(document))
 
     def test_add_loop_records_extra_providers_and_rejects_bad_ids(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -731,7 +803,34 @@ class SetupInterviewTests(unittest.TestCase):
                 setup_module._ask_provider_entitlements(args, paths, "en")
             self.assertEqual(seen["selected"], ["og", "zai"])
             document = json.loads(provider_entitlements_path(paths.omh_home).read_text(encoding="utf-8"))
-            self.assertEqual(document["providers"], {"zai": "gateway"})
+            # A `providers.zai` block is Hermes' own Z.ai provider, so the row
+            # carries that family; only an id the registry does not know
+            # (`og`) defaults to a gateway.
+            self.assertEqual(document["providers"], {"zai": "zai"})
+            # The cleared row is linked to Hermes and would count on its own;
+            # the clearing is what stops it, here and in every chain reader.
+            self.assertEqual(document["excluded_providers"], ["og"])
+            entitlements, status, providers = effective_provider_entitlements(paths.omh_home, paths.hermes_home)
+            self.assertEqual(status, "applied")
+            self.assertEqual(entitlements["providers"], {"zai": "zai"})
+            self.assertEqual([row["id"] for row in providers], ["zai"])
+            # On the next run the cleared row is offered again, unticked, and
+            # Enter keeps it cleared rather than re-adopting it.
+            rerun: dict[str, object] = {}
+
+            def rerun_choice(_title, _intro, options, *, selected, **_kwargs):
+                rerun["selected"] = list(selected)
+                return list(selected)
+
+            with patch.object(
+                setup_module, "_detect_external_cli_profiles", return_value={"claude-code": {"binary_present": False}, "codex": {"binary_present": False}}
+            ), patch.object(setup_module, "_ask_multi_choice", side_effect=rerun_choice), patch.object(
+                setup_module, "_ask", return_value=""
+            ), patch.object(setup_module, "_use_color", return_value=False):
+                setup_module._ask_provider_entitlements(argparse.Namespace(), paths, "en")
+            self.assertEqual(rerun["selected"], ["zai"])
+            document = json.loads(provider_entitlements_path(paths.omh_home).read_text(encoding="utf-8"))
+            self.assertEqual(document["excluded_providers"], ["og"])
 
     def test_recorded_document_keeps_its_serialized_shape(self) -> None:
         """The question shape changed; the `provider_entitlements/v1` bytes did not."""

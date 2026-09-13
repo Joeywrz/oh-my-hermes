@@ -462,14 +462,19 @@ When an alias uses a provider-specific wire ID, map it once in
 complete alias/provider/wire-model route. OMH stores only provider IDs, never
 provider credentials.
 
-Every account differs, so the interactive `omh setup` also asks which
-providers the machine holds (config keys and env-key names suggest them;
-you can add more) and whether you have a Claude Code subscription, and
-records the answer in `~/.omh/routing/providers.json`
-(`provider_entitlements/v1`). Each chain is then reordered so the entries a
-confirmed provider can serve lead; nothing is removed, nothing is invoked to
-check, and the Claude Code subscription only seeds the Claude Code `--model`
-preference for the Maestro lane, because Hermes itself cannot spend it.
+Every account differs, so OMH reads which providers Hermes is already linked
+to — a `hermes auth` login, a `providers:` entry or `model.provider` in the
+Hermes config, an API-key variable name in `$HERMES_HOME/.env` — and counts
+them on its own: each chain is reordered so the entries a linked provider can
+serve lead, the pickers mark the rest, nothing is removed, and nothing is
+invoked to check. Only ids and variable names are read, never a key or a
+token. The interactive `omh setup` still asks, with the linked rows
+pre-ticked, so you can correct a kind, untick a linked provider you cannot
+really use, add one OMH could not place, or say whether you have a Claude
+Code subscription; its answers land in `~/.omh/routing/providers.json`
+(`provider_entitlements/v1`) and win over detection. The Claude Code
+subscription only seeds the Claude Code `--model` preference for the Maestro
+lane, because Hermes itself cannot spend it.
 
 Ask Hermes to **set up my models** to review or change them. These are editable
 preferences, not benchmark results. See

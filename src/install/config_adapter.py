@@ -193,32 +193,11 @@ def _plugin_list_item_indent(lines: list[str], plugins_index: int) -> str:
     return "    "
 
 
-def configured_provider_ids(config_text: str) -> list[str]:
-    """The provider ids Hermes config names: `providers.<id>` keys plus `model.provider`.
-
-    Read-only and line-shaped like `plugin_enablement`; the core stays
-    dependency-free. Order is config order with `model.provider` first when
-    it is not already a `providers:` key, and never contains a value — only
-    the ids the `omh setup` provider interview asks about.
-    """
-    ids: list[str] = []
-    in_providers = False
-    for line in config_text.splitlines():
-        stripped = line.strip()
-        if not line.startswith(" ") and stripped:
-            in_providers = stripped == "providers:"
-            continue
-        if not in_providers or not stripped or stripped.startswith("#"):
-            continue
-        if line.startswith("  ") and not line.startswith("    "):
-            key, separator, _rest = stripped.partition(":")
-            key = key.strip().strip("\"'")
-            if separator and key and key not in ids:
-                ids.append(key)
-    default_provider = model_scalar_selection(config_text, "provider")
-    if default_provider and default_provider not in ids:
-        ids.insert(0, default_provider)
-    return ids
+# The provider-id reader lives in the plugin bundle (`provider_detection`),
+# which cannot import this module: routing-time detection, the setup
+# interview and every test read `providers.<id>` and `model.provider` through
+# one function, so the two sides cannot disagree on a config.
+from ..plugin_bundle.omh.provider_detection import configured_provider_ids  # noqa: E402, F401
 
 
 def plugin_is_enabled(config_text: str, name: str) -> bool:

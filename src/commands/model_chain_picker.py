@@ -70,6 +70,7 @@ STATE_GLYPHS = {"edited": "●", "override": "◆", "default": "·"}
 # the active skin's, so the picker follows `omh theme` like the TUI does.
 STATE_TONES = {"edited": "ui_warn", "override": "ui_accent", "default": "banner_dim"}
 EFFORT_TONES = {"low": "banner_dim", "medium": "ui_ok", "high": "ui_warn", "xhigh": "ui_accent", "max": "banner_title"}
+_PROVIDERS_LABEL_WIDTH = 11
 KEY_HINTS = (
     ("↑↓", "category"),
     ("←→", "head model"),
@@ -224,7 +225,22 @@ def render_frame(
     header_cells += [(_fit("  HEAD MODEL", _MODEL_WIDTH), None), (_fit("  EFFORT", _EFFORT_WIDTH), None), ("STATE", None)]
     header = paint("".join(text for text, _ in header_cells), "banner_dim")
 
-    lines = [title, rule, header]
+    # The providers the served marks are judged against, each with where it
+    # was found, so a `!` on a row has its reason one glance up. No provider
+    # at all is said out loud: with nothing to judge against every model
+    # counts as served, and a person should know the marks are empty.
+    providers = list(payload.get("providers") or [])
+    if providers:
+        provider_text = " · ".join(f"{row['id']} ({row['source']})" for row in providers)
+    else:
+        provider_text = "none linked to Hermes yet · every model counts as served"
+    providers_line = (
+        " " * _MARGIN
+        + paint(_fit("providers", _PROVIDERS_LABEL_WIDTH), "banner_dim")
+        + paint(_clip(provider_text, inner - _PROVIDERS_LABEL_WIDTH), "banner_text" if providers else "banner_dim")
+    )
+
+    lines = [title, providers_line, rule, header]
     for index, row in enumerate(rows):
         is_cursor = index == cursor
         cells = _row_cells(
@@ -253,7 +269,7 @@ def render_frame(
         lines.append(" " * _MARGIN + paint("no unsaved changes · ⏎ or q leaves the file as it is", "banner_dim"))
     head_model = chain[0][0]
     if not served.get(head_model, True):
-        note = _clip(f"! {labels.get(head_model, head_model)} is not served by this machine's recorded providers", inner)
+        note = _clip(f"! {labels.get(head_model, head_model)} is not served by this machine's providers", inner)
         lines.append(" " * _MARGIN + paint(note, "ui_error"))
     lines.append(rule)
     hints = "   ".join(paint(keys, "ui_accent", bold=True) + " " + paint(what, "banner_dim") for keys, what in KEY_HINTS)

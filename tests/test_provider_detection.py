@@ -1,0 +1,353 @@
+"""Providers Hermes is linked to, read from what Hermes records -- keys only.
+
+The bundle's `provider_detection` turns a `hermes auth` login, a config
+provider key, and an API-key variable NAME into the entitlement document's
+own `provider id -> kind` shape, and `effective_provider_entitlements` lays
+the recorded document over it. These tests pin what is read (ids and names),
+what is never read (a token, a key, a label), which source wins, and that the
+routing side counts a linked provider without an interview.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+from unittest.mock import patch
+
+from _cli_harness import run_cli
+from _local_package import load_local_package
+
+load_local_package()
+
+from omh.config_adapter import configured_provider_ids as core_configured_provider_ids  # noqa: E402
+from omh.plugin_bundle.omh import provider_detection as detection  # noqa: E402
+from omh.plugin_bundle.omh import runtime_paths  # noqa: E402
+from omh.plugin_bundle.omh.hermes_delegation import (  # noqa: E402
+    HERMES_MIXTURE_CATEGORY_CHAINS,
+    PROVIDER_ENTITLEMENTS_SCHEMA_VERSION,
+    PROVIDER_KIND_UNKNOWN,
+    PROVIDER_KIND_VOCABULARY,
+    _CHAIN_TOKEN_RE,
+    effective_mixture_category_chains,
+    effective_provider_entitlements,
+    provider_entitlements_path,
+)
+from omh.plugin_bundle.omh.model_chain_picker import picker_rows  # noqa: E402
+
+TOKEN = "sk-live-token-that-must-never-leave-the-store"
+KEY_VALUE = "sk-secret-value-that-must-never-leave-the-env"
+
+
+def _write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _auth_store(**sections: object) -> str:
+    return json.dumps({"version": 1, **sections})
+
+
+class TableTests(unittest.TestCase):
+    def test_every_kind_is_one_the_document_accepts_and_never_unknown(self) -> None:
+        # `unknown` is a multi-vendor kind: mapping a Hermes id to it would
+        # count every model as served on the strength of a key OMH cannot
+        # place. Ids OMH cannot place are left out of the table instead.
+        for provider_id, kind in detection.HERMES_PROVIDER_KINDS.items():
+            with self.subTest(provider=provider_id):
+                self.assertIn(kind, PROVIDER_KIND_VOCABULARY)
+                self.assertNotEqual(kind, PROVIDER_KIND_UNKNOWN)
+        for name, provider_id in detection.HERMES_ENV_KEY_PROVIDERS.items():
+            with self.subTest(name=name):
+                self.assertIn(provider_id, detection.HERMES_PROVIDER_KINDS)
+        self.assertEqual(detection.PROVIDER_ID_RE.pattern, _CHAIN_TOKEN_RE.pattern)
+
+    def test_generic_and_implicit_tokens_are_not_provider_evidence(self) -> None:
+        # Hermes' registry lists CLAUDE_CODE_OAUTH_TOKEN under its implicit
+        # variables: Claude Code sets it, the operator did not configure
+        # Anthropic in Hermes, and the Hermes lane cannot spend a Claude
+        # subscription. Counting it would lead every chain with Claude.
+        for name in ("GH_TOKEN", "GITHUB_TOKEN", "HF_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
+            self.assertNotIn(name, detection.HERMES_ENV_KEY_PROVIDERS)
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / "hermes"
+            _write(home / ".env", f"CLAUDE_CODE_OAUTH_TOKEN={KEY_VALUE}\n")
+            self.assertEqual(detection.detect_linked_providers(home), [])
+            self.assertEqual(effective_mixture_category_chains(Path(tmp) / "omh", home), dict(HERMES_MIXTURE_CATEGORY_CHAINS))
+
+
+class AuthStoreTests(unittest.TestCase):
+    def test_ids_come_from_every_section_and_no_value_comes_with_them(self) -> None:
+        text = _auth_store(
+            providers={
+                "openai-codex": {"access_token": TOKEN, "refresh_token": TOKEN, "auth_mode": "chatgpt"},
+                "spotify": {"access_token": TOKEN},
+                "empty": {},
+                "not a token": {"access_token": TOKEN},
+            },
+            credential_pool={"zai": [{"id": "k1", "api_key": TOKEN, "label": "work", "source": "manual"}], "nous": []},
+            active_provider="xai-oauth",
+        )
+        ids = detection.auth_store_provider_ids(text)
+        self.assertEqual(ids, ["openai-codex", "spotify", "xai-oauth", "zai"])
+        self.assertNotIn(TOKEN, json.dumps(ids))
+        self.assertNotIn("work", json.dumps(ids))
+
+    def test_pool_rows_count_only_when_hermes_itself_would_count_them(self) -> None:
+        # Mirror of Hermes' `_pool_entry_is_explicit`: its own flows and a
+        # manual add count; a credential borrowed from another CLI does not;
+        # an env-seeded row counts only while its variable is still in .env.
+        text = _auth_store(
+            credential_pool={
+                "anthropic": [{"api_key": TOKEN, "source": "claude_code"}],
+                "copilot": [{"api_key": TOKEN, "source": "gh_cli"}],
+                "qwen-oauth": [{"api_key": TOKEN, "source": "qwen-cli"}],
+                "openai-codex": [{"api_key": TOKEN, "source": "device_code"}],
+                "xai-oauth": [{"api_key": TOKEN, "source": "Loopback_PKCE"}],
+                "nous": [{"api_key": TOKEN, "source": "manual:paste"}],
+                "zai": [{"api_key": TOKEN, "source": "env:ZAI_API_KEY"}],
+                "deepseek": [{"api_key": TOKEN, "source": "env:DEEPSEEK_API_KEY"}],
+                "kimi-coding": [{"api_key": TOKEN}],
+                "gemini": ["not a row"],
+            },
+        )
+        self.assertEqual(
+            detection.auth_store_provider_ids(text, env_names=["ZAI_API_KEY"]),
+            ["nous", "openai-codex", "xai-oauth", "zai"],
+        )
+        self.assertEqual(detection.auth_store_provider_ids(text), ["nous", "openai-codex", "xai-oauth"])
+
+    def test_an_unreadable_or_foreign_store_yields_nothing(self) -> None:
+        self.assertEqual(detection.auth_store_provider_ids("not json"), [])
+        self.assertEqual(detection.auth_store_provider_ids("[1, 2]"), [])
+        self.assertEqual(detection.auth_store_provider_ids(json.dumps({"providers": "x"})), [])
+        self.assertEqual(detection.auth_store_provider_ids(json.dumps({"active_provider": "no spaces here"})), [])
+
+
+class ConfigReaderTests(unittest.TestCase):
+    FIXTURES = (
+        "",
+        "model:\n  provider: og\nproviders:\n  og:\n    base_url: x\n  zai:\n    base_url: y\n",
+        "model:\n  provider: 'openai-codex'\n  default: gpt\nproviders:\n  openai-codex:\n    enabled: true\n",
+        "providers:\n  og:\n    base_url: x\n\nmodel:\n  provider: og\n",
+        "model:\n  provider: auto\nstt:\n  openai:\n    model: whisper\nproviders: {}\n",
+        "providers:\n  # comment\n  \"quoted\":\n    base_url: x\n  <<: *anchor\n",
+        "model:\n  name: x\n",
+    )
+
+    def test_the_core_side_reads_through_the_bundle_reader(self) -> None:
+        # One function, not two mirrored ones: a fuzz of the earlier mirror
+        # found 269 configs the two read apart (an empty first `provider:`
+        # line, a quoted or commented value).
+        self.assertIs(core_configured_provider_ids, detection.configured_provider_ids)
+        for text in self.FIXTURES:
+            with self.subTest(text=text):
+                self.assertEqual(detection.configured_provider_ids(text), core_configured_provider_ids(text))
+
+    def test_values_are_unquoted_uncommented_and_the_first_non_empty_wins(self) -> None:
+        self.assertEqual(detection.configured_provider_ids("model:\n  provider:\n  provider: 'og'  # c\n"), ["og"])
+        self.assertEqual(detection.configured_provider_ids("model.provider: \"zai\"\nproviders:\n  og:\n"), ["zai", "og"])
+        self.assertEqual(detection.configured_provider_ids("model:\n  provider: og # trailing\nproviders:\n  og:\n"), ["og"])
+
+
+class DetectionTests(unittest.TestCase):
+    def _home(self, root: Path) -> Path:
+        home = root / "hermes"
+        _write(
+            home / "config.yaml",
+            "model:\n  provider: og\nproviders:\n  og:\n    base_url: https://x\n  zai:\n    base_url: y\n"
+            "  lmstudio-local:\n    base_url: http://127.0.0.1:1234/v1\n  ollama-box:\n    base_url: 'http://localhost:11434/v1'\n",
+        )
+        _write(
+            home / "auth.json",
+            _auth_store(
+                providers={"openai-codex": {"access_token": TOKEN}, "spotify": {"access_token": TOKEN}},
+                credential_pool={"og": [{"api_key": TOKEN, "source": "manual"}], "mystery": [{"api_key": TOKEN, "source": "manual"}]},
+                active_provider="openai-codex",
+            ),
+        )
+        _write(home / ".env", f"# keys\nexport ANTHROPIC_API_KEY={KEY_VALUE}\nMINIMAX_API_KEY={KEY_VALUE}\nUNRELATED=1\n")
+        return home
+
+    def test_login_then_config_then_env_names_one_row_per_id(self) -> None:
+        with TemporaryDirectory() as tmp:
+            home = self._home(Path(tmp))
+            # A key exported only in the shell is not something Hermes
+            # recorded: the process environment is not read.
+            with patch.dict(os.environ, {"DEEPSEEK_API_KEY": KEY_VALUE}, clear=True):
+                rows = detection.detect_linked_providers(home)
+        self.assertEqual(
+            [(row["id"], row["kind"], row["source"], row["evidence"]) for row in rows],
+            [
+                # A custom endpoint whose credential sits in the store: the
+                # login is the stronger evidence, the config key gave the kind.
+                ("og", "gateway", "login", "auth.json"),
+                ("openai-codex", "openai-codex", "login", "auth.json"),
+                ("zai", "zai", "config", "config.yaml"),
+                ("anthropic", "anthropic", "env", "ANTHROPIC_API_KEY"),
+            ],
+        )
+        serialized = json.dumps(rows)
+        self.assertNotIn(TOKEN, serialized)
+        self.assertNotIn(KEY_VALUE, serialized)
+        # Spotify is a service login, `mystery` is a pool entry no config
+        # names, MiniMax serves nothing the catalog describes, the two
+        # loopback blocks serve a local model under a local name: none count.
+        for absent in ("spotify", "mystery", "minimax", "deepseek", "lmstudio-local", "ollama-box"):
+            self.assertNotIn(absent, serialized)
+
+    def test_auto_is_a_mode_not_a_provider_and_a_caller_may_supply_the_names(self) -> None:
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / "hermes"
+            _write(home / "config.yaml", "model:\n  provider: auto\n")
+            _write(home / ".env", f"OPENAI_API_KEY={KEY_VALUE}\n")
+            self.assertEqual(
+                [(row["id"], row["kind"], row["source"]) for row in detection.detect_linked_providers(home)],
+                [("openai-api", "openai", "env")],
+            )
+            # Supplied names replace the read, so an interview that already
+            # read them (the shell's included) can hold them still.
+            self.assertEqual(detection.detect_linked_providers(home, env_names=()), [])
+            self.assertEqual(
+                [row["evidence"] for row in detection.detect_linked_providers(home, env_names={"ZAI_API_KEY"})],
+                ["ZAI_API_KEY"],
+            )
+
+    def test_names_come_from_the_file_and_only_from_the_environment_when_handed_in(self) -> None:
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / "hermes"
+            _write(home / ".env", f"export GLM_API_KEY={KEY_VALUE}\nXAI_API_KEY = {KEY_VALUE}\n# GEMINI_API_KEY=commented\nNOT_A_KEY\n")
+            with patch.dict(os.environ, {"DEEPSEEK_API_KEY": KEY_VALUE}, clear=True):
+                self.assertEqual(detection.env_key_names(home), ["GLM_API_KEY", "XAI_API_KEY"])
+                names = detection.env_key_names(home, environ={"KIMI_API_KEY": KEY_VALUE, "PATH": "/bin"})
+        self.assertEqual(names, ["GLM_API_KEY", "KIMI_API_KEY", "XAI_API_KEY"])
+
+    def test_local_endpoints_are_read_from_their_base_url_line(self) -> None:
+        text = (
+            "providers:\n  og:\n    base_url: https://apis.example/v1\n  lm:\n    base_url: http://127.0.0.1:1234/v1\n"
+            "  six:\n    base_url: http://[::1]:8080/v1  # comment\n  docker:\n    base_url: \"http://host.docker.internal:11434\"\n"
+            "  nested:\n    extra:\n      base_url: http://localhost:1\n  bare:\n    base_url: localhost:9\n"
+        )
+        self.assertEqual(detection.local_config_provider_ids(text), ["lm", "six", "docker", "bare"])
+
+    def test_a_missing_or_unbound_home_yields_nothing(self) -> None:
+        with TemporaryDirectory() as tmp:
+            self.assertEqual(detection.detect_linked_providers(Path(tmp) / "absent", env_names=()), [])
+        with patch.object(runtime_paths, "default_hermes_home", side_effect=runtime_paths.RuntimeBindingError("unbound")):
+            self.assertEqual(detection.detect_linked_providers(None, env_names=()), [])
+
+
+class LinkedEntitlementTests(unittest.TestCase):
+    """`effective_provider_entitlements`: detection is the baseline, the record wins."""
+
+    def _login_only(self, root: Path) -> tuple[Path, Path]:
+        omh_home = root / "omh"
+        hermes_home = root / "hermes"
+        _write(hermes_home / "auth.json", _auth_store(providers={"openai-codex": {"access_token": TOKEN}}))
+        return omh_home, hermes_home
+
+    def test_nothing_recorded_and_nothing_linked_is_none(self) -> None:
+        with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            entitlements, status, providers = effective_provider_entitlements(Path(tmp) / "omh", Path(tmp) / "hermes")
+        self.assertEqual((entitlements, status, providers), (None, "absent", ()))
+
+    def test_a_login_counts_without_an_interview_and_reorders_the_chains(self) -> None:
+        with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            omh_home, hermes_home = self._login_only(Path(tmp))
+            entitlements, status, providers = effective_provider_entitlements(omh_home, hermes_home)
+            self.assertEqual(entitlements, {"providers": {"openai-codex": "openai-codex"}, "subscription_clis": []})
+            # The document's own status is still reported: nobody answered.
+            self.assertEqual(status, "absent")
+            self.assertEqual(
+                providers, ({"id": "openai-codex", "kind": "openai-codex", "source": "login", "evidence": "auth.json"},)
+            )
+            chains = effective_mixture_category_chains(omh_home, hermes_home)
+        quick = HERMES_MIXTURE_CATEGORY_CHAINS["quick"]
+        self.assertNotEqual(quick[0][0], "gpt-5.6-luna")
+        self.assertEqual(chains["quick"][0][0], "gpt-5.6-luna")
+        self.assertEqual(sorted(chains["quick"]), sorted(quick))
+
+    def test_the_recorded_kind_wins_and_neither_side_drops_the_other(self) -> None:
+        with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            omh_home, hermes_home = self._login_only(Path(tmp))
+            _write(hermes_home / "config.yaml", "providers:\n  og:\n    base_url: x\n")
+            _write(
+                provider_entitlements_path(omh_home),
+                json.dumps(
+                    {
+                        "schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION,
+                        "providers": {"og": "zai", "hand-added": "gateway"},
+                        "subscription_clis": ["claude-code"],
+                    }
+                ),
+            )
+            entitlements, status, providers = effective_provider_entitlements(omh_home, hermes_home)
+        self.assertEqual(status, "applied")
+        self.assertEqual(
+            entitlements,
+            {
+                "providers": {"hand-added": "gateway", "og": "zai", "openai-codex": "openai-codex"},
+                "subscription_clis": ["claude-code"],
+            },
+        )
+        self.assertEqual(
+            [(row["id"], row["source"]) for row in providers],
+            [("hand-added", "recorded"), ("og", "recorded"), ("openai-codex", "login")],
+        )
+
+    def test_an_excluded_linked_provider_stops_counting(self) -> None:
+        with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            omh_home, hermes_home = self._login_only(Path(tmp))
+            _write(hermes_home / ".env", f"ZAI_API_KEY={KEY_VALUE}\n")
+            _write(
+                provider_entitlements_path(omh_home),
+                json.dumps({"schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION, "excluded_providers": ["openai-codex"]}),
+            )
+            entitlements, status, providers = effective_provider_entitlements(omh_home, hermes_home)
+        self.assertEqual(status, "applied")
+        self.assertEqual(entitlements["providers"], {"zai": "zai"})
+        self.assertEqual([(row["id"], row["source"]) for row in providers], [("zai", "env")])
+
+    def test_an_invalid_record_leaves_the_linked_providers_standing(self) -> None:
+        with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            omh_home, hermes_home = self._login_only(Path(tmp))
+            _write(provider_entitlements_path(omh_home), "{not json")
+            entitlements, status, _providers = effective_provider_entitlements(omh_home, hermes_home)
+        self.assertTrue(status.startswith("invalid:"), status)
+        self.assertEqual(entitlements["providers"], {"openai-codex": "openai-codex"})
+
+
+class SurfaceTests(unittest.TestCase):
+    def test_the_picker_marks_served_from_the_linked_providers_and_lists_them(self) -> None:
+        with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            root = Path(tmp)
+            _write(root / "hermes" / "auth.json", _auth_store(providers={"openai-codex": {"access_token": TOKEN}}))
+            payload = picker_rows(root / "omh", hermes_home=root / "hermes")
+        self.assertEqual(payload["providers"], [{"id": "openai-codex", "kind": "openai-codex", "source": "login", "evidence": "auth.json"}])
+        served = {row["alias"]: row["served"] for row in payload["models"]}
+        self.assertTrue(served["gpt-6-astra"])
+        self.assertFalse(served["kimi-k3"])
+        self.assertNotIn(TOKEN, json.dumps(payload))
+
+    def test_show_names_the_linked_providers_and_the_reorder(self) -> None:
+        with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            root = Path(tmp)
+            _write(root / "hermes" / "auth.json", _auth_store(providers={"openai-codex": {"access_token": TOKEN}}))
+            homes = ["--omh-home", str(root / "omh"), "--hermes-home", str(root / "hermes")]
+            status, text, _stderr = run_cli([*homes, "model-chains", "show"], output_json=False)
+            self.assertEqual(status, 0)
+            self.assertIn("Linked Hermes providers: openai-codex (login)", text)
+            self.assertIn("quick: gpt-5.6-luna:low", text)
+            self.assertIn("(reordered by this machine's providers)", text)
+            self.assertNotIn(TOKEN, text)
+            _status, out, _stderr = run_cli([*homes, "model-chains", "show", "--json"])
+            self.assertEqual(json.loads(out)["providers"], [{"id": "openai-codex", "kind": "openai-codex", "source": "login", "evidence": "auth.json"}])
+            homes[-1] = str(root / "nowhere")
+            _status, text, _stderr = run_cli([*homes, "model-chains", "show"], output_json=False)
+            self.assertIn("Linked Hermes providers: none found", text)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -35,7 +35,9 @@ class WorkCampaignTests(unittest.TestCase):
         self.request = dict(mode="campaign-orchestrator", goal="accepted objective", accepted=True,
                             units=self.units, acceptance_criteria=["all_checks_pass"],
                             verification_command="python -m unittest", workspace=self.workspace,
-                            omh_home=self.root)
+                            # A Hermes home with nothing linked: routes must not read the
+                            # developer's real ~/.hermes.
+                            omh_home=self.root, hermes_home=self.root / "hermes")
 
     def prepare(self):
         return self.api.prepare(**self.request)
@@ -92,11 +94,11 @@ class WorkCampaignTests(unittest.TestCase):
 
     def test_routes_reuse_configurable_categories_and_overrides(self):
         from omh.plugin_bundle.omh.hermes_delegation import effective_mixture_category_chains
-        chains = effective_mixture_category_chains(self.root)
-        routes = resolve_campaign_routes(omh_home=self.root)
+        chains = effective_mixture_category_chains(self.root, self.root / "hermes")
+        routes = resolve_campaign_routes(omh_home=self.root, hermes_home=self.root / "hermes")
         self.assertEqual(routes.get("root", {}).get("alias"), chains["architect"][0][0])
         self.assertEqual(routes["worker"]["alias"], chains["ultrabrain"][0][0])
-        routes = resolve_campaign_routes(omh_home=self.root, owner_model="owner-choice",
+        routes = resolve_campaign_routes(omh_home=self.root, hermes_home=self.root / "hermes", owner_model="owner-choice",
                                         owner_provider="my-provider", owner_effort="low")
         self.assertEqual(routes["root"]["wire_model"], "owner-choice")
         self.assertEqual(routes["root"]["provider"], "my-provider")
@@ -553,7 +555,7 @@ api.act(record['campaign_id'], 'start')
 
     def test_route_overrides_reject_secrets_and_non_tokens(self):
         with self.assertRaises(ValueError):
-            resolve_campaign_routes(omh_home=self.root, owner_model="model\nAuthorization: Bearer secret")
+            resolve_campaign_routes(omh_home=self.root, hermes_home=self.root / "hermes", owner_model="model\nAuthorization: Bearer secret")
 
     def test_c1_orchestrator_map_id_refused_before_persistence(self):
         self.units[0]["unit_id"] = "orchestrator"

@@ -39,7 +39,10 @@ class HostAdapterTests(unittest.TestCase):
         self._install_equality(shutil.which("pwsh") or shutil.which("powershell"))
 
     def _install_equality(self, shell):
+        from omh.install.agent_skills_projection import MANIFEST_NAME, agent_skill_files, agent_skills_manifest
         expected = tree(ROOT / "agent-skills")
+        skills = {p.split("/")[0] for p in expected}
+        expected[MANIFEST_NAME] = (json.dumps(agent_skills_manifest(agent_skill_files()), indent=2, sort_keys=True) + "\n").encode()
         for host in HOSTS:
             for user in (False, True):
                 with self.subTest(host=host, user=user), tempfile.TemporaryDirectory(prefix="omh adapter ") as tmp:
@@ -58,7 +61,7 @@ class HostAdapterTests(unittest.TestCase):
                         result = subprocess.run(command, cwd=repo, env=env, capture_output=True, text=True, timeout=60)
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertEqual(tree(target), expected)
-                        self.assertEqual(set(result.stdout.splitlines()[1:]), {p.split("/")[0] for p in expected})
+                        self.assertEqual(set(result.stdout.splitlines()[1:]), skills)
                     self.assertFalse(((repo if user else home) / target.relative_to(home if user else repo)).exists())
 
     @unittest.skipUnless(shutil.which("sh"), "POSIX shell unavailable")
@@ -87,7 +90,34 @@ class HostAdapterTests(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
                     # Compare every installed byte, including the managed receipt.
-                    self.assertEqual(tree(script_target), tree(cli_target))
+                    before = tree(script_target)
+                    self.assertEqual(before, tree(cli_target))
+                    with chdir(script_repo), patch.dict(os.environ, {"HOME": str(script_home), "USERPROFILE": str(script_home)}):
+                        code, output, error = run_cli(["install", "--target", "agents", "--host", host,
+                                                       "--scope", scope, "--status", "--json"])
+                    self.assertEqual(code, 0, error + output)
+                    status = json.loads(output)
+                    self.assertEqual(status["projection"], "fresh")
+                    self.assertEqual(status["drift"], "clean")
+                    self.assertEqual(status["target_dirs"], [str(script_target)])
+                    self.assertEqual(tree(script_target), before)
+
+    def test_legacy_absolute_receipt_refreshes_to_portable_receipt(self):
+        from omh.install.agent_skills_projection import MANIFEST_NAME, agent_skills_status, install_agent_skills
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp).resolve() / ".agents/skills"
+            install_agent_skills(target)
+            receipt = target / MANIFEST_NAME
+            expected = receipt.read_bytes()
+            manifest = json.loads(expected)
+            self.assertEqual(manifest["target_dirs"], ["."])
+            manifest["target_dirs"] = [str(target)]
+            receipt.write_text(json.dumps(manifest), encoding="utf-8")
+            status = agent_skills_status(target)
+            self.assertEqual(status["projection"], "stale")
+            self.assertEqual(status["drift"], "clean")
+            self.assertEqual(install_agent_skills(target)["projection"], "fresh")
+            self.assertEqual(receipt.read_bytes(), expected)
 
     def test_manifest_source_digest_and_cli_lockstep(self):
         from contextlib import chdir
@@ -199,6 +229,9 @@ class HostAdapterTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name != "nt" and shutil.which("sh"), "POSIX symlink/hash fallback test")
     def test_no_python_or_git_hash_fallback_and_preservation(self):
+        from omh.install.agent_skills_projection import MANIFEST_NAME, agent_skill_files, agent_skills_manifest
+        expected = tree(ROOT / "agent-skills")
+        expected[MANIFEST_NAME] = (json.dumps(agent_skills_manifest(agent_skill_files()), indent=2, sort_keys=True) + "\n").encode()
         for hasher in ("sha256sum", "shasum"):
             if not shutil.which(hasher):
                 continue  # Only the installed platform checksum utilities can be exercised.
@@ -219,11 +252,12 @@ class HostAdapterTests(unittest.TestCase):
                 self.assertEqual(custom.read_bytes(), b"custom")
                 installed = tree(custom.parents[1])
                 installed.pop("triage-sweep/SKILL.md")
-                self.assertEqual(installed, tree(ROOT / "agent-skills"))
+                self.assertEqual(installed, expected)
 
     @unittest.skipUnless(os.name != "nt" and shutil.which("sh"), "POSIX symlink test")
     def test_symlink_destinations_and_invalid_flags_fail_before_writes(self):
-        for relative in (".agents", ".agents/skills/ulw-work", ".agents/skills/ulw-work/SKILL.md"):
+        for relative in (".agents", ".agents/skills/ulw-work", ".agents/skills/ulw-work/SKILL.md",
+                         ".agents/skills/.omh-agent-skills-manifest.json"):
             with self.subTest(path=relative), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp).resolve()
                 repo, outside = root / "project", root / "outside"

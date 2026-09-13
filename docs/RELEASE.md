@@ -115,6 +115,26 @@ strings quoted in README/docs prose and CLI help examples are illustrative and
 deliberately not parity-gated — update them in the bump commit, but a stale
 example is a docs nit, not a diagnostics lie.
 
+### Bundled plugin runtime compatibility (maintainer contract)
+
+Treat `src/plugin_bundle/omh/plugin.yaml` `requires_hermes` as a separate
+release-contract surface, not an OMH package-version bump. Keep the floor at
+the earliest observed supported Hermes version and the ceiling at the next
+minor after the latest verified host minor. Before widening either bound,
+record real-host admission evidence in
+`tests.test_plugin_distribution.PluginHermesAdmissionTests` and update
+`HERMES_COMPAT_MATRIX` in `src/install/plugin_compat.py` in the same change.
+Run the named tests and `omh release product-readiness --json`; do not count a
+skipped real-host fixture or local declaration conformance as runtime evidence.
+Keep the OMH-owned `requires_hermes` key; do not move it into the host-reserved
+`hermes:` namespace.
+
+For existing installs, run `omh update` to regenerate managed bundle hashes
+rather than copying plugin files by hand. Check the required versus running
+Hermes versions in a loader rejection before attempting a manifest repair;
+use a supported host. For a damaged managed declaration, use
+`omh setup --force` followed by `omh doctor`.
+
 ## Curated release notes (maintainer and automation reference)
 
 Author release copy once, under the exact level-two `## Unreleased` heading in

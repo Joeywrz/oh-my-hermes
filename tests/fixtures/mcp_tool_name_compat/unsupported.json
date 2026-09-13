@@ -1,0 +1,25 @@
+{
+  "adapter": {
+    "id": "opencode-mcp-tool-naming",
+    "version": "v999"
+  },
+  "advertised_tools": [
+    {
+      "evidence_refs": [
+        "session:observed-0"
+      ],
+      "name": "omh_status",
+      "observation": "registered"
+    }
+  ],
+  "required_tools": [
+    {
+      "evidence_refs": [
+        "run:required"
+      ],
+      "logical_name": "omh_status"
+    }
+  ],
+  "schema_version": "mcp_tool_name_compatibility_snapshot/v1",
+  "target_harness": "opencode"
+}

@@ -211,5 +211,77 @@ class McpToolNameCompatibilityTests(unittest.TestCase):
                 self.assertNotIn(AWS_ACCESS_KEY_ID, str(caught.exception))
 
 
+class McpToolNameCompatibilityCliTests(unittest.TestCase):
+    fixtures = Path(__file__).parent / "fixtures" / "mcp_tool_name_compat"
+
+    def cli(self, *paths: Path) -> tuple[int, str, str]:
+        from _cli_harness import run_cli
+
+        args = ["harness", "mcp-tool-name-compatibility"]
+        for path in paths:
+            args.extend(["--snapshot", str(path)])
+        return run_cli(args)
+
+    def test_cli_fixture_matrix_and_bounded_errors(self) -> None:
+        for fixture, state in (
+            ("exact", "exact"), ("registered", "exact"), ("config_only", "unobserved"),
+            ("precedence", "exact"), ("one_candidate", "compatible_one_to_one"),
+            ("ambiguous", "ambiguous"), ("scoped", "missing"),
+            ("separator_difference", "missing"), ("overlength", "unobserved"),
+            ("unsupported", "unobserved"),
+        ):
+            with self.subTest(fixture=fixture):
+                status, stdout, stderr = self.cli(self.fixtures / f"{fixture}.json")
+                self.assertEqual(status, 0, stderr)
+                self.assertEqual(stderr, "")
+                payload = json.loads(stdout)
+                self.assertEqual(payload["schema_version"], "mcp_tool_name_compatibility/v1")
+                self.assertTrue(all(row["state"] == state for row in payload["rows"]))
+                self.assertTrue(all(not row["auto_selected"] for row in payload["rows"]))
+        for fixture in ("absent", "malformed", "oversized", "secret"):
+            with self.subTest(fixture=fixture):
+                status, stdout, stderr = self.cli(self.fixtures / f"{fixture}.json")
+                self.assertEqual(status, 2)
+                self.assertEqual(stdout, "")
+                self.assertLess(len(stderr), 250)
+                self.assertNotIn("AKIA", stderr)
+                self.assertNotIn("Traceback", stderr)
+
+    def test_cli_is_byte_identical_read_only_and_metadata_only(self) -> None:
+        path = self.fixtures / "exact.json"
+        before = {entry.name: entry.read_bytes() for entry in self.fixtures.iterdir()}
+        first = self.cli(path)
+        self.assertEqual(first, self.cli(path))
+        self.assertEqual(first[0], 0, first[2])
+        payload = json.loads(first[1])
+        self.assertEqual(len(payload["rows"]), 3)
+        self.assertEqual([row["logical_name"] for row in payload["rows"]], ["omh_hud", "omh_recommend", "omh_status"])
+        self.assertEqual(payload["adapter"], json.loads(path.read_text(encoding="utf-8"))["adapter"])
+        self.assertTrue(all("run:required" in row["evidence_refs"] for row in payload["rows"]))
+
+        def keys(value: object) -> set[str]:
+            if isinstance(value, dict):
+                return set(value).union(*(keys(item) for item in value.values()))
+            if isinstance(value, list):
+                return set().union(*(keys(item) for item in value))
+            return set()
+
+        self.assertFalse(keys(payload) & {"arguments", "results", "credentials", "prompt"})
+        self.assertEqual(before, {entry.name: entry.read_bytes() for entry in self.fixtures.iterdir()})
+
+    def test_cli_repeated_snapshot_option_preserves_harness_scope(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "other.json"
+            value = snapshot()
+            value["target_harness"] = "generic"
+            value["adapter"]["id"] = "generic-mcp-tool-naming"
+            path.write_text(json.dumps(value), encoding="utf-8")
+            status, stdout, stderr = self.cli(self.fixtures / "exact.json", path)
+            self.assertEqual(status, 0, stderr)
+            rows = json.loads(stdout)["rows"]
+            self.assertEqual(len(rows), 4)
+            self.assertEqual([row["state"] for row in rows if row["target_harness"] == "generic"], ["unobserved"])
+
+
 if __name__ == "__main__":
     unittest.main()

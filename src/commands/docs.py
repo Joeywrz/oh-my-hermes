@@ -493,6 +493,8 @@ def _add_docs_commands(sub) -> None:
 
 
 def _add_harness_commands(sub) -> None:
+    from .mcp_tool_name_compatibility import add_harness_mcp_tool_name_compatibility_command
+
     harness = sub.add_parser("harness", help="List, inspect, and validate workflow harness contracts.")
     harness_sub = harness.add_subparsers(dest="harness_command", required=True)
 
@@ -505,3 +507,4 @@ def _add_harness_commands(sub) -> None:
 
     harness_validate = harness_sub.add_parser("validate")
     harness_validate.set_defaults(func=cmd_harness_validate)
+    add_harness_mcp_tool_name_compatibility_command(harness_sub)

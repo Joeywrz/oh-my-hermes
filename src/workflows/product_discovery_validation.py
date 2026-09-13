@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +14,16 @@ from ..system.paths import OmhPaths
 from .product_discovery_artifacts import (
     ASSUMPTION_TEST_PORTFOLIO_SCHEMA_VERSION,
     BUILD_BOUNDARY_ROUTES,
+    CHANNEL_FEEDBACK_AFFECTED_TARGETS,
+    CHANNEL_FEEDBACK_ENTRY_KEYS,
+    CHANNEL_FEEDBACK_LEDGER_SCHEMA_VERSION,
+    CHANNEL_FEEDBACK_DISPOSITION_SCHEMA_VERSION,
+    _artifact,
+    _channel_feedback_entry,
+    _ref,
+    _stamp as _feedback_stamp,
+    build_channel_feedback_ledger,
+    build_channel_feedback_disposition,
     CUSTOMER_DISCOVERY_PLAN_SCHEMA_VERSION,
     DISCOVERY_CONTINUATION_ROUTE,
     DISCOVERY_DECISION_FRAME_SCHEMA_VERSION,
@@ -48,6 +59,10 @@ __all__ = (
     "build_discovery_evidence_ledger",
     "build_initial_gtm_hypothesis",
     "discovery_audience_gate",
+    "discovery_audience_gate_with_feedback",
+    "evaluate_channel_feedback",
+    "channel_feedback_ledger_for_history",
+    "product_brief_consumption_with_feedback",
     "evaluate_product_discovery",
     "prepare_product_discovery",
     "product_brief_consumption",
@@ -142,6 +157,184 @@ def evaluate_product_discovery(package: Mapping[str, Mapping[str, Any]], *, now:
         residual_risk_refs=residual,
         next_route=route,
     )
+
+
+def _channel_feedback_input(feedback_ledger: Mapping[str, Any]) -> dict[str, Any]:
+    fields = {"discovery_id", "gtm_artifact_id", "initial_channel_ref", "segment_ref", "entries"}
+    if not isinstance(feedback_ledger, Mapping):
+        raise ValueError("feedback_ledger must be an object")
+    if "schema_version" in feedback_ledger:
+        errors = validate_product_discovery_artifact(feedback_ledger)
+        if errors:
+            raise ValueError(errors[0])
+        if feedback_ledger["schema_version"] != CHANNEL_FEEDBACK_LEDGER_SCHEMA_VERSION:
+            raise ValueError("feedback_ledger has the wrong artifact type")
+    elif set(feedback_ledger) != fields:
+        raise ValueError("channel feedback semantic input keys are invalid")
+    values = {field: _ref(feedback_ledger[field], field) for field in fields - {"entries"}}
+    entries = feedback_ledger["entries"]
+    if not isinstance(entries, list):
+        raise ValueError("channel feedback entries must be a list")
+    values["entries"] = [_channel_feedback_entry(entry, allow_missing=True) for entry in entries]
+    return values
+
+
+def channel_feedback_ledger_for_history(feedback_ledger: Mapping[str, Any]) -> dict[str, Any]:
+    """Return an appendable ledger, or no ledger for incomplete/duplicate supplied rows.
+
+    The evaluator still retains each refusal in the appendable disposition. A
+    digest of the bounded submission identifies inputs that cannot be a ledger.
+    """
+    values = _channel_feedback_input(feedback_ledger)
+    entries = values["entries"]
+    if any(set(entry) != CHANNEL_FEEDBACK_ENTRY_KEYS for entry in entries):
+        return {}
+    ids = {entry["feedback_id"] for entry in entries}
+    sources = {(entry["test_id"], entry["source_ref"], entry["affected_target"]) for entry in entries}
+    if len(ids) != len(entries) or len(sources) != len(entries):
+        return {}
+    return build_channel_feedback_ledger(**values)
+
+
+def evaluate_channel_feedback(*, frame: Mapping[str, Any], gtm: Mapping[str, Any],
+        portfolio: Mapping[str, Any], feedback_ledger: Mapping[str, Any], now: str) -> dict[str, Any]:
+    """Reconcile explicit targets using fixed precedence; no clock, I/O or receipt edits."""
+    for name, artifact, schema in (("frame", frame, DISCOVERY_DECISION_FRAME_SCHEMA_VERSION),
+                                  ("gtm", gtm, INITIAL_GTM_HYPOTHESIS_SCHEMA_VERSION),
+                                  ("portfolio", portfolio, ASSUMPTION_TEST_PORTFOLIO_SCHEMA_VERSION)):
+        errors = validate_product_discovery_artifact(artifact)
+        if errors:
+            raise ValueError(f"{name} is invalid: {errors[0]}")
+        if artifact["schema_version"] != schema:
+            raise ValueError(f"{name} has the wrong artifact type")
+    values = _channel_feedback_input(feedback_ledger)
+    if any(artifact["discovery_id"] != frame["discovery_id"] for artifact in (gtm, portfolio, values)):
+        raise ValueError("all channel feedback artifacts must have the same discovery_id")
+    if gtm["beachhead_segment_ref"] != frame["segment_ref"]:
+        raise ValueError("initial GTM beachhead must match the framed target segment")
+    tests = {row["test_id"]: row for row in portfolio["assumptions"]}
+    for test in tests.values():
+        if test["scope_segment_ref"] != frame["segment_ref"]:
+            raise ValueError("assumption scope must match the framed target segment")
+        if _time(test["deadline_at"]) > _time(frame["deadline_at"]):
+            raise ValueError("assumption deadline must not exceed the decision-frame deadline")
+    evaluated_at = _time(_feedback_stamp(now, "now"))
+    entries = values["entries"]
+    source_keys = Counter((row.get("test_id"), row.get("source_ref"), row.get("affected_target")) for row in entries)
+    ids = Counter(row.get("feedback_id") for row in entries)
+    source_effects: dict[tuple[Any, Any], set[str]] = defaultdict(set)
+    for row in entries:
+        source_effects[(row.get("source_ref"), row.get("affected_target"))].add(row.get("effect", "unknown"))
+    held = []
+    admissible: dict[str, list[dict[str, Any]]] = {target: [] for target in CHANNEL_FEEDBACK_AFFECTED_TARGETS}
+    invalid_targets: set[str] = set()
+    for index, row in enumerate(entries):
+        # 1. Inadmissible observations outrank every decision effect for their target.
+        reason = _feedback_admissible(row, frame=frame, gtm=gtm, ledger=values, tests=tests,
+            evaluated_at=evaluated_at, duplicate=ids[row.get("feedback_id")] > 1 or
+            source_keys[(row.get("test_id"), row.get("source_ref"), row.get("affected_target"))] > 1,
+            contradictory={"supports", "contradicts"} <= source_effects[(row.get("source_ref"), row.get("affected_target"))])
+        targets = (row["affected_target"],) if "affected_target" in row else CHANNEL_FEEDBACK_AFFECTED_TARGETS
+        if reason:
+            held.append({"feedback_ref": row.get("feedback_id", f"feedback-missing-{index}"), "reason": reason})
+            invalid_targets.update(targets)
+        else:
+            admissible[row["affected_target"]].append(row)
+    effects = {}
+    for target, rows in admissible.items():
+        if target in invalid_targets:
+            effects[target] = "unknown"
+        elif not rows:
+            effects[target] = "unknown"
+            held.append({"feedback_ref": f"feedback-missing-{target}", "reason": "channel_feedback_missing"})
+        elif any(row["effect"] == "contradicts" for row in rows):
+            effects[target] = "contradicts"
+        else:
+            support = Counter()
+            for row in rows:
+                support[row["test_id"]] += row["sample_count"]
+            complete = all(count >= tests[test_id]["sample_target"] for test_id, count in support.items())
+            effects[target] = "supports" if complete else "unknown"
+            if not complete:
+                held.extend({"feedback_ref": row["feedback_id"], "reason": "channel_feedback_unresolved"} for row in rows)
+    # 2. A rejected channel follows only the contradicted GTM test's precommit.
+    rejected = []
+    followup = "none"
+    if effects["channel_reachability"] == "contradicts":
+        rejected = [gtm["artifact_id"]]
+        failed = [tests[row["test_id"]] for row in admissible["channel_reachability"] if row["effect"] == "contradicts"]
+        followup = "reevaluate_discovery" if any(test["failure_decision"] == "kill" for test in failed) else "gtm_pivot"
+    # 3. Opportunity contradiction is independent. 4/5. Gate and handoff consume
+    # these effects without changing the frame or receipt. 6. Unknown never promotes.
+    if "unknown" in effects.values() and followup == "none":
+        followup = "bounded_channel_retest"
+    input_ref = _artifact(CHANNEL_FEEDBACK_LEDGER_SCHEMA_VERSION, values["discovery_id"],
+                          {key: value for key, value in values.items() if key != "discovery_id"}, status="reentered")["artifact_id"]
+    return build_channel_feedback_disposition(discovery_id=frame["discovery_id"], frame_ref=frame["artifact_id"],
+        gtm_artifact_id=gtm["artifact_id"], portfolio_ref=portfolio["artifact_id"], feedback_ledger_ref=input_ref,
+        initial_channel_ref=gtm["initial_channel_ref"], segment_ref=frame["segment_ref"], evaluated_at=now,
+        **effects, rejected_channel_hypothesis_refs=rejected, held_observations=held, proposed_followup=followup)
+
+
+def _feedback_admissible(entry: Mapping[str, Any], *, frame: Mapping[str, Any], gtm: Mapping[str, Any],
+        ledger: Mapping[str, Any], tests: Mapping[str, Any], evaluated_at: datetime,
+        duplicate: bool, contradictory: bool) -> str | None:
+    if set(entry) != CHANNEL_FEEDBACK_ENTRY_KEYS:
+        return "channel_feedback_missing"
+    test = tests.get(entry["test_id"])
+    observed_at = _time(entry["observed_at"])
+    if observed_at > evaluated_at or (test and not _time(test["precommitted_at"]) <= observed_at <= _time(test["deadline_at"])):
+        return "channel_feedback_stale"
+    # A conflicting copy is the specific duplicate refusal, not generic duplication.
+    if contradictory:
+        return "channel_feedback_contradictory"
+    if duplicate:
+        return "channel_feedback_duplicate"
+    if entry["segment_ref"] != frame["segment_ref"] or ledger["segment_ref"] != frame["segment_ref"]:
+        return "channel_feedback_foreign_segment"
+    if (entry["channel_ref"] != gtm["initial_channel_ref"] or ledger["initial_channel_ref"] != gtm["initial_channel_ref"]
+            or ledger["gtm_artifact_id"] != gtm["artifact_id"]):
+        return "channel_feedback_wrong_channel"
+    if test is None or (entry["affected_target"] == "channel_reachability" and test["category"] != "go_to_market"):
+        return "channel_feedback_wrong_test"
+    criteria = {"supports": test["success_criterion_ref"], "contradicts": test["failure_criterion_ref"],
+                "unknown": test["inconclusive_criterion_ref"]}
+    if entry["criterion_ref"] != criteria[entry["effect"]]:
+        return "channel_feedback_wrong_test"
+    if (entry["effect"] == "unknown" or entry["source_class"] not in _EXTERNAL_EVIDENCE_CLASSES
+            or entry["source_class"] not in test["required_evidence_classes"] or entry["confidence_limit"] != "bounded"):
+        return "channel_feedback_unresolved"
+    return None
+
+
+def discovery_audience_gate_with_feedback(frame: Mapping[str, Any], disposition: Mapping[str, Any]) -> dict[str, Any]:
+    """Revise only the matching frame's gate; a new frame needs explicit new evaluation."""
+    gate = discovery_audience_gate(frame)
+    errors = validate_product_discovery_artifact(disposition)
+    if errors:
+        raise ValueError(errors[0])
+    if (disposition["schema_version"] != CHANNEL_FEEDBACK_DISPOSITION_SCHEMA_VERSION
+            or disposition["frame_ref"] != frame["artifact_id"]
+            or disposition["discovery_id"] != frame["discovery_id"] or disposition["segment_ref"] != frame["segment_ref"]):
+        raise ValueError("channel feedback disposition must bind the same decision frame")
+    if disposition["channel_reachability"] == "contradicts":
+        gate["audience_gate"] = "audience_reachability_contradicted"
+        gate["blocked_outputs"] = list(BUILD_BOUNDARY_ROUTES)
+    elif disposition["handoff_held"]:
+        gate["blocked_outputs"] = list(BUILD_BOUNDARY_ROUTES)
+    return gate
+
+
+def product_brief_consumption_with_feedback(receipt: Mapping[str, Any], disposition: Mapping[str, Any]) -> dict[str, Any]:
+    """A receipt cannot bypass supplied channel holds or borrow another segment's support."""
+    context = product_brief_consumption(receipt)
+    if not context or validate_product_discovery_artifact(disposition):
+        return {}
+    if (disposition["schema_version"] != CHANNEL_FEEDBACK_DISPOSITION_SCHEMA_VERSION
+            or disposition["discovery_id"] != receipt["discovery_id"] or disposition["segment_ref"] != receipt["segment_ref"]
+            or disposition["handoff_held"]):
+        return {}
+    return context
 
 
 def _assumption_outcome(

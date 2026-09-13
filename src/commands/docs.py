@@ -19,9 +19,11 @@ from .common import _print_json
 
 def cmd_docs_agent_skills(args: argparse.Namespace) -> int:
     from ..install.agent_skills_projection import agent_skill_files
+    from ..skills.host_adapter_render import host_adapter_files
 
     root = Path(args.output or "agent-skills").expanduser().absolute()
     files = agent_skill_files()
+    adapters = host_adapter_files(files)
     try:
         if args.check:
             actual = {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file() or path.is_symlink()}
@@ -31,15 +33,31 @@ def cmd_docs_agent_skills(args: argparse.Namespace) -> int:
                 relative for relative in files.keys() & actual
                 if (root / relative).is_symlink() or (root / relative).read_bytes() != files[relative].encode("utf-8")
             )
-            payload = {"ok": not (missing or extra or stale), "checked": str(root),
-                       "missing": missing, "stale": stale, "extra": extra, "file_count": len(files)}
+            adapter_missing = sorted(path for path in adapters if not (root.parent / path).exists())
+            adapter_stale = sorted(
+                path for path, content in adapters.items() if path not in adapter_missing
+                and ((root.parent / path).is_symlink()
+                     or (root.parent / path).parent.is_symlink()
+                     or not (root.parent / path).is_file()
+                     or (root.parent / path).read_bytes() != content.encode("utf-8"))
+            )
+            payload = {"ok": not (missing or extra or stale or adapter_missing or adapter_stale),
+                       "checked": str(root), "missing": missing, "stale": stale,
+                       "extra": extra, "file_count": len(files),
+                       "adapter_file_count": len(adapters),
+                       "adapter_missing": adapter_missing, "adapter_stale": adapter_stale}
             _print_json(payload)
             return 0 if payload["ok"] else 1
         for relative, content in files.items():
             atomic_write_text(root / relative, content)
+        for relative, content in adapters.items():
+            path = root.parent / relative
+            atomic_write_text(path, content)
+            if path.suffix == ".sh":
+                path.chmod(0o755)
     except OSError as exc:
         raise OmhError(f"Agent Skills docs projection failed: {exc}") from exc
-    _print_json({"written": str(root), "file_count": len(files)})
+    _print_json({"written": str(root), "file_count": len(files), "adapter_file_count": len(adapters)})
     return 0
 
 

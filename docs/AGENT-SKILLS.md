@@ -5,7 +5,70 @@ OMH can project its reviewed workflow catalog into the open Agent Skills
 This is a guidance projection, not a port of the Hermes runtime, plugin, or
 wrapper. The existing managed Hermes skills and their installation are unchanged.
 
-## Install (agents and operators)
+## Clone-and-run host installers (no Python or omh required)
+
+Clone once, then run the chosen adapter **from the target project's root
+directory** (it need not be a git repository). The script locates the canonical
+`agent-skills/` source beside itself, not in your current directory:
+
+```sh
+git clone https://github.com/rlaope/oh-my-hermes.git "$HOME/oh-my-hermes"
+cd /path/to/your/project
+sh "$HOME/oh-my-hermes/.cursor/install.sh"
+# User scope instead of this project:
+sh "$HOME/oh-my-hermes/.cursor/install.sh" --user
+```
+
+Replace `.cursor` with `.claude`, `.codex`, `.opencode`, `.openclaw`, or `.pi`.
+Each directory contains generated `install.sh`, `install.ps1`, and
+`manifest.json`; there are no handwritten host skill copies. POSIX installation
+uses ordinary shell utilities plus `sha256sum` or `shasum` (automatic fallback),
+with no Python, omh, package manager, network access, or git subprocess.
+
+Windows-native PowerShell (5.1 or 7):
+
+```powershell
+git clone https://github.com/rlaope/oh-my-hermes.git "$HOME/oh-my-hermes"
+Set-Location C:/path/to/your/project
+& "$HOME/oh-my-hermes/.cursor/install.ps1"
+& "$HOME/oh-my-hermes/.cursor/install.ps1" -User
+```
+
+Claude installs only `.claude/skills/`; the other five adapters install only
+`.agents/skills/`. User scope places the same relative path under the user's
+home. These paths come from the recorded [host matrix](#host-support-matrix),
+not invented vendor-specific directories. In particular, `.openclaw/` and
+`.pi/` contain installers, **not** new host skill scan paths. OpenClaw's custom
+`OPENCLAW_STATE_DIR` caveat below still applies; no alternative path is guessed.
+
+Both installers verify the complete source file inventory and SHA256s before
+writing, copy only listed files, verify the installed bytes, and print the
+installed skill names. Re-running is idempotent. An explicit reinstall replaces
+listed files, so review/back up local edits first. Other files and skills
+(including existing `.claude/skills/triage-sweep`, `review-sweep`, and
+`model-onboarding`) are preserved. Symlink/reparse-point destinations are
+refused. Interrupted copies report failure; rerun after resolving the cause.
+Clone scripts do not track or delete retired files from older packs.
+
+If omh is already installed, the same catalog manifest selects the destination:
+
+```sh
+# Host-selected repo scope defaults to the CURRENT project directory, like the scripts.
+omh install --target agents --host cursor
+omh install --target agents --host claude --scope user
+omh install --target agents --host cursor --status --json
+```
+
+The CLI generates the same skill bytes from its installed package version and
+adds its managed-install status manifest. Use a matching version/checkout for
+byte equality. The CLI retains its collision checks and manifest-owned retired
+file cleanup; the clone scripts deliberately copy only the committed pack.
+Neither path installs the Hermes-native `skills/` projection, registers the
+Hermes plugin, adds host rules/plugins/MCP tools, or proves host execution.
+**Installing** needs no Python; **using** workflows marked `requires-omh-cli`
+still needs that optional CLI. Phase 1 is copy-only, not a runtime port.
+
+## Install through omh without a host selector (agents and operators)
 
 Install the `oh-my-hermes` Python package so `omh` is on PATH, then choose one
 scope explicitly:
@@ -33,7 +96,7 @@ it does not read this repository's committed projection tree.
 
 `--dry-run` reports current status without writing. Source import, Hermes
 profiles, and release-selection options do not apply to this target. No Hermes
-configuration is registered, and no vendor directories are written. Existing
+configuration is registered, and no vendor configuration is written. Existing
 symlink destinations and conflicting files OMH never installed are refused;
 unrelated skills are preserved. Repo-wide Hermes source imports exclude only
 manifest-owned files in the Claude mirror, not neighboring custom Claude skills.
@@ -198,10 +261,24 @@ npx skills-ref validate agent-skills/ulw-work
 ```
 
 The committed `agent-skills/` tree is generated from the packaged catalog. The
-gate compares exact UTF-8 bytes and detects missing, stale, and extra files,
-including references. Edit catalog/portable overrides or the target-aware
-renderer, regenerate, and commit source plus projection together. Never edit
-`skills/*` or `docs/WORKFLOWS.md` to implement this target.
+same command regenerates all 18 host adapter files beside it; `--check` checks
+every adapter's exact bytes while leaving existing host skill/configuration
+files alone. `--output /tmp/stage/agent-skills` stages the tree and its sibling
+adapter directories without modifying the checkout.
+
+The gate detects missing, stale, and extra canonical files, including
+references, and missing/stale adapter files. Catalog host rows live in
+`src/skills/host_adapters.py`; `host_adapter_render.py` produces both scripts
+from the same manifest, with `transform: copy-only`. `source_digest` is SHA256
+of the UTF-8, LF-terminated inventory sorted by relative POSIX path, one
+`<file-sha256>  <path>` per line. Both scripts embed and verify those file
+hashes; the gate pins the inventory to the canonical producer. `.gitattributes`
+forces LF for generated Markdown, shell, PowerShell, and JSON so Windows
+`core.autocrlf` cannot invalidate checksums or byte comparisons.
+
+Edit catalog/portable overrides or the appropriate producer, regenerate, and
+commit source plus projection together. Never hand-edit adapter outputs,
+`skills/*`, or `docs/WORKFLOWS.md` to implement this target.
 
 See [Documentation](README.md), [Direction](DIRECTION.md), and
 [Workflow Reference](WORKFLOWS.md) for the original Hermes boundaries.

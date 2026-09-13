@@ -248,8 +248,8 @@ ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 def cmd_install(args: argparse.Namespace) -> int:
     if getattr(args, "target", "hermes") == "agents":
         return _cmd_install_agents(args)
-    if getattr(args, "agents_scope", None) or getattr(args, "status", False):
-        raise OmhError("install --scope and --status require --target agents; Hermes scope goes before install")
+    if getattr(args, "agents_scope", None) or getattr(args, "status", False) or getattr(args, "host", None):
+        raise OmhError("install --host, --scope and --status require --target agents; Hermes scope goes before install")
     language = _resolve_language(args)
     if _wants_json(args):
         payload = _install_result(args)
@@ -269,13 +269,15 @@ def cmd_install(args: argparse.Namespace) -> int:
 def _cmd_install_agents(args: argparse.Namespace) -> int:
     from ..install.agent_skills_projection import agent_skills_status, agent_skills_targets, install_agent_skills
 
+    if args.host and not args.agents_scope:
+        args.agents_scope = "repo"
     if not args.agents_scope:
         raise OmhError("install --target agents requires --scope repo|user")
     if (args.from_skills_dir or args.source or args.version or args.package_url
             or args.source_ref or args.full or args.core or args.channel != "preview"):
         raise OmhError("Agent Skills installs generate the complete portable catalog; Hermes source/profile/release options do not apply")
     try:
-        target, mirror = agent_skills_targets(args.agents_scope)
+        target, mirror = agent_skills_targets(args.agents_scope, host=args.host)
         payload = (
             agent_skills_status(target, mirror=mirror)
             if args.status or args.dry_run else install_agent_skills(target, mirror=mirror)
@@ -284,6 +286,11 @@ def _cmd_install_agents(args: argparse.Namespace) -> int:
         raise OmhError(f"Agent Skills projection failed: {exc}") from exc
     payload["scope"] = args.agents_scope
     payload["dry_run"] = args.dry_run
+    if args.host:
+        from ..install.agent_skills_projection import agent_skill_files
+        from ..skills.host_adapters import host_adapter_manifest
+
+        payload["host_adapter"] = host_adapter_manifest(args.host, agent_skill_files())
     if args.json:
         _print_json(payload)
     else:
@@ -4984,7 +4991,10 @@ def _add_top_level_commands(sub) -> None:
     install = sub.add_parser("install", help="Refresh the managed OMH skill pack without changing Hermes registration.")
     _add_common_install_options(install)
     install.add_argument("--target", choices=("hermes", "agents"), default="hermes", help="Generate managed Hermes skills or the portable Agent Skills projection.")
-    install.add_argument("--scope", dest="agents_scope", choices=("repo", "user"), help="Agent Skills destination: git-root or user-home .agents/skills plus a .claude/skills copy in either scope.")
+    from ..skills.host_adapters import HOST_ADAPTERS
+
+    install.add_argument("--host", choices=tuple(adapter.host for adapter in HOST_ADAPTERS), help="Install only this host's catalog target; defaults to repo scope in the current project directory.")
+    install.add_argument("--scope", dest="agents_scope", choices=("repo", "user"), help="Agent Skills scope. With --host: current directory or user home. Without: git-root or user-home .agents/skills plus a .claude/skills copy.")
     install.add_argument("--status", action="store_true", help="Inspect Agent Skills freshness and local modifications without writing.")
     install.add_argument("--json", action="store_true", help="Print the full machine-readable install payload.")
     install.set_defaults(func=cmd_install)

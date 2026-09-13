@@ -20,12 +20,16 @@ Each workflow has its own contract page, linked from the first column.
 | --- | --- | --- |
 | [`decision-prototype`](DECISION-PROTOTYPES.md) | `prepare`, `validate`, `observe`, `receipt`, `handoff`, `persist` | `persist` writes the validated existing prototype artifact store. |
 | [`lifecycle-growth`](LIFECYCLE-GROWTH.md) | `build`, `prepare`, `validate`, `evaluate`, `readout`, `audience`, `promote`, `graduate`, `configuration`, `metrics` | `build` derives the five prepared artifacts from semantic fields; returned JSON is the durable serializable artifact. |
-| [`product-discovery-validation`](PRODUCT-DISCOVERY-VALIDATION.md) | `build`, `prepare`, `validate`, `audience-gate`, `evaluate`, `handoff`, `append` | `build` derives the five pre-decision artifacts and their hashes; `append` uses the existing append-only discovery store. |
+| [`product-discovery-validation`](PRODUCT-DISCOVERY-VALIDATION.md) | `build`, `prepare`, `validate`, `audience-gate`, `evaluate`, `handoff`, `append`, `channel-feedback` | `build` derives the pre-decision artifacts and their hashes; `append` accepts validated discovery artifacts, including channel companions, in the existing append-only store. |
 | [`sales-pipeline-review`](SALES-PIPELINE-REVIEW.md) | `prepare`, `validate`, `evaluate`, `handoff` | None; returned JSON is the durable serializable artifact. |
 
 Unsupported workflow/operation pairs are parser errors. `validate` dispatches to the producer's schema-specific validator: lifecycle has its six artifact schemas, and sales has scope, health, forecast, outcome-learning, renewal-risk, and handoff validators.
 
 `product-discovery-validation audience-gate` reads one `discovery_decision_frame/v1` and returns `discovery_audience_gate/v1`. An unknown, synthetic-only, or non-recruitable segment keeps evidence work open and blocks `product-brief`, `decision-prototype`, and `coding-handoff`; the result names the missing audience evidence. It is a read, never a promotion.
+
+`product-discovery-validation channel-feedback` accepts exactly `frame`, `gtm`, `portfolio`, `feedback_ledger`, and `now`. The first three are existing artifacts; `feedback_ledger` has the semantic fields `discovery_id`, `gtm_artifact_id`, `initial_channel_ref`, `segment_ref`, and `entries`. The operation returns a `channel_feedback_ledger/v1`, a derived `channel_feedback_disposition/v1`, and the revised audience gate. Explicit `channel_reachability` and `opportunity_direction` targets use `supports`, `contradicts`, or `unknown`; channel failure follows its precommitted GTM test without rewriting the problem receipt. Incomplete or duplicate observations return exit-0 refusal history in the disposition and `ledger: {}` if no appendable ledger can be built. Malformed envelopes, unsafe references, and wrong-type fields are exit-2 errors. See the [channel feedback contract](PRODUCT-DISCOVERY-VALIDATION.md#channel-feedback) for precedence and closed reasons.
+
+Supplied observations and local evaluation are not market execution, customer validation, or product outcome evidence. Channel-aware integrations must pass the disposition to `build_channel_aware_product_brief_handoff(receipt, disposition)`; the legacy receipt-only CLI `handoff` remains unchanged and does not load journal history.
 
 `decision-prototype handoff` always uses `build_decision_receipt_handoff(..., target_workflow="ralplan")`. `product-discovery-validation handoff` uses the same seam with `target_workflow="product-brief"`. A blocked or unresolved receipt remains blocked; neither handoff grants production authority.
 
@@ -136,7 +140,7 @@ For example, an agent can submit this complete synthetic graduation proposal via
 
 ## Complete JSON examples
 
-These repository-local files are complete, synthetic-only inputs derived from the public builders and typed sales input. The focused CLI test executes each exact file through a temporary OMH and Hermes home.
+These repository-local files are complete fictional scenarios derived from the public builders and typed sales input, not observed market results. The focused CLI test executes each exact file through a temporary OMH and Hermes home.
 
 | Workflow and operation | Input file | Expected machine state |
 | --- | --- | --- |
@@ -144,6 +148,7 @@ These repository-local files are complete, synthetic-only inputs derived from th
 | `lifecycle-growth build` | [`examples/workflow-artifacts/lifecycle-growth-build-semantic.json`](../examples/workflow-artifacts/lifecycle-growth-build-semantic.json) | derived valid artifacts; `prepare` returns `HOLD` |
 | `lifecycle-growth audience` | [`examples/workflow-artifacts/lifecycle-growth-launch.json`](../examples/workflow-artifacts/lifecycle-growth-launch.json) | `prepared_not_observed`; the second rule is `reachable: false` |
 | `product-discovery-validation build` | [`examples/workflow-artifacts/product-discovery-validation-build-semantic.json`](../examples/workflow-artifacts/product-discovery-validation-build-semantic.json) | derived valid package; `evaluate` returns `inconclusive` |
+| `product-discovery-validation channel-feedback` | [`examples/workflow-artifacts/product-discovery-validation-channel-feedback.json`](../examples/workflow-artifacts/product-discovery-validation-channel-feedback.json) | `gtm_pivot`; reachability contradicted and solution handoff held |
 | `sales-pipeline-review prepare` | [`examples/workflow-artifacts/sales-pipeline-review-prepare-ready.json`](../examples/workflow-artifacts/sales-pipeline-review-prepare-ready.json) | `READY` |
 
 Run them from the repository root:
@@ -166,11 +171,15 @@ uv run python -m omh.cli --omh-home "$OMH_HOME" --hermes-home "$HERMES_HOME" \
   --input examples/workflow-artifacts/product-discovery-validation-build-semantic.json
 
 uv run python -m omh.cli --omh-home "$OMH_HOME" --hermes-home "$HERMES_HOME" \
+  runtime workflow-artifact product-discovery-validation channel-feedback \
+  --input examples/workflow-artifacts/product-discovery-validation-channel-feedback.json
+
+uv run python -m omh.cli --omh-home "$OMH_HOME" --hermes-home "$HERMES_HOME" \
   runtime workflow-artifact sales-pipeline-review prepare \
   --input examples/workflow-artifacts/sales-pipeline-review-prepare-ready.json
 ```
 
-The prototype file declares a bounded planned command line and its expected metadata observation. It contains neither a script body nor a transcript, and the result does not claim that the command ran. The lifecycle build and discovery files are semantic builder inputs: they contain no schema version, status, claim boundary, or discovery artifact id. The lifecycle launch file is an ordered first-match audience with an unconditional 100 percent catch-all ahead of a narrower paid-plan rule in the same domain; the review marks that later rule unreachable as configuration analysis, never as observed targeting or exposure. The discovery input deliberately contains only `synthetic` evidence, so evaluating its built package demonstrates `inconclusive`, not customer validation.
+The prototype file declares a bounded planned command line and its expected metadata observation. It contains neither a script body nor a transcript, and the result does not claim that the command ran. The lifecycle build and discovery build files are semantic builder inputs: they contain no schema version, status, claim boundary, or discovery artifact id. The lifecycle launch file is an ordered first-match audience with an unconditional 100 percent catch-all ahead of a narrower paid-plan rule in the same domain; the review marks that later rule unreachable as configuration analysis, never as observed targeting or exposure. The discovery build input deliberately contains only `synthetic` evidence, so evaluating its built package demonstrates `inconclusive`, not customer validation. The separate channel-feedback scenario combines builder-produced frame/GTM/portfolio artifacts with fictional supplied observation metadata: an initial-channel contradiction proposes a GTM pivot and blocks build outputs despite the recruitable segment, while opportunity direction stays supported. Its declared external-human source class is example data, not evidence that OMH contacted anyone.
 
 The CLI wraps each operation payload under `result`. To use a built lifecycle result with `prepare`, pass that `result` object as the next input. To evaluate a built discovery package, pass `{"package": <build result>, "now": "<ISO-8601 timestamp>"}`; `build` cannot mint a decision receipt.
 

@@ -73,7 +73,7 @@
     "omh-frontend/references/web-vitals-budgets.md": "7905f7913ff835eb84e7b9bd88059d52d7ede370312f2e24df8cb7ebf407a29b",
     "omh-github-event-ops/SKILL.md": "45674d33d9babd26cde42fd25089e8fb28bb760031536e0cb419cd0bf5e0bbef",
     "omh-github-issue-intake/SKILL.md": "6d9cd15ce05a2fa363d84e90d2d67273c7f44ca279bb27913d26eba1fc6bf997",
-    "omh-harness-session-inventory/SKILL.md": "42e0b5f7e0c362e3922ea8c3201a475a328fe2ece1b119559ccff62d09762ab4",
+    "omh-harness-session-inventory/SKILL.md": "639b9741d44088c85d537de05b043c69491b34c7bca27dfcd2a2c1bb9163f4d2",
     "omh-idea-to-deploy/SKILL.md": "1794a7628adab7e53628b716406e453bb54b7c3beb7e2a9e3d2680e9ae14fe49",
     "omh-idea-to-deploy/references/project-bootstrap.md": "dc9a474dfc063984b84ae5d1a5d28a9ba1f0bb2b77292245b703b20b0fbe27e7",
     "omh-image-cards/SKILL.md": "2e6be617f68557de53ec3545273324d6a951bbd12068deb62fb6ba184005e8fa",
@@ -266,7 +266,7 @@
     "ulw-work"
   ],
   "source": "agent-skills",
-  "source_digest": "41b9374ad4c662f032eaeacf4e3c6150b98e4c5bcd2e6c27f49a548b86a74280",
+  "source_digest": "5d25a958f7c2a7bdc3f377dd01b3585ab0aba84301a1315655cb498677cec63a",
   "targets": {
     "repo": ".agents/skills",
     "user": ".agents/skills"

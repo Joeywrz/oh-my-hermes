@@ -1,5 +1,12 @@
 # Agent Skills projection delivery
 
+**2026-09-13 review-round-1 correction:** [Blocker fixes](review-round-1/delivery.md)
+preserve unowned custom Claude skills during implicit Hermes source imports and
+admit `omh-docs` as requires-omh-cli. Current producer counts in `counts.json`
+are 85 portable, 15 requires-omh-cli, 23 Hermes-only installable skills, emitting
+100 skills and 57 references. The original counts and omh-docs exclusion below
+are historical and superseded.
+
 **2026-09-13 Phase B correction:** The initial repo-only `.agents/skills/`
 assumption below is superseded by [repo mirror delivery](repo-mirror/delivery.md).
 Both scopes now copy into `.agents/skills/` and `.claude/skills/` at their scope

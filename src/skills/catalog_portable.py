@@ -41,8 +41,10 @@ _PORTABILITY: dict[str, str] = {
     'ulw-research': PORTABILITY_PORTABLE,
     # required_inputs: question; expected_outputs: cited answer; final_checklist requires evidence/approval, not a native runtime.
     'omh-web-research': PORTABILITY_PORTABLE,
-    # required_inputs and expected_outputs cover current Hermes installation diagnostics and product capability surfaces.
-    'omh-docs': PORTABILITY_HERMES_ONLY,
+    # why_this_exists is source-first product explanation; required_inputs select public/local scope.
+    # expected_outputs are sourced answers and passive CLI/metadata facts; final_checklist and
+    # handoff_policy route mutations elsewhere. No Hermes runtime is required; local CLI is.
+    'omh-docs': PORTABILITY_REQUIRES_OMH_CLI,
     # required_inputs: source target or topic; expected_outputs: source_finder_plan/v1; final_checklist requires evidence/approval, not a native runtime.
     'omh-source-finder': PORTABILITY_PORTABLE,
     # required_inputs: business question; expected_outputs: evidence table; final_checklist requires evidence/approval, not a native runtime.

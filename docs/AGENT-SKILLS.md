@@ -35,7 +35,9 @@ it does not read this repository's committed projection tree.
 profiles, and release-selection options do not apply to this target. No Hermes
 configuration is registered, and no vendor directories are written. Existing
 symlink destinations and conflicting files OMH never installed are refused;
-unrelated skills are preserved.
+unrelated skills are preserved. Repo-wide Hermes source imports exclude only
+manifest-owned files in the Claude mirror, not neighboring custom Claude skills.
+An explicit import rooted at the mirror still imports the selected source.
 
 ### Manifest and refresh
 
@@ -68,7 +70,10 @@ The single reviewed table in `src/skills/catalog_portable.py` classifies catalog
 - **requires-omh-cli**: the workflow also uses local deterministic OMH commands
   or records. Its frontmatter declares `Requires the omh CLI on PATH (pip
   install oh-my-hermes).` For example, `omh-frontend` uses offline design data,
-  and `omh-codebase-uml` generates its model through the CLI.
+  and `omh-codebase-uml` generates its model through the CLI. `omh-docs` answers
+  read-only product questions from official sources and bounded local CLI or
+  metadata; it routes requested mutations elsewhere rather than requiring a
+  Hermes runtime.
 - **hermes-only**: the workflow requires Hermes runtime, registration, native
   plugin tools, or wrapper semantics. It is absent from this projection.
 
@@ -105,7 +110,7 @@ These installable workflows are intentionally absent:
 | --- | --- |
 | `omh-routing`, `omh-meta-router`, `omh-gateway-intent-card` | Hermes chat/wrapper intake, routing, and delivery continuity |
 | `ulw-maestro`, `omh-executor-runtime-readiness` | Hermes harness versus explicit external-owner handoff and readiness semantics |
-| `omh-doctor`, `omh-skill`, `omh-capability-toggle`, `omh-docs` | Managed Hermes installation, inventory, registration, and product diagnostic surfaces |
+| `omh-doctor`, `omh-skill`, `omh-capability-toggle` | Managed Hermes installation, inventory, registration, and product diagnostic surfaces |
 | `omh-model-setup`, `omh-model-optimization`, `omh-parallel-tools`, `omh-websearch-setup` | Native model slots, mixture routing, or Hermes capability/configuration changes |
 | `omh-morning-brief`, `omh-buzz` | Hermes MCP setup or Buzz gateway/transport |
 | `omh-research-department`, `omh-automation-blueprint` | Hermes profiles, recurring-intent lifecycle, cron, and delivery composition |

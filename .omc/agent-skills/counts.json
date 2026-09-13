@@ -1,15 +1,15 @@
 {
   "installable": {
-    "hermes-only": 24,
-    "requires-omh-cli": 14,
+    "hermes-only": 23,
+    "requires-omh-cli": 15,
     "portable": 85
   },
   "all_catalog": {
-    "hermes-only": 29,
-    "requires-omh-cli": 14,
+    "hermes-only": 28,
+    "requires-omh-cli": 15,
     "portable": 85
   },
-  "projected_skills": 99,
+  "projected_skills": 100,
   "projected_references": 57,
   "per_class": {
     "portable": [
@@ -103,6 +103,7 @@
       "ulw-loop",
       "ulw-context",
       "ulw-work",
+      "omh-docs",
       "omh-frontend",
       "omh-visual-qa",
       "omh-codegraph-refresh",
@@ -119,7 +120,6 @@
       "omh-routing",
       "omh-meta-router",
       "ulw-maestro",
-      "omh-docs",
       "omh-research-department",
       "omh-agent-evaluation",
       "omh-automation-blueprint",

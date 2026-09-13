@@ -31,6 +31,15 @@ class AgentSkillsProjectionTests(unittest.TestCase):
                 self.assertNotIn("\ncompatibility:", frontmatter)
         self.assertIn("ulw-loop", required)
 
+    def test_omh_docs_is_projected_with_cli_compatibility(self):
+        from omh.skills.catalog_portable import PORTABILITY_REQUIRES_OMH_CLI, skill_portability
+        from omh.skills.render import agent_skill_templates
+        templates = {template.name: template.content for template in agent_skill_templates()}
+        self.assertIn("omh-docs", templates)
+        self.assertEqual(skill_portability("omh-docs"), PORTABILITY_REQUIRES_OMH_CLI)
+        self.assertEqual(skill_portability("product-docs"), PORTABILITY_REQUIRES_OMH_CLI)
+        self.assertIn("\ncompatibility:", templates["omh-docs"].split("---", 2)[1])
+
     def test_hermes_only_skills_absent_from_projection(self):
         from omh.skills.catalog_portable import PORTABILITY_HERMES_ONLY, portable_skill_names, skill_portability
         from omh.skills.render import agent_skill_templates
@@ -182,6 +191,34 @@ class AgentSkillsProjectionTests(unittest.TestCase):
             install_agent_skills(target, mirror=mirror)
             self.assertEqual(discover_skill_files(repo), [])
             self.assertTrue(discover_skill_files(mirror))
+
+    def test_unowned_claude_skills_survive_manifest_owned_path_exclusion(self):
+        from omh.install.agent_skills_projection import install_agent_skills
+        from omh.converter import discover_skill_files, convert_from_dir, convert_skill, convert_references_from_dir
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            mirror = repo / ".claude/skills"
+            install_agent_skills(repo / ".agents/skills", mirror=mirror)
+            custom = mirror / "custom-skill/SKILL.md"
+            nested = mirror / "omh-frontend/custom-child/SKILL.md"
+            raw = "---\nname: custom-skill\n---\ncustom-input\n"
+            nested_raw = "---\nname: custom-child\n---\nnested-input\n"
+            for path, content in ((custom, raw), (nested, nested_raw)):
+                path.parent.mkdir(parents=True)
+                path.write_text(content, encoding="utf-8")
+            reference = custom.parent / "references/user.md"
+            reference.parent.mkdir()
+            reference.write_text("custom-reference\n", encoding="utf-8")
+            # Ownership is per path, not an entire mirror or owned parent directory.
+            self.assertEqual(discover_skill_files(repo), sorted([custom, nested]))
+            expected = {convert_skill(raw, "custom-skill"), convert_skill(nested_raw, "custom-child")}
+            self.assertEqual(set(convert_from_dir(repo)), expected)
+            references = convert_references_from_dir(repo)
+            self.assertEqual([(r.skill_name, r.relative_path) for r in references], [("custom-skill", "references/user.md")])
+            self.assertEqual(references[0].content, reference.read_text())
+            # Modified generated files are still manifest-owned, not user sources.
+            (mirror / "ulw-work/SKILL.md").write_bytes(b"modified managed file")
+            self.assertEqual(discover_skill_files(repo), sorted([custom, nested]))
 
     def test_projection_references_resolve_and_shipped_bytes_match(self):
         import re

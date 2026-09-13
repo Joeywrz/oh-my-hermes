@@ -1092,3 +1092,41 @@ input returns 2. Optimization stages cite shipped metadata, research
 references, calibration, placement, price, and measurement follow-up without
 claiming that a cited recipe has run. See
 [model onboarding](docs/MODEL-ONBOARDING.md#portfolio-qualification) for the CLI loop.
+
+### Issue #1515 QA adjudication
+
+The [issue contract](https://github.com/rlaope/oh-my-hermes/issues/1515),
+not a stronger design-brief expectation, governs these boundaries:
+
+- **Qwen calibration (AC6):** "`qwen3.8-*` IDs no longer fall through to
+  generic handling" applies to both calibration resolvers. The dotted-minor
+  alias already reaches Qwen composition guidance and the high-effort block
+  through the recorded route in `fanout prepare` -> `build_unit_prompt`.
+  `coding delegate` prepares a different handoff and does not invoke that unit
+  renderer; absence of the unit block there is not a failed family lookup.
+  Regression coverage prepares the actual fanout contract through the CLI,
+  renders its unit, and compares both blocks with the shipped tables, with
+  malformed-spelling negative controls. No exact contract or measured
+  generation-specific optimization is inferred.
+- **Unresearched families (AC7):** "MiniMax and every currently generic or
+  newly discovered family receive either dedicated calibration or an explicit
+  evidence-backed exclusion" must be read with "unmeasured, which must not be
+  confused with either recommended or rejected" and "if it cannot run, the
+  model remains `unmeasured`." The seven explicit holds above exclude
+  qualification and recommendation, not model usability or quality. Their
+  reasons and evidence pointers identify the missing calibration pair;
+  required qualification still blocks. No `excluded_*` disposition in the
+  issue's closed vocabulary means "never measured". Requiring one here would
+  fabricate a failure finding. Tests retain generic resolution, explicit
+  holds, empty eligibility, and absent measurement evidence.
+- **Dominance and retirement (AC13):** "Models dominated on quality, tool
+  reliability, latency, or cost are recorded with an explicit exclusion
+  reason" does not require a nonzero dominance count. The issue also excludes
+  "Fabricating quality or efficiency conclusions when live evaluation has
+  not run." The seed inventory therefore has zero measured dominance
+  exclusions; Astra list-price tiers alone do not establish dominance.
+  Reviewable editorial retirements already exist for Fable 5 and GLM 5.2 in
+  that inventory, with the owner-decision evidence in onboarding section 4.
+  Sol retains its frontier-slot retirement and last-resort recommendation.
+  Tests pin zero unsupported dominance findings separately from those honest,
+  evidence-linked retirement decisions.

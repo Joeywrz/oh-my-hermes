@@ -492,7 +492,7 @@ class MixtureChainOverridesTest(unittest.TestCase):
             overrides, status = load_mixture_chain_overrides(tmp)
             self.assertEqual((overrides, status), ({}, "absent"))
             self.assertEqual(
-                effective_mixture_category_chains(tmp), HERMES_MIXTURE_CATEGORY_CHAINS
+                effective_mixture_category_chains(tmp, Path(tmp) / "hermes"), HERMES_MIXTURE_CATEGORY_CHAINS
             )
 
     def test_a_seeded_empty_document_applies_and_keeps_defaults(self):
@@ -504,7 +504,7 @@ class MixtureChainOverridesTest(unittest.TestCase):
             overrides, status = load_mixture_chain_overrides(tmp)
             self.assertEqual((overrides, status), ({}, "applied"))
             self.assertEqual(
-                effective_mixture_category_chains(tmp), HERMES_MIXTURE_CATEGORY_CHAINS
+                effective_mixture_category_chains(tmp, Path(tmp) / "hermes"), HERMES_MIXTURE_CATEGORY_CHAINS
             )
 
     def test_a_named_category_is_replaced_and_the_rest_stay_shipped(self):
@@ -518,7 +518,7 @@ class MixtureChainOverridesTest(unittest.TestCase):
                     ]
                 },
             })
-            chains = effective_mixture_category_chains(tmp)
+            chains = effective_mixture_category_chains(tmp, Path(tmp) / "hermes")
             self.assertEqual(
                 chains["quick"],
                 (("kimi-k3-ultrafast", "low"), ("glm-5.2-ultrafast", "low")),
@@ -555,7 +555,7 @@ class MixtureChainOverridesTest(unittest.TestCase):
                 self.assertEqual(overrides, {})
                 self.assertTrue(status.startswith("invalid:"), status)
                 self.assertEqual(
-                    effective_mixture_category_chains(tmp),
+                    effective_mixture_category_chains(tmp, Path(tmp) / "hermes"),
                     HERMES_MIXTURE_CATEGORY_CHAINS,
                 )
 

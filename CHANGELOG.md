@@ -4,6 +4,21 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **Providers linked to Hermes are recognized on their own.** OMH now reads
+  which providers Hermes is already linked to — a `hermes auth` login in
+  `auth.json` (the pool rows Hermes itself counts, never a credential
+  borrowed from another CLI), a `providers:` entry or `model.provider` in
+  `config.yaml` (a loopback endpoint left out), an API-key variable name in
+  `$HERMES_HOME/.env` — and counts them the way a recorded `providers.json`
+  answer counts: chains reorder so served entries lead, `omh model-chains
+  show`, the CLI picker, and `/omh-model` list the providers counted with
+  where each was found, and `omh_delegate_route` refuses the same
+  known-wrong pins. Only ids and variable names are read, never a key or a
+  token, and nothing is invoked. The `omh setup` interview offers the same
+  rows pre-ticked (a login row says so), its recorded kinds win for an id
+  both name, and a linked row you untick is written as `excluded_providers`
+  and stops counting; the record is no longer the only way a machine's
+  providers reach routing.
 - **Model chains get a picker.** Bare `omh model-chains` (alias `omh model`)
   on a terminal opens an arrow-key editor: one row per mixture category with
   its head model, effort bar, origin and whether this machine's providers

@@ -36,7 +36,7 @@ from ..plugin_bundle.omh.hermes_delegation import (
     entitlement_shaped_chain,
     load_mixture_chain_overrides,
     load_model_provider_routes,
-    load_provider_entitlements,
+    effective_provider_entitlements,
     mixture_chain_overrides_path,
     parse_mixture_chain_overrides,
     provider_entitlements_path,
@@ -103,9 +103,9 @@ def _write_document(omh_home, document: dict[str, object]) -> str:
     return str(path)
 
 
-def _state(omh_home) -> dict[str, object]:
+def _state(omh_home, hermes_home=None) -> dict[str, object]:
     overrides, status = load_mixture_chain_overrides(omh_home)
-    entitlements, entitlement_status = load_provider_entitlements(omh_home)
+    entitlements, entitlement_status, providers = effective_provider_entitlements(omh_home, hermes_home)
     routes, _ = load_model_provider_routes(omh_home)
     categories = []
     for name, default_chain in HERMES_MIXTURE_CATEGORY_CHAINS.items():
@@ -139,6 +139,7 @@ def _state(omh_home) -> dict[str, object]:
         "document_status": status,
         "entitlements_path": str(provider_entitlements_path(omh_home)),
         "entitlements_status": entitlement_status,
+        "providers": [dict(row) for row in providers],
         "categories": categories,
     }
 
@@ -148,16 +149,22 @@ def _print_state(state: dict[str, object]) -> None:
     for row in state["categories"]:
         marker = " (override)" if row["origin"] == "override" else ""
         if row.get("entitlement_shaped"):
-            marker += " (reordered by provider entitlements)"
+            marker += " (reordered by this machine's providers)"
         print(f"  {row['category']}: {row['chain_text']}{marker}")
     print(f"Overrides file: {state['path']} [{state['document_status']}]")
     print(f"Provider entitlements: {state['entitlements_path']} [{state['entitlements_status']}]")
+    linked = [row for row in state.get("providers", []) if row["source"] != "recorded"]
+    if linked:
+        print("Linked Hermes providers: " + ", ".join(f"{row['id']} ({row['source']})" for row in linked))
+    else:
+        print("Linked Hermes providers: none found (a `hermes auth` login, a config provider, or a key name counts)")
     print("Edit a category with `omh model-chains set <category> \"model[:effort], ...\"`,")
     print("walk all of them with `omh model-chains interview`, or edit the JSON directly.")
 
 
 def cmd_model_chains_show(args: argparse.Namespace) -> int:
-    state = _state(_paths(args).omh_home)
+    paths = _paths(args)
+    state = _state(paths.omh_home, paths.hermes_home)
     if getattr(args, "json", False):
         print(json.dumps(state, ensure_ascii=True, separators=(",", ":"), sort_keys=True))
     else:
@@ -166,7 +173,8 @@ def cmd_model_chains_show(args: argparse.Namespace) -> int:
 
 
 def cmd_model_chains_set(args: argparse.Namespace) -> int:
-    omh_home = _paths(args).omh_home
+    paths = _paths(args)
+    omh_home = paths.omh_home
     category = str(args.category)
     if category not in HERMES_MIXTURE_CATEGORY_CHAINS:
         print(
@@ -197,7 +205,7 @@ def cmd_model_chains_set(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"omh: refused to write an invalid document: {exc}", file=sys.stderr)
         return 2
-    state = _state(omh_home)
+    state = _state(omh_home, paths.hermes_home)
     if getattr(args, "json", False):
         print(json.dumps(state, ensure_ascii=True, separators=(",", ":"), sort_keys=True))
     else:
@@ -226,7 +234,9 @@ def cmd_model_chains_pick(args: argparse.Namespace) -> int:
         return cmd_model_chains_show(args)
     paths = _paths(args)
     omh_home = paths.omh_home
-    payload = picker_rows(omh_home, labels=MODEL_DISPLAY_LABELS, purposes=CHAIN_SURFACE_PURPOSES)
+    payload = picker_rows(
+        omh_home, hermes_home=paths.hermes_home, labels=MODEL_DISPLAY_LABELS, purposes=CHAIN_SURFACE_PURPOSES
+    )
     changes = pick_chains_interactively(payload, use_color=_use_color(), palette=_active_palette(paths))
     if changes is None:
         print(f"Cancelled; {payload['path']} was not changed.")
@@ -241,7 +251,7 @@ def cmd_model_chains_pick(args: argparse.Namespace) -> int:
         print(f"omh: refused to write an invalid document: {exc}", file=sys.stderr)
         return 2
     print(f"Saved {len(changes)} categor{'y' if len(changes) == 1 else 'ies'} to {path}.")
-    _print_state(_state(omh_home))
+    _print_state(_state(omh_home, paths.hermes_home))
     return 0
 
 
@@ -328,7 +338,7 @@ def model_chains_interview(paths) -> int:
         print(f"omh: refused to write an invalid document: {exc}", file=sys.stderr)
         return 2
     print(f"\nSaved {changed} categor{'y' if changed == 1 else 'ies'} to {path}.")
-    _print_state(_state(omh_home))
+    _print_state(_state(omh_home, paths.hermes_home))
     return 0
 
 

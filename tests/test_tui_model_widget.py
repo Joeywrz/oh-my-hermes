@@ -111,7 +111,7 @@ class ModelWidgetTests(unittest.TestCase):
             shutil.copytree(BUNDLE_DIR, hermes_home / "plugins" / "omh", ignore=shutil.ignore_patterns("__pycache__"))
             if overrides:
                 _write_overrides(omh_home, overrides)
-            payload = bundle.picker_rows(omh_home)
+            payload = bundle.picker_rows(omh_home, hermes_home=hermes_home)
             widget = root / "omh-status.mjs"
             widget.write_bytes(widget_payload(Path(sys.executable)))
             harness = root / "harness.mjs"
@@ -152,6 +152,9 @@ class ModelWidgetTests(unittest.TestCase):
         for name in HERMES_MIXTURE_CATEGORY_CHAINS:
             self.assertIn(name, first)
         self.assertIn("gpt-6-astra", first)
+        # The providers line says out loud that nothing is linked in the
+        # harness home, so the absent served marks have their reason.
+        self.assertIn("none linked to Hermes yet", first)
         self.assertIn("⏎", first)
         self.assertIn("save", first)
         self.assertIn("▍", result["frames"][-1])

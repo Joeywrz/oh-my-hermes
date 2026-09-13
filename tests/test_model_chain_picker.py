@@ -87,8 +87,10 @@ def _write_entitlements(root: Path, providers: dict[str, str]) -> None:
 
 
 def _payload(root: Path, *, labels: bool = True) -> dict[str, object]:
+    # A Hermes home with nothing linked, so only what a test records counts.
     return picker_rows(
         _omh_home(root),
+        hermes_home=root / ".hermes",
         labels=MODEL_DISPLAY_LABELS if labels else None,
         purposes=CHAIN_SURFACE_PURPOSES if labels else None,
     )
@@ -368,12 +370,32 @@ class PickerNavigationTests(unittest.TestCase):
             lines,
         )
         self.assertTrue(lines[0].startswith(" ⚚ OMH · Model chains"))
-        self.assertIn("CATEGORY", lines[2])
+        self.assertEqual(lines[1], "   providers  none linked to Hermes yet · every model counts as served")
+        self.assertIn("CATEGORY", lines[3])
         self.assertIn("↑↓ category   ←→ head model   −/+ effort   d default   ⏎ save   q cancel", lines[-1])
         self.assertEqual(effort_bar("low"), "■□□□")
         self.assertEqual(effort_bar("xhigh"), "■■■■")
         self.assertEqual(effort_bar("max"), "■■■■")
         self.assertEqual(effort_bar(""), "□□□□")
+
+    def test_the_providers_line_names_every_counted_provider_and_where_it_was_found(self) -> None:
+        _write_entitlements(self.root, {"zai": "zai"})
+        hermes_home = self.root / ".hermes"
+        hermes_home.mkdir(parents=True, exist_ok=True)
+        (hermes_home / "auth.json").write_text(
+            json.dumps({"version": 1, "providers": {"openai-codex": {"access_token": "tok-secret-value"}}}), encoding="utf-8"
+        )
+        (hermes_home / "config.yaml").write_text("providers:\n  og:\n    base_url: x\n", encoding="utf-8")
+        payload = _payload(self.root)
+        lines = render_frame(payload, _chains(payload), 0, use_color=False, width=200)
+        self.assertEqual(lines[1], "   providers  zai (recorded) · openai-codex (login) · og (config)")
+        self.assertNotIn("tok-secret-value", "\n".join(lines))
+        # Nothing is unserved once a gateway is linked: no `!` anywhere.
+        self.assertFalse(any(" !" in line for line in lines))
+        # The line is cut like every other free-text line, never wrapped.
+        narrow = render_frame(payload, _chains(payload), 0, use_color=False, width=60)
+        self.assertLessEqual(len(narrow[1]), 60)
+        self.assertTrue(narrow[1].endswith("…"), narrow[1])
 
     def test_an_unserved_head_is_marked_on_its_row_and_explained_once(self) -> None:
         _write_entitlements(self.root, {"zai": "zai"})
@@ -382,7 +404,7 @@ class PickerNavigationTests(unittest.TestCase):
         ultrabrain = next(line for line in lines if " ultrabrain " in line)
         self.assertEqual(payload["categories"][0]["chain"][0]["model"], "gpt-6-astra")
         self.assertIn(f"◂ {MODEL_DISPLAY_LABELS['gpt-6-astra']} ! ▸", ultrabrain)
-        self.assertEqual(sum("is not served by this machine's recorded providers" in line for line in lines), 1)
+        self.assertEqual(sum("is not served by this machine's providers" in line for line in lines), 1)
         # Off the cursor the mark stays on the row and the explanation goes
         # (row 4, unspecified-low, heads with GLM, which zai does serve).
         lines = render_frame(payload, _chains(payload), 4, use_color=False, width=200)

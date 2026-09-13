@@ -2,8 +2,9 @@
 
 Bare `omh model-chains` on a terminal and the Modern-TUI `/omh-model` widget
 walk the same rows: one per shipped mixture category, each showing the chain
-in effect, whether it is a shipped default or an override, and whether this
-machine's confirmed providers serve its head. Left and right step the head
+in effect, whether it is a shipped default or an override, and whether a
+provider this machine holds -- linked to Hermes, or recorded by `omh setup`
+-- serves its head. Left and right step the head
 model through the known aliases, minus and plus step the head's reasoning
 effort, and a save composes the override document exactly the way
 `omh model-chains set` composes it. This module holds every one of those
@@ -31,9 +32,9 @@ from .hermes_delegation import (
     HERMES_MIXTURE_CATEGORY_CHAINS,
     MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION,
     alias_is_served,
+    effective_provider_entitlements,
     load_mixture_chain_overrides,
     load_model_provider_routes,
-    load_provider_entitlements,
     mixture_chain_overrides_path,
     parse_mixture_chain_overrides,
     provider_entitlements_path,
@@ -122,6 +123,7 @@ def read_override_document(omh_home: str | Path | None) -> dict[str, Any]:
 def picker_rows(
     omh_home: str | Path | None,
     *,
+    hermes_home: str | Path | None = None,
     labels: Mapping[str, str] | None = None,
     purposes: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -131,12 +133,14 @@ def picker_rows(
     not the entitlement-reordered projection `omh model-chains show` prints,
     because the picker edits what will be written, and a save of the shaped
     order would silently freeze a reordering that was meant to follow the
-    machine's providers.
+    machine's providers. `providers` lists the providers counted for the
+    served marks, each with where it was found, so the surface can show why
+    a model is marked instead of only that it is.
     """
     labels = labels or {}
     purposes = purposes or {}
     overrides, status = load_mixture_chain_overrides(omh_home)
-    entitlements, entitlement_status = load_provider_entitlements(omh_home)
+    entitlements, entitlement_status, providers = effective_provider_entitlements(omh_home, hermes_home)
     routes, _ = load_model_provider_routes(omh_home)
 
     def served(alias: str) -> bool:
@@ -168,6 +172,7 @@ def picker_rows(
         "document_status": status,
         "entitlements_path": str(provider_entitlements_path(omh_home)),
         "entitlements_status": entitlement_status,
+        "providers": [dict(row) for row in providers],
         "categories": categories,
         "models": [
             {"alias": row["alias"], "label": labels.get(row["alias"], row["alias"]), "served": row["served"]}

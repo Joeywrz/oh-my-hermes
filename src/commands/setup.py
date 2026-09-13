@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable
 import json
 import os
 from pathlib import Path
@@ -40,7 +41,6 @@ from ..config_adapter import (
     ConfigChange,
     activate_omh_skin,
     activate_tui_interface,
-    configured_provider_ids,
     display_interface_selection,
     display_skin_selection,
     ensure_external_dir,
@@ -78,6 +78,13 @@ from ..mcp.host_config import install_mcp_host_config
 from ..mcp_bridge import MCP_HOST_CONFIG_RECIPE_HOSTS
 from ..paths import OmhPaths, managed_command_venv_dir, managed_current_workflow_pack_dir, managed_generation_for_executable
 from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
+from ..plugin_bundle.omh.provider_detection import (
+    LINKED_SOURCE_CONFIG,
+    LINKED_SOURCE_ENV,
+    LINKED_SOURCE_LOGIN,
+    detect_linked_providers,
+    env_key_names,
+)
 from ..plugin_pack import PLUGIN_NAME, PluginPackError, install_plugin_bundle
 from ..probe import probe_capabilities
 from ..release import (
@@ -2487,77 +2494,37 @@ def _ask_model_chains_interview(args: argparse.Namespace, paths: OmhPaths, langu
     model_chains_interview(paths)
 
 
-# Env-key hints for Hermes' builtin providers. Hermes reaches these through a
-# key in `$HERMES_HOME/.env` (or the process environment) rather than through
-# a `providers:` block, so config keys alone never surface them. Only the
-# variable NAME is read — never its value — and every hint is still confirmed
-# by the operator before it is recorded. Kinds are the entitlement vocabulary.
-_ENV_KEY_PROVIDER_HINTS: dict[str, tuple[str, str]] = {
-    "ANTHROPIC_API_KEY": ("anthropic", "anthropic"),
-    "OPENAI_API_KEY": ("openai", "openai"),
-    "OPENROUTER_API_KEY": ("openrouter", "openrouter"),
-    "OPENGATEWAY_API_KEY": ("opengateway", "gateway"),
-    "ZAI_API_KEY": ("zai", "zai"),
-    "DEEPSEEK_API_KEY": ("deepseek", "deepseek"),
-    "XAI_API_KEY": ("xai", "xai"),
-    "GEMINI_API_KEY": ("gemini", "gemini"),
-    "GOOGLE_API_KEY": ("google", "google"),
-    "MOONSHOT_API_KEY": ("kimi-coding", "kimi-coding"),
-    "QWEN_API_KEY": ("qwen", "qwen-oauth"),
-}
-# `model.provider: auto` is Hermes' resolution mode, not an account.
-_NON_PROVIDER_IDS = frozenset({"auto"})
-# The candidate source that is not an env-var name.
-_PROVIDER_SOURCE_CONFIG = "config"
+# The candidate sources that are not an env-var name. Both come from the
+# bundle's detector so the interview offers exactly the rows routing already
+# counts on its own (see `provider_detection`).
+_PROVIDER_SOURCE_CONFIG = LINKED_SOURCE_CONFIG
+_PROVIDER_SOURCE_LOGIN = LINKED_SOURCE_LOGIN
 
 
 def _env_key_names(paths: OmhPaths) -> set[str]:
-    """Variable NAMES present in `$HERMES_HOME/.env` or the environment; no values."""
-    names = {name for name in os.environ if name in _ENV_KEY_PROVIDER_HINTS}
-    env_path = paths.hermes_home / ".env"
-    try:
-        lines = env_path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return names
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped.startswith("export "):
-            stripped = stripped[len("export ") :].lstrip()
-        name, separator, _value = stripped.partition("=")
-        if separator and name.strip() in _ENV_KEY_PROVIDER_HINTS:
-            names.add(name.strip())
-    return names
+    """Variable NAMES present in `$HERMES_HOME/.env` or the environment; no values.
+
+    The shell's names are offered here, where a person confirms each row;
+    routing-time detection reads `.env` alone (see `provider_detection`).
+    """
+    return set(env_key_names(paths.hermes_home, os.environ))
 
 
 def _provider_candidates(paths: OmhPaths) -> list[tuple[str, str, str]]:
     """Provider ids worth asking about: `(id, default kind, where it was found)`.
 
-    Config keys first (`providers.<id>`, `model.provider`) with `gateway` as
-    the default kind and the source `config`, then env-key hints with their
-    vendor kind and the variable NAME as the source. Ids that the entitlement
-    document would reject (non-token keys such as YAML merge markers) and
-    Hermes' `auto` mode are skipped rather than asked. The source is the row
-    label's evidence line and nothing else: a config key or a variable name is
-    a reason to pre-tick a row, never a claim that the account works.
+    The rows are the bundle's `detect_linked_providers` rows -- a `hermes
+    auth` login, a `providers.<id>` key or `model.provider`, an env-key NAME
+    -- so the interview offers exactly what routing already counts without
+    it, and exists to let the operator correct a kind, clear a row, or add
+    an id OMH could not place. The third element is the evidence line and
+    nothing else: `login`, `config`, or the variable NAME. It is a reason to
+    pre-tick a row, never a claim that the account works.
     """
-    from ..plugin_bundle.omh.hermes_delegation import PROVIDER_KIND_GATEWAY, is_provider_id_token
-
-    config_text = read_config(paths.hermes_config_path) if paths.hermes_config_path.exists() else ""
     candidates: list[tuple[str, str, str]] = []
-    seen: set[str] = set()
-    for provider_id in configured_provider_ids(config_text):
-        if provider_id in _NON_PROVIDER_IDS or not is_provider_id_token(provider_id) or provider_id in seen:
-            continue
-        seen.add(provider_id)
-        candidates.append((provider_id, PROVIDER_KIND_GATEWAY, _PROVIDER_SOURCE_CONFIG))
-    for name in sorted(_env_key_names(paths)):
-        provider_id, kind = _ENV_KEY_PROVIDER_HINTS[name]
-        if provider_id in seen:
-            continue
-        seen.add(provider_id)
-        candidates.append((provider_id, kind, name))
+    for row in detect_linked_providers(paths.hermes_home, env_names=_env_key_names(paths)):
+        source = row["evidence"] if row["source"] == LINKED_SOURCE_ENV else row["source"]
+        candidates.append((row["id"], row["kind"], source))
     return candidates
 
 
@@ -2573,14 +2540,24 @@ _PROVIDER_DISPLAY_LABELS: dict[str, str] = {
     "gemini": "Google Gemini API",
     "google": "Google AI Studio",
     "kimi-coding": "Moonshot (Kimi)",
+    "kimi-coding-cn": "Moonshot (Kimi, China)",
     "openai": "OpenAI (GPT)",
+    "openai-api": "OpenAI API (GPT)",
     "openai-codex": "OpenAI Codex",
     "opencode": "OpenCode",
+    "opencode-zen": "OpenCode Zen",
+    "opencode-go": "OpenCode Go",
+    "opencode-free": "OpenCode Free",
     "openrouter": "OpenRouter",
     "qwen-oauth": "Qwen",
+    "alibaba": "Alibaba Cloud (Qwen)",
+    "alibaba-coding-plan": "Alibaba Cloud Coding Plan",
     "xai": "xAI (Grok)",
+    "xai-oauth": "xAI Grok OAuth",
     "zai": "Z.ai (GLM)",
     "opengateway": "OpenGateway",
+    "nous": "Nous Portal",
+    "copilot": "GitHub Copilot",
 }
 # OMH's own gateway. Its kind is `gateway`, not a vendor family, so it is
 # absent from PROVIDER_FAMILY_VOCABULARY (that tuple mirrors the catalog's
@@ -2601,6 +2578,7 @@ def _provider_entitlement_options(
     candidates: list[tuple[str, str, str]],
     previous_providers: dict[str, str],
     language: str,
+    previous_excluded: Iterable[str] = (),
 ) -> tuple[list[dict[str, str]], list[str], dict[str, str]]:
     """Rows for the provider multi-select: `(options, pre-ticked ids, kind per id)`.
 
@@ -2613,10 +2591,13 @@ def _provider_entitlement_options(
     stays clearable, and only what the operator leaves ticked is written, so
     the document keeps meaning "what the operator said they hold".
 
-    Pre-ticking mirrors the per-provider default the yes/no chain used: the
-    previously recorded set when there is one, otherwise everything found on
-    this machine. The skip row is never pre-ticked -- "leave everything as it
-    is" has to be chosen, never defaulted into.
+    Pre-ticking: everything found on this machine, plus whatever the operator
+    recorded last time, minus the found rows they cleared last time
+    (`excluded_providers`). A found row is what routing already counts on
+    its own, so it arrives ticked even on a re-run; clearing it is what
+    writes the exclusion that makes routing stop. The skip row is never
+    pre-ticked -- "leave everything as it is" has to be chosen, never
+    defaulted into.
     """
     from ..plugin_bundle.omh.hermes_delegation import (
         MULTI_VENDOR_PROVIDER_KINDS,
@@ -2630,11 +2611,12 @@ def _provider_entitlement_options(
     for provider_id, hinted_kind, source in candidates:
         order.append(provider_id)
         kinds[provider_id] = previous_providers.get(provider_id, hinted_kind)
-        descriptions[provider_id] = (
-            tr(language, "provider_detected_config")
-            if source == _PROVIDER_SOURCE_CONFIG
-            else tr(language, "provider_detected_env", name=source)
-        )
+        if source == _PROVIDER_SOURCE_CONFIG:
+            descriptions[provider_id] = tr(language, "provider_detected_config")
+        elif source == _PROVIDER_SOURCE_LOGIN:
+            descriptions[provider_id] = tr(language, "provider_detected_login")
+        else:
+            descriptions[provider_id] = tr(language, "provider_detected_env", name=source)
     for provider_id in sorted(previous_providers):
         if provider_id in kinds:
             continue
@@ -2664,7 +2646,7 @@ def _provider_entitlement_options(
         for index, provider_id in enumerate(order)
     ]
     detected_ids = {provider_id for provider_id, _kind, _source in candidates}
-    preselect = set(previous_providers) if previous_providers else detected_ids
+    preselect = set(previous_providers) | (detected_ids - set(previous_excluded))
     preselect.discard(_PROVIDER_SKIP_CHOICE)
     return options, [provider_id for provider_id in order if provider_id in preselect], kinds
 
@@ -2696,8 +2678,12 @@ def _ask_provider_entitlements(args: argparse.Namespace, paths: OmhPaths, langua
     chain so the reachable entries lead, without dropping anything. Only the
     interactive wizard reaches this: `--yes`, `--no-interactive`, `--json`,
     and runs without `--interactive` on a non-TTY ask nothing and write
-    nothing. Detection is read-only (config keys, env-key names, PATH
-    presence); no provider or CLI is invoked.
+    nothing. Detection is read-only (`hermes auth` login ids, config keys,
+    env-key names, PATH presence); no provider or CLI is invoked. Routing
+    counts the same linked providers on its own
+    (`effective_provider_entitlements`); the record exists to correct a
+    kind, clear a row, add an id OMH could not place, and name a
+    subscription CLI.
 
     A confirmed Claude Code subscription is a Maestro-lane entitlement: the
     Hermes lane cannot spend it (Hermes needs an API provider), so the only
@@ -2735,6 +2721,7 @@ def _ask_provider_entitlements(args: argparse.Namespace, paths: OmhPaths, langua
 
     previous_providers = dict(existing.get("providers", {})) if existing else {}
     previous_clis = list(existing.get("subscription_clis", [])) if existing else []
+    previous_excluded = list(existing.get("excluded_providers", [])) if existing else []
     kinds = (PROVIDER_KIND_GATEWAY, *PROVIDER_FAMILY_VOCABULARY, PROVIDER_KIND_UNKNOWN)
     kind_options = [
         {
@@ -2761,7 +2748,9 @@ def _ask_provider_entitlements(args: argparse.Namespace, paths: OmhPaths, langua
     # candidate: the kind a row records is the one detection or the previous
     # answer already implies, and the kind menu stays only on the add loop,
     # where the operator typed an id OMH knows nothing about.
-    options, preselected, kind_by_id = _provider_entitlement_options(candidates, previous_providers, language)
+    options, preselected, kind_by_id = _provider_entitlement_options(
+        candidates, previous_providers, language, previous_excluded
+    )
     chosen = _ask_multi_choice(
         tr(language, "provider_select_title"),
         [
@@ -2804,11 +2793,18 @@ def _ask_provider_entitlements(args: argparse.Namespace, paths: OmhPaths, langua
         ):
             subscription_clis.append(profile)
 
-    document = {
+    document: dict[str, object] = {
         "schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION,
         "providers": providers,
         "subscription_clis": subscription_clis,
     }
+    # A found row the operator cleared is linked to Hermes and would count
+    # on its own; recording the clearing is what makes routing stop counting
+    # it. Written only when there is one, so a document with nothing cleared
+    # keeps the bytes it always had.
+    excluded = sorted(provider_id for provider_id, _kind, _source in candidates if provider_id not in providers)
+    if excluded:
+        document["excluded_providers"] = excluded
     path = provider_entitlements_path(paths.omh_home)
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(path, json.dumps(document, indent=2, sort_keys=True) + "\n")

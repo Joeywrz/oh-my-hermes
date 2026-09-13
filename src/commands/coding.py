@@ -233,7 +233,7 @@ def cmd_coding_delegate(args: argparse.Namespace) -> int:
             # The user's own chains, so the advisory complexity recommendation
             # resolves to models they configured rather than to a name this
             # repo hardcoded. Reading stays here; the builder stays pure.
-            model_chains=effective_mixture_category_chains(paths.omh_home),
+            model_chains=effective_mixture_category_chains(paths.omh_home, paths.hermes_home),
             requested_model=getattr(args, "model", None) or "",
             requested_effort=getattr(args, "effort", None) or "",
         )
@@ -1492,7 +1492,7 @@ def cmd_coding_complexity(args: argparse.Namespace) -> int:
     complexity = score_request_complexity(message, routed_skill=args.skill or "")
     recommendation = recommend_model_for_complexity(
         complexity,
-        chains=effective_mixture_category_chains(paths.omh_home),
+        chains=effective_mixture_category_chains(paths.omh_home, paths.hermes_home),
         requested_model=args.model or "",
         requested_effort=args.effort or "",
     )

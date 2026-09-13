@@ -3,20 +3,21 @@ import re
 from typing import Any
 
 from ..plugin_bundle.omh.hermes_delegation import (
-    effective_mixture_category_chains, load_model_provider_routes,
-    load_provider_entitlements, provider_serves_alias, providers_serving_alias,
+    effective_mixture_category_chains, effective_provider_entitlements,
+    load_model_provider_routes, provider_serves_alias, providers_serving_alias,
     resolve_provider_model,
 )
 
 
-def resolve_campaign_routes(*, omh_home=None, owner_model="", owner_provider="", owner_effort="",
-                            worker_model="", worker_provider="", worker_effort="") -> dict[str, Any]:
+def resolve_campaign_routes(*, omh_home=None, hermes_home=None, owner_model="", owner_provider="",
+                            owner_effort="", worker_model="", worker_provider="",
+                            worker_effort="") -> dict[str, Any]:
     for value in (owner_model, owner_provider, owner_effort, worker_model, worker_provider, worker_effort):
         if not isinstance(value, str) or (value and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}", value)):
             raise ValueError("campaign_route_must_be_token")
-    chains = effective_mixture_category_chains(omh_home)
+    chains = effective_mixture_category_chains(omh_home, hermes_home)
     aliases, route_status = load_model_provider_routes(omh_home)
-    entitlements, entitlement_status = load_provider_entitlements(omh_home)
+    entitlements, entitlement_status, _providers = effective_provider_entitlements(omh_home, hermes_home)
     routes = {}
     for role, category, model, provider, effort in (
         ("root", "architect", owner_model, owner_provider, owner_effort),

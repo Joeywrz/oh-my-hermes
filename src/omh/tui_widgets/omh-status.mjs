@@ -1131,7 +1131,7 @@ export default function register(sdk) {
     'import json,os,sys',
     "sys.path.insert(0, os.path.join(os.environ['HERMES_HOME'], 'plugins'))",
     'from omh.model_chain_picker import picker_rows',
-    "print(json.dumps(picker_rows(os.environ.get('OMH_HOME'))))",
+    "print(json.dumps(picker_rows(os.environ.get('OMH_HOME'), hermes_home=os.environ.get('HERMES_HOME'))))",
   ].join(';')
   const PICKER_WRITER = [
     'import json,os,sys',
@@ -1277,12 +1277,26 @@ export default function register(sdk) {
     const served = Object.fromEntries(payload.models.map(row => [row.alias, !!row.served]))
     const labels = Object.fromEntries(payload.models.map(row => [row.alias, safeText(row.label || row.alias)]))
     const inner = Math.max(40, width - 6)
-    // Dialog chrome, the header, the detail block and the hint take
-    // fourteen rows; the category list gets the rest and windows around the
-    // cursor when the terminal is shorter than the twelve categories need.
-    const visible = Math.max(3, Math.min(categories.length, rows - 14))
+    // Dialog chrome, the providers line, the header, the detail block and
+    // the hint take fifteen rows; the category list gets the rest and
+    // windows around the cursor when the terminal is shorter than the
+    // twelve categories need.
+    const visible = Math.max(3, Math.min(categories.length, rows - 15))
     const start = Math.max(0, Math.min(state.cursor - Math.floor(visible / 2), categories.length - visible))
     const lines = []
+    // The providers the served marks are judged against, each with where it
+    // was found (a `hermes auth` login, a config key, a key name, the setup
+    // record), so a `!` on a row has its reason one glance up.
+    const providers = Array.isArray(payload.providers) ? payload.providers : []
+    const providerText = providers.length
+      ? providers.map(row => `${safeText(row.id)} (${safeText(row.source)})`).join(' · ')
+      : 'none linked to Hermes yet · every model counts as served'
+    lines.push(h(
+      Text,
+      { wrap: 'truncate-end' },
+      h(Text, { color: t.color.muted }, `   ${padCells('providers', 11)}`),
+      h(Text, { color: providers.length ? t.color.text : t.color.muted }, providerText),
+    ))
     lines.push(h(Text, { color: t.color.muted, wrap: 'truncate-end' }, `   ${padCells('CATEGORY', 19)}${padCells('  HEAD MODEL', 26)}${padCells('  EFFORT', 16)}STATE`))
     if (start > 0) lines.push(h(Text, { color: t.color.muted }, `   ↑ ${start} more`))
     categories.slice(start, start + visible).forEach((row, offset) => {
@@ -1331,7 +1345,7 @@ export default function register(sdk) {
       changed ? `   ${plural(changed, 'unsaved change')} · ⏎ writes ${homeText(payload.path)}` : '   no unsaved changes · ⏎ or esc leaves the file as it is',
     ))
     if (served[headModel] === false) {
-      lines.push(h(Text, { color: t.color.error, wrap: 'truncate-end' }, `   ! ${labels[headModel] || safeText(headModel)} is not served by this machine's recorded providers`))
+      lines.push(h(Text, { color: t.color.error, wrap: 'truncate-end' }, `   ! ${labels[headModel] || safeText(headModel)} is not served by this machine's providers`))
     }
     return lines
   }

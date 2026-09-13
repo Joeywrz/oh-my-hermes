@@ -519,21 +519,46 @@ answers are recorded in `~/.omh/routing/providers.json`
 }
 ```
 
-With that document present, every chain is reordered so the entries a
-confirmed provider can serve lead and the rest follow; nothing is removed, so
-a wrong answer costs one rejected fall-through, never a missing model. A
-gateway, `openrouter`, `opencode`, or `unknown` kind serves every family; any
-other vendor kind serves only the models whose editorial candidates name it;
-an explicit route in `model-providers.json` decides before either. The same
-reordered chains feed `omh_delegate_route`, the HUD labels, and
-`omh model-chains show`, which marks a reordered chain. A confirmed Claude
-Code subscription is a Maestro-lane entitlement: Hermes cannot spend it, so
-its only effect is seeding the Claude Code `--model` preference in
-`dispatch-models.json` when none is set (a Codex login is spent by Hermes'
-own `openai-codex` provider and belongs under providers). `--yes`, `--json`,
-and runs without `--interactive` on a non-TTY ask nothing and write nothing;
-rerun `omh setup` interactively to answer again (existing answers arrive
-pre-ticked) or edit the file.
+You do not have to answer for the common case. OMH reads the providers
+Hermes is already linked to and counts them on its own, the moment they are
+linked: the ids under `providers` in `auth.json` and the `credential_pool`
+entries Hermes itself counts (a `hermes auth` device-code or PKCE login, a
+manual add, an `env:`-seeded row whose variable is still in `.env` — never a
+credential borrowed from another CLI), every `providers.<id>` key and
+`model.provider` in `config.yaml`, and the API-key variable NAMES Hermes'
+registry lists, read from `$HERMES_HOME/.env`. A key exported only in a
+shell is not counted (Hermes did not record it; the interview below still
+offers it). Only ids, names, and a pool row's `source` label are read —
+never a token or a key — and nothing is invoked. A registry id carries its
+vendor family (`openai-codex`, `zai`, `kimi-coding`); an id OMH cannot place
+is your own endpoint and counts as a `gateway` unless its `base_url` is a
+loopback address (LM Studio, a local Ollama), which is left out; a Hermes
+provider whose models the catalog never describes (MiniMax, StepFun) is
+ignored rather than guessed, and so is `CLAUDE_CODE_OAUTH_TOKEN`, which
+Hermes' registry marks implicit. The recorded document sits on top: its kind
+wins for an id both name, it is the only source of `subscription_clis`, and
+a linked row you untick in the interview is written as `excluded_providers`
+and stops counting — the one way short of unlinking it from Hermes. Beyond
+that neither side removes the other's providers. `omh model-chains show`,
+the CLI picker, and `/omh-model` list the providers counted, each with where
+it was found (`login`, `config`, `env`, or `recorded`).
+
+With linked providers found or that document present, every chain is
+reordered so the entries such a provider can serve lead and the rest follow;
+nothing is removed, so a wrong answer costs one rejected fall-through, never
+a missing model. A gateway, `openrouter`, `opencode`, or `unknown` kind
+serves every family; any other vendor kind serves only the models whose
+editorial candidates name it; an explicit route in `model-providers.json`
+decides before either. The same reordered chains feed `omh_delegate_route`,
+the HUD labels, and `omh model-chains show`, which marks a reordered chain.
+A confirmed Claude Code subscription is a Maestro-lane entitlement: Hermes
+cannot spend it, so its only effect is seeding the Claude Code `--model`
+preference in `dispatch-models.json` when none is set (a Codex login is
+spent by Hermes' own `openai-codex` provider and is counted under providers
+the moment `hermes auth` records it). `--yes`, `--json`, and runs without
+`--interactive` on a non-TTY ask nothing and write nothing; rerun `omh setup`
+interactively to answer again (existing answers arrive pre-ticked) or edit
+the file.
 
 Supply wire-id routes in `~/.omh/routing/model-providers.json`
 (`model_provider_routes/v1`), a sibling of the chain document:

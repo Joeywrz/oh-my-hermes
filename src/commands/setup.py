@@ -84,6 +84,7 @@ from ..plugin_bundle.omh.provider_detection import (
     LINKED_SOURCE_LOGIN,
     detect_linked_providers,
     env_key_names,
+    env_row_is_covered,
 )
 from ..plugin_pack import PLUGIN_NAME, PluginPackError, install_plugin_bundle
 from ..probe import probe_capabilities
@@ -2645,6 +2646,15 @@ def _provider_entitlement_options(
     descriptions: dict[str, str] = {}
     order: list[str] = []
     for provider_id, hinted_kind, source in candidates:
+        # A key name the operator once recorded under the family's own id
+        # (`openai` for OPENAI_API_KEY) is one account, not a second row.
+        is_env_row = source not in (_PROVIDER_SOURCE_CONFIG, _PROVIDER_SOURCE_LOGIN)
+        if (
+            provider_id not in previous_providers
+            and is_env_row
+            and env_row_is_covered({"source": LINKED_SOURCE_ENV, "kind": hinted_kind}, previous_providers)
+        ):
+            continue
         order.append(provider_id)
         kinds[provider_id] = previous_providers.get(provider_id, hinted_kind)
         if source == _PROVIDER_SOURCE_CONFIG:

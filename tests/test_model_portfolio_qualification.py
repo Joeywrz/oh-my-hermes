@@ -135,11 +135,36 @@ class PortfolioTests(unittest.TestCase):
             self.assertEqual(row["calibration_coverage"], "intentional_exclusion")
             self.assertEqual(row["disposition"], "unmeasured")
             self.assertEqual(row["evidence_state"], "unmeasured")
+            self.assertEqual(row["calibration_resolution"], {"composition": "generic", "high_effort": "generic"})
+            self.assertEqual(row["decision"]["scope"], "qualification_hold")
+            self.assertEqual(row["decision"]["dimension"], "calibration_evidence")
+            self.assertTrue(row["decision"]["reason"])
             self.assertTrue(row["decision"]["evidence_pointers"])
             self.assertFalse(row["recommendation_eligibility"])
+            for evidence in row["evidence"].values():
+                self.assertEqual(evidence["state"], "unmeasured")
+                self.assertEqual(evidence["evidence_pointers"], [])
         required = build_model_portfolio_qualification({"models": list(ids)}, required_models=ids)
         self.assertTrue(required["blocking"])
         self.assertEqual(set(required["comparison"]["summary"]["required_gaps"]), set(ids))
+
+    def test_seed_has_no_measured_dominance_but_keeps_editorial_retirements(self):
+        report = build_model_portfolio_qualification(json.loads(FIXTURE.read_text()))
+        rows = report["comparison"]["models"]
+        dominance = {"excluded_quality_dominated", "excluded_efficiency_dominated", "excluded_tool_unreliable"}
+        self.assertEqual([row for row in rows if row["disposition"] in dominance], [])
+        for row in rows:
+            for dimension in ("quality", "tool_reliability", "latency"):
+                self.assertEqual(row["evidence"][dimension], {"state": "unmeasured", "evidence_pointers": []})
+        retired = {row["canonical_model_id"] for row in rows if row["disposition"] == "excluded_superseded"}
+        self.assertEqual(retired, {"claude-fable-5", "glm-5.2"})
+        # List-price multipliers alone cannot prove role-specific efficiency.
+        tiers = [row for row in rows if row["canonical_model_id"].startswith("gpt-6-astra-")]
+        self.assertTrue(tiers)
+        for row in tiers:
+            self.assertEqual(row["evidence"]["cost"]["state"], "documented_list")
+            self.assertEqual(row["disposition"], "unmeasured")
+            self.assertFalse(row["recommendation_eligibility"])
 
     def test_retirements_preserve_scoped_sol_last_resort(self):
         successors = {"claude-fable-5": "claude-fable-5-1", "glm-5.2": "glm-5.3",
@@ -149,6 +174,10 @@ class PortfolioTests(unittest.TestCase):
             self.assertEqual(rows[model]["disposition"], "excluded_superseded")
             self.assertEqual(rows[model]["decision"]["successor"], successor)
             self.assertEqual(rows[model]["decision"]["decision_date"], "2026-09-11")
+            self.assertEqual(rows[model]["decision"]["evidence_state"], "editorial_not_measured")
+            self.assertTrue(rows[model]["decision"]["reason"])
+            self.assertTrue(rows[model]["decision"]["evidence_pointers"])
+            self.assertFalse(rows[model]["recommendation_eligibility"])
         sol = rows["gpt-5.6-sol"]
         self.assertEqual(sol["disposition"], "recommended")
         self.assertEqual(sol["retirement_decisions"][0]["successor"], "gpt-6-astra")

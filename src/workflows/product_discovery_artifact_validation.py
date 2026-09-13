@@ -7,6 +7,7 @@ from typing import Any
 
 from ..system.append_only_store import RAW_OR_HIDDEN_KEYS
 from .product_discovery_artifacts import (
+    _artifact,
     build_assumption_test_portfolio,
     build_channel_feedback_ledger,
     build_channel_feedback_disposition,
@@ -55,7 +56,7 @@ def validate_product_discovery_artifact(record: Any) -> list[str]:
         return errors
     match schema:
         case "channel_feedback_ledger/v1":
-            return _validated(record, lambda: build_channel_feedback_ledger(**_fields(record)))
+            return _validated(record, lambda: _stored_channel_feedback_ledger(record))
         case "channel_feedback_disposition/v1":
             values = _fields(record)
             for field in ("disposition", "handoff_held", "next_route"):
@@ -81,6 +82,19 @@ def validate_product_discovery_artifact(record: Any) -> list[str]:
             return _validated(record, lambda: build_initial_gtm_hypothesis(**_fields(record)))
         case _:
             return ["product discovery artifact schema_version is unsupported"]
+
+
+def _stored_channel_feedback_ledger(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate historical rows without rewriting their original content digest."""
+    expected = build_channel_feedback_ledger(**_fields(record))
+    for supplied, normalized in zip(record["entries"], expected["entries"]):
+        if "discovery_id" not in supplied:
+            normalized.pop("discovery_id")
+    fields = _fields(expected)
+    discovery_id = fields.pop("discovery_id")
+    expected["artifact_id"] = _artifact(expected["schema_version"], discovery_id, fields,
+                                        status=expected["status"])["artifact_id"]
+    return expected
 
 
 def _fields(record: Mapping[str, Any]) -> dict[str, Any]:

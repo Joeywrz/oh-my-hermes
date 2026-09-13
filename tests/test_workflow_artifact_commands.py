@@ -268,6 +268,28 @@ class WorkflowArtifactCommandTests(unittest.TestCase):
             self.assertEqual((status, stderr), (0, ""))
             self.assertEqual(json.loads(stdout)["result"]["frame"]["status"], "prepared_not_observed")
 
+    def test_channel_feedback_example_entries_retain_discovery_identity(self) -> None:
+        with TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            example = self._semantic_example("product-discovery-validation-channel-feedback.json")
+            status, stdout, stderr = self._run_example(
+                home, "product-discovery-validation", "channel-feedback",
+                "product-discovery-validation-channel-feedback.json",
+            )
+            self.assertEqual((status, stderr), (0, ""))
+            result = json.loads(stdout)["result"]
+            ledger = result["ledger"]
+            self.assertEqual(ledger["schema_version"], "channel_feedback_ledger/v1")
+            for entry in ledger["entries"]:
+                self.assertEqual(entry.get("discovery_id"), example["frame"]["discovery_id"])
+                self.assertEqual(entry["segment_ref"], example["frame"]["segment_ref"])
+                self.assertEqual(entry["channel_ref"], example["gtm"]["initial_channel_ref"])
+                self.assertIn(entry["test_id"], [row["test_id"] for row in example["portfolio"]["assumptions"]])
+            self.assertEqual(result["disposition"]["feedback_ledger_ref"], ledger["artifact_id"])
+            code, output, error = self._run(home, "product-discovery-validation", "append", ledger)
+            self.assertEqual((code, error), (0, ""))
+            self.assertEqual(json.loads(output)["result"], ledger)
+
     def test_channel_feedback_returns_companion_artifacts_and_stable_holds(self) -> None:
         from test_product_discovery_channel_feedback import NOW, feedback_entry, feedback_inputs, feedback_semantic
 

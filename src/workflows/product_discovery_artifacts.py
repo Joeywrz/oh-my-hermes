@@ -27,7 +27,7 @@ CHANNEL_FEEDBACK_HOLD_REASONS: Final = (
     "channel_feedback_contradictory", "channel_feedback_unresolved",
 )
 CHANNEL_FEEDBACK_ENTRY_KEYS: Final = frozenset({
-    "feedback_id", "test_id", "channel_ref", "criterion_ref", "segment_ref", "affected_target", "effect",
+    "discovery_id", "feedback_id", "test_id", "channel_ref", "criterion_ref", "segment_ref", "affected_target", "effect",
     "source_class", "source_ref", "observed_at", "sample_count", "confidence_limit",
 })
 
@@ -131,16 +131,20 @@ def _artifact(schema_version: str, discovery_id: str, fields: Mapping[str, Any],
     }
 
 
-def _channel_feedback_entry(entry: Mapping[str, Any], *, allow_missing: bool = False) -> dict[str, Any]:
+def _channel_feedback_entry(entry: Mapping[str, Any], *, discovery_id: str,
+                            allow_missing: bool = False) -> dict[str, Any]:
     if not isinstance(entry, Mapping) or any(not isinstance(key, str) for key in entry):
         raise ValueError("channel feedback entry must be an object with string keys")
     if any(key.lower() in RAW_OR_HIDDEN_KEYS or key == "raw_transcript" for key in entry):
         raise ValueError("channel feedback must not carry raw or hidden keys")
     if set(entry) - CHANNEL_FEEDBACK_ENTRY_KEYS:
         raise ValueError("channel feedback entry has unsupported keys")
-    if not allow_missing and set(entry) != CHANNEL_FEEDBACK_ENTRY_KEYS:
+    safe_discovery_id = _ref(discovery_id, "discovery_id")
+    if _ref(entry.get("discovery_id", safe_discovery_id), "discovery_id") != safe_discovery_id:
+        raise ValueError("channel feedback entry must have the same discovery_id as its ledger")
+    normalized = {**entry, "discovery_id": safe_discovery_id}
+    if not allow_missing and set(normalized) != CHANNEL_FEEDBACK_ENTRY_KEYS:
         raise ValueError("channel feedback entry is missing keys")
-    normalized = dict(entry)
     for field in ("feedback_id", "test_id", "channel_ref", "criterion_ref", "segment_ref", "source_ref"):
         if field in entry:
             normalized[field] = _ref(entry[field], field)
@@ -163,7 +167,7 @@ def build_channel_feedback_ledger(*, discovery_id: str, gtm_artifact_id: str, in
     """Build an appendable ledger; incomplete or copied rows belong in refusal history."""
     if not isinstance(entries, Sequence) or isinstance(entries, (str, bytes)):
         raise ValueError("entries must be a list")
-    normalized = [_channel_feedback_entry(entry) for entry in entries]
+    normalized = [_channel_feedback_entry(entry, discovery_id=discovery_id) for entry in entries]
     if len({entry["feedback_id"] for entry in normalized}) != len(normalized):
         raise ValueError("feedback_id values must be unique")
     if len({(entry["test_id"], entry["source_ref"], entry["affected_target"]) for entry in normalized}) != len(normalized):

@@ -20,9 +20,6 @@ def _admit_host() -> None:
         raise RuntimeError(error)
 
 
-_admit_host()
-
-
 class _PluginContext(Protocol):
     def register_tool(self, name: str, toolset: str, schema: object, handler: object, **kwargs: object) -> object: ...
     def register_hook(self, name: str, handler: object) -> object: ...
@@ -98,6 +95,9 @@ def register(ctx: _PluginContext) -> None:
     Naming ``register_memory_provider`` here is also what makes this directory
     visible to Hermes' provider discovery, which text-scans ``__init__.py``.
     """
+    # Metadata/parser imports serve the maintenance CLI, even on unsupported hosts.
+    # Admit only at the loader entry, before any registration side effects.
+    _admit_host()
     from . import runtime_paths
     runtime_paths.note_host_registration(ctx)
     from .memory_provider import OmhMemoryProvider

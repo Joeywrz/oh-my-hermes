@@ -13,6 +13,7 @@ from typing import Final, Iterable, Mapping
 
 from .model_contract_coverage import (
     MODEL_CONTRACT_COVERAGE_CLAIM_BOUNDARY,
+    _SOURCE_LINEAGE_KEY,
     _digest,
     _inventory_model_refs,
     _inventory_record,
@@ -239,7 +240,7 @@ def _qualification_row(
     excluded = bool(decision)
     contract_coverage = (
         "intentional_exclusion" if excluded else
-        "exact" if projection and projection["provenance"] == "exact" else
+        "exact" if projection and projection[_SOURCE_LINEAGE_KEY] == "exact" else
         "declared_inheritance" if projection else "missing"
     )
     price = _price_dimension(model_contract(model), projection)
@@ -293,7 +294,7 @@ def _qualification_row(
         "model_version_boundary": {
             "canonical_model_id": canonical,
             "contract_model_id": contract_id,
-            "projection_provenance": projection["provenance"] if projection else "missing",
+            "projection_provenance": projection[_SOURCE_LINEAGE_KEY] if projection else "missing",
             "pointer_read_date": "2026-09-11" if len(aliases) > 1 else None,
             "qualification_scope": "explicit_model_and_role_only",
         },

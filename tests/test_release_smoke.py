@@ -39,6 +39,7 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertIn("does not run commands", payload["proof_boundary"])
         items = {item["id"]: item for item in payload["items"]}
         self.assertIn("unit_tests", items)
+        self.assertIn("plugin_compat_matrix", items)
         self.assertIn("skill_content_smoke", items)
         self.assertIn("installed_command_smoke", items)
         self.assertIn("installed_command_path", items)
@@ -333,6 +334,7 @@ class ReleaseSmokeTests(unittest.TestCase):
                     "hermes_ux_quality",
                     "parity_contracts",
                     "documentation_claims",
+                    "plugin_compat_matrix",
                     "release_checklist",
                 },
             )

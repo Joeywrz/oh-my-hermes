@@ -21,6 +21,7 @@ path at all, and that is where a silent data-loss defect lived until #1467.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import unittest
 
 try:  # probe only; mirrors the product's degraded-import pattern
@@ -64,6 +65,10 @@ requires_windows = unittest.skipUnless(
 requires_posix_permissions = unittest.skipUnless(
     os.name == "posix" and hasattr(os, "geteuid") and os.geteuid() != 0,
     "POSIX permission bits do not restrict root and do not exist off POSIX",
+)
+requires_hermes_host = unittest.skipUnless(
+    Path(os.environ.get("HERMES_PYTHON") or Path.home() / ".hermes/hermes-agent/venv/bin/python").expanduser().is_file(),
+    "real plugin admission requires an installed Hermes host",
 )
 requires_symlinks = unittest.skipUnless(
     os.name == "posix",

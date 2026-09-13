@@ -4,6 +4,11 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The bundled plugin declares its Hermes runtime range.** OMH admits
+  Hermes `>=0.21.1,<0.22.0` before plugin registration and rejects unsupported
+  hosts with the required and running versions. Missing or invalid declarations
+  fail local conformance; release readiness also checks the tested-host matrix.
+  Existing installs should run `omh update` to refresh the managed bundle.
 - **Providers linked to Hermes are recognized on their own.** OMH now reads
   which providers Hermes is already linked to — a `hermes auth` login in
   `auth.json` (the pool rows Hermes itself counts, never a credential

@@ -4988,7 +4988,7 @@ def _add_top_level_commands(sub) -> None:
     install = sub.add_parser("install", help="Refresh the managed OMH skill pack without changing Hermes registration.")
     _add_common_install_options(install)
     install.add_argument("--target", choices=("hermes", "agents"), default="hermes", help="Generate managed Hermes skills or the portable Agent Skills projection.")
-    install.add_argument("--scope", dest="agents_scope", choices=("repo", "user"), help="Agent Skills destination: git-root .agents/skills or user .agents/skills plus .claude/skills.")
+    install.add_argument("--scope", dest="agents_scope", choices=("repo", "user"), help="Agent Skills destination: git-root or user-home .agents/skills plus a .claude/skills copy in either scope.")
     install.add_argument("--status", action="store_true", help="Inspect Agent Skills freshness and local modifications without writing.")
     install.add_argument("--json", action="store_true", help="Print the full machine-readable install payload.")
     install.set_defaults(func=cmd_install)

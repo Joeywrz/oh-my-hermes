@@ -61,8 +61,9 @@ which Hermes never reads), capability family
 
 **Agent Skills projection**:
 A separately generated, portability-reviewed view of the catalog under
-`agent-skills/`. Hosts discover installed copies in `.agents/skills/`; user
-scope also copies them into `~/.claude/skills/` for Claude Code. This is not a
+`agent-skills/`. Hosts discover installed copies in `.agents/skills/`;
+both repo and user scopes also copy them into `.claude/skills/` under the same
+scope root for Claude Code. This is not a
 managed Hermes skill, a plugin, an RPC tool, or a runtime port. A fresh copy is
 not evidence that a host loaded or executed it. See [Agent Skills](docs/AGENT-SKILLS.md).
 _Avoid_: managed skill, Hermes plugin, execution adapter

@@ -1,6 +1,6 @@
 """Catalog-generated Agent Skills files, independent of Hermes configuration.
 
-The user install has two copy destinations and one manifest contract, duplicated
+Each install scope has two copy destinations and one manifest contract, duplicated
 at both roots. Roots come only from the current invocation, never the manifest.
 A partial write cannot report fresh: status compares every destination's bytes.
 """
@@ -48,7 +48,8 @@ def agent_skills_targets(scope: str) -> tuple[Path, Path | None]:
         raise ValueError("Agent Skills git-root probe timed out; no files were written") from exc
     if result.returncode:
         raise ValueError("Agent Skills repo scope requires a git repository; no files were written")
-    return Path(result.stdout.strip()).resolve() / ".agents/skills", None
+    root = Path(result.stdout.strip()).resolve()
+    return root / ".agents/skills", root / ".claude/skills"
 
 
 def _checked_path(root: Path, relative: str) -> Path:

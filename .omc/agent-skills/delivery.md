@@ -1,5 +1,11 @@
 # Agent Skills projection delivery
 
+**2026-09-13 Phase B correction:** The initial repo-only `.agents/skills/`
+assumption below is superseded by [repo mirror delivery](repo-mirror/delivery.md).
+Both scopes now copy into `.agents/skills/` and `.claude/skills/` at their scope
+root. The original test/QA records below remain historical evidence, not a claim
+that Claude Code discovered the initial repo layout.
+
 Task st_01a09854; branch `agent/agent-skills-projection`, base `e2844979`.
 Implemented the binding design brief plus the owner's user-mirror/description
 amendment. No merge or push was performed.

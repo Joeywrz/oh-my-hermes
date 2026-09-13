@@ -104,10 +104,15 @@ def discover_skill_files(source_dir: Path) -> list[Path]:
     # Agent artifacts and the separate Agent Skills projection are not Hermes
     # source inputs. Check relative components so an explicitly selected pack
     # root still works, without mixing sibling projections during repo import.
+    from .install.agent_skills_projection import MANIFEST_NAME
+
     excluded = {".omc", "agent-skills", ".agents"}
+    claude_mirror = source_dir / ".claude/skills"
+    managed_claude_mirror = (claude_mirror / MANIFEST_NAME).is_file()
     return sorted(
         path for path in source_dir.rglob("SKILL.md")
         if ".git" not in path.parts and not excluded.intersection(path.relative_to(source_dir).parts)
+        and not (managed_claude_mirror and path.is_relative_to(claude_mirror))
     )
 
 

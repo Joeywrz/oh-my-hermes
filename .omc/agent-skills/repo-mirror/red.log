@@ -1,0 +1,45 @@
+PYTHONPATH=tests uv run python -m unittest test_agent_skills_projection.AgentSkillsProjectionTests.test_repo_scope_installs_and_repairs_claude_mirror test_agent_skills_projection.AgentSkillsProjectionTests.test_manifest_owned_claude_mirror_is_not_an_implicit_hermes_source -v
+test_repo_scope_installs_and_repairs_claude_mirror (test_agent_skills_projection.AgentSkillsProjectionTests.test_repo_scope_installs_and_repairs_claude_mirror) ... FAIL
+test_manifest_owned_claude_mirror_is_not_an_implicit_hermes_source (test_agent_skills_projection.AgentSkillsProjectionTests.test_manifest_owned_claude_mirror_is_not_an_implicit_hermes_source) ... FAIL
+
+======================================================================
+FAIL: test_repo_scope_installs_and_repairs_claude_mirror (test_agent_skills_projection.AgentSkillsProjectionTests.test_repo_scope_installs_and_repairs_claude_mirror)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khope@sionic.ai/Desktop/khope/oh-my-hermes-worktrees/agent-skills-projection/tests/test_agent_skills_projection.py", line 149, in test_repo_scope_installs_and_repairs_claude_mirror
+    self.assertEqual(json.loads(output)["target_dirs"], [str(target), str(mirror)])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: ['/pr[76 chars]ills'] != ['/pr[76 chars]ills', '/private/var/folders/45/9gtdct614mz4rp[42 chars]lls']
+
+Second list contains 1 additional elements.
+First extra element 1:
+'/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/tmp8cilhpq2/.claude/skills'
+
+- ['/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/tmp8cilhpq2/.agents/skills']
+?                                                                                       ^
+
++ ['/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/tmp8cilhpq2/.agents/skills',
+?                                                                                       ^
+
++  '/private/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/tmp8cilhpq2/.claude/skills']
+
+======================================================================
+FAIL: test_manifest_owned_claude_mirror_is_not_an_implicit_hermes_source (test_agent_skills_projection.AgentSkillsProjectionTests.test_manifest_owned_claude_mirror_is_not_an_implicit_hermes_source)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khope@sionic.ai/Desktop/khope/oh-my-hermes-worktrees/agent-skills-projection/tests/test_agent_skills_projection.py", line 183, in test_manifest_owned_claude_mirror_is_not_an_implicit_hermes_source
+    self.assertEqual(discover_skill_files(repo), [])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: [PosixPath('/var/folders/45/9gtdct614mz4rp[11637 chars]md')] != []
+
+First list contains 99 additional elements.
+First extra element 0:
+PosixPath('/var/folders/45/9gtdct614mz4rplqs209nykm0000gn/T/tmpomvsoe31/.claude/skills/omh-accessibility-audit/SKILL.md')
+
+Diff is 11986 characters long. Set self.maxDiff to None to see it.
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.737s
+
+FAILED (failures=2)
+EXIT=1

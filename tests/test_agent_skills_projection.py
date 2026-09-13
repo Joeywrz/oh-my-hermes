@@ -124,11 +124,64 @@ class AgentSkillsProjectionTests(unittest.TestCase):
             for path in (repo, foreign):
                 subprocess.run(["git", "init", "-q", str(path)], check=True, capture_output=True)
             with chdir(repo), patch.dict(os.environ, {"GIT_DIR": str(foreign / ".git"), "GIT_WORK_TREE": str(foreign)}):
-                self.assertEqual(agent_skills_targets("repo"), (repo / ".agents/skills", None))
+                self.assertEqual(agent_skills_targets("repo"), (repo / ".agents/skills", repo / ".claude/skills"))
             with patch("omh.install.agent_skills_projection.subprocess.run", side_effect=subprocess.TimeoutExpired("git", 10)) as runner:
                 with self.assertRaisesRegex(ValueError, "timed out"):
                     agent_skills_targets("repo")
                 self.assertEqual(runner.call_args.kwargs["timeout"], 10)
+
+    def test_repo_scope_installs_and_repairs_claude_mirror(self):
+        from contextlib import chdir
+        import subprocess
+        from _cli_harness import run_cli
+        from omh.install.agent_skills_projection import MANIFEST_NAME, agent_skill_files, install_agent_skills
+        from omh.converter import discover_skill_files
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp).resolve()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
+            target, mirror = repo / ".agents/skills", repo / ".claude/skills"
+            # Upgrade an existing single-root v1 installation without losing files.
+            install_agent_skills(target)
+            with chdir(repo):
+                command = ["install", "--target", "agents", "--scope", "repo", "--json"]
+                status, output, error = run_cli(command)
+                self.assertEqual(status, 0, error)
+                self.assertEqual(json.loads(output)["target_dirs"], [str(target), str(mirror)])
+                self.assertEqual(json.loads(output)["projection"], "fresh")
+                manifest = json.loads((target / MANIFEST_NAME).read_text())
+                self.assertEqual(manifest["schema_version"], "omh_agent_skills_projection/v1")
+                self.assertEqual((target / MANIFEST_NAME).read_bytes(), (mirror / MANIFEST_NAME).read_bytes())
+                for relative, content in agent_skill_files().items():
+                    self.assertEqual((mirror / relative).read_bytes(), content.encode("utf-8"))
+                    self.assertFalse((mirror / relative).is_symlink())
+                    self.assertEqual(manifest["files"][relative], hashlib.sha256(content.encode("utf-8")).hexdigest())
+                changed = mirror / "ulw-work/SKILL.md"
+                changed.write_bytes(b"local repo mirror edit")
+                status, output, _ = run_cli(command + ["--status"])
+                self.assertEqual(status, 0)
+                self.assertEqual(json.loads(output)["drift"], "locally_modified")
+                self.assertIn("mirror:ulw-work/SKILL.md", json.loads(output)["locally_modified"])
+                self.assertEqual(changed.read_bytes(), b"local repo mirror edit")
+                status, output, _ = run_cli(command)
+                self.assertEqual(status, 0)
+                self.assertEqual(json.loads(output)["projection"], "fresh")
+                self.assertEqual(json.loads(output)["drift"], "clean")
+                (mirror / MANIFEST_NAME).unlink()
+                self.assertEqual(json.loads(run_cli(command + ["--status"])[1])["projection"], "missing")
+                self.assertEqual(run_cli(command)[0], 0)
+            # Neither generated copy may contaminate an implicit Hermes import.
+            self.assertEqual(discover_skill_files(repo), [])
+            self.assertEqual(len(discover_skill_files(mirror)), len(list(mirror.glob("*/SKILL.md"))))
+
+    def test_manifest_owned_claude_mirror_is_not_an_implicit_hermes_source(self):
+        from omh.install.agent_skills_projection import install_agent_skills
+        from omh.converter import discover_skill_files
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            target, mirror = repo / ".agents/skills", repo / ".claude/skills"
+            install_agent_skills(target, mirror=mirror)
+            self.assertEqual(discover_skill_files(repo), [])
+            self.assertTrue(discover_skill_files(mirror))
 
     def test_projection_references_resolve_and_shipped_bytes_match(self):
         import re
@@ -264,7 +317,7 @@ class AgentSkillsProjectionTests(unittest.TestCase):
                 self.assertEqual(run_cli(command)[0], 0)
                 self.assertEqual({p.name for p in (repo / ".agents/skills").iterdir() if p.is_dir()}, set(portable_skill_names()))
                 self.assertFalse((nested / ".agents").exists())
-                self.assertFalse((repo / ".claude").exists())
+                self.assertEqual((repo / ".agents/skills" / MANIFEST_NAME).read_bytes(), (repo / ".claude/skills" / MANIFEST_NAME).read_bytes())
                 user = ["install", "--target", "agents", "--scope", "user", "--json"]
                 self.assertEqual(run_cli(user)[0], 0)
                 self.assertEqual((home / ".agents/skills" / MANIFEST_NAME).read_bytes(), (home / ".claude/skills" / MANIFEST_NAME).read_bytes())

@@ -22,10 +22,12 @@ omh install --target agents --scope repo --status
 omh install --target agents --scope user --status --json
 ```
 
-Repo scope generates `.agents/skills/<name>/SKILL.md` at the git root and fails
-closed outside a repository. It never creates `.claude/skills` in a repository.
-User scope generates both `~/.agents/skills/` and `~/.claude/skills/`, because
-Claude Code does not document `~/.agents/skills/` as a user scan path. References
+Repo scope generates `.agents/skills/<name>/SKILL.md` and a `.claude/skills/`
+copy at the git root, and fails closed outside a repository. Claude Code
+2.1.270 discovered the repo `.claude/skills/` copy but not `.agents/skills/`
+in observed parent QA (2026-09-13; details below).
+User scope likewise generates both `~/.agents/skills/` and `~/.claude/skills/`,
+because Claude Code does not document `~/.agents/skills/` as a user scan path. References
 are copied alongside each skill. Generation works from an installed package;
 it does not read this repository's committed projection tree.
 
@@ -40,17 +42,17 @@ unrelated skills are preserved.
 `.omh-agent-skills-manifest.json` uses `schema_version:
 omh_agent_skills_projection/v1`, a content-addressed `catalog_revision`,
 `target_dirs`, and a `files` mapping from projection-relative path to SHA256.
-User scope writes the **same manifest** at both roots; each listed file digest
+Both scopes write the **same manifest** at their two roots; each listed file digest
 applies to both copies. Manifest paths never choose the write destinations.
 
 Status separates `projection` (`fresh`, `stale`, `missing`) from `drift`
 (`clean`, `locally_modified`, `unknown`), and includes `locally_modified` and
 `next_action`. Human output spells the drift state `locally-modified`. A missing
-or edited mirror is not a fresh user install. `mirror:` prefixes identify mirror
+or edited mirror is not a fresh install in either scope. `mirror:` prefixes identify mirror
 file drift. An interrupted install stays missing/stale until every copy agrees.
 
 Inspect and back up local edits before repeating the install command. An
-explicit reinstall replaces managed local edits, refreshes both user copies,
+explicit reinstall replaces managed local edits, refreshes both chosen-scope copies,
 and removes retired manifest-owned files; it does not import those edits into
 the catalog. There is no automatic update, host reload, or background sync.
 
@@ -120,12 +122,23 @@ not authorization to imitate its host-specific behavior.
 
 ## Host support matrix
 
-This is a documentation/source compatibility assessment, not observed skill
+Except for the explicitly observed Claude Code discovery result below, this
+is a documentation/source compatibility assessment, not observed skill
 selection or execution in six running hosts.
+
+**Observed correction, 2026-09-13 (parent Phase B QA):** Claude Code 2.1.270,
+launched in a temporary repository with
+`claude -p "list ulw-/omh- skills" --model haiku`, returned `NONE` in two
+isolated runs with only `.agents/skills/` installed. After adding the
+`.claude/skills/` copy, the same prompt discovered `ulw-context`,
+`ulw-interview`, `ulw-loop`, and `omh-plan`. This supersedes the earlier
+standard-facts assumption that Claude Code scans repo `.agents/skills/`.
+It establishes discovery for the reported version and runs, not execution of
+every workflow or a guarantee about other versions.
 
 | Host | Repo scan path | User installation | Discovery and caveats |
 | --- | --- | --- | --- |
-| Claude Code | `.agents/skills/` | `~/.claude/skills/` mirror | Progressive description-based discovery; directory and frontmatter names match |
+| Claude Code | `.claude/skills/` mirror (observed 2.1.270) | `~/.claude/skills/` mirror | Repo `.agents/skills/` not discovered in two isolated runs; `.claude/skills/` discovery observed |
 | Codex | `.agents/skills/` | `~/.agents/skills/` | Model-selected progressive disclosure; standard-path contract |
 | Cursor | `.agents/skills/` | `~/.agents/skills/` | Standard-path support; user-scope scanning not independently verified |
 | opencode | `.agents/skills/` | `~/.agents/skills/` | Permission-gated `skill` tool, implicit nomination; description must be 1-1024 characters |

@@ -662,7 +662,12 @@ class PinnedCorpusTests(unittest.TestCase):
         """
 
         _skip_without_history(self)
-        self.assertEqual(corpus.environment_drift(self.payload), [])
+        # Deliberately no assertion that THIS corpus has no drift. It has none
+        # only on the interpreter that probed it, and CI runs 3.11 and 3.12
+        # against a corpus probed on 3.13 -- asserting otherwise is how the
+        # first version of this check turned a true fact into a red lane. The
+        # contract under test is the separation, and it is stated with an
+        # interpreter this test invents so it holds on every lane.
         pretend = dict(self.payload)
         selection = dict(pretend["selection"])
         selection["probe_environment"] = {

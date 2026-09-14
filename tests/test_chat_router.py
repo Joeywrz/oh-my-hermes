@@ -16,6 +16,7 @@ from omh.chat_router import (
     route_chat_message,
     routing_record_payload,
 )
+from omh.ingress import extract_event_attachments
 from omh.routing.intent import classify_workflow_intent
 from omh.routing.policy import (
     _EXPLICIT_SKILL_ALIASES,
@@ -4206,6 +4207,50 @@ selected_workflow=ultraprocess
 
         decision = route_chat_event({"content": "diagnose installation health"}, source="hermes")
         self.assertEqual(decision["selected_skill"], "doctor")
+
+    def test_event_attachment_extraction_copies_names_and_media_types_only(self) -> None:
+        discord = {
+            "content": "implement the attached spec",
+            "attachments": [
+                {"id": "1", "filename": "spec.pdf", "content_type": "application/pdf", "size": 4096, "url": "https://cdn.example/spec.pdf"},
+                {"id": "2", "filename": "  " + ("x" * 200) + ".png", "content_type": "image/png"},
+                {"id": "3"},
+                "not-a-row",
+            ],
+        }
+        rows = extract_event_attachments(discord)
+        self.assertEqual(rows[0], {"name": "spec.pdf", "media_type": "application/pdf"})
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(len(rows[1]["name"]), 160)
+        self.assertTrue(rows[1]["name"].endswith(".png"))
+        # A platform that sends no media type (Telegram's is optional) leaves
+        # the suffix as the only classifier, so bounding the name keeps it.
+        long_pdf = extract_event_attachments({"message": {"document": {"file_name": ("s" * 200) + ".pdf"}}})
+        self.assertEqual(len(long_pdf[0]["name"]), 160)
+        self.assertTrue(long_pdf[0]["name"].endswith(".pdf"))
+        self.assertEqual(long_pdf[0]["media_type"], "")
+        no_suffix = extract_event_attachments({"files": [{"name": "n" * 200}]})
+        self.assertEqual(len(no_suffix[0]["name"]), 160)
+        odd_suffix = extract_event_attachments({"files": [{"name": ("n" * 200) + "." + ("x" * 40)}]})
+        self.assertEqual(len(odd_suffix[0]["name"]), 160)
+        self.assertNotIn("cdn.example", json.dumps(rows))
+        self.assertNotIn("size", json.dumps(rows))
+
+        slack = {"event": {"text": "implement the attached spec", "files": [{"name": "spec.pdf", "mimetype": "application/pdf", "url_private": "https://files.slack/x"}]}}
+        self.assertEqual(extract_event_attachments(slack), [{"name": "spec.pdf", "media_type": "application/pdf"}])
+        telegram = {"message": {"text": "implement the attached spec", "document": {"file_name": "spec.docx", "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "file_id": "abc"}}}
+        self.assertEqual(
+            extract_event_attachments(telegram),
+            [{"name": "spec.docx", "media_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}],
+        )
+        self.assertEqual(extract_event_attachments("implement the attached spec"), [])
+        self.assertEqual(extract_event_attachments({"content": "no files"}), [])
+        # Every listed file comes back: a media file after a long run of text
+        # attachments is not left unseen.
+        crowded = {"files": [{"name": f"log-{index}.txt", "mimetype": "text/plain"} for index in range(39)] + [{"name": "parser-spec.pdf", "mimetype": "application/pdf"}]}
+        rows = extract_event_attachments(crowded)
+        self.assertEqual(len(rows), 40)
+        self.assertEqual(rows[-1], {"name": "parser-spec.pdf", "media_type": "application/pdf"})
 
     def test_routing_record_payload_does_not_store_raw_message(self) -> None:
         message = "risky refactor"

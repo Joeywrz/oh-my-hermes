@@ -22,6 +22,8 @@ from omh.coding.dispatch_failure_recovery import (  # noqa: E402
     EXECUTOR_AUTH_FAILURE_SIGNALS_SCHEMA_VERSION,
     FAILURE_KIND_AUTH_SHAPED,
     FAILURE_KIND_BINARY_MISSING,
+    DISPATCHER_ASSIGNED_FAILURE_KINDS,
+    FAILURE_KIND_CAPABILITY_GATE,
     FAILURE_KIND_CRASH,
     FAILURE_KIND_LIMIT_SHAPED,
     FAILURE_KIND_TIMEOUT,
@@ -114,12 +116,18 @@ class FailureKindClassificationTests(unittest.TestCase):
             classify_failure_kind(exit_code=1, limit_label="rate_limit"),
             classify_failure_kind(exit_code=1),
         }
-        # `workspace_blocked` is the one kind the classifier can never answer:
-        # it is assigned before the spawn, when there is no exit code and no
-        # output to classify. Every OTHER member of the enum must still come
-        # out of the classifier, or the enum has grown a value nothing sets.
-        self.assertEqual(answers, set(FAILURE_KINDS) - {FAILURE_KIND_WORKSPACE_BLOCKED})
-        self.assertNotIn(FAILURE_KIND_WORKSPACE_BLOCKED, answers)
+        # `workspace_blocked` and `capability_gate` are the kinds the classifier
+        # can never answer: both are assigned before the spawn, when there is
+        # no exit code and no output to classify. Every OTHER member of the
+        # enum must still come out of the classifier, or the enum has grown a
+        # value nothing sets.
+        self.assertEqual(
+            DISPATCHER_ASSIGNED_FAILURE_KINDS,
+            {FAILURE_KIND_WORKSPACE_BLOCKED, FAILURE_KIND_CAPABILITY_GATE},
+        )
+        self.assertEqual(answers, set(FAILURE_KINDS) - DISPATCHER_ASSIGNED_FAILURE_KINDS)
+        self.assertTrue(DISPATCHER_ASSIGNED_FAILURE_KINDS.isdisjoint(answers))
+        self.assertTrue(DISPATCHER_ASSIGNED_FAILURE_KINDS.isdisjoint(RECOVERABLE_FAILURE_KINDS))
 
     def test_workspace_blocked_is_never_offered_a_recovery_retry(self) -> None:
         # A blocked workspace is the one failure another attempt cannot clear:

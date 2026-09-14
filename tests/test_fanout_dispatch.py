@@ -3110,6 +3110,76 @@ class FanoutMediaCapabilityDispatchTests(unittest.TestCase):
             )
             self.assertEqual(summary["units"][0]["status"], "modality_unknown")
 
+    def test_dispatch_gates_document_units_exactly_like_image_units(self) -> None:
+        """A unit that declares `raw_media:document` (an attached PDF or office
+        file) is refused before readiness or spawn unless the frozen snapshot
+        carries fresh `input_modality_document` evidence for the unit's exact
+        route; image evidence is not a substitute, and the refusal states the
+        representations that unblock it."""
+        with TemporaryDirectory() as temporary:
+            paths, repo, sha, contract = self._contract(
+                temporary,
+                capabilities=("input_modality_image",),
+                input_representation="raw_media:document",
+            )
+            frozen = contract["units"][0]["handoff"]["executor_modality_decision"]
+            self.assertEqual(frozen["required_representations"][0]["capability"], "input_modality_document")
+            self.assertEqual(frozen["alternative_representations"], ["extracted_text", "ocr_output"])
+            # Frozen before the unit carried a model route: the gate says there
+            # is no route yet rather than asking for evidence of an empty one.
+            self.assertEqual(frozen["verdict"], "route_unresolved")
+            summary = self._dispatch(
+                paths,
+                repo,
+                sha,
+                contract,
+                runner=lambda *args, **kwargs: self.fail("missing document evidence must refuse before spawn"),
+                readiness=lambda *args, **kwargs: self.fail("missing document evidence must refuse before readiness"),
+            )
+            unit = summary["units"][0]
+            self.assertEqual(unit["status"], "modality_unknown")
+            self.assertIn("hand the document over as extracted_text", unit["reason"])
+            self.assertIn("ocr_output", unit["reason"])
+            # A refused spawn is a failed unit, and the batch says so with its
+            # exit status: a wrapper reading only the status must not learn
+            # "success" from a batch in which nothing was dispatched.
+            self.assertEqual(unit["failure_kind"], "capability_gate")
+            self.assertFalse(unit["process_succeeded"])
+            self.assertEqual(_fanout_dispatch_exit_code(summary), 1)
+            self.assertEqual(summary["failure_recovery"], None) if "failure_recovery" in summary else None
+
+        with TemporaryDirectory() as temporary:
+            paths, repo, sha, contract = self._contract(
+                temporary,
+                capabilities=("input_modality_document",),
+                input_representation="raw_media:document",
+            )
+            contract["units"][0]["handoff"].pop("model_route")
+            summary = self._dispatch(
+                paths,
+                repo,
+                sha,
+                contract,
+                runner=lambda *args, **kwargs: self.fail("a unit with no route must refuse before spawn"),
+                readiness=lambda *args, **kwargs: self.fail("a unit with no route must refuse before readiness"),
+            )
+            unit = summary["units"][0]
+            self.assertEqual(unit["status"], "route_unresolved")
+            self.assertEqual(unit["failure_kind"], "capability_gate")
+            self.assertIn("bind a confirmed-active model route", unit["reason"])
+            self.assertEqual(_fanout_dispatch_exit_code(summary), 1)
+
+        with TemporaryDirectory() as temporary:
+            paths, repo, sha, contract = self._contract(
+                temporary,
+                capabilities=("input_modality_document",),
+                input_representation="raw_media:document",
+            )
+            runner = _agent_runner()
+            summary = self._dispatch(paths, repo, sha, contract, runner=runner)
+            self.assertTrue(summary["units"][0]["process_succeeded"])
+            self.assertEqual(len(runner.spawned), 1)
+
     def test_retargeted_fanout_rechecks_media_capabilities_before_a_second_spawn(self) -> None:
         with TemporaryDirectory() as temporary:
             paths, repo, sha, contract = self._contract(temporary)
@@ -3138,7 +3208,9 @@ class FanoutMediaCapabilityDispatchTests(unittest.TestCase):
 
             recovery = summary["failure_recovery"]["decisions"]
             self.assertEqual(recovery[0]["choice"], "retarget")
-            self.assertEqual(recovery[0]["attempt"]["status"], "modality_unknown")
+            # The retarget drops the frozen model route on purpose, so the
+            # media gate has no route to scope evidence to and says so.
+            self.assertEqual(recovery[0]["attempt"]["status"], "route_unresolved")
             self.assertEqual(len(runner.spawned), 1)
 
 

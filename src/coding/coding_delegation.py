@@ -49,7 +49,12 @@ from .executor_capability_snapshots import (
 )
 from .executor_local_workflow import build_executor_local_workflow
 from .executor_local_workflow_selection import is_workflow
-from .media_handoff_capabilities import build_executor_modality_decision, normalize_input_representation
+from .media_handoff_capabilities import (
+    DECLARED_NOT_GATED_CLAIM_BOUNDARY,
+    DECLARED_NOT_GATED_STATUS,
+    build_executor_modality_decision,
+    normalize_input_representation,
+)
 from .owner_fit import (
     accepted_plan_from_delegation,
     build_owner_fit_report,
@@ -848,6 +853,7 @@ def _build_coding_delegation_payload_native(
         selected_executor=selection.selected_executor_profile,
         recommendation=model_recommendation,
     )
+    gated = False
     for handoff_key in ("executor_handoff", "prompt_handoff", "runtime_handoff"):
         handoff = payload.get(handoff_key)
         if isinstance(handoff, dict):
@@ -863,6 +869,15 @@ def _build_coding_delegation_payload_native(
                 if isinstance(decision_route, dict):
                     decision_route["endpoint_mode"] = modality_route["endpoint_mode"]
             handoff["executor_modality_decision"] = decision
+            gated = True
+    if "input_representation" in payload and not gated:
+        # A declared media input with no handoff to judge it (the owner is
+        # still to be chosen, or the request was retained): say so, so the
+        # declaration is never read as a cleared gate.
+        payload["input_representation_gate"] = {
+            "status": DECLARED_NOT_GATED_STATUS,
+            "claim_boundary": DECLARED_NOT_GATED_CLAIM_BOUNDARY,
+        }
     _attach_request_complexity(
         payload,
         message,
@@ -945,8 +960,12 @@ def _primary_modality_route(
         return None
     provider = str(selected.get("provider", "") or "").strip()
     wire_model = str(selected.get("model_id", "") or "").strip()
-    endpoint_mode = str(selected.get("endpoint_mode", "") or "").strip()
-    if not provider or not wire_model or not endpoint_mode:
+    # A resolved recommendation names the provider and wire model it confirmed
+    # active; it names an endpoint mode only when one was chosen, and an
+    # unnamed one is the provider's default endpoint -- the same reading
+    # `modality_requirements` gives a route with no endpoint mode.
+    endpoint_mode = str(selected.get("endpoint_mode", "") or "").strip() or "default"
+    if not provider or not wire_model:
         return None
     return {
         "executor": selected_executor,

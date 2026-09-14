@@ -103,6 +103,35 @@ class ExitCodeTruthfulnessPolicyTests(unittest.TestCase):
                         "a caller reading only the exit status would be told the work succeeded",
                     )
 
+    def test_a_capability_gate_refusal_is_never_reported_as_success(self) -> None:
+        """A unit the frozen capability evidence refused is re-derived, not restated.
+
+        The row is built by the dispatcher's own refusal builder for every
+        verdict the media gate can return plus the snapshot refusal, so a
+        verdict added to the gate, or a builder that drops the failure
+        signal, fails here rather than in a wrapper's shell.
+        """
+        from omh.coding.fanout_dispatch import _capability_refusal_entry, _capability_refusal_status
+        from omh.coding.media_handoff_capabilities import FAIL_CLOSED_VERDICTS
+
+        refusals = [f"{verdict}: the gate refused" for verdict in FAIL_CLOSED_VERDICTS]
+        refusals.append("executor_capability_snapshot is required by this handoff")
+        unit = {"unit_id": "media", "run_ref": "fanout-media"}
+        for refusal in refusals:
+            entry = _capability_refusal_entry(unit, "codex", [refusal])
+            status = _capability_refusal_status([refusal])
+            self.assertEqual(entry["status"], status)
+            self.assertTrue(entry.get("failure_kind"), f"refusal row for {status} carries no failure signal")
+            summary = {"units": [entry]}
+            for module_stem, function_name in _discovered_mappers():
+                with self.subTest(mapper=f"{module_stem}.{function_name}", status=status):
+                    mapper = _load(module_stem, function_name)
+                    self.assertNotEqual(
+                        mapper(summary),
+                        0,
+                        f"{module_stem}.{function_name} reported success over a unit the {status} gate refused",
+                    )
+
     def test_a_clean_summary_still_maps_to_zero(self) -> None:
         for module_stem, function_name in _discovered_mappers():
             mapper = _load(module_stem, function_name)

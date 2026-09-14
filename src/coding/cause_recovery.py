@@ -107,6 +107,7 @@ CAUSE_AWAITING_INPUT = "awaiting_input"
 CAUSE_AUTH_INVALID = "auth_invalid"
 CAUSE_BINARY_MISSING = "binary_missing"
 CAUSE_TIMEOUT = "timeout"
+CAUSE_CAPABILITY_GATE = "capability_gate"
 CAUSE_CRASH = "crash"
 CAUSE_UNKNOWN = "unknown"
 
@@ -119,6 +120,7 @@ ACTION_RERUN_WITH_CHANGED_CONDITIONS_OR_CHECKPOINT = "rerun_with_changed_conditi
 ACTION_ANSWER_OR_CANCEL = "answer_or_cancel"
 ACTION_REAUTHENTICATE_THEN_REDISPATCH = "reauthenticate_then_redispatch"
 ACTION_INSTALL_BINARY_THEN_REDISPATCH = "install_binary_then_redispatch"
+ACTION_RECORD_CAPABILITY_EVIDENCE_THEN_REDISPATCH = "record_capability_evidence_then_redispatch"
 ACTION_REPORT_OR_CHOOSE_RECOVERY = "report_or_choose_recovery"
 ACTION_REPORT_ONLY = "report_only"
 
@@ -130,6 +132,7 @@ REQUIRE_OBJECTS_PRESENT = "objects_present"
 REQUIRE_CONDITIONS_CHANGED = "conditions_changed"
 REQUIRE_CREDENTIAL_REPAIRED = "credential_repaired"
 REQUIRE_BINARY_PRESENT = "binary_present"
+REQUIRE_CAPABILITY_EVIDENCE_RECORDED = "capability_evidence_recorded"
 
 
 class RecoveryRow(NamedTuple):
@@ -245,6 +248,25 @@ RECOVERY_ROWS: tuple[RecoveryRow, ...] = (
         blocks_new_worker=False,
         resumes_single_unit=True,
         reason="the owner's CLI was not on PATH; install or point at it before re-dispatching",
+    ),
+    # The frozen capability evidence refused the spawn: no snapshot for the
+    # owner, or the media gate (no resolved route, no fresh route-scoped
+    # modality evidence, evidence that says unavailable, or a transformation
+    # nobody observed). Re-running against the same evidence repeats the
+    # refusal; the unit's own `executor_modality_decision` names the one
+    # action that changes it. Another owner with its own evidence may take the
+    # unit, and the retarget path rechecks that evidence before it spawns.
+    RecoveryRow(
+        cause=CAUSE_CAPABILITY_GATE,
+        action=ACTION_RECORD_CAPABILITY_EVIDENCE_THEN_REDISPATCH,
+        requires=(REQUIRE_CAPABILITY_EVIDENCE_RECORDED,),
+        never_rerun=False,
+        blocks_new_worker=False,
+        resumes_single_unit=True,
+        reason=(
+            "the frozen capability evidence refused the spawn; record fresh route-scoped evidence, bind the "
+            "route, or hand the input over as text before re-dispatching"
+        ),
     ),
     # Existing behaviour, mapped through unchanged: a timeout and a crash are
     # already offered report / retarget / hermes / wait, and neither carries a
@@ -545,6 +567,8 @@ def _requirement_met(
         return unit.get("credential_repaired") is True
     if requirement == REQUIRE_BINARY_PRESENT:
         return unit.get("binary_present") is True
+    if requirement == REQUIRE_CAPABILITY_EVIDENCE_RECORDED:
+        return unit.get("capability_evidence_recorded") is True
     return False
 
 

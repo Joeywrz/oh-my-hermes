@@ -181,6 +181,7 @@ _FANOUT_GRAPH_STATUSES = {
     "already_completed",
     "dry_run_planned",
     "capability_snapshot_invalid",
+    "route_unresolved",
     "modality_unknown",
     "modality_unsupported",
     "modality_transformation_unobserved",

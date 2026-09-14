@@ -13,8 +13,8 @@ from ..coding.action_gate import LADDER_ACTION_IDS
 from ..coding.agentic_playbook import maybe_build_agentic_playbook
 from ..coding.agentic_playbook_contract import chat_response_with_agentic_playbook
 from ..coding.executor_local_workflow import validate_executor_local_workflow
-from ..coding.model_discovery import discover_local_models
-from ..coding.model_routing import resolve_model_route
+from ..coding.media_handoff_capabilities import input_representations_from_attachments, merged_input_representation
+from ..coding.hermes_model_recommendation import resolved_hermes_model_recommendation
 from ..coding.routing_observation import (
     render_routing_code_block_text,
     validate_routing_observation,
@@ -23,7 +23,7 @@ from ..coding.status_board import model_label_for
 from ..evidence import status_label
 from .message_gate import build_message_gate, fence_marker_for, message_gate_body
 from .continuity import build_continuity_briefing
-from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_text, extract_source_metadata
+from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_event_attachments, extract_message_text, extract_source_metadata
 from ..system.platform_envelope import build_platform_envelope, platform_thread_key_scope
 from ..system.tracker_content import normalize_tracker_content
 from ..routing.catalog_questions import is_skill_catalog_question as _is_skill_catalog_question
@@ -4691,6 +4691,12 @@ def _build_chat_interaction_payload_uncached(
 ) -> dict[str, object]:
     message = extract_message_text(event_or_message)
     metadata = _source_metadata(event_or_message, source_metadata)
+    # Files the platform attached to the message are declared media inputs
+    # (name and media type only, never bytes); the coding handoff below has
+    # to prove the selected route can take each modality before it dispatches.
+    input_representation = merged_input_representation(
+        input_representations_from_attachments(extract_event_attachments(event_or_message))
+    )
     route_payload = public_chat_route_payload(
         message,
         source=source,
@@ -4828,6 +4834,7 @@ def _build_chat_interaction_payload_uncached(
                 resolved_executor_target,
                 paths,
             ),
+            input_representation=input_representation,
         )
         if paths:
             record_attached_recall_usage(paths, delegation)
@@ -4895,6 +4902,7 @@ def _build_chat_interaction_payload_uncached(
                     executor_resolution=executor_resolution,
                     route_payload=route_payload,
                     paths=paths,
+                    input_representation=input_representation,
                 ),
                 target_notice,
             )
@@ -5003,6 +5011,7 @@ def _attach_coding_owner_handoff(
     executor_resolution: dict[str, object],
     route_payload: dict[str, object],
     paths: OmhPaths | None,
+    input_representation: object = "text_only",
 ) -> dict[str, object]:
     delegation = build_coding_delegation_payload(
         message,
@@ -5035,6 +5044,7 @@ def _attach_coding_owner_handoff(
             resolved_executor_target,
             paths,
         ),
+        input_representation=input_representation,
     )
     if paths:
         record_attached_recall_usage(paths, delegation)
@@ -5067,29 +5077,8 @@ def _resolved_hermes_model_recommendation(
     executor_target: str,
     paths: OmhPaths | None,
 ) -> dict[str, object] | None:
-    if executor_target != "hermes" or paths is None:
-        return None
-    discovery = discover_local_models(paths.hermes_home.parent)
-    observations = discovery.get("observations", [])
-    active_models = [
-        {
-            **observation,
-            "model_alias": str(observation.get("model_id", "")).rsplit("/", 1)[-1],
-            "provider_family": str(observation.get("provider", "")),
-            "compatible_owners": ["hermes"],
-        }
-        for observation in observations
-        if isinstance(observation, dict)
-        and observation.get("status") == "confirmed_active"
-        and observation.get("model_id")
-    ] if isinstance(observations, list) else []
-    route = resolve_model_route(
-        "hermes",
-        role="implementation",
-        active_models=active_models,
-    )
-    recommendation = route.get("recommendation")
-    return dict(recommendation) if isinstance(recommendation, dict) else None
+    # Shared with `omh coding delegate` so both lanes bind the same route.
+    return resolved_hermes_model_recommendation(executor_target, paths)
 
 
 def _attach_executor_choice_context(delegation: dict[str, object], paths: OmhPaths | None) -> None:

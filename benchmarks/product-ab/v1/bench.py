@@ -155,16 +155,22 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if payload["tasks"] else 1
         payload = corpus_lib.load(args.output)
         errors = corpus_lib.verify(args.repository.resolve(), payload)
+        # Reported apart from the digest errors, because it is a different
+        # fact: every digest can re-derive correctly under an interpreter that
+        # would have probed a different corpus. Re-probing here is what would
+        # be unsound, not verifying.
+        drift = corpus_lib.environment_drift(payload)
         emit(
             {
                 "schema_version": lane.CORPUS_SCHEMA,
-                "ok": not errors,
+                "ok": not errors and not drift,
                 "tasks": len(payload["tasks"]),
                 "corpus_digest": payload["corpus_digest"],
                 "errors": errors,
+                "environment_drift": drift,
             }
         )
-        return 0 if not errors else 1
+        return 0 if not errors and not drift else 1
 
     manifest = lane.load_object(args.manifest)
     payload = corpus_lib.load(args.corpus)

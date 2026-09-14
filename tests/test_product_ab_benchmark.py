@@ -651,6 +651,34 @@ class PinnedCorpusTests(unittest.TestCase):
         _skip_without_history(self)
         self.assertEqual(corpus.verify(ROOT, self.payload), [])
 
+    def test_a_different_interpreter_is_drift_not_a_drifted_digest(self) -> None:
+        """Two different facts, reported apart, with different remedies.
+
+        Digests re-derive from git and do not depend on the interpreter, so a
+        3.11 or 3.12 lane can confirm every one of them. What such a lane
+        cannot confirm is the probe's verdicts, because the interpreter decides
+        membership. Folding the second fact into the first made every CI lane
+        report a drifted digest, which is not what had happened.
+        """
+
+        _skip_without_history(self)
+        self.assertEqual(corpus.environment_drift(self.payload), [])
+        pretend = dict(self.payload)
+        selection = dict(pretend["selection"])
+        selection["probe_environment"] = {
+            **dict(selection["probe_environment"]),
+            "python_version": "0.0.0-not-this-one",
+        }
+        pretend["selection"] = selection
+        drift = corpus.environment_drift(pretend)
+        self.assertTrue(drift)
+        self.assertIn("python_version", drift[0])
+        self.assertEqual(
+            corpus.verify(ROOT, pretend),
+            [],
+            "an interpreter disagreeing says nothing about a digest",
+        )
+
 
 class GradingTests(unittest.TestCase):
     def test_a_green_unittest_run_is_green(self) -> None:

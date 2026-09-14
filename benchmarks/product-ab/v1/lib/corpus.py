@@ -1050,6 +1050,33 @@ def load(path: Path) -> dict[str, Any]:
     return payload
 
 
+def environment_drift(payload: Mapping[str, Any]) -> list[str]:
+    """How this interpreter differs from the one that probed the corpus.
+
+    Kept apart from `verify` on purpose. Digests are re-derived from git and do
+    not depend on the interpreter, so a 3.12 checkout can confirm every one of
+    them; what a different interpreter cannot confirm is the PROBE's verdicts,
+    because the interpreter decides membership -- PR-1502 classifies as
+    path-dependent under 3.13.15 and as already-green under 3.14.7.
+
+    Folding this into `verify` made the digest check fail on every CI lane,
+    which run 3.11 and 3.12, and reported it as a drifted digest. That is a
+    different fact with a different remedy, so it gets its own list, its own
+    wording, and its own line in the command's output.
+    """
+
+    recorded = dict((payload.get("selection") or {}).get("probe_environment") or {})
+    if not recorded:
+        return []
+    current = probe_environment(sys.executable)
+    return [
+        f"{field}: this corpus was probed under {recorded.get(field)!r}, "
+        f"this interpreter is {current.get(field)!r}"
+        for field in ("python_version", "python_hash_seed")
+        if str(recorded.get(field)) != str(current.get(field))
+    ]
+
+
 def verify(repository: Path, payload: Mapping[str, Any]) -> list[str]:
     """Re-derive every pinned digest from the local object store."""
 
@@ -1057,18 +1084,7 @@ def verify(repository: Path, payload: Mapping[str, Any]) -> list[str]:
     tasks = list(payload["tasks"])
     if corpus_digest(tasks) != payload.get("corpus_digest"):
         errors.append("corpus_digest does not match the task list")
-    # The interpreter decides membership, so verifying under a different one
-    # is verifying a different corpus. Said out loud rather than silently
-    # producing a corpus that disagrees with the pinned one.
-    recorded = dict((payload.get("selection") or {}).get("probe_environment") or {})
-    if recorded:
-        current = probe_environment(sys.executable)
-        for field in ("python_version", "python_hash_seed"):
-            if str(recorded.get(field)) != str(current.get(field)):
-                errors.append(
-                    f"probe environment differs: {field} was {recorded.get(field)!r} "
-                    f"when this corpus was probed, is {current.get(field)!r} now"
-                )
+
     for task in tasks:
         task_id = str(task["task_id"])
         if lane.text_digest(str(task["task_text"])) != task["task_text_sha256"]:

@@ -87,6 +87,14 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     capture.add_argument("--source-class", choices=tuple(sorted(SOURCE_CLASSES)), default="omh_local", help="Source class; direct capture accepts OMH-local candidates only.")
     capture.add_argument("--principal-context", default=None, metavar="PATH", help="Operator-supplied local memory_principal_context/v1 JSON; not host authentication evidence.")
     capture.add_argument("--audience-principal", action="append", default=[], help="Opaque principal allowed to recall a reviewed shared project/thread record; repeatable.")
+    capture.add_argument(
+        "--unresolved",
+        action="store_true",
+        help=(
+            "Mark the record as an open question: past its review deadline it stays delivered as "
+            "'open · N days unresolved' instead of going stale, until confirm, correct, or retire answers it."
+        ),
+    )
     capture.set_defaults(func=memory.cmd_memory_capture)
 
     review = memory_sub.add_parser("review", help="Return review cards for pending OMH project-memory candidates.")
@@ -107,6 +115,11 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
             "Re-class the record at approval (most usefully durable, which drops the default "
             "90-day review clock); retention and the review deadline are re-derived for the new class."
         ),
+    )
+    approve.add_argument(
+        "--unresolved",
+        action="store_true",
+        help="Approve the record as an open question (staleness.resolution: open, clock starting now); see `capture --unresolved`.",
     )
     approve.set_defaults(func=memory.cmd_memory_approve)
 
@@ -250,6 +263,16 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     confirm.add_argument("--confirmed-by", default="operator", help="Who confirmed the record; stored as bounded metadata.")
     confirm.set_defaults(func=memory.cmd_memory_confirm)
 
+    keep_open = memory_sub.add_parser(
+        "keep-open",
+        help=(
+            "Answer 'still open' for one unresolved record: resets the reminder clock only; "
+            "the record, its deadline, and its state are untouched."
+        ),
+    )
+    keep_open.add_argument("record_id", help="Open record to keep open; refused (not_open) when the record is not marked unresolved.")
+    keep_open.set_defaults(func=memory.cmd_memory_keep_open)
+
     attention = memory_sub.add_parser(
         "attention",
         help="Report how one record's attention tier would change the working context; --apply writes the local tier change.",
@@ -274,7 +297,16 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
 
     retire = memory_sub.add_parser(
         "retire",
-        help="Report expired OMH project-memory records; --apply moves them into the local archive.",
+        help=(
+            "Report expired OMH project-memory records; --apply moves them into the local archive. "
+            "With a record id, retire that one record -- including an open (unresolved) record the operator chose to drop."
+        ),
+    )
+    retire.add_argument(
+        "record_id",
+        nargs="?",
+        default="",
+        help="Only this record: expired records and open records qualify; a live settled record is refused as not_expired.",
     )
     retire.add_argument("--apply", action="store_true", help="Move expired records into .omh/memory/archive/ (default is report-only).")
     retire.add_argument("--window-days", type=int, default=7, help="How many days ahead counts as expiring soon.")

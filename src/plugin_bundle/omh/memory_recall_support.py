@@ -73,9 +73,18 @@ _EXPIRES_SOON_NEXT_ACTION = (
     "re-capture it (`omh memory capture --ttl-days N ...`) or correct it to keep the content, or let it expire."
 )
 
+# An open record is a question, not a fact. Past its review deadline it is
+# still delivered, so the notice is advisory, and every answer is one of the
+# three verbs -- the reminder never resolves anything by itself.
+_UNRESOLVED_OPEN_NEXT_ACTION = (
+    "Answer it: `omh memory confirm <record-id>` (resolved), `omh memory keep-open <record-id>` "
+    "(still open), or `omh memory retire <record-id>` (drop it). Until then it is delivered as open, never as settled."
+)
+
 _ADVISORY_NEXT_ACTIONS = {
     "review_due_soon": _DUE_SOON_NEXT_ACTION,
     "expires_soon": _EXPIRES_SOON_NEXT_ACTION,
+    "unresolved_open": _UNRESOLVED_OPEN_NEXT_ACTION,
 }
 
 _FRESHNESS_REASON_TEXT = {
@@ -88,12 +97,18 @@ _FRESHNESS_REASON_TEXT = {
     "expired_standard": "Its retention deadline passed.",
     "expired_volatile": "Its retention deadline passed.",
     "expired_durable": "Its retention deadline passed.",
+    "unresolved_open": "It is marked unresolved and its review deadline passed; it is delivered as an open question, never read as decided.",
+    "unresolved_expired": "It was marked unresolved and stayed open past the open ceiling, so the question died unanswered; the record is expired.",
     "freshness_unconfirmed": "Its freshness could not be confirmed from stored metadata and local source evidence.",
 }
 
-ADVISORY_FRESHNESS_REASONS = frozenset({"review_due_soon", "expires_soon"})
+ADVISORY_FRESHNESS_REASONS = frozenset({"review_due_soon", "expires_soon", "unresolved_open"})
 
-_MEMORY_CADENCE_MAX = {"due_soon_days": 365}
+# Notice windows and ask cadences are bounded at a year: accepting the
+# 100-year retention ceiling would let one config typo turn a notice into a
+# permanent banner. The open ceiling is a retention bound, so it keeps the
+# retention maximum.
+_MEMORY_CADENCE_MAX = {"due_soon_days": 365, "open_ask_days": 365}
 
 def _cadence_value(policy: dict[str, object], key: str) -> int | None:
     """One validated cadence day-count from a policy mapping, or None."""
@@ -398,6 +413,7 @@ def _empty_recall_pack(
         "freshness_warnings": [],
         "attention": _attention_disclosure([], 0, include_archived=False),
         "record_count": 0,
+        "unresolved_delivered": 0,
         "truncated": False,
         "redaction_policy": "metadata_only",
         "claim_boundary": "Memory recall is disabled or empty; no execution, review, CI, merge, or Hermes internal-memory evidence is produced.",
@@ -412,6 +428,7 @@ def _recall_item(
     attention_tier: str = DEFAULT_MEMORY_ATTENTION_TIER,
 ) -> dict[str, object]:
     evidence = _replay_evaluation(record, evaluation)
+    resolution = str(staleness.get("resolution", "") or "")
     return {
         "record_id": _redacted_metadata_label(record.get("record_id", "")),
         "record_type": _redact_admitted_text(str(record.get("record_type", ""))),
@@ -421,12 +438,30 @@ def _recall_item(
         "source": str(record.get("source", "")),
         "approved_at": _redact_admitted_text(str(record.get("approved_at", ""))),
         "staleness": _redact_nested_metadata(staleness),
+        # The delivery marker every consumer of an open record must show: an
+        # unresolved record is never read as decided, so the item says so
+        # beside its summary rather than only inside the staleness block.
+        "resolution": resolution,
+        "resolution_marker": open_resolution_marker(staleness),
         "score": int(score),
         "attention_tier": attention_tier,
         "derived_from": _string_list(record.get("derived_from", [])),
         "perspective": _perspective_projection(record.get("perspective")),
         **_recall_evidence_fields(evidence),
     }
+
+def open_resolution_marker(staleness: Mapping[str, object]) -> str:
+    """``open · N days unresolved`` for an open record's verdict; "" otherwise.
+
+    One spelling, shared by the recall pack item, the provider's rendered
+    record line, and the operator surfaces, so an open record looks the same
+    everywhere it is delivered.
+    """
+    if str(staleness.get("resolution", "") or "") != "open":
+        return ""
+    days = staleness.get("open_days", 0)
+    days = days if isinstance(days, int) and not isinstance(days, bool) and days >= 0 else 0
+    return f"open · {days} days unresolved"
 
 def _recall_exclusion(
     record: dict[str, Any],
@@ -471,6 +506,11 @@ def _freshness_warnings(
         reason_code = str(entry.get("eligibility_reason", "") or "")
         known_reason = reason_code in _FRESHNESS_REASON_TEXT
         staleness_reason = str(staleness.get("reason", "") or "")
+        if staleness_reason == "unresolved":
+            # The verdict says `open/unresolved`; the pack's advisory
+            # vocabulary names the same fact `unresolved_open`, beside the
+            # blocking `unresolved_expired` it must never be confused with.
+            staleness_reason = "unresolved_open"
         if not known_reason and delivered and staleness_reason in ADVISORY_FRESHNESS_REASONS:
             # A still-fresh record inside a pre-deadline window (review-due or
             # TTL expiry): eligibility has nothing to say about it, so the
@@ -669,6 +709,19 @@ def _record_staleness(
     moved source is ``stale``, an unreadable one is ``unknown``, and neither
     can turn into ``fresh``. Every input is stored metadata plus the caller's
     ``now`` plus locally observable bytes, so the verdict is reproducible.
+
+    The fourth state is ``open``: a record a person marked unresolved
+    (``staleness.resolution == "open"``) whose review deadline has passed.
+    It is not ``stale`` -- nobody claimed it was decided, so there is nothing
+    to re-confirm -- and it is delivered with its age (``open_days``) rather
+    than held back. Only a confirm or a correct writes ``resolved``; no
+    timeout ever promotes an open record to a fact. It still has a ceiling:
+    ``open_expires_at`` (capture plus ``open_max_days``) makes it
+    ``expired/unresolved_expired``, so "open" cannot become "forever". A
+    changed or unreadable source still outranks ``open``, because evidence
+    that moved is not the same as an answer that has not arrived. A record
+    that is not open gets the verdict it always got; ``resolution`` is ""
+    and ``open_days`` is 0 for it.
     """
     now = now if now is not None else datetime.now(timezone.utc)
     ttl = record.get("ttl", {}) if isinstance(record.get("ttl"), dict) else {}
@@ -677,21 +730,30 @@ def _record_staleness(
     stale_after = str(staleness.get("stale_after", ""))
     review_due_at = _earliest_deadline(str(staleness.get("review_due_at", "") or ""), stale_after)
     source_state = _source_evidence_state(record)
+    resolution = _record_resolution(staleness)
+    is_open = resolution == "open"
     fields = {
         "stale_after": stale_after,
         "review_due_at": review_due_at,
         "expires_at": expires_at,
         "source_state": source_state,
+        "resolution": resolution,
+        "open_days": _open_days(staleness, now=now) if is_open else 0,
     }
     if _classify_record_expiry(record, now=now) == "expired":
         return {"state": "expired", "reason": "retention_expired", **fields}
+    open_ceiling = _parse_utc_naive_as_utc(str(staleness.get("open_expires_at", "") or "")) if is_open else None
+    if open_ceiling is not None and open_ceiling <= now:
+        return {"state": "expired", "reason": "unresolved_expired", **fields}
     deadline = _parse_utc(review_due_at)
-    if deadline and deadline <= now:
+    if deadline and deadline <= now and not is_open:
         return {"state": "stale", "reason": "review_due", **fields}
     if source_state == "changed":
         return {"state": "stale", "reason": "source_changed", **fields}
     if source_state == "unreadable":
         return {"state": "unknown", "reason": "source_unreadable", **fields}
+    if deadline and deadline <= now and is_open:
+        return {"state": "open", "reason": "unresolved", **fields}
     # Still fresh and still eligible below here: the record delivers exactly
     # as before. The reason is the advance notice recall packs turn into a
     # warning, so a deadline stops being a surprise discovered only after the
@@ -725,6 +787,24 @@ def _record_staleness(
     if deadline and deadline - now <= timedelta(days=due_soon_days if due_soon_days is not None else _REVIEW_DUE_SOON_DAYS):
         return {"state": "fresh", "reason": "review_due_soon", **fields}
     return {"state": "fresh", "reason": "", **fields}
+
+MEMORY_RESOLUTIONS = ("open", "resolved")
+
+def _record_resolution(staleness: Mapping[str, object]) -> str:
+    """``open`` | ``resolved`` | "" -- only the exact stored spellings count.
+
+    Fail closed: any other value reads as an ordinary record, never as open,
+    so a typo cannot exempt a record from its review deadline.
+    """
+    value = str(staleness.get("resolution", "") or "")
+    return value if value in MEMORY_RESOLUTIONS else ""
+
+def _open_days(staleness: Mapping[str, object], *, now: datetime) -> int:
+    """Whole days since ``open_since``; 0 when absent, unreadable, or future."""
+    since = _parse_utc_naive_as_utc(str(staleness.get("open_since", "") or ""))
+    if since is None or since > now:
+        return 0
+    return int((now - since).total_seconds() // 86400)
 
 def _earliest_deadline(*values: str) -> str:
     """The soonest parseable deadline among equivalent spellings, fail-closed.
@@ -779,10 +859,22 @@ _EPISODE_DEFAULT_TTL_DAYS = 30
 
 _REVIEW_DEFAULT_DAYS = 90
 
+# The open ceiling: an unresolved record is still delivered after its review
+# deadline, but a question nobody answers for a year is not open, it is
+# abandoned. Past capture + open_max_days it expires as `unresolved_expired`.
+_OPEN_MAX_DAYS = 365
+
+# How often the provider may ask about the same open record: once when the
+# review deadline passes, then at most every open_ask_days. "Still open" is
+# an answer that resets this clock; it never changes the record.
+_OPEN_ASK_DAYS = 14
+
 _MEMORY_CADENCE_DEFAULTS = {
     "stale_after_days_default": _REVIEW_DEFAULT_DAYS,
     "episode_ttl_days": _EPISODE_DEFAULT_TTL_DAYS,
     "due_soon_days": _REVIEW_DUE_SOON_DAYS,
+    "open_max_days": _OPEN_MAX_DAYS,
+    "open_ask_days": _OPEN_ASK_DAYS,
 }
 
 def _parse_utc(value: str) -> datetime | None:
@@ -878,6 +970,7 @@ __all__ = [
     "DEFAULT_MEMORY_ATTENTION_TIER",
     "MAX_RETENTION_DAYS",
     "MEMORY_ATTENTION_TIERS",
+    "MEMORY_RESOLUTIONS",
     "PROJECT_MEMORY_RECALL_PACK_SCHEMA_VERSION",
     "_ADMISSION_VERACITY_DEFAULT_PCT",
     "_ADMISSION_VERACITY_WEIGHT_PCT",
@@ -900,6 +993,8 @@ __all__ = [
     "_MEMORY_PINS_LIMIT",
     "_MEMORY_SHORT_ASCII_TOKEN",
     "_MEMORY_SHORT_STOPWORDS",
+    "_OPEN_ASK_DAYS",
+    "_OPEN_MAX_DAYS",
     "_RECALL_RRF_K",
     "_RECALL_RRF_WEIGHTS",
     "_REVIEW_DEFAULT_DAYS",
@@ -922,6 +1017,7 @@ __all__ = [
     "_normalize_evaluator_timestamps",
     "_normalize_scope",
     "_normalize_tags",
+    "_open_days",
     "_parse_utc",
     "_parse_utc_naive_as_utc",
     "_perspective_projection",
@@ -933,6 +1029,7 @@ __all__ = [
     "_recall_query_intent",
     "_record_attention_tier",
     "_record_perspective_matches",
+    "_record_resolution",
     "_record_staleness",
     "_redact_admitted_text",
     "_redact_nested_metadata",
@@ -946,5 +1043,6 @@ __all__ = [
     "_usage_bucket",
     "freshness_reason_detail",
     "normalize_memory_attention_tier",
+    "open_resolution_marker",
     "record_attention_tier",
 ]

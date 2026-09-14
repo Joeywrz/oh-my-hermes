@@ -44,6 +44,11 @@ class MemoryParserTests(unittest.TestCase):
             (["memory", "capture", "summary", "--expires-at", "2027-01-15T09:00:00Z"], "cmd_memory_capture"),
             (["memory", "demote"], "cmd_memory_demote"),
             (["memory", "demote", "--file", "USER.md", "--max", "3", "--stage"], "cmd_memory_demote"),
+            (["memory", "capture", "summary", "--unresolved"], "cmd_memory_capture"),
+            (["memory", "approve", "cand-one", "--unresolved"], "cmd_memory_approve"),
+            (["memory", "keep-open", "record-one"], "cmd_memory_keep_open"),
+            (["memory", "retire", "record-one"], "cmd_memory_retire"),
+            (["memory", "retire", "record-one", "--apply"], "cmd_memory_retire"),
         )
 
         for argv, handler_name in cases:

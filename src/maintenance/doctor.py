@@ -27,7 +27,15 @@ from ..install.plugin_loader_observation import observe_real_loader_registration
 from ..manifest import local_modifications, read_manifest
 from ..paths import OmhPaths
 from ..plugin_bundle.omh.memory_dreaming import read_dreaming_state, read_latest_consolidation
-from ..workflows.memory import scan_project_memory_records
+from ..workflows.memory import (
+    _OPEN_MAX_DAYS,
+    _cadence_value,
+    _record_resolution,
+    _record_staleness,
+    _redacted_metadata_label,
+    read_project_memory_policy,
+    scan_project_memory_records,
+)
 from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
 from ..plugin_observations import (
     PLUGIN_HOST_ACTIVE_OBSERVATION_EVENTS,
@@ -152,6 +160,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
     checks.append(_memory_provider_check(config_text))
     checks.append(_memory_consolidation_check(paths))
     checks.append(_memory_record_readability_check(paths))
+    checks.append(_memory_open_records_check(paths))
     checks.append(
         Check(
             "runtime_context",
@@ -1000,6 +1009,46 @@ def _memory_record_readability_check(paths: OmhPaths) -> Check:
         True,
         f"{len(unreadable)} memory record file(s) are on disk but not admitted by this build ({detail}). "
         "Run `omh memory inventory` for the full ledger; nothing was deleted.",
+        severity="warning",
+        observed=True,
+    )
+
+
+def _memory_open_records_check(paths: OmhPaths) -> Check:
+    """Name the open records that have been unresolved for over half the ceiling.
+
+    An open record is a question a person chose not to settle; it stays
+    delivered and keeps costing attention on purpose. Past half of
+    ``open_max_days`` the question is closer to dying unanswered than to being
+    answered, and that is worth a line here where an operator looks.
+
+    Never a fault. Nothing is broken, and OMH cannot answer the question --
+    only the three verbs can -- so it is a thing to know, not a failure.
+    """
+    records, _unreadable = scan_project_memory_records(paths)
+    ceiling = _cadence_value(read_project_memory_policy(paths), "open_max_days") or _OPEN_MAX_DAYS
+    threshold = ceiling // 2
+    now = datetime.now(UTC)
+    aging: list[tuple[int, str]] = []
+    for record in records:
+        staleness = record.get("staleness") if isinstance(record.get("staleness"), dict) else {}
+        if _record_resolution(staleness) != "open":
+            continue
+        verdict = _record_staleness(record, now=now)
+        days = int(verdict.get("open_days", 0) or 0)
+        if days > threshold:
+            # The same label `omh memory status` prints for the row.
+            aging.append((days, _redacted_metadata_label(record.get("record_id", ""))))
+    if not aging:
+        return Check("memory_open_records", True, f"No unresolved memory record has been open for more than {threshold} days", observed=True)
+    aging.sort(key=lambda item: (-item[0], item[1]))
+    named = ", ".join(f"{record_id} ({days}d)" for days, record_id in aging[:5])
+    return Check(
+        "memory_open_records",
+        True,
+        f"{len(aging)} unresolved memory record(s) have been open for more than {threshold} days "
+        f"(half the {ceiling}-day open ceiling): {named}. "
+        "Answer them: omh memory confirm / keep-open / retire.",
         severity="warning",
         observed=True,
     )

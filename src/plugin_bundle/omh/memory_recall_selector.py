@@ -395,6 +395,13 @@ def select_memory_recall(
                 "eligible": False,
                 "reason_code": "source_changed" if source_state == "changed" else "source_unverifiable",
             }
+        # The open ceiling is NOT folded here: the shared evaluator decides
+        # `unresolved_expired` beside `expired_*` (so recall, `memory status`,
+        # and the bridge agree), and the staleness verdict mirrors it the way
+        # it mirrors the retention classifier. It is terminal exactly like a
+        # retention expiry -- not inspectable through --include-stale, never
+        # resurrected by a confirm -- so the operator sees that a question
+        # died unanswered rather than that a fact aged out.
         if not bool(evaluation["eligible"]):
             # --include-stale is an inspection affordance: it surfaces
             # records whose ONLY problem is unconfirmed freshness -- a passed
@@ -501,6 +508,9 @@ def select_memory_recall(
         "freshness_warnings": _freshness_warnings(included, excluded),
         "attention": _attention_disclosure(included, archived_excluded, include_archived=include_archived),
         "record_count": len(included),
+        # One count per pack, never a banner per record: the cost of carrying
+        # open questions is visible without drowning the records themselves.
+        "unresolved_delivered": sum(1 for item in included if str(item.get("resolution", "")) == "open"),
         "truncated": budget_exhausted,
         "redaction_policy": "metadata_only",
         "claim_boundary": (

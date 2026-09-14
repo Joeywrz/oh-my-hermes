@@ -233,7 +233,7 @@ _SURFACE_EXPOSURES = (
         ("routable", "installable", "playbook", "harness", "workflow_reference", "capability"),
         True,
         "primary_workflow_skill",
-        "Use as an installed Hermes workflow skill when the user asks to review stale, duplicate, or conflicting memory and skill context.",
+        "Use as an installed Hermes workflow skill when the user asks to review stale, duplicate, conflicting, or unresolved (open) memory and skill context.",
     ),
     SurfaceExposure(
         "gateway-intent-card",

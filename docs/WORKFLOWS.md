@@ -7118,7 +7118,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
 - Lifecycle stage: `canonical`
-- Preferred usage: Use as an installed Hermes workflow skill when the user asks to review stale, duplicate, or conflicting memory and skill context.
+- Preferred usage: Use as an installed Hermes workflow skill when the user asks to review stale, duplicate, conflicting, or unresolved (open) memory and skill context.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `memory-sync` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
 - Use when: Use when existing Hermes USER.md, MEMORY.md, or accumulated skill memories need an English-canonical, claim-by-claim review. It prepares native write guidance only; no OMH surface invokes, applies, or observes a native write — a user-approved diff is applied by Hermes's own native memory tool. Do not use for new project or product candidates.

@@ -227,6 +227,39 @@ class MemorySyncSkillTests(unittest.TestCase):
             self.assertIn(anchor, content, anchor)
             self.assertIn(anchor, on_disk, anchor)
 
+    def test_memory_sync_skill_lists_open_records_first_with_the_three_answers(self) -> None:
+        """An open record is the person's own "not settled yet", and a review
+        that starts from the stale/duplicate/conflict pass walks straight past
+        it. The section puts open records first, with the age recall shows and
+        the three answers the reminder offers, and forbids the assistant from
+        picking one; a record nobody answered stays open rather than defaulting
+        to keep-open (#1528)."""
+        content = _template_content("memory-sync")
+        on_disk = Path("skills/omh-memory-sync/SKILL.md").read_text(encoding="utf-8")
+        for anchor in (
+            "## Open Records",
+            "list open records first, before the stale, duplicate, and conflict review",
+            "Open records first (see Open Records below)",
+            "`omh memory status`",
+            "`counts.unresolved`",
+            "`open_records`",
+            "`open · N days unresolved`",
+            "(reason `unresolved`), never `stale`",
+            "`omh memory confirm <record-id>`",
+            "`omh memory keep-open <record-id>`",
+            "`omh memory retire <record-id>`",
+            "never resolve, keep open, or retire on your own judgment",
+            "A record with no answer stays open",
+            "do not default it to keep-open",
+            "The reminder only asks and writes no record",
+        ):
+            self.assertIn(anchor, content, anchor)
+            self.assertIn(anchor, on_disk, anchor)
+        open_section = content.split("## Open Records", 1)[1].split("\n## ", 1)[0]
+        self.assertLess(content.index("## Open Records"), content.index("## Memory Boundaries"))
+        for verb in ("**Resolved**", "**Still open**", "**Drop it**"):
+            self.assertIn(verb, open_section, verb)
+
     def test_memory_sync_skill_context_rail_markers(self) -> None:
         markers = (
             "Workflow Lane",

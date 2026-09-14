@@ -234,7 +234,7 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # page-anchored chunk ledger over a document too large for one read); one new
 # capability section for one new workflow, not per-section padding; warranted
 # growth.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 417015
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 417027
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -857,38 +857,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # names the audit command and keeps config-only, unsupported and ambiguous
 # names from becoming invocation evidence; re-derived from the full-profile
 # skill_context_cost_payload() producer, not from accumulated deltas.
-# 936264 -> 936466: `paper-learning` gained one recovery note pointing at
-# `omh_document_plan` for a paper longer than one `read_file` window. The
-# lane reads it at the moment it decides how to read the document, before
-# the first window is spent, so it belongs in the always-loaded body;
-# warranted growth. Re-derived from the producer after this branch met the
-# #1513 entry above, never by adding the two deltas.
-# 936264 -> 950493: `long-document-reading` is one new installable skill body
-# (the page-count probe, page ranges sized to the read budget, the covered /
-# next / missing chunk ledger, the per-range delegation brief, and the
-# scanned-range decision rule), plus its lane name on the research_and_ops
-# skills' Workflow Lane lines; the measured Hermes limits live in its
-# references file, outside this body; re-derived from the full-profile
-# producer on the rebased tree, not from accumulated deltas; warranted growth.
-# Stacked on the document-plan branch: both bodies land together, so the
-# limit is re-derived once from the producer on the combined tree, never by
-# adding deltas (936466 with the document-plan note, plus the long-document
-# body and the review's verb-bearing trigger phrases -> 950695).
-# 936264 -> 936870: `paper-learning`'s artifact expectations now name the
-# `omh paper plan` / `omh paper progress` commands that write the card and
-# the chunk ledger, and its long-paper recovery note says to resume from
-# `omh paper show` instead of re-reading from the abstract. The old line
-# promised a card "under .omh/paper-learning when a wrapper or CLI records
-# it" while no command wrote there, so nothing was ever recorded; naming the
-# command where the lane reads it is the fix. The store itself lives in
-# `src/workflows/paper_learning.py`, outside this budget; warranted growth,
-# re-derived from the producer after this branch met the #1513 entry
-# above, never by adding the two deltas.
-# Stacked with document-plan and long-document-reading: the three bodies
-# land together, so the limit is re-derived once from the producer on the
-# combined tree (950695 plus paper-learning's command-naming expectations
-# and its resume note -> 951301), never by adding deltas.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 951301
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 953281
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

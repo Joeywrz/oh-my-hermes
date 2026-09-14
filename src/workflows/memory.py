@@ -24,6 +24,10 @@ from ..plugin_bundle.omh.hermes_memory import build_hermes_memory_bridge as _bun
 from ..plugin_bundle.omh.hermes_memory import build_memory_demotion_plan as _bundle_demotion_plan
 from ..plugin_bundle.omh.hermes_memory import classify_record_expiry as _classify_record_expiry
 from ..plugin_bundle.omh.memory_dreaming import consolidation_path as _consolidation_path
+from ..plugin_bundle.omh.memory_open_reminders import (
+    mark_open_reminder_asked as _mark_open_reminder_asked,
+    read_open_reminders as _read_open_reminders,
+)
 from ..plugin_bundle.omh.memory_governance import (
     ADMISSION_STATES,
     MEMORY_GOVERNANCE_POLICY_VERSION,
@@ -75,6 +79,8 @@ from ..plugin_bundle.omh.memory_recall_support import (
     _MEMORY_PINS_LIMIT as _MEMORY_PINS_LIMIT,
     _MEMORY_SHORT_ASCII_TOKEN as _MEMORY_SHORT_ASCII_TOKEN,
     _MEMORY_SHORT_STOPWORDS as _MEMORY_SHORT_STOPWORDS,
+    _OPEN_ASK_DAYS as _OPEN_ASK_DAYS,
+    _OPEN_MAX_DAYS as _OPEN_MAX_DAYS,
     _RECALL_RRF_K as _RECALL_RRF_K,
     _RECALL_RRF_WEIGHTS as _RECALL_RRF_WEIGHTS,
     _REVIEW_DEFAULT_DAYS as _REVIEW_DEFAULT_DAYS,
@@ -97,6 +103,7 @@ from ..plugin_bundle.omh.memory_recall_support import (
     _normalize_evaluator_timestamps as _normalize_evaluator_timestamps,
     _normalize_scope as _normalize_scope,
     _normalize_tags as _normalize_tags,
+    _open_days as _open_days,
     _parse_utc as _parse_utc,
     _parse_utc_naive_as_utc as _parse_utc_naive_as_utc,
     _perspective_projection as _perspective_projection,
@@ -108,6 +115,7 @@ from ..plugin_bundle.omh.memory_recall_support import (
     _recall_query_intent as _recall_query_intent,
     _record_attention_tier as _record_attention_tier,
     _record_perspective_matches as _record_perspective_matches,
+    _record_resolution as _record_resolution,
     _record_staleness as _record_staleness,
     _redact_admitted_text as _redact_admitted_text,
     _redact_nested_metadata as _redact_nested_metadata,
@@ -121,6 +129,7 @@ from ..plugin_bundle.omh.memory_recall_support import (
     _usage_bucket as _usage_bucket,
     freshness_reason_detail as freshness_reason_detail,
     normalize_memory_attention_tier as normalize_memory_attention_tier,
+    open_resolution_marker as open_resolution_marker,
     record_attention_tier as record_attention_tier,
 )
 from ..paths import OmhPaths
@@ -241,6 +250,7 @@ _PROJECT_MEMORY_RECALL_PACK_KEYS = {
     "freshness_warnings",
     "attention",
     "record_count",
+    "unresolved_delivered",
     "truncated",
     "redaction_policy",
     "claim_boundary",
@@ -264,6 +274,8 @@ _PROJECT_MEMORY_RECALL_ITEM_KEYS = {
     "source",
     "approved_at",
     "staleness",
+    "resolution",
+    "resolution_marker",
     "score",
     "ranking",
     "attention_tier",
@@ -362,11 +374,30 @@ _MEMORY_CONFIRMATION_REFUSAL_DETAIL = {
         "eligibility past that gate. Correct or retire the record instead."
     ),
     "no_review_deadline": "It carries no review deadline, so there is nothing to confirm.",
+    "unresolved_expired": (
+        "It was marked unresolved and stayed open past the open ceiling, so the question died unanswered; "
+        "confirmation cannot resurrect it. Retire it (`omh memory retire <record-id>`) or re-capture the answer."
+    ),
 }
 _MEMORY_CONFIRMATION_CLAIM_BOUNDARY = (
     "Confirmation resets one OMH-local review deadline only. It never changes the record's reviewed content, "
     "admission, or immutable review record, and it is not execution, review, CI, merge, or Hermes "
     "internal-memory evidence."
+)
+MEMORY_KEEP_OPEN_SCHEMA_VERSION = "memory_keep_open/v1"
+_MEMORY_KEEP_OPEN_REFUSAL_DETAIL = {
+    "record_not_found": "No approved OMH memory record carries that id, so there is nothing to keep open.",
+    "record_unreadable": "That record file exists but could not be read as JSON, so it cannot be kept open safely.",
+    "unsupported_record_schema": "That file is not a current approved OMH memory record, so keep-open does not apply to it.",
+    "not_open": "The record is not marked unresolved; keep-open is the 'still open' answer and only applies to an open record.",
+    "unresolved_expired": (
+        "It stayed open past the open ceiling, so the question died unanswered and the record is expired; "
+        "'still open' cannot resurrect it. Retire it or re-capture the question."
+    ),
+}
+_MEMORY_KEEP_OPEN_CLAIM_BOUNDARY = (
+    "Keep-open records the 'still open' answer in OMH's local ask ledger only. It never changes the record, its "
+    "deadline, or its state, and it is not execution, review, CI, merge, or Hermes internal-memory evidence."
 )
 # Perspective is honcho's peer paradigm reinterpreted deterministically: an
 # optional (observer, observed) pair naming whose view a record is and which
@@ -736,17 +767,65 @@ def build_hermes_memory_bridge(paths: OmhPaths) -> dict[str, object]:
     return _bundle_memory_bridge(paths.omh_home, paths.hermes_home)
 
 
+_OPEN_RECORDS_STATUS_LIMIT = 20
+
+
+def _open_record_rows(paths: OmhPaths, records: list[dict[str, Any]], *, now: datetime) -> list[dict[str, object]]:
+    """Every open record as one bounded row, oldest ``open_since`` first.
+
+    ``state`` is the freshness verdict (``fresh`` inside the review deadline,
+    ``open`` past it, ``expired`` past the open ceiling), ``open_days`` its
+    age, and ``last_asked_at`` the newest ask in the local ledger -- "" when
+    the provider has not asked yet. The summary is the same bounded,
+    redacted projection a recall pack carries.
+    """
+    ledger = _read_open_reminders(paths.omh_home)
+    rows: list[tuple[str, str, dict[str, object]]] = []
+    for record in records:
+        staleness = record.get("staleness") if isinstance(record.get("staleness"), dict) else {}
+        if _record_resolution(staleness) != "open":
+            continue
+        verdict = _record_staleness(record, now=now)
+        record_id = _redacted_metadata_label(record.get("record_id", ""))
+        asked = ledger.get(str(record.get("record_id", "")), {})
+        rows.append(
+            (
+                str(staleness.get("open_since", "") or ""),
+                record_id,
+                {
+                    "record_id": record_id,
+                    "summary": _redact_admitted_text(str(record.get("summary", "")))[:500],
+                    "open_days": int(verdict.get("open_days", 0) or 0),
+                    "open_since": _redact_admitted_text(str(staleness.get("open_since", "") or "")),
+                    "open_expires_at": _redact_admitted_text(str(staleness.get("open_expires_at", "") or "")),
+                    "review_due_at": str(verdict.get("review_due_at", "") or ""),
+                    "state": str(verdict.get("state", "")),
+                    "last_asked_at": str(asked.get("asked_at", "") or ""),
+                },
+            )
+        )
+    rows.sort(key=lambda item: (item[0], item[1]))
+    return [row for _since, _record_id, row in rows]
+
+
 def build_project_memory_status(paths: OmhPaths) -> dict[str, object]:
     candidates = _read_project_memory_candidates(paths)
     records, unreadable_records = scan_project_memory_records(paths)
     reviews = _read_project_memory_reviews(paths)
     now = datetime.now(timezone.utc)
     evaluations = [_evaluate_memory_artifact(record, paths=paths, now=now, review_resolver=_project_memory_review_resolver(paths)) for record in records]
-    expired_records = sum(1 for evaluation in evaluations if str(evaluation["reason_code"]).startswith("expired_"))
+    # `unresolved_expired` is the evaluator's other expiry -- a question that
+    # died past its open ceiling -- and counts here exactly like `expired_*`.
+    expired_records = sum(
+        1
+        for evaluation in evaluations
+        if str(evaluation["reason_code"]).startswith("expired_") or str(evaluation["reason_code"]) == "unresolved_expired"
+    )
     candidate_status_counts: dict[str, int] = {}
     for candidate in candidates:
         status = _redact_admitted_text(str(candidate.get("status", "unknown")))
         candidate_status_counts[status] = candidate_status_counts.get(status, 0) + 1
+    open_records = _open_record_rows(paths, records, now=now)
     return {
         "schema_version": PROJECT_MEMORY_STATUS_SCHEMA_VERSION,
         "policy": read_project_memory_policy(paths),
@@ -775,8 +854,14 @@ def build_project_memory_status(paths: OmhPaths) -> dict[str, object]:
             "unreadable_records": len(unreadable_records),
             "review_records": len(reviews),
             "candidate_statuses": candidate_status_counts,
+            # Records a person marked unresolved and nobody has answered yet.
+            # They keep costing attention until confirm, correct, or retire.
+            "unresolved": len(open_records),
         },
         "unreadable_records": unreadable_records,
+        # Oldest first, bounded: the list a curation pass reads to ask the
+        # three questions (resolved / still open / drop it) per record.
+        "open_records": open_records[:_OPEN_RECORDS_STATUS_LIMIT],
         "hermes_memory": build_hermes_memory_bridge(paths),
         "redaction_policy": "metadata_only",
         "claim_boundary": "Project memory status is prepared local context only; it is not execution, review, CI, merge, or Hermes internal-memory evidence.",
@@ -806,6 +891,7 @@ def capture_project_memory_candidate(
     principal_context: dict[str, object] | None = None,
     audience_principals: list[str] | tuple[str, ...] = (),
     executor_perspective: str = "hermes",
+    unresolved: bool = False,
 ) -> dict[str, object]:
     policy = read_project_memory_policy(paths)
     if not bool(policy.get("capture_enabled", True)):
@@ -911,6 +997,8 @@ def capture_project_memory_candidate(
         perspective=_normalize_perspective(observer, observed),
         default_stale_after_days=_cadence_value(policy, "stale_after_days_default"),
         episode_ttl_days=_cadence_value(policy, "episode_ttl_days"),
+        unresolved=bool(unresolved),
+        open_max_days=_cadence_value(policy, "open_max_days"),
     )
     if parsed_principal is not None and (scope_kind == "user" or audience_principals):
         candidate["schema_version"] = "project_memory_candidate/v2"
@@ -1081,6 +1169,17 @@ def _project_memory_review_card_projection(candidate: dict[str, Any]) -> dict[st
             if isinstance(candidate.get("time_sensitivity"), dict)
             else {}
         ),
+        # A reviewer must see that approval mints an open question, not a
+        # fact -- and the ceiling it will expire under -- before deciding.
+        **(
+            {
+                "unresolved": True,
+                "review_due_at": str(_candidate_staleness(candidate).get("review_due_at", "") or ""),
+                "open_expires_at": str(_candidate_staleness(candidate).get("open_expires_at", "") or ""),
+            }
+            if candidate.get("unresolved") is True
+            else {}
+        ),
         "safety": safety,
         **({"identity": candidate["identity"]} if isinstance(candidate.get("identity"), dict) else {}),
     }
@@ -1158,6 +1257,7 @@ def approve_project_memory_candidate(
     retention_class: str | None = None,
     expected_revision: str = "",
     reviewer_principal: str | None = None,
+    unresolved: bool = False,
 ) -> dict[str, object]:
     reviewer_safety = classify_memory_admission(
         "\n".join((str(approved_by or ""), str(retention_class or "")))
@@ -1199,6 +1299,7 @@ def approve_project_memory_candidate(
         approved_at = utc_now()
         review_id = f"review_{candidate_id}"
         admission_state = "approved_auto_safe" if approved_by == "auto-safe" else "approved_manual"
+        policy = read_project_memory_policy(paths)
         record = _record_from_candidate(
             candidate,
             approved_by=approved_by,
@@ -1206,8 +1307,10 @@ def approve_project_memory_candidate(
             review_id=review_id,
             admission_state=admission_state,
             retention_class=retention_class,
-            default_stale_after_days=_cadence_value(read_project_memory_policy(paths), "stale_after_days_default"),
+            default_stale_after_days=_cadence_value(policy, "stale_after_days_default"),
             reviewer_principal=reviewer_principal,
+            unresolved=bool(unresolved),
+            open_max_days=_cadence_value(policy, "open_max_days"),
         )
         review = _project_memory_review_record(record, review_id=review_id, reviewer=approved_by, decision=admission_state)
         _write_project_memory_record(paths, record)
@@ -2048,16 +2151,30 @@ def confirm_project_memory_record(
         staleness = _record_staleness(record, now=moment)
         state = str(staleness.get("state", ""))
         if state == "expired":
-            return _refused_confirmation(normalized_id, "retention_expired")
+            # A question that stayed open past its ceiling died unanswered;
+            # the refusal says so rather than calling it a fact that aged out.
+            return _refused_confirmation(
+                normalized_id,
+                "unresolved_expired" if str(staleness.get("reason", "")) == "unresolved_expired" else "retention_expired",
+            )
         if str(staleness.get("source_state", "")) in {"changed", "unreadable"}:
             return _refused_confirmation(normalized_id, "source_requires_correction")
         previous_due = str(staleness.get("review_due_at", "") or "")
-        if not previous_due:
+        was_open = str(staleness.get("resolution", "")) == "open"
+        if not previous_due and not was_open:
             return _refused_confirmation(normalized_id, "no_review_deadline")
         cadence_reset = False
         if absolute_deadline:
             new_deadline = absolute_deadline
             days = None
+        elif not previous_due and days is None:
+            # An open record with no deadline -- restored from the archive, or
+            # written before open records always minted one -- can still be
+            # answered "resolved"; that is the whole point of confirm on an
+            # open record. Resolving mints no clock nobody asked for: the
+            # record becomes an ordinary deadline-less record, and an
+            # explicit --stale-after / --stale-after-days still sets one.
+            new_deadline = ""
         else:
             if days is None:
                 # No explicit cadence: honour the one stored on the record
@@ -2076,17 +2193,24 @@ def confirm_project_memory_record(
             new_deadline = _days_after(stamp, days)
         revalidation = record.get("revalidation") if isinstance(record.get("revalidation"), dict) else {}
         updated_revalidation = {
-            **revalidation,
-            "deadline": new_deadline,
+            **{key: value for key, value in revalidation.items() if key != "deadline"},
+            **({"deadline": new_deadline} if new_deadline else {}),
             "confirmed_at": stamp,
             "confirmed_by": actor,
         }
+        stored_staleness = record.get("staleness") if isinstance(record.get("staleness"), dict) else {}
         _write_project_memory_record(
             paths,
             {
                 **record,
                 "revalidation": updated_revalidation,
-                "staleness": {**_staleness_projection(updated_revalidation), "stale_after_days": days},
+                "staleness": {
+                    **_staleness_projection(updated_revalidation),
+                    "stale_after_days": days,
+                    # Confirming an open record IS the answer "resolved": the
+                    # one of two writers (with correct) that may clear open.
+                    **_resolved_staleness_fields(stored_staleness, resolved_at=stamp),
+                },
                 "updated_at": stamp,
             },
         )
@@ -2099,6 +2223,7 @@ def confirm_project_memory_record(
         "applied": True,
         "reason_code": "confirmed",
         "was_stale": state == "stale",
+        "was_open": was_open,
         "shortened": shortened,
         "cadence_reset": cadence_reset,
         "previous_review_due_at": previous_due,
@@ -2108,7 +2233,12 @@ def confirm_project_memory_record(
         "confirmed_by": actor,
         "redaction_policy": "metadata_only",
         "next_action": (
-            f"The record recalls normally until {new_deadline}; confirm, correct, or retire it again by then."
+            (
+                f"The record recalls normally until {new_deadline}; confirm, correct, or retire it again by then."
+                if new_deadline
+                else "The record carries no review deadline, so it recalls as a settled record until corrected or retired."
+            )
+            + (" It was marked unresolved; this confirmation resolved it, so it now reads as settled." if was_open else "")
             + (f" Note: this moved the deadline earlier than {previous_due}." if shortened else "")
             + (
                 " Note: the record had no day-count cadence (an absolute or legacy deadline); this confirm"
@@ -2145,6 +2275,7 @@ def confirm_due_project_memory_records(
     moment = _parse_utc(_attention_stamp(now)) or datetime.now(timezone.utc)
     due: list[str] = []
     expired_count = 0
+    open_count = 0
     for record in _read_project_memory_records(paths):
         verdict = _record_staleness(record, now=moment)
         if verdict.get("reason") == "review_due":
@@ -2155,6 +2286,12 @@ def confirm_due_project_memory_records(
             # reads as "everything is handled" over a store that still holds
             # dead records. The count keeps the report honest.
             expired_count += 1
+        elif verdict.get("state") == "open":
+            # An open record past its deadline is a question, and a batch
+            # re-bless must not answer questions nobody read: each one is
+            # confirmed, kept open, or retired on its own. Counted, so the
+            # batch cannot read as "everything is handled".
+            open_count += 1
     due.sort()
     confirmed: list[dict[str, object]] = []
     skipped: list[dict[str, object]] = []
@@ -2195,10 +2332,16 @@ def confirm_due_project_memory_records(
     )
     if expired_count:
         next_action += f" {expired_count} expired record(s) were not touched; expiry needs `omh memory retire`, not confirmation."
+    if open_count:
+        next_action += (
+            f" {open_count} unresolved record(s) were not touched; an open question is answered one at a time"
+            " (`omh memory confirm <id>` / `keep-open <id>` / `retire <id>`), never by a batch."
+        )
     return {
         "schema_version": MEMORY_CONFIRMATION_BATCH_SCHEMA_VERSION,
         "due_count": len(due),
         "expired_count": expired_count,
+        "open_count": open_count,
         "confirmed": confirmed,
         "skipped": skipped,
         "confirmed_count": len(confirmed),
@@ -2220,6 +2363,82 @@ def _refused_confirmation(record_id: str, reason_code: str) -> dict[str, object]
         "redaction_policy": "metadata_only",
         "next_action": f"Inspect the record with `omh memory inspect {record_id}`; nothing was changed.",
         "claim_boundary": _MEMORY_CONFIRMATION_CLAIM_BOUNDARY,
+    }
+
+
+def keep_memory_record_open(
+    paths: OmhPaths,
+    record_id: str,
+    *,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """The "still open" answer to a reminder: reset the ask clock, touch nothing else.
+
+    Three answers exist for an open record. `confirm` says it is resolved,
+    `retire` drops it, and this one says the question is still open -- so the
+    provider stops asking for another ``open_ask_days`` and the record stays
+    exactly as it was: same state, same deadline, same ceiling. Only the
+    local ask ledger is written. That is the boundary the reminder promises
+    -- it can never promote or retire a record -- and keep-open is its
+    mirror image on the answering side.
+
+    Refusals fail closed and name why: a record that is not open has no
+    clock to reset, and a question that already died past its ceiling
+    cannot be kept open; it needs `omh memory retire`.
+    """
+    normalized_id = str(record_id).strip()
+    if not _SAFE_REF.match(normalized_id):
+        raise ValueError(f"unsafe memory record id: {record_id!r}")
+    stamp = _attention_stamp(now)
+    moment = _parse_utc(stamp) or datetime.now(timezone.utc)
+    record, error = read_json_object_result(_memory_record_path(paths, normalized_id))
+    if error:
+        return _refused_keep_open(normalized_id, "record_unreadable")
+    if not isinstance(record, dict) or str(record.get("record_id", "")) != normalized_id:
+        return _refused_keep_open(normalized_id, "record_not_found")
+    if record.get("schema_version") not in {PROJECT_MEMORY_RECORD_SCHEMA_VERSION, PRINCIPAL_PROJECT_MEMORY_RECORD_SCHEMA_VERSION}:
+        return _refused_keep_open(normalized_id, "unsupported_record_schema")
+    staleness = record.get("staleness") if isinstance(record.get("staleness"), dict) else {}
+    if _record_resolution(staleness) != "open":
+        return _refused_keep_open(normalized_id, "not_open")
+    verdict = _record_staleness(record, now=moment)
+    if str(verdict.get("reason", "")) == "unresolved_expired":
+        return _refused_keep_open(normalized_id, "unresolved_expired")
+    entry = _mark_open_reminder_asked(paths.omh_home, normalized_id, asked_at=stamp)
+    ask_days = _cadence_value(read_project_memory_policy(paths), "open_ask_days") or _OPEN_ASK_DAYS
+    next_ask = _days_after(stamp, ask_days)
+    return {
+        "schema_version": MEMORY_KEEP_OPEN_SCHEMA_VERSION,
+        "record_id": normalized_id,
+        "applied": True,
+        "reason_code": "kept_open",
+        "state": str(verdict.get("state", "")),
+        "open_days": int(verdict.get("open_days", 0) or 0),
+        "open_since": str(staleness.get("open_since", "") or ""),
+        "open_expires_at": str(staleness.get("open_expires_at", "") or ""),
+        "review_due_at": str(verdict.get("review_due_at", "") or ""),
+        "asked_at": stamp,
+        "asked_count": int(entry.get("asked_count", 0) or 0),
+        "next_ask_after": next_ask,
+        "redaction_policy": "metadata_only",
+        "next_action": (
+            f"The record stays open and delivered as unresolved; OMH will not ask about it again before {next_ask}. "
+            "Answer it for good with `omh memory confirm <record-id>` (resolved) or `omh memory retire <record-id>` (drop it)."
+        ),
+        "claim_boundary": _MEMORY_KEEP_OPEN_CLAIM_BOUNDARY,
+    }
+
+
+def _refused_keep_open(record_id: str, reason_code: str) -> dict[str, object]:
+    return {
+        "schema_version": MEMORY_KEEP_OPEN_SCHEMA_VERSION,
+        "record_id": record_id,
+        "applied": False,
+        "reason_code": reason_code,
+        "detail": _MEMORY_KEEP_OPEN_REFUSAL_DETAIL[reason_code],
+        "redaction_policy": "metadata_only",
+        "next_action": f"Inspect the record with `omh memory inspect {record_id}`; nothing was changed.",
+        "claim_boundary": _MEMORY_KEEP_OPEN_CLAIM_BOUNDARY,
     }
 
 
@@ -2478,12 +2697,18 @@ def _retirements_journal_path(paths: OmhPaths) -> Path:
     return _memory_archive_dir(paths) / "retirements.jsonl"
 
 
-def _append_retirement_journal(paths: OmhPaths, record_id: str, retired_at: str, expires_at: str) -> dict[str, object]:
+def _append_retirement_journal(
+    paths: OmhPaths, record_id: str, retired_at: str, expires_at: str, *, reason: str = ""
+) -> dict[str, object]:
     entry = {
         "schema_version": RETIREMENT_JOURNAL_SCHEMA_VERSION,
         "record_id": record_id,
         "retired_at": retired_at,
         "expires_at": expires_at,
+        # Why it was archived: a fact that aged out (`retention_expired`), a
+        # question that died unanswered (`unresolved_expired`), or a question
+        # the operator dropped on purpose (`unresolved_dropped`).
+        **({"reason": reason} if reason else {}),
         "redaction_policy": "metadata_only",
         "claim_boundary": _RETIREMENT_JOURNAL_CLAIM_BOUNDARY,
     }
@@ -2574,6 +2799,7 @@ def apply_memory_retirement(
     *,
     now: datetime | None = None,
     window_days: int = 7,
+    record_id: str | None = None,
 ) -> dict[str, object]:
     """Move expired records into the archive. The only mover in the store.
 
@@ -2590,7 +2816,7 @@ def apply_memory_retirement(
     records_dir = _memory_records_dir(paths)
     with file_lock(paths.memory_index_path, private=True):
         reconciled = _reconcile_retirement_archive(paths)
-        report = build_memory_retirement(paths, now=now, window_days=window_days)
+        report = build_memory_retirement(paths, now=now, window_days=window_days, record_id=record_id)
         moved: list[dict[str, object]] = []
         skipped = list(report["skipped"])
         for row in report["expired"]:
@@ -2605,7 +2831,7 @@ def apply_memory_retirement(
                 continue
             os.replace(source, destination)
             os.chmod(destination, 0o600)
-            _append_retirement_journal(paths, str(row["record_id"]), retired_at, str(row["expires_at"]))
+            _append_retirement_journal(paths, str(row["record_id"]), retired_at, str(row["expires_at"]), reason=str(row.get("reason", "")))
             _mark_candidate_retired(paths, str(row["record_id"]))
             moved.append({**row, "archived_as": destination.name, "retired_at": retired_at})
         _write_memory_index_unlocked(paths)
@@ -2633,6 +2859,7 @@ def build_memory_retirement(
     *,
     now: datetime | None = None,
     window_days: int = 7,
+    record_id: str | None = None,
 ) -> dict[str, object]:
     """Which approved records are past or near their deadline. Report only.
 
@@ -2643,12 +2870,25 @@ def build_memory_retirement(
     never the run.
 
     Fail-closed: only canonical records (right schema, approved, safe
-    ``record_id`` matching the filename) are classified, and only the
-    classifier's ``expired`` verdict can ever nominate a move. A missing or
-    empty TTL is a healthy record that never expires; a present-but-unreadable
-    one is surfaced as ``malformed_expires_at`` and left alone.
+    ``record_id`` matching the filename) are classified, and only two
+    verdicts can nominate a move: the classifier's ``expired`` (reason
+    ``retention_expired``) and the freshness verdict's ``unresolved_expired``
+    -- an open record that stayed open past ``open_max_days``, named as a
+    question that died unanswered rather than a fact that aged out. A
+    missing or empty TTL is a healthy record that never expires; a
+    present-but-unreadable one is surfaced as ``malformed_expires_at`` and
+    left alone.
+
+    With ``record_id`` the scan narrows to that one record and gains the
+    third answer to a reminder: an open record that is not yet expired is
+    nominated as ``unresolved_dropped`` -- the operator chose to drop the
+    question -- while a settled, unexpired record is refused as
+    ``not_expired``; retire never quietly archives a live fact.
     """
     now = now if now is not None else datetime.now(timezone.utc)
+    target = str(record_id or "").strip()
+    if target and (not _SAFE_REF.match(target) or contains_credential_like_material(target)):
+        raise ValueError(f"unsafe memory record id: {record_id!r}")
     records_dir = _memory_records_dir(paths)
     recall_usage = read_recall_usage(paths)
     pinned_ids = set(read_memory_pins(paths))
@@ -2656,6 +2896,10 @@ def build_memory_retirement(
     expiring_soon: list[dict[str, object]] = []
     skipped: list[dict[str, object]] = []
     candidates = sorted(records_dir.glob("*.json")) if records_dir.exists() else []
+    if target:
+        candidates = [path for path in candidates if path.name == f"{target}.json"]
+        if not candidates:
+            skipped.append({"path_name": f"{target}.json", "reason": "record_not_found"})
     for path in candidates:
         safe_path_name = _redacted_metadata_label(path.name)
         if path.is_symlink() or not path.is_file():
@@ -2684,6 +2928,8 @@ def build_memory_retirement(
             continue
         state = _classify_record_expiry(data, now=now, window_days=window_days)
         ttl = data.get("ttl", {}) if isinstance(data.get("ttl"), dict) else {}
+        staleness = data.get("staleness", {}) if isinstance(data.get("staleness"), dict) else {}
+        verdict = _record_staleness(data, now=now)
         row = {
             "record_id": record_id,
             "expires_at": str(ttl.get("expires_at", "") or ""),
@@ -2695,7 +2941,13 @@ def build_memory_retirement(
             "pinned": record_id in pinned_ids,
         }
         if state == "expired":
-            expired.append(row)
+            expired.append({**row, "reason": "retention_expired"})
+        elif str(verdict.get("reason", "")) == "unresolved_expired":
+            expired.append({**row, "expires_at": str(staleness.get("open_expires_at", "") or ""), "reason": "unresolved_expired"})
+        elif target and str(verdict.get("resolution", "")) == "open":
+            expired.append({**row, "expires_at": str(staleness.get("open_expires_at", "") or ""), "reason": "unresolved_dropped"})
+        elif target and state != "malformed":
+            skipped.append({"path_name": safe_path_name, "reason": "not_expired"})
         elif state == "expiring":
             expiring_soon.append(row)
         elif state == "malformed":
@@ -2704,6 +2956,7 @@ def build_memory_retirement(
         "schema_version": RETIREMENT_REPORT_SCHEMA_VERSION,
         "applied": False,
         "window_days": window_days,
+        "target_record_id": target,
         "expired": expired,
         "expiring_soon": expiring_soon,
         "skipped": skipped,
@@ -3043,6 +3296,8 @@ def _build_project_memory_candidate(
     episode_ttl_days: int | None = None,
     stale_after_at: str = "",
     expires_at_value: str = "",
+    unresolved: bool = False,
+    open_max_days: int | None = None,
 ) -> dict[str, object]:
     normalized_type = _normalize_record_type(record_type)
     scope = _scope_for_project_memory(scope_kind, scope_ref)
@@ -3084,6 +3339,18 @@ def _build_project_memory_candidate(
             ),
             "cadence_source": "explicit" if stale_after_days is not None else "default",
         }
+    if unresolved:
+        # The open clock starts at capture: the question has been open since
+        # the moment it was written down, not since a reviewer got to it.
+        staleness = {**staleness, **_open_staleness_fields(now, retention_class=retention_class, open_max_days=open_max_days)}
+        if not str(staleness.get("stale_after", "") or ""):
+            # "Unresolved" means "needs an answer by then". A durable record
+            # or an episode mints no review deadline on its own, and an open
+            # record with no deadline could never reach the `open` verdict,
+            # never be asked about, and (before confirm learned better) never
+            # be answered. So an open record always carries one: the default
+            # cadence, marked default, shown on the card.
+            staleness = {**staleness, **_open_review_deadline(now, default_days=default_stale_after_days), "cadence_source": "default"}
     candidate_id = "cand_" + os.urandom(8).hex()
     status = "blocked_review_required" if safety["status"] == "blocked" else "pending_review"
     # Digest the ref exactly as it will be stored, not as it was passed:
@@ -3105,6 +3372,7 @@ def _build_project_memory_candidate(
         "created_at": now,
         "ttl": ttl,
         "staleness": staleness,
+        **({"unresolved": True} if unresolved else {}),
         "retention_class": str(retention_class),
         "derived_from": [str(ref) for ref in derived_from],
         **({"perspective": dict(perspective)} if perspective else {}),
@@ -3129,6 +3397,8 @@ def _record_from_candidate(
     retention_class: str | None = None,
     default_stale_after_days: int | None = None,
     reviewer_principal: str | None = None,
+    unresolved: bool = False,
+    open_max_days: int | None = None,
 ) -> dict[str, object]:
     if admission_state not in ADMISSION_STATES:
         raise ValueError(f"unsupported memory admission state: {admission_state}")
@@ -3207,6 +3477,30 @@ def _record_from_candidate(
             )
             revalidation = {"deadline": str(refreshed["stale_after"])} if refreshed["stale_after"] else {}
             staleness_days = refreshed["stale_after_days"]
+    # The open marker a person set -- at capture (the candidate's clock
+    # carries over) or here at approval (the approval clock starts it). Only
+    # confirm or correct ever writes `resolved`.
+    open_fields = _record_open_fields(
+        candidate,
+        approved_at=approved_at,
+        unresolved=unresolved,
+        retention_class=requested_class,
+        open_max_days=open_max_days,
+    )
+    if open_fields and not revalidation:
+        # An open record always carries a review deadline ("needs an answer
+        # by then"): a durable re-class dropped the one the card showed, or
+        # `approve --unresolved` landed on a candidate that minted none. Keep
+        # the candidate's own deadline when it has one -- approval must not
+        # move a date the reviewer saw -- else start the default cadence now.
+        carried = _candidate_revalidation(candidate)
+        if carried:
+            revalidation = carried
+            staleness_days = _candidate_stale_after_days(candidate)
+        else:
+            minted = _open_review_deadline(approved_at, default_days=default_stale_after_days)
+            revalidation = {"deadline": str(minted["stale_after"])}
+            staleness_days = minted["stale_after_days"]
     identity = candidate.get("identity") if isinstance(candidate.get("identity"), dict) else None
     if identity is not None:
         reviewer = {"principal": reviewer_principal, "review_ref": review_id}
@@ -3255,6 +3549,7 @@ def _record_from_candidate(
         "staleness": {
             **_staleness_projection(revalidation),
             "stale_after_days": staleness_days,
+            **open_fields,
         },
         # Every approved record states its tier explicitly. An implicit
         # default would make "this record is active" and "nobody ever set a
@@ -3322,6 +3617,84 @@ def _candidate_revalidation(candidate: dict[str, Any]) -> dict[str, object]:
     staleness = candidate.get("staleness")
     deadline = staleness.get("stale_after") if isinstance(staleness, dict) else ""
     return {"deadline": str(deadline)} if deadline else {}
+
+
+def _candidate_staleness(candidate: dict[str, Any]) -> dict[str, object]:
+    staleness = candidate.get("staleness")
+    return dict(staleness) if isinstance(staleness, dict) else {}
+
+
+def _open_staleness_fields(open_since: str, *, retention_class: str, open_max_days: int | None) -> dict[str, object]:
+    """The marker an unresolved record carries: ``open`` since when, and until when.
+
+    ``open_expires_at`` is the ceiling that keeps "open" from becoming
+    "forever": ``open_since`` plus ``open_max_days`` (policy tunable, default
+    a year). A durable record has no ceiling, the class exists to say it does
+    not expire; volatile and episode TTLs still apply unchanged on top.
+    """
+    fields: dict[str, object] = {"resolution": "open", "open_since": str(open_since)}
+    if retention_class != "durable":
+        fields["open_expires_at"] = _days_after(str(open_since), open_max_days if open_max_days is not None else _OPEN_MAX_DAYS)
+    return fields
+
+
+def _open_review_deadline(open_since: str, *, default_days: int | None) -> dict[str, object]:
+    """The review deadline every open record carries: the default cadence from ``open_since``.
+
+    An open record with no deadline would never reach the ``open`` verdict
+    and never be asked about, so "unresolved" always means "needs an answer
+    by then" -- including for durable records and episodes, which mint no
+    deadline of their own. Same shape as ``_staleness_metadata``.
+    """
+    days = default_days if default_days is not None else _REVIEW_DEFAULT_DAYS
+    deadline = _days_after(str(open_since), days)
+    return {"stale_after_days": days, "stale_after": deadline, "review_due_at": deadline}
+
+
+def _record_open_fields(
+    candidate: dict[str, Any],
+    *,
+    approved_at: str,
+    unresolved: bool,
+    retention_class: str,
+    open_max_days: int | None,
+) -> dict[str, object]:
+    """Open marker for a record minted from ``candidate``; {} for an ordinary one.
+
+    An ``--unresolved`` approval starts the clock now. A candidate captured
+    ``--unresolved`` carries its own ``open_since`` and ceiling over, the
+    same rule as the TTL carry-over: approval must not silently move a date
+    the reviewer saw on the card. A durable class drops the ceiling either
+    way, and a candidate ceiling is re-derived only when it is absent (a
+    candidate re-classed out of durable).
+    """
+    candidate_staleness = _candidate_staleness(candidate)
+    if unresolved:
+        return _open_staleness_fields(approved_at, retention_class=retention_class, open_max_days=open_max_days)
+    if _record_resolution(candidate_staleness) != "open":
+        return {}
+    open_since = str(candidate_staleness.get("open_since", "") or candidate.get("created_at", "") or approved_at)
+    fields = _open_staleness_fields(open_since, retention_class=retention_class, open_max_days=open_max_days)
+    carried = str(candidate_staleness.get("open_expires_at", "") or "")
+    if retention_class != "durable" and carried:
+        fields["open_expires_at"] = carried
+    return fields
+
+
+def _resolved_staleness_fields(staleness: dict[str, Any], *, resolved_at: str) -> dict[str, object]:
+    """Carry an open/resolved marker through a rewrite, answering an open one.
+
+    Confirm and correct are the only two writers of ``resolved``. The
+    ceiling is dropped with the answer -- a resolved record is an ordinary
+    fact again, bounded by its review deadline and TTL like any other -- and
+    ``open_since`` stays as the record of how long the question was open.
+    """
+    resolution = _record_resolution(staleness)
+    if not resolution:
+        return {}
+    fields: dict[str, object] = {"resolution": "resolved", "open_since": str(staleness.get("open_since", "") or "")}
+    fields["resolved_at"] = str(resolved_at) if resolution == "open" else str(staleness.get("resolved_at", "") or resolved_at)
+    return fields
 
 
 def _ttl_projection(retention: dict[str, object]) -> dict[str, object]:

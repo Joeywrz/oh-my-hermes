@@ -1969,10 +1969,13 @@ class RetirementApplyTests(unittest.TestCase):
             self.assertEqual(len(lines), 1)
             self.assertEqual(
                 sorted(lines[0]),
-                ["claim_boundary", "expires_at", "record_id", "redaction_policy", "retired_at", "schema_version"],
+                ["claim_boundary", "expires_at", "reason", "record_id", "redaction_policy", "retired_at", "schema_version"],
             )
             self.assertEqual(lines[0]["schema_version"], "omh_memory_retirement_journal/v1")
             self.assertEqual(lines[0]["record_id"], rid)
+            # A fact that aged out, named as such: the journal says why a
+            # record left, so a question that died unanswered reads differently.
+            self.assertEqual(lines[0]["reason"], "retention_expired")
             index = json.loads((paths.memory_dir / "index.json").read_text(encoding="utf-8"))
             self.assertNotIn(f"records/{rid}.json", index["record_files"])
             candidates = [json.loads(p.read_text(encoding="utf-8")) for p in (paths.memory_dir / "candidates").glob("*.json")]

@@ -234,8 +234,44 @@ def evaluate_memory_replay(
             except (ValueError, TypeError):
                 result["reason_code"] = "retention_parse_error"
                 return result
-    
+
+    # 5b. The open ceiling, the other expiry. An open record
+    # (`staleness.resolution == "open"`, set by a person at capture or
+    # approval) carries `staleness.open_expires_at`; past it the question died
+    # unanswered and the record is ineligible exactly like `expired_*`. It
+    # lives HERE, beside retention expiry, so recall, `memory status`, and the
+    # bridge's approved-record view all agree -- a ceiling folded only inside
+    # the recall selector left status counting the record eligible and the
+    # bridge listing it as promotable. The reason code keeps the name the
+    # staleness verdict and the docs already use. A ceiling that cannot be
+    # read fails closed like an unreadable retention deadline: a naive stamp
+    # reads as UTC, matching the verdict's reading.
+    staleness = artifact.get("staleness")
+    resolution_open = isinstance(staleness, dict) and staleness.get("resolution") == "open"
+    open_ceiling_str = staleness.get("open_expires_at") if resolution_open else None
+    if open_ceiling_str:
+        try:
+            open_ceiling = datetime.fromisoformat(str(open_ceiling_str).replace("Z", "+00:00"))
+            if open_ceiling.tzinfo is None:
+                open_ceiling = open_ceiling.replace(tzinfo=timezone.utc)
+            if now_utc >= open_ceiling:
+                result["reason_code"] = "unresolved_expired"
+                return result
+        except (ValueError, TypeError):
+            result["reason_code"] = "retention_parse_error"
+            return result
+
     # 6. Check stale/revalidation deadline
+    #
+    # An open record is exempt from the passed-deadline branch of this step
+    # and from nothing else. The deadline gate asks "has anyone re-confirmed
+    # this fact?", and an open record never claimed to be a fact: past its
+    # deadline it stays eligible and is delivered as `open` with its age. The
+    # exemption lives HERE, in the one evaluator every surface shares, rather
+    # than as a selector-side reversal of this verdict, so no surface can
+    # count an open record ineligible while another delivers it. The
+    # deadline is still parsed first: a malformed deadline on an open record
+    # fails closed as `revalidation_parse_error` like any other.
     revalidation = artifact.get("revalidation")
     if isinstance(revalidation, dict):
         reval_deadline_str = revalidation.get("deadline")
@@ -243,8 +279,8 @@ def evaluate_memory_replay(
             try:
                 reval_str = str(reval_deadline_str).replace("Z", "+00:00")
                 reval_deadline = datetime.fromisoformat(reval_str)
-                
-                if now_utc >= reval_deadline:
+
+                if now_utc >= reval_deadline and not resolution_open:
                     if stale_override:
                         override_valid = validate_stale_override(
                             stale_override,

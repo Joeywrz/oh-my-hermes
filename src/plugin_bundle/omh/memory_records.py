@@ -323,31 +323,58 @@ def _render_bounded(
         for reason, count in omissions.items()
     )
     reserve_needed = len(records) > 1 or any(omissions.values())
+    # The one-line unresolved summary has its own reserve, at the largest
+    # count it can carry, taken whenever ANY record is open regardless of
+    # count. It is separate from the omission reserve on purpose: a lone
+    # record with nothing omitted skips that reserve so it fits at its exact
+    # serialized boundary, but the summary line IS emitted for a lone open
+    # record -- so skipping its reserve admitted the record and then blanked
+    # the whole section at the closing tag, while folding it into the
+    # omission reserve would cut the lone record short of its boundary.
+    unresolved_reserve = len("\n" + _unresolved_line(len(records))) if any(_is_open(record) for record in records) else 0
     for record in records:
         if limit is not None and len(rendered) >= max(limit, 0):
             omissions["record_limit_reached"] += 1
             continue
         element = _render_record(record)
         if (preserve_prefix and omissions["render_budget_exhausted"]) or (
-            used + 1 + len(element) + (reserve if reserve_needed else 0) > max(budget_chars, 0)
+            used + 1 + len(element) + (reserve if reserve_needed else 0) + unresolved_reserve > max(budget_chars, 0)
         ):
             omissions["render_budget_exhausted"] += 1
             continue
         used += 1 + len(element)
         rendered.append(record)
         lines.append(element)
+    unresolved = sum(1 for record in rendered if _is_open(record))
+    if unresolved:
+        lines.append(_unresolved_line(unresolved))
     lines.extend(f'  <omitted count="{count}" reason="{reason}" />' for reason, count in omissions.items() if count)
     lines.append(closing)
     text = "\n".join(lines)
     return (text, rendered) if len(text) <= max(budget_chars, 0) else ("", [])
 
 
+def _is_open(record: dict[str, Any]) -> bool:
+    return str(record.get("resolution", "") or "") == "open"
+
+
+def _unresolved_line(count: int) -> str:
+    """One summary line per section, never a banner per record."""
+    return f'  <unresolved count="{count}">{count} unresolved records delivered</unresolved>'
+
+
 def _render_record(record: dict[str, Any]) -> str:
     summary = str(record.get("summary", "") or "")[:RECORD_SUMMARY_LIMIT_CHARS]
     approved = str(record.get("approved_at", "") or "")[:10]
+    # An open record carries its delivery marker on the element itself, so a
+    # model reading the section sees `open · N days unresolved` beside the
+    # summary and cannot read the record as decided. Settled records render
+    # exactly as before.
+    marker = str(record.get("resolution_marker", "") or "") if _is_open(record) else ""
+    resolution = f' resolution="{_attribute(marker)}"' if marker else ""
     return (
         f'  <record id="{_attribute(record.get("record_id", ""))}" type="{_attribute(record.get("record_type", ""))}"'
-        f' approved="{_attribute(approved)}">{_text(summary)}</record>'
+        f' approved="{_attribute(approved)}"{resolution}>{_text(summary)}</record>'
     )
 
 

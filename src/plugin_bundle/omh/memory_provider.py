@@ -95,6 +95,12 @@ from .memory_records import (
     prepare_prefetch_records,
     read_record_store_snapshot,
 )
+from .memory_open_reminders import (
+    mark_open_reminder_asked,
+    read_open_reminders,
+    render_open_reminder,
+    select_open_reminder,
+)
 
 PROVIDER_NAME = "omh"
 # What Hermes prints in front of "recalled N memories" on every surface it
@@ -168,6 +174,15 @@ class OmhMemoryProvider(_MemoryProviderBase):
         # it never claims the host delivered it or a model used it.
         self._prepared_receipt: dict[str, Any] | None = None
         self._served_receipt: dict[str, Any] | None = None
+        # The one `omh reminder:` line the rendered pack asks about an open
+        # record, and the one the LAST prefetch actually served. The ask
+        # ledger is written only when the pack is served, and once per
+        # prepared reminder: a queued re-render that is never served must not
+        # count as having asked, and the same pack served to several API
+        # calls inside one turn is one ask, not several.
+        self._prepared_reminder: dict[str, object] | None = None
+        self._served_reminder: dict[str, object] | None = None
+        self._reminder_recorded = False
         # Hermes hands a status callback to providers on the CLI surface only;
         # gateway platforms travel a different path and get the brief through
         # the pack instead. None means "say nothing here", never "fail".
@@ -197,6 +212,7 @@ class OmhMemoryProvider(_MemoryProviderBase):
         self._pack, self._pack_count, self._pack_has_memory = "", 0, False
         self._served_pack, self._served_count, self._served_has_memory = "", 0, False
         self._prepared_receipt, self._served_receipt = None, None
+        self._prepared_reminder, self._served_reminder, self._reminder_recorded = None, None, False
         self._session_id = str(session_id or "")
         self._writes_enabled = str(kwargs.get("agent_context", "") or "") in _WRITING_CONTEXTS
         platform = str(kwargs.get("platform", "") or "")
@@ -241,6 +257,12 @@ class OmhMemoryProvider(_MemoryProviderBase):
             if supplied != self._principal_context:
                 self._pack, self._pack_count, self._pack_has_memory = "", 0, False
                 self._prepared_receipt = None
+                # The reminder was chosen under the lens this pack was rendered
+                # for. A different principal gets an empty pack, so it gets no
+                # ask either -- otherwise the ledger would say the question was
+                # asked while nobody saw it, and the record would go silent for
+                # open_ask_days.
+                self._prepared_reminder, self._reminder_recorded = None, False
                 self._principal_context = supplied
         self._served_pack, self._served_count = self._pack, self._pack_count
         self._served_has_memory = self._pack_has_memory
@@ -250,6 +272,21 @@ class OmhMemoryProvider(_MemoryProviderBase):
         if self._served_receipt is not None:
             payload = json.dumps(self._served_receipt, ensure_ascii=False, sort_keys=True)
             self._safely(lambda: _write_text(prefetch_receipt_path(self._omh_home), payload))
+        # Serving the pack is what makes the reminder an ask -- and only a pack
+        # that actually carries the line counts, never a prepared reminder
+        # whose pack was blanked. The ledger line goes through `_safely` like
+        # the receipt: a home that cannot be written costs the cadence, never
+        # the turn. It writes the ledger and nothing else -- no record is
+        # touched by a reminder.
+        self._served_reminder = (
+            self._prepared_reminder
+            if self._prepared_reminder is not None and render_open_reminder(self._prepared_reminder) in self._served_pack
+            else None
+        )
+        if self._served_reminder is not None and not self._reminder_recorded:
+            self._reminder_recorded = True
+            record_id = str(self._served_reminder.get("record_id", ""))
+            self._safely(lambda: mark_open_reminder_asked(self._omh_home, record_id, asked_at=_utc_now()))
         return self._pack
 
     def queue_prefetch(
@@ -299,12 +336,25 @@ class OmhMemoryProvider(_MemoryProviderBase):
         """
         return json.loads(json.dumps(self._served_receipt)) if self._served_receipt is not None else None
 
+    def latest_open_reminder(self) -> dict[str, object] | None:
+        """The `omh reminder:` the LAST prefetch asked about an open record; None otherwise.
+
+        Hermes' ``RecallStatus`` carries a label, a count and a glyph and
+        nothing else, so the recall line cannot say a question was asked.
+        This accessor and the receipt's ``reminder`` field are where the ask
+        is disclosed: record id, age, and the bounded summary the line used.
+        Like the receipt, it reports only what was served, never a queued
+        re-render.
+        """
+        return dict(self._served_reminder) if self._served_reminder is not None else None
+
     def shutdown(self) -> None:
         """Hermes is closing. Last chance to leave a brief behind."""
         self._evaluate_if_due("shutdown")
         self._pack, self._pack_count, self._pack_has_memory = "", 0, False
         self._served_pack, self._served_count, self._served_has_memory = "", 0, False
         self._prepared_receipt, self._served_receipt = None, None
+        self._prepared_reminder, self._served_reminder, self._reminder_recorded = None, None, False
         self._principal_context = None
         self._profile_ref = ""
         self._turn_ref = ""
@@ -322,6 +372,7 @@ class OmhMemoryProvider(_MemoryProviderBase):
         self._pack, self._pack_count, self._pack_has_memory = "", 0, False
         self._served_pack, self._served_count, self._served_has_memory = "", 0, False
         self._prepared_receipt, self._served_receipt = None, None
+        self._prepared_reminder, self._served_reminder, self._reminder_recorded = None, None, False
         if not self._writes_enabled:
             return
         self._mutate_state(record_turn)
@@ -450,17 +501,36 @@ class OmhMemoryProvider(_MemoryProviderBase):
         # The count is what the renderer emitted, never what selection chose.
         self._pack_count = block_count + len(prepared.section.rendered)
         self._pack_has_memory = bool(system or index or records)
+        # The reminder asks about the oldest open record whose review deadline
+        # passed and whose last ask is older than `open_ask_days`, one line per
+        # pack, inside the same explicit scope allowlist the selector used. It
+        # is a question, not a memory: it never moves the recall count, and it
+        # is not asked on a shared surface, where a group chat would be asked
+        # to settle a question that belongs to the operator. Selecting here
+        # only prepares it; `prefetch` is what turns it into an ask.
+        self._prepared_reminder = None
+        self._reminder_recorded = False
+        if not self._shared_surface:
+            self._prepared_reminder = select_open_reminder(
+                snapshot.records,
+                read_open_reminders(self._record_homes()),
+                now=moment,
+                allowed_scopes=prepared.selection.scope_allowlist,
+                eligible_record_ids=_askable_record_ids(prepared.selection.pack),
+            )
         self._prepared_receipt = build_prefetch_receipt(
             prepared,
             session_id=self._session_id,
             home_digests=snapshot.home_digests,
             rendered_block_count=block_count,
             project_resolution=self._project_resolution,
+            reminder=self._prepared_reminder,
         )
+        reminder = render_open_reminder(self._prepared_reminder) if self._prepared_reminder is not None else ""
         # The brief is a request, not a memory: it is served so the model can
         # consolidate in this turn, and it never moves the recall count.
         consolidation = render_consolidation_brief(read_latest_consolidation(self._omh_home))
-        return "\n".join(part for part in (system, index, records, consolidation) if part)
+        return "\n".join(part for part in (system, index, records, reminder, consolidation) if part)
 
     def _record_homes(self) -> tuple[Path, ...]:
         """The project store first when there is one, then the user store."""
@@ -762,6 +832,36 @@ class OmhMemoryProvider(_MemoryProviderBase):
             write()
         except OSError:
             return
+
+
+def _askable_record_ids(pack: dict[str, Any]) -> set[str]:
+    """The records this pack was willing to deliver: the only ones a reminder may ask about.
+
+    A reminder offers three answers, and two of them (`confirm`, `retire`)
+    refuse a record the pack itself refuses -- superseded, expired, archived,
+    principal-denied, out of lens. Asking about such a record is a question
+    with no working answer, and it would still mark the ledger. So the ask
+    set is what the selector delivered, plus records it held back only for
+    reasons that are not about eligibility: no query overlap and the budget
+    cut. The reminder is not query-bound -- an open question is open whether
+    or not this turn's message mentions it -- but it is eligibility-bound.
+    Hidden exclusions (scope, perspective, principal) never appear in the
+    pack at all, so they never appear here.
+    """
+    askable = {
+        str(item.get("record_id", ""))
+        for item in pack.get("included_records", [])
+        if isinstance(item, dict)
+    }
+    askable.update(
+        str(item.get("record_id", ""))
+        for item in pack.get("excluded_records", [])
+        if isinstance(item, dict)
+        and str(item.get("reason", "")) in {"no_query_overlap", "over_budget"}
+        and str(item.get("eligibility_reason", "")) == "eligible"
+    )
+    askable.discard("")
+    return askable
 
 
 def _write_text(path: Path, text: str) -> None:

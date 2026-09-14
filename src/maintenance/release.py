@@ -857,7 +857,13 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # names the audit command and keeps config-only, unsupported and ambiguous
 # names from becoming invocation evidence; re-derived from the full-profile
 # skill_context_cost_payload() producer, not from accumulated deltas.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 953281
+# 953281 -> 953716: #1510 gives `loop` one recovery note naming the native
+# `omh_loop` tool, its eight lifecycle actions, and the `omh loop` fallback for
+# a host without the plugin. The lane reads it at the moment it chooses how to
+# reach loop state, before it spends a turn assembling shell arguments, so it
+# belongs in the always-loaded body; warranted growth. Re-derived from the
+# full-profile skill_context_cost_payload() producer, never by adding deltas.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 953716
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

@@ -21,8 +21,14 @@ def hook_manifest() -> dict[str, object]:
                     "omh_recommend",
                     "omh_interact",
                 },
+                # A host without the plugin can still reach these through the
+                # command line. `omh_loop` belongs here because `omh loop`
+                # covers every action the tool exposes and more, so a host that
+                # cannot load the tool loses no Loop capability -- only the
+                # shell-free path to it.
                 "supported_by_cli_backend": name
-                in {"omh_capabilities", "omh_context", "omh_probe", "omh_recommend", "omh_interact"},
+                in {"omh_capabilities", "omh_context", "omh_probe", "omh_recommend", "omh_interact",
+                    "omh_loop"},
                 "cli_backend_surface": _cli_backend_surface(name),
                 "observed_in_this_environment": False,
             }
@@ -86,6 +92,8 @@ def _cli_backend_surface(name: str) -> str:
         return "omh probe"
     if name == "omh_recommend":
         return "omh recommend"
+    if name == "omh_loop":
+        return "omh loop"
     if name == "omh_todo":
         return "omh runtime todo"
     return ""

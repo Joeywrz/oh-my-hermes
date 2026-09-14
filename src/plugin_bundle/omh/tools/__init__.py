@@ -16,6 +16,7 @@ BUILTIN_TOOL_NAMES: tuple[str, ...] = (
     "omh_gather_evidence",
     "omh_hud",
     "omh_interact",
+    "omh_loop",
     "omh_memory",
     "omh_probe",
     "omh_recommend",
@@ -43,6 +44,7 @@ def builtin_tool_schemas() -> tuple[dict[str, Any], ...]:
     from .document_plan_tool import OMH_DOCUMENT_PLAN_SCHEMA
     from .evidence_tool import OMH_EVIDENCE_SCHEMA
     from .hud_tool import OMH_HUD_SCHEMA
+    from .loop_tool import OMH_LOOP_SCHEMA
     from .memory_tool import OMH_MEMORY_SCHEMA
     from .probe_tool import OMH_PROBE_SCHEMA
     from .recommend_tool import OMH_RECOMMEND_SCHEMA
@@ -62,6 +64,7 @@ def builtin_tool_schemas() -> tuple[dict[str, Any], ...]:
         OMH_EVIDENCE_SCHEMA,
         OMH_HUD_SCHEMA,
         OMH_INTERACT_SCHEMA,
+        OMH_LOOP_SCHEMA,
         OMH_MEMORY_SCHEMA,
         OMH_PROBE_SCHEMA,
         OMH_RECOMMEND_SCHEMA,

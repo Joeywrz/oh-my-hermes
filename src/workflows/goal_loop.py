@@ -1427,7 +1427,27 @@ def tick_loop_runtime(
     )
 
 
-def run_loop_once(paths: OmhPaths, loop_id: str) -> dict[str, Any]:
+def run_loop_once(
+    paths: OmhPaths,
+    loop_id: str,
+    *,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
+) -> dict[str, Any]:
+    """Advance this loop by at most one legal step.
+
+    The guard is offered to both transactions because exactly one of them can
+    write. With a prepared item already pending the first transaction writes
+    and the tick never runs; with none pending the first transaction returns
+    None -- no write, no revision bump -- so the tick still meets the revision
+    the caller rendered.
+
+    The two transactions carry different `operation` names, so their replay
+    entries never collide. A retry that carries the original expected_revision
+    after the tick path already wrote is reported stale by the first
+    transaction rather than replayed: the record moved, and no second tick is
+    prepared either way. That is the safe direction, and the caller re-reads.
+    """
     needs_tick: dict[str, bool] = {}
 
     def mutate(cycle: dict[str, Any]) -> dict[str, Any] | None:
@@ -1445,7 +1465,14 @@ def run_loop_once(paths: OmhPaths, loop_id: str) -> dict[str, Any]:
         cycle["updated_at"] = utc_now()
         return cycle
 
-    cycle = _guarded_cycle_update(paths, loop_id, mutate, operation="run_loop_once")
+    cycle = _guarded_cycle_update(
+        paths,
+        loop_id,
+        mutate,
+        operation="run_loop_once",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+    )
     if not needs_tick:
         return cycle
     return tick_loop_runtime(
@@ -1458,15 +1485,25 @@ def run_loop_once(paths: OmhPaths, loop_id: str) -> dict[str, Any]:
             "Non-daemon loop run-once prepared one queue item; no worktree, subagent, "
             "connector, executor, network, or code execution was performed by OMH."
         ),
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
     )
 
 
-def run_loop_once_result(paths: OmhPaths, loop_id: str) -> dict[str, Any]:
+def run_loop_once_result(
+    paths: OmhPaths,
+    loop_id: str,
+    *,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
+) -> dict[str, Any]:
     before = read_loop_cycle(paths, loop_id)
     before_runtime = _runtime_state(before.get("runtime"))
     before_queue = [item for item in before_runtime.get("queue", []) if isinstance(item, dict)]
     before_pending = [item for item in before_queue if item.get("status") == "prepared_not_observed"]
-    cycle = run_loop_once(paths, loop_id)
+    cycle = run_loop_once(
+        paths, loop_id, expected_revision=expected_revision, mutation_id=mutation_id
+    )
     runtime = _runtime_state(cycle.get("runtime"))
     queue = [item for item in runtime.get("queue", []) if isinstance(item, dict)]
     if before_pending:

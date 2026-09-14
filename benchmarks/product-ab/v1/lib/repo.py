@@ -194,6 +194,42 @@ def grep_paths(repo: Path, commit: str, needles: Sequence[str], prefix: str) -> 
     return sorted(set(found))
 
 
+def present_needles(repo: Path, commit: str, needles: Sequence[str]) -> set[str]:
+    """Which of ``needles`` occur anywhere in the tree at ``commit``.
+
+    One subprocess for the whole batch. The novelty question is asked of tens
+    of literals per candidate over a hundred and fifty candidates, and a `git
+    grep` each turns a corpus build into an hour; `-o` reports the matched text
+    itself, so a single call partitions the batch into present and absent.
+    """
+
+    if not needles:
+        return set()
+    wanted = sorted({needle for needle in needles if needle})
+    arguments = ["grep", "-o", "-F"]
+    for needle in wanted:
+        arguments.extend(["-e", needle])
+    arguments.extend([commit, "--", "."])
+    completed = subprocess.run(
+        ["git", "-C", str(repo), *arguments],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=GIT_TIMEOUT_SECONDS * 4,
+    )
+    # git grep exits 1 when nothing matched, which is not an error here.
+    if completed.returncode not in {0, 1}:
+        raise GitError(f"git grep -o failed with exit {completed.returncode}")
+    found: set[str] = set()
+    for line in completed.stdout.splitlines():
+        _before, separator, matched = line.rpartition(":")
+        if separator and matched in set(wanted):
+            found.add(matched)
+    return found
+
+
 def blob_sizes(repo: Path, commit: str, prefix: str) -> dict[str, int]:
     """Byte size of every blob under ``prefix`` at ``commit``."""
 

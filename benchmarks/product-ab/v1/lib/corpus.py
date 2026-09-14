@@ -117,6 +117,148 @@ PROBLEM_STATEMENT_HEADINGS = (
     "Why This Exists",
 )
 
+#: `Observed` is allowed for an ISSUE and refused for a PULL REQUEST BODY, and
+#: the two are not the same section wearing one name.
+#:
+#: An issue's `Observed evidence` reports what the code does today, before the
+#: fix exists. The pull request template defines `### Observed Evidence` as
+#: "targeted tests, commands, CI checks, and manual behavior actually
+#: observed" -- written after the change, describing the tests it added. Seven
+#: of eleven pull-request-body tasks handed over assertions with their expected
+#: values through it, all labelled `clean`: PR-1411's text carried "brief-only
+#: → `recall_status()` is `None`; brief plus one approved block →
+#: `RecallStatus("OMH", 1)`" against a fifteen-line change.
+#:
+#: Prefix matching cannot tell the two apart, because the heading is identical.
+#: The source can.
+PULL_REQUEST_BODY_REFUSED_HEADINGS = ("Observed", "Evidence")
+
+
+#: Allowlisted headings that STATE WHAT IS WRONG, as opposed to supplying the
+#: context around it. A task text has to contain at least one of these with a
+#: body, or it does not determine the work.
+#:
+#: This is the answerability screen, and it is a rule rather than a judgement
+#: on purpose: it is load-bearing, so a reader has to be able to inspect what
+#: "answerable" was decided by. The failure it catches is the one the leak work
+#: created. PR-996's kept sections were `['Environment']` alone -- "macOS,
+#: hermes-cli, oh-my-hermes 1.0.6, node at <path>" -- against a 242-line change
+#: across five files, with no statement anywhere of what was wrong. Removing
+#: the prescription removed the only text that determined the work, and no
+#: probe can catch that: the probe proves a task is red at its base and green
+#: with the fix, never that the TEXT is what determines the fix.
+STATEMENT_HEADINGS = (
+    "Problem",
+    "User problem",
+    "Summary",
+    "Observed",
+    "Evidence",
+    "Gap",
+    "What breaks",
+    "Current state",
+    "Impact",
+    "Motivation",
+    "Why This Exists",
+)
+
+#: Allowlisted but supporting only: they say where and how, never what is
+#: wrong. A text built solely from these is a setting without a story.
+SUPPORTING_HEADINGS = (
+    "Environment",
+    "Logs or output",
+    "Reproduction",
+    "Steps to reproduce",
+    "Context",
+)
+
+
+#: A literal long enough that a validator asserting it is asserting a specific
+#: value rather than a flag or a short word. Below this the token is usually
+#: something a candidate would arrive at anyway.
+ASSERTED_LITERAL_MIN_CHARS = 8
+
+
+def asserted_literals(test_diff: str) -> list[str]:
+    """String literals the pull request's own test diff starts asserting."""
+
+    literals: set[str] = set()
+    for line in _added_lines(test_diff):
+        literals.update(
+            literal
+            for literal in STRING_LITERAL.findall(line)
+            if len(literal) >= ASSERTED_LITERAL_MIN_CHARS
+        )
+    return sorted(literals)
+
+
+def undetermined_literals(
+    repository: Path, base: str, task_text: str, test_diff: str, source_diff: str = ""
+) -> list[str]:
+    """Values the validator demands that the task text does not supply.
+
+    The mirror of the leak rule, and the same measurement read the other way.
+    A literal the pull request's tests begin asserting, which did not exist
+    anywhere in the tree beforehand, has to reach the candidate somehow. If the
+    task text carries it, the task is a transcription and the leak rule
+    excludes it. If the task text does NOT carry it, the candidate cannot
+    produce it and the task is unanswerable -- it will read red for every arm
+    no matter how well any of them works.
+
+    That second half is what the leak work created and nobody measured. The
+    probe cannot catch it: the probe proves a task is red at its base and green
+    with the fix, never that the TEXT is what determines the fix. PR-1256 is
+    the case that makes it concrete -- its acceptance literals lived under
+    `Target behaviour`, which is exactly why it was a leak and the only reason
+    it was answerable.
+    """
+
+    # The literal has to be introduced by the FIX and checked by the TEST. A
+    # literal that only the test diff carries is fixture data -- a temp path, a
+    # sample name -- which a candidate invents freely and no validator pins. A
+    # value the fix writes into `src/` and the tests then assert is the one the
+    # candidate has to reproduce exactly, and can only get from the brief.
+    #
+    # Taking every literal in the test diff instead drops most of the corpus,
+    # including twelve tasks a reviewer read and judged answerable.
+    in_test = set(asserted_literals(test_diff))
+    in_source = set(asserted_literals(source_diff)) if source_diff else in_test
+    candidates = [
+        literal
+        for literal in sorted(in_test & in_source)
+        if literal not in task_text
+    ]
+    if not candidates:
+        return []
+    present = repo_lib.present_needles(repository, base, candidates)
+    return sorted(literal for literal in candidates if literal not in present)
+
+
+def states_the_problem(kept_sections: Sequence[str], task_source: str) -> bool:
+    """Whether the kept sections include one that says what is wrong."""
+
+    statements = tuple(
+        heading
+        for heading in STATEMENT_HEADINGS
+        if heading in headings_for(task_source)
+    )
+    return any(
+        any(heading_matches(title, statement) for statement in statements)
+        for title in kept_sections
+    )
+
+
+def headings_for(task_source: str) -> tuple[str, ...]:
+    """The allowlist as it applies to one task source."""
+
+    if task_source != "pull_request_body":
+        return PROBLEM_STATEMENT_HEADINGS
+    return tuple(
+        heading
+        for heading in PROBLEM_STATEMENT_HEADINGS
+        if heading not in PULL_REQUEST_BODY_REFUSED_HEADINGS
+    )
+
+
 MAX_CHANGED_LINES = 400
 MAX_REGRESSION_MODULES = 6
 MIN_TASK_TEXT_CHARS = 200
@@ -189,9 +331,18 @@ def _headings_outside_code(body: str) -> list[re.Match[str]]:
         fenced.append((opened, len(body)))
     return [
         match
-        for match in re.finditer(r"^#{1,4}\s*(.+?)\s*$", body, re.MULTILINE)
+        for match in HEADING_LINE.finditer(body)
         if not any(start <= match.start() < end for start, end in fenced)
     ]
+
+
+#: A markdown heading line. At least one space after the hashes is required,
+#: because GitHub requires it and because without it `#1351 stopped the
+#: workspace boundary...` reads as a section title -- an issue reference, not a
+#: heading. Under a denylist a mis-split was survivable; under an allowlist
+#: every mis-split is a deletion, and PR-1353 and PR-1355 each lost their whole
+#: problem statement to this one.
+HEADING_LINE = re.compile(r"^#{1,4}[ \t]+(.+?)\s*$", re.MULTILINE)
 
 
 #: A home directory in a public issue body, which is somebody's username.
@@ -234,7 +385,9 @@ def split_sections(body: str) -> list[tuple[str | None, str]]:
     return sections
 
 
-def problem_statement(body: str) -> tuple[str, list[str], list[str]]:
+def problem_statement(
+    body: str, *, task_source: str = "linked_issue"
+) -> tuple[str, list[str], list[str]]:
     """Keep the symptom sections; drop everything else. Say what was dropped.
 
     Returns the kept text, the headings kept, and the headings dropped. The
@@ -245,6 +398,7 @@ def problem_statement(body: str) -> tuple[str, list[str], list[str]]:
     allowlist's own gaps are visible in the artifact rather than inferred.
     """
 
+    allowed_headings = headings_for(task_source)
     kept_text: list[str] = []
     kept: list[str] = []
     dropped: list[str] = []
@@ -253,18 +407,25 @@ def problem_statement(body: str) -> tuple[str, list[str], list[str]]:
             if text:
                 dropped.append("(unheaded preamble)")
             continue
-        if any(heading_matches(title, allowed) for allowed in PROBLEM_STATEMENT_HEADINGS):
-            kept.append(title)
-            kept_text.append(f"{title}\n\n{text}".strip() if text else title)
-        else:
+        if not any(heading_matches(title, allowed) for allowed in allowed_headings):
             dropped.append(title)
+            continue
+        if not text:
+            # An allowlisted heading with nothing under it is not a problem
+            # statement. Appending the bare title made `sections_kept` report
+            # one that was not there, which is how PR-1353 and PR-1355 came to
+            # claim a `Why This Exists` they had lost to the mis-split above.
+            dropped.append(f"{title} (empty)")
+            continue
+        kept.append(title)
+        kept_text.append(f"{title}\n\n{text}".strip())
     return "\n\n".join(kept_text).strip(), kept, dropped
 
 
 def task_text_from_pull_request_body(body: str) -> str:
     """The symptom sections of a pull request body, and nothing else."""
 
-    return problem_statement(body)[0]
+    return problem_statement(body, task_source="pull_request_body")[0]
 
 
 def strip_solution_sections(body: str) -> str:
@@ -612,12 +773,17 @@ def _candidate(
             break
     if not task_text:
         task_text, kept_sections, dropped_sections = problem_statement(
-            str(pull_request.get("body") or "")
+            str(pull_request.get("body") or ""), task_source="pull_request_body"
         )
         task_source = "pull_request_body"
     task_text = redact_home_directories(task_text.strip())
     if len(task_text) < MIN_TASK_TEXT_CHARS:
         return None, "task_text_too_short"
+    if not states_the_problem(kept_sections, task_source):
+        # Every section that survived is context: environment, reproduction
+        # steps, logs. A candidate reading this knows where to stand and not
+        # what is wrong, so the text does not determine the work.
+        return None, "task_text_states_no_problem"
     task_text = task_text[:MAX_TASK_TEXT_CHARS]
 
     source_diff = repo_lib.diff_text(repository, base, head, non_test_work)
@@ -652,6 +818,15 @@ def _candidate(
     test_diff = repo_lib.diff_text(repository, base, head, test_paths)
     if not test_diff.strip():
         return None, "empty_test_diff"
+    undetermined = undetermined_literals(
+        repository, base, task_text, test_diff, source_diff
+    )
+    if undetermined:
+        # The validator demands a value that did not exist before the fix and
+        # that the task text does not supply. No arm can produce it from this
+        # brief, so the task would read red for every arm regardless of how
+        # well any of them worked.
+        return None, "task_text_does_not_determine_the_work"
 
     task = {
         "task_id": f"PR-{number}",
@@ -1063,6 +1238,12 @@ def environment_drift(payload: Mapping[str, Any]) -> list[str]:
     which run 3.11 and 3.12, and reported it as a drifted digest. That is a
     different fact with a different remedy, so it gets its own list, its own
     wording, and its own line in the command's output.
+
+    It is INFORMATION on the verify path and a REFUSAL on the probe path. A
+    digest check that only runs under one interpreter is a digest check that
+    does not run in CI, which is where it is wanted most; whereas re-probing
+    under a different interpreter genuinely produces a different corpus, and
+    that has to stop rather than report.
     """
 
     recorded = dict((payload.get("selection") or {}).get("probe_environment") or {})

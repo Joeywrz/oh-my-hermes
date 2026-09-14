@@ -89,6 +89,20 @@ def main(argv: list[str] | None = None) -> int:
     corpus_parser.add_argument("--python-executable", default=sys.executable)
     corpus_parser.add_argument("--workspace-root", type=Path)
     corpus_parser.add_argument("--probe-timeout", type=int, default=1200)
+    corpus_parser.add_argument(
+        "--strict-environment",
+        action="store_true",
+        help="Make --verify fail on an interpreter difference as well as on a "
+        "drifted digest. Off by default so CI can verify digests under any "
+        "matrix Python; --probe refuses a different interpreter regardless.",
+    )
+    corpus_parser.add_argument(
+        "--allow-foreign-interpreter",
+        action="store_true",
+        help="Re-probe under an interpreter other than the one that probed "
+        "this corpus. The result is a different corpus; the flag exists so "
+        "that is a decision rather than an accident.",
+    )
 
     for name in ("smoke", "run"):
         command = sub.add_parser(name)
@@ -111,6 +125,18 @@ def main(argv: list[str] | None = None) -> int:
         if sum((args.build, args.verify, args.probe)) != 1:
             parser.error("choose exactly one of --build, --probe, or --verify")
         if args.probe:
+            existing = corpus_lib.load(args.output)
+            # A refusal, not a note. Re-probing under a different interpreter
+            # produces a different corpus -- PR-1502 classifies as
+            # path-dependent under 3.13.15 and already-green under 3.14.7 --
+            # so it stops here unless someone says they meant it.
+            drift = corpus_lib.environment_drift(existing)
+            if drift and not args.allow_foreign_interpreter:
+                parser.error(
+                    "re-probing under a different interpreter produces a "
+                    "different corpus: " + "; ".join(drift)
+                    + " -- pass --allow-foreign-interpreter to mean it"
+                )
             payload = corpus_lib.probe(
                 repository=args.repository.resolve(),
                 payload=corpus_lib.load(args.output),
@@ -155,22 +181,26 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if payload["tasks"] else 1
         payload = corpus_lib.load(args.output)
         errors = corpus_lib.verify(args.repository.resolve(), payload)
-        # Reported apart from the digest errors, because it is a different
-        # fact: every digest can re-derive correctly under an interpreter that
-        # would have probed a different corpus. Re-probing here is what would
-        # be unsound, not verifying.
+        # Reported, not enforced. Digests are over bytes from the git object
+        # store and no interpreter appears in them, so verify has to pass on
+        # 3.11, 3.12 and anywhere else -- a digest check that runs under only
+        # one interpreter is one that does not run in CI, which is where it is
+        # wanted most. The refusal belongs on the probe path, where a different
+        # interpreter genuinely produces a different corpus.
         drift = corpus_lib.environment_drift(payload)
+        strict = bool(getattr(args, "strict_environment", False))
         emit(
             {
                 "schema_version": lane.CORPUS_SCHEMA,
-                "ok": not errors and not drift,
+                "ok": not errors and not (strict and drift),
                 "tasks": len(payload["tasks"]),
                 "corpus_digest": payload["corpus_digest"],
                 "errors": errors,
                 "environment_drift": drift,
+                "environment_drift_enforced": strict,
             }
         )
-        return 0 if not errors and not drift else 1
+        return 0 if not errors and not (strict and drift) else 1
 
     manifest = lane.load_object(args.manifest)
     payload = corpus_lib.load(args.corpus)

@@ -1,0 +1,14 @@
+{
+ "n": 21,
+ "same_author": 17,
+ "owner": 18,
+ "outside": 3,
+ "outside_ids": [
+  "PR-1195",
+  "PR-1323",
+  "PR-1539"
+ ],
+ "opened_median": 6.6,
+ "merged_median": 11.1,
+ "within_1h": 4
+}

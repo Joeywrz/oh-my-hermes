@@ -94,26 +94,33 @@ a reader see the tasks, not to produce a number to quote against the headline.
 
 ### What this corpus is made of
 
-Numbers describe the pinned corpus at digest `f7f34c5c3716`, and
-every one is re-derived from `corpus/evaluation.json` by a test, so they cannot
-drift away from the file they describe.
+Numbers describe the pinned corpus at digest `b3c7d735e3b2`. Every
+figure in the four tables below is re-derived from `corpus/evaluation.json` and
+`provenance.json` by a test, so none of them can drift from the files they
+describe.
 
 | | Count |
 | --- | ---: |
 | Merged pull requests read, newest first | 800 |
-| Candidates probed | 46 |
+| Candidates probed | 43 |
 | **Tasks kept** | **40** |
-| — from a linked issue (the headline subset) | 29 |
-| — from a pull request body (secondary) | 11 |
+| — from a linked issue (the headline subset) | 21 |
+| — from a pull request body (secondary) | 19 |
 
-Who wrote the headline subset's task text, and when, over its 29 tasks:
+Who wrote the headline subset's task text, and when, over its 21 tasks:
 
 | | Count |
 | --- | ---: |
-| Issue author is the author of the fixing pull request | 22 |
-| Issue filed from one of the project's two owner accounts | 24 |
-| Issue filed by an outside contributor | 5 |
-| Median hours from issue to merge | 11.2 |
+| Issue author is the author of the fixing pull request | 17 |
+| Issue filed from one of the project's two owner accounts | 18 |
+| Issue filed by an outside contributor | 3 |
+| Median hours from issue to pull request opened | 6.6 |
+| Median hours from issue to merge | 11.1 |
+
+Both gaps are given because they measure different things: issue-to-merge
+includes review and CI latency, so issue-to-opened is the tighter statement of
+how long the problem existed before somebody started fixing it. 4 of the
+21 were opened within the hour.
 
 Read that as what it is. Most of these are specifications written shortly
 before implementation, by the implementer. The cut removes the prescription; it
@@ -125,17 +132,15 @@ corpus file alone.
 
 | Rejected by the probe | Count |
 | --- | ---: |
-| Validator not green with the pull request's own fix | 3 |
+| Validator not green with the pull request's own fix | 2 |
 | Verdict depends on the workspace path | 1 |
-| Regression set already red at the merge base | 2 |
+| Regression set already red at the merge base | 0 |
 | Validator disagrees with itself at one path | 0 |
 
 The first line means the corpus is selected partly on what this harness can
-run, and that belongs in how any number from it is read. The concrete case:
-PR-1488's validator asserts a filesystem-confinement receipt that cannot hold
-in a temp-directory workspace, so that task is red before the fix and still red
-after it, and it would have cost a call on every arm while deducting pass rate
-for something no arm did.
+run. PR-1488's validator asserts a filesystem-confinement receipt that cannot
+hold in a temp-directory workspace, so that task is red before the fix and
+still red after it.
 
 How much of the answer each task's text still carries, worst class first:
 
@@ -144,14 +149,48 @@ How much of the answer each task's text still carries, worst class first:
 | `heading_prescriptive` | 0 | 0 |
 | `names_new_identifier` | 0 | 0 |
 | `names_grading_module` | 0 | 0 |
-| `names_changed_file` | 12 | 12 |
-| `clean` | 28 | 17 |
+| `names_changed_file` | 7 | 7 |
+| `clean` | 33 | 14 |
 
 The first three are zero because each is an outright exclusion, not because
-nothing was found: 43 candidates were dropped for naming a token the fix
-introduces, and 20 for naming the very test module that grades them. They
-are counted here anyway, because a corpus that assumes its own filters are
-exhaustive has no way to discover that they are not.
+nothing was found: 35 candidates were dropped for naming a token the fix
+introduces and 4 for naming the test module that grades them.
+
+### Answerability, and why it is a filter
+
+Removing the prescription can remove the only text that determined the work.
+That is the failure the leak work created, and no probe catches it: the probe
+proves a task is red at its base and green with the fix, never that the TEXT is
+what determines the fix.
+
+PR-1256 is the case. Its acceptance literals lived under `Target behaviour` --
+which is exactly why it was a leak, and the only reason it was answerable.
+
+Two screens run, and both are rules rather than judgements, because a
+load-bearing filter a reader cannot inspect is not a filter they can trust.
+
+1. **The text must say what is wrong.** At least one kept section must be a
+   statement heading (`Problem`, `Summary`, `Observed`, `Gap`, `What breaks`,
+   `Current state`, …) rather than pure context (`Environment`, `Reproduction`,
+   `Logs or output`). 1 candidate failed this. It is the PR-996 shape,
+   whose kept sections were `['Environment']` alone against a 242-line change.
+2. **The text must supply what the validator demands.** A string literal that
+   the fix writes into the source, that the tests then assert, and that existed
+   nowhere in the tree beforehand, has to reach the candidate somehow. In the
+   task text it is a leak and the rule above excludes it; absent from the task
+   text the candidate cannot produce it, and the task would read red for every
+   arm however well any of them worked. 75 candidates failed this.
+
+The second screen is deliberately restricted to literals present in **both**
+the source diff and the test diff. A literal only the test diff carries is
+fixture data -- a temp path, a sample name -- which a candidate invents freely.
+Counting those instead dropped most of the corpus, including twelve tasks a
+human reviewer read and judged answerable.
+
+Where this rule and that reviewer disagree, it disagrees in both directions: it
+keeps nine issue-sourced tasks the reviewer's list does not, and drops four the
+reviewer kept (PR-641, PR-742, PR-916, PR-1284). The rule is published rather
+than the list because the list cannot be checked and the rule can.
 
 ### What is excluded, and why
 
@@ -336,6 +375,13 @@ The arm stays in the lane and stays working. To publish it, add a documented
 rate for `glm-5.3-ultrafast` to `APPROX_PRICE_PER_MTOK` and run with
 `--arm omh_mixture`. That is the whole of what is missing.
 
+One consequence of enabling it, to be decided rather than discovered.
+`resolve_delegation` classifies every OMH run by complexity, but
+`_model_for_arm` returns the control model for both published arms, so today
+that classification changes nothing the model sees. On `omh_mixture` it does:
+the score picks the model and therefore the calibration. Turning that arm on
+puts text-dependent routing live on one arm and not the other.
+
 `omh_mixture` is labelled separately on purpose: it is the only arm where the
 routing is allowed to move, so a cost difference stays attributable to routing
 rather than to calibration. Read it as one bundled change, not as a model
@@ -346,6 +392,31 @@ that task got.
 
 Arm order rotates one position per task, so no arm is systematically first.
 One task runs at a time.
+
+### The arms are not call-matched, and two asymmetries reach the prompt
+
+Same model, same effort, same task text -- but not the same number of turns.
+The bare arm gets one call. The OMH arm gets up to two, because a verification
+gate that fails buys it a repair turn. That is legitimate, since retrying
+against a failed check is part of the product being measured, and the
+cost-per-pass and wall-clock columns already carry it. It is stated because
+"same budget" would not be accurate.
+
+Two mechanisms carry prompt-borne information unequally between the arms, and
+both apply to a perfectly clean task text as much as to a leaky one. They
+belong beside any delta read off this lane.
+
+* `GOAL_ECHO_PROTOCOL` has the model restate the goal and the numbered criteria
+  before it uses a tool. Anything inside the goal is re-anchored on the OMH
+  side; the bare `--oneshot` arm has no such line.
+* `_repair_prompt` re-sends the whole prompt along with the failing checks, and
+  only the OMH arms get a repair turn. Prompt-borne information therefore gets
+  two attempts on one side and one on the other.
+
+Pushing the other way, OMH's structural-search and tool-batching blocks are
+worth less on a text that already names the file and the change. The signs are
+opposite and nothing here can rank them without a measured run, which is why
+the corpus is filtered for leakage rather than assumed to average it out.
 
 ### How the OMH arm is composed
 

@@ -1,5 +1,5 @@
 {
-  "corpus_digest": "f7f34c5c371644873a920027112b7d7db6c974c242201c48c43f5c8bf4c1d375",
+  "corpus_digest": "b3c7d735e3b2ec8342468538792d03cccab8bd767502b4492e5bb836158f8078",
   "repository": "rlaope/oh-my-hermes",
   "schema_version": "omh_product_ab_corpus/v1",
   "selection": {
@@ -8,18 +8,20 @@
       "no_test_module": 9,
       "not_feat_or_fix": 263,
       "over_changed_line_cap": 263,
+      "task_text_does_not_determine_the_work": 75,
       "task_text_leaks_solution": 5,
-      "task_text_names_an_introduced_definition": 43,
-      "task_text_names_its_grading_module": 20,
-      "task_text_too_short": 25
+      "task_text_names_an_introduced_definition": 35,
+      "task_text_names_its_grading_module": 4,
+      "task_text_states_no_problem": 1,
+      "task_text_too_short": 26
     },
     "leak_class": {
-      "clean": 28,
-      "names_changed_file": 12
+      "clean": 33,
+      "names_changed_file": 7
     },
     "leak_class_issue_sourced": {
-      "clean": 17,
-      "names_changed_file": 12
+      "clean": 14,
+      "names_changed_file": 7
     },
     "max_changed_lines": 400,
     "max_tasks": 40,
@@ -34,238 +36,18 @@
       "python_version": "3.13.15"
     },
     "probe_rejected": {
-      "regression_set_not_green_at_merge_base": 2,
-      "validator_not_green_with_the_reference_fix": 3,
+      "validator_not_green_with_the_reference_fix": 2,
       "verdict_depends_on_workspace_path": 1
     },
-    "probed": 46,
+    "probed": 43,
     "pull_requests_read": 800,
     "regression_module_limit": 6,
     "task_source": {
-      "linked_issue": 29,
-      "pull_request_body": 11
+      "linked_issue": 21,
+      "pull_request_body": 19
     }
   },
   "tasks": [
-    {
-      "baseline_probe": {
-        "regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 62,
-          "status": "green"
-        },
-        "target": {
-          "errors": 0,
-          "failures": 3,
-          "ran": 80,
-          "status": "red"
-        },
-        "target_second_path": {
-          "errors": 0,
-          "failures": 3,
-          "ran": 80,
-          "status": "red"
-        },
-        "with_reference_fix": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 80,
-          "status": "green"
-        },
-        "with_reference_fix_regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 62,
-          "status": "green"
-        }
-      },
-      "changed_lines": 229,
-      "issue": 637,
-      "kind": "fix",
-      "leak_class": "names_changed_file",
-      "merge_base": "ba28b95fd467463262859200bb0d0e6432020b8e",
-      "merge_commit": "b4fbf982c18d4276c6347a5e8594a0f522827f91",
-      "pull_request": 641,
-      "regression_modules": [
-        "tests/test_capabilities.py",
-        "tests/test_capability_impact.py",
-        "tests/test_executor_progress_projection.py",
-        "tests/test_hook_manifest.py",
-        "tests/test_hud.py",
-        "tests/test_plugin_capabilities.py"
-      ],
-      "sections_dropped": [
-        "Requested outcome",
-        "Acceptance criteria"
-      ],
-      "sections_kept": [
-        "Problem",
-        "Reproduction",
-        "Evidence"
-      ],
-      "solution_blobs": {
-        "README.ja.md": "a1b7a5fe1f2e9533664f9e7221b14b27d967e4d8d7d7db513df4aede801adea2",
-        "README.ko.md": "19ba26825f56a46ed430defae80204a673aa743e404338e9fc60eee47766307b",
-        "README.md": "b9b4f2913e32f6031f9f14a069925d09c3a084fe507eb7180b118dd815ef45c8",
-        "README.zh.md": "364d95615db895e9a8423228cf74ad9e096795fcabb815b47249eed1d0f1b0ff",
-        "assets/built-for-real-work-orchestration.png": "6415b070cd1e40d1e95a5fc253113b6ca2ba9804109997515de4d9470c17d595",
-        "assets/hermes-omh-terminal-orchestration.png": "cc64647b193e4da1c1947f8a8127895bac7b5f98d743fad544a9ba0a599c0100",
-        "assets/oh-my-hermes-agent-poster.png": "8c334ccafe293100ea843af1313199684bd12a44a43201efabc093f3801976e7",
-        "assets/oh-my-hermes-wordmark.png": "192955623799c3e22415631360daf06bfed1872933c291910f6b7b5e046ecd64",
-        "docs/README.md": "c5121cc0bdb65069cff06aca4b1abbeee36a92548d79da711854d76be339519f",
-        "src/plugin_bundle/omh/tools/context_tool.py": "6abaeffebc2c616a46367441c4c11b31fd9d30cb999ecd9e29791f489626382e",
-        "src/plugin_bundle/omh/tools/recommend_tool.py": "0aacba9c960cc2c4c5f830c93d8edbbba5a5924e9f39cd26344786022210aef0"
-      },
-      "solution_paths": [
-        "README.ja.md",
-        "README.ko.md",
-        "README.md",
-        "README.zh.md",
-        "assets/built-for-real-work-orchestration.png",
-        "assets/hermes-omh-terminal-orchestration.png",
-        "assets/oh-my-hermes-agent-poster.png",
-        "assets/oh-my-hermes-wordmark.png",
-        "docs/README.md",
-        "src/plugin_bundle/omh/tools/context_tool.py",
-        "src/plugin_bundle/omh/tools/recommend_tool.py"
-      ],
-      "source_paths": [
-        "src/plugin_bundle/omh/tools/context_tool.py",
-        "src/plugin_bundle/omh/tools/recommend_tool.py"
-      ],
-      "task_id": "PR-641",
-      "task_source": "linked_issue",
-      "task_text": "Problem\n\nThe Hermes plugin tools use the same `standalone_plugin_bundle_fallback` result for two materially different states:\n\n1. the main OMH package is genuinely unavailable in a standalone plugin host; and\n2. an installed, importable OMH package raised an unexpected runtime exception.\n\nFor `omh_context` and `omh_recommend`, the second case is caught by broad `except Exception` and returned as a normal successful fallback with no diagnostic or degraded-status field. This can hide package regressions from the operator and cause behavior to silently diverge from the installed package.\n\nReproduction\n\nWith `PYTHONPATH=src`, monkeypatching `omh.context.build_context_brief` to raise `RuntimeError(\"package-context-boom\")` makes `omh_context_handler` return:\n\n- `source_backend: standalone_plugin_bundle_fallback`\n- a valid `omh_context_brief/v1` payload\n- no `error` or degradation reason\n\nLikewise, monkeypatching `omh.routing.recommend.recommend_skills` to raise returns a normal `omh_recommend_result/v1` payload with `source: standalone_plugin_bundle_fallback` and no diagnostic.\n\nEvidence\n\n- `src/plugin_bundle/omh/tools/context_tool.py::_context_brief` catches broad exceptions around `build_package_context_brief`.\n- `src/plugin_bundle/omh/tools/recommend_tool.py::_recommendations` catches broad exceptions around `recommend_skills`.\n- Current plugin distribution tests assert the normal `package_context` / `package_recommend` paths but do not cover package-call fault classification.\n\nThis is an observability/evidence-boundary issue, not a request to remove standalone compatibility.",
-      "task_text_names_source_paths": [
-        "src/plugin_bundle/omh/tools/context_tool.py",
-        "src/plugin_bundle/omh/tools/recommend_tool.py"
-      ],
-      "task_text_sha256": "e0187c9c9bffd90a13c25869072b072199c8994d17ec3ae2937e9c3620c69db3",
-      "test_blobs": {
-        "tests/test_plugin_distribution.py": "c632ab4bff2aaf16811a16311c268f5d213f793735f6a0ad82163d6681a0e827",
-        "tests/test_router_content.py": "b0ef6ac9289e766f96f4e6cbcb2298e78ae78911408025f97b0c590fb700e198"
-      },
-      "test_diff_sha256": "25739434b6f18671cc13ccdcfd925a84bd46c09710d5e28f7a5622eb7ee70e47",
-      "test_lines": 86,
-      "test_modules": [
-        "tests/test_plugin_distribution.py",
-        "tests/test_router_content.py"
-      ],
-      "test_paths": [
-        "tests/test_plugin_distribution.py",
-        "tests/test_router_content.py"
-      ],
-      "title": "fix: classify plugin package-call failure separately from missing-package fallback",
-      "touched_packages": [
-        "plugin_bundle"
-      ],
-      "verification_commands": [
-        "python -m compileall -q src",
-        "python -m unittest tests/test_capabilities.py tests/test_capability_impact.py tests/test_executor_progress_projection.py tests/test_hook_manifest.py tests/test_hud.py tests/test_plugin_capabilities.py"
-      ]
-    },
-    {
-      "baseline_probe": {
-        "regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 25,
-          "status": "green"
-        },
-        "target": {
-          "errors": 0,
-          "failures": 2,
-          "ran": 52,
-          "status": "red"
-        },
-        "target_second_path": {
-          "errors": 0,
-          "failures": 2,
-          "ran": 52,
-          "status": "red"
-        },
-        "with_reference_fix": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 52,
-          "status": "green"
-        },
-        "with_reference_fix_regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 25,
-          "status": "green"
-        }
-      },
-      "changed_lines": 50,
-      "issue": 716,
-      "kind": "fix",
-      "leak_class": "names_changed_file",
-      "merge_base": "73841ce92e960538650a4d1aa91f3482a618d429",
-      "merge_commit": "5cd739c2c5fd938fff08b83c4f3824e9285421ae",
-      "pull_request": 742,
-      "regression_modules": [
-        "tests/test_agentic_playbook.py",
-        "tests/test_executor_readiness_resolutions.py",
-        "tests/test_omh_shim_sweep.py",
-        "tests/test_product_family_templates.py",
-        "tests/test_product_quality_harnesses.py",
-        "tests/test_progress_path_redaction.py"
-      ],
-      "sections_dropped": [
-        "Decision needed (dispatch semantics, not routing)"
-      ],
-      "sections_kept": [
-        "Gap"
-      ],
-      "solution_blobs": {
-        "README.md": "3a3894b98d5d16202c733afad9887926d7608bdb9d4126c94bf4e296cb7b3ee5",
-        "docs/FANOUT.md": "aa52f618800017dc19263347d36c2a0a322571d1da80972805345cdaa97fe1e5",
-        "src/coding/fanout_dispatch.py": "a8d0afe80818635313bb84b7f5bc24f20d0086c5f2ddd33808a352096b6f3a88",
-        "src/workflows/memory.py": "b7df3917e3eeb61dcd138a122e3221aa9da8a359ab964ba362ad1ce37eb60f66"
-      },
-      "solution_paths": [
-        "README.md",
-        "docs/FANOUT.md",
-        "src/coding/fanout_dispatch.py",
-        "src/workflows/memory.py"
-      ],
-      "source_paths": [
-        "src/coding/fanout_dispatch.py",
-        "src/workflows/memory.py"
-      ],
-      "task_id": "PR-742",
-      "task_source": "linked_issue",
-      "task_text": "Gap\n\n`_dispatch_unit` (src/coding/fanout_dispatch.py) reads only `selected_model` / `selected_reasoning_effort` from a unit's model route and never consults route `status`. A route whose status is `choice_required` therefore dispatches silently on the executor CLI's default model \u2014 the \"explicit choice\" label has no teeth at the dispatch surface. This predates the model-distribution v2 PR (it was true of coding_model_route/v1's review-on-codex outcome) and is narrowed by v2 (chains make choice_required a structural net, provably unreachable from shipped catalog data), but the enforcement gap itself remains for constructed/edited contracts.",
-      "task_text_names_source_paths": [
-        "src/coding/fanout_dispatch.py"
-      ],
-      "task_text_sha256": "53ccd9e6e8ba92ca06d8d117eae333f86fc842a8361f57f2836802f2cde1a9c0",
-      "test_blobs": {
-        "tests/test_fanout_dispatch.py": "1f062bebfb85a1157944c4d890438c6417e83782a7281d35f7da8be54e9b7c43",
-        "tests/test_memory.py": "9e351b083219349788f14b2dbd918f51d4bc093d84f0c06f7d54d135e0a19db9"
-      },
-      "test_diff_sha256": "0dd0db13ef602fd3a9b421e838b29dcb7e459aa67ab2471e9eff873941c374a4",
-      "test_lines": 65,
-      "test_modules": [
-        "tests/test_fanout_dispatch.py",
-        "tests/test_memory.py"
-      ],
-      "test_paths": [
-        "tests/test_fanout_dispatch.py",
-        "tests/test_memory.py"
-      ],
-      "title": "fix: dispatch fails closed on a frozen choice_required model route",
-      "touched_packages": [
-        "coding",
-        "workflows"
-      ],
-      "verification_commands": [
-        "python -m compileall -q src",
-        "python -m unittest tests/test_agentic_playbook.py tests/test_executor_readiness_resolutions.py tests/test_omh_shim_sweep.py tests/test_product_family_templates.py tests/test_product_quality_harnesses.py tests/test_progress_path_redaction.py"
-      ]
-    },
     {
       "baseline_probe": {
         "regression": {
@@ -671,101 +453,6 @@
           "status": "green"
         },
         "target": {
-          "errors": 3,
-          "failures": 0,
-          "ran": 40,
-          "status": "red"
-        },
-        "target_second_path": {
-          "errors": 3,
-          "failures": 0,
-          "ran": 40,
-          "status": "red"
-        },
-        "with_reference_fix": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 40,
-          "status": "green"
-        },
-        "with_reference_fix_regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 11,
-          "status": "green"
-        }
-      },
-      "changed_lines": 104,
-      "issue": 911,
-      "kind": "fix",
-      "leak_class": "clean",
-      "merge_base": "f5a68e4576e77dbcc1cf07d8030e2391f907410d",
-      "merge_commit": "c6b12a878629e37c193da16e5839e856ceb153b7",
-      "pull_request": 916,
-      "regression_modules": [
-        "tests/test_domain_context_matching_efficiency.py",
-        "tests/test_domain_intelligence_store_overflow.py",
-        "tests/test_domain_intelligence_validation_state.py",
-        "tests/test_domain_snapshot_malformed.py",
-        "tests/test_memory_governance_policy.py",
-        "tests/test_omh_shim_sweep.py"
-      ],
-      "sections_dropped": [
-        "Why it matters",
-        "Expected behavior"
-      ],
-      "sections_kept": [
-        "Summary",
-        "Reproduction",
-        "Environment"
-      ],
-      "solution_blobs": {
-        "src/maintenance/doctor.py": "6b89a9ff7851f0ab38dded50ba73637c526fcd39c2928076227c1234bca431f2",
-        "src/workflows/memory.py": "ec2bfe2862602451fbbeccb51845dfdde8bf4d42bc00fdd5060de0e6d86ac631"
-      },
-      "solution_paths": [
-        "src/maintenance/doctor.py",
-        "src/workflows/memory.py"
-      ],
-      "source_paths": [
-        "src/maintenance/doctor.py",
-        "src/workflows/memory.py"
-      ],
-      "task_id": "PR-916",
-      "task_source": "linked_issue",
-      "task_text": "Summary\n\n`_read_project_memory_records` admits exactly two shapes and drops everything else without a trace:\n\n```python\nif schema_version == PROJECT_MEMORY_RECORD_SCHEMA_VERSION:            # v2\n    records.append(record)\nelif schema_version == LEGACY_PROJECT_MEMORY_RECORD_SCHEMA_VERSION \\\n     and record.get(\"review_status\") == \"approved\":                   # v1, approved only\n    records.append(record)\n```\n\nA record file that is neither \u2014 a v1 record without `review_status: \"approved\"`, or any **future** schema version written by a newer OMH \u2014 is invisible to recall, to `memory status`, and to `omh doctor`. It is not included, not excluded, not counted, and not reported as unreadable.\n\nReproduction\n\nFour files in `memory/records/`: one normal v2 record plus three fixtures.\n\n```\n=== recall 'api gateway' ===\n  included = ['mem_833dbd00e339e51d']\n  excluded = [('mem_v1approved', 'review_required_legacy')]\n=== memory status counts ===\n  {'approved_records': 1, 'eligible_records': 1, 'ineligible_records': 1,\n   'review_required_legacy': 1, 'expired_records': 0, ...}\n=== files actually on disk ===\n  mem_833dbd00e339e51d.json\n  mem_futurev3.json          <- project_memory_record/v3\n  mem_v1approved.json        <- project_memory_record/v1, review_status: approved\n  mem_v1noreview.json        <- project_memory_record/v1, no review_status\n=== omh doctor: does anything flag the unreadable records? ===\n  (no memory-related line)\n```\n\n`mem_v1approved` behaves correctly: excluded with the named reason `review_required_legacy`, counted in `status`. That path works, and is the contract the `memory-sync` skill describes.\n\n`mem_v1noreview` and `mem_futurev3` are simply gone. Four files on disk, two accounted for, no diagnostic anywhere.\n\nEnvironment\n\nmacOS 25.5.0, Python 3.11 via `uv`, main at `9c134895`.",
-      "task_text_names_source_paths": [],
-      "task_text_sha256": "1a8978b13e219a69abb30e0ac49593fe7941feaf31bd9f96f586c2c8719bb011",
-      "test_blobs": {
-        "tests/test_memory.py": "7f411e8aa8cd837a44bee9b8406f04a263366b972b030c654662ac6d59ac8a63"
-      },
-      "test_diff_sha256": "725a34cb5bb2bf1356ed1b116be62a12ddfed0e1ee5bc07205fe547f0daa7e1a",
-      "test_lines": 80,
-      "test_modules": [
-        "tests/test_memory.py"
-      ],
-      "test_paths": [
-        "tests/test_memory.py"
-      ],
-      "title": "fix: name the memory record files this build cannot admit",
-      "touched_packages": [
-        "maintenance",
-        "workflows"
-      ],
-      "verification_commands": [
-        "python -m compileall -q src",
-        "python -m unittest tests/test_domain_context_matching_efficiency.py tests/test_domain_intelligence_store_overflow.py tests/test_domain_intelligence_validation_state.py tests/test_domain_snapshot_malformed.py tests/test_memory_governance_policy.py tests/test_omh_shim_sweep.py"
-      ]
-    },
-    {
-      "baseline_probe": {
-        "regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 11,
-          "status": "green"
-        },
-        "target": {
           "errors": 11,
           "failures": 0,
           "ran": 45,
@@ -853,260 +540,6 @@
       "verification_commands": [
         "python -m compileall -q src",
         "python -m unittest tests/test_domain_context_matching_efficiency.py tests/test_domain_intelligence_store_overflow.py tests/test_domain_intelligence_validation_state.py tests/test_domain_snapshot_malformed.py tests/test_memory_governance_policy.py tests/test_omh_shim_sweep.py"
-      ]
-    },
-    {
-      "baseline_probe": {
-        "regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 22,
-          "status": "green"
-        },
-        "target": {
-          "errors": 1,
-          "failures": 1,
-          "ran": 320,
-          "status": "red"
-        },
-        "target_second_path": {
-          "errors": 1,
-          "failures": 1,
-          "ran": 320,
-          "status": "red"
-        },
-        "with_reference_fix": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 356,
-          "status": "green"
-        },
-        "with_reference_fix_regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 22,
-          "status": "green"
-        }
-      },
-      "changed_lines": 370,
-      "issue": 919,
-      "kind": "fix",
-      "leak_class": "clean",
-      "merge_base": "79da09b5d50cd07619da264796d85d36725f5b68",
-      "merge_commit": "6aca748a2322c3e8f8f7941117b78f855a9eddc9",
-      "pull_request": 936,
-      "regression_modules": [
-        "tests/test_awesome_hermes_agent_efficiency.py",
-        "tests/test_code_review_references.py",
-        "tests/test_domain_context_docs.py",
-        "tests/test_native_capability_surfaces.py",
-        "tests/test_parser_memory.py",
-        "tests/test_skill_context_cost.py"
-      ],
-      "sections_dropped": [
-        "What is actually missing from every reader-facing surface",
-        "Why this is worth fixing rather than leaving in comments",
-        "Expected"
-      ],
-      "sections_kept": [
-        "Summary",
-        "Environment"
-      ],
-      "solution_blobs": {
-        "docs/MEMORY.md": "3c9295e9fd651337ead87600b3823cca8fa07fc0166391d11a7b1ad812a35651",
-        "skills/omh-memory-sync/SKILL.md": "b6668751a323f8f3e573e7c0d1bbd30f53b947fab9d32585ec2734a36a97d693",
-        "src/commands/language.py": "fc7c734244f94ded4a2af6864b564f163b1d58569e9e4fe1166f3c98b12e988f",
-        "src/commands/setup.py": "3d303bf0a1c67f6f6443825c5942d67b0acaf19b8d6230cd502d204dd3125b04",
-        "src/install/plugin_loader_observation.py": "4e947e2323b1b8a53c8c183c9d32ae20c181f2fca5bd2afc50f959aee906afee",
-        "src/install/plugin_pack.py": "ad654ad9a8d7851808f5a41efc4e2347846062d63c0a65d2634e9daa0c564538",
-        "src/maintenance/doctor.py": "647185d0897fb2c9a72aa436503288f7b80c6270c6d79bdfaee305869a62e285",
-        "src/maintenance/probe.py": "8362f42ec599827f100eb210eca1cbcab59c6498a3d1476a23a77a88f5cc6872",
-        "src/skills/render.py": "d0c5880797cb434330671c66178bbc32244d50d76b4c12aef171720d13ca3801"
-      },
-      "solution_paths": [
-        "docs/MEMORY.md",
-        "skills/omh-memory-sync/SKILL.md",
-        "src/commands/language.py",
-        "src/commands/setup.py",
-        "src/install/plugin_loader_observation.py",
-        "src/install/plugin_pack.py",
-        "src/maintenance/doctor.py",
-        "src/maintenance/probe.py",
-        "src/skills/render.py"
-      ],
-      "source_paths": [
-        "src/commands/language.py",
-        "src/commands/setup.py",
-        "src/install/plugin_loader_observation.py",
-        "src/install/plugin_pack.py",
-        "src/maintenance/doctor.py",
-        "src/maintenance/probe.py",
-        "src/skills/render.py"
-      ],
-      "task_id": "PR-936",
-      "task_source": "linked_issue",
-      "task_text": "Summary\n\nDreaming's automatic trigger points and its selection criteria live only in code comments. The one place that describes dreaming to a reader \u2014 the `memory-sync` skill \u2014 says:\n\n> Dreaming remains reminder-only: it prepares reminders for `stale_review_required` and `expired_volatile_records`, never consolidation, retirement, restore, or prune.\n\nThat sentence is true about what OMH *writes* and misleading about when it *runs*. Read on its own it says dreaming is a passive notice a human goes looking for. It is not: the scheduler fires by itself at five distinct points, and a reader who wants to know which ones has to open `memory_provider.py`.\n\nEnvironment\n\nmacOS 25.5.0, main at `9c134895`.",
-      "task_text_names_source_paths": [],
-      "task_text_sha256": "e0f91d953c393965655cf189555f910785d9575803403d2650c87aaed028dd07",
-      "test_blobs": {
-        "tests/test_cli.py": "b77f67d8e899340cbbd9baada77845ba78701c4365d83a5f2019f55fbde9d21c",
-        "tests/test_handoff_safety_contract_enforcement.py": "65301a96f5541e9f5e8970826ef77c375d61218503573619b455e3b6d8be5216",
-        "tests/test_plugin_distribution.py": "a70edf33047325738f6ba732ce298fb5588e7ca7495e78e4d0e1778c0e15d026"
-      },
-      "test_diff_sha256": "1356aad92eb690ad3c65ff2c31d8ea12afa26f351e1dc69c4f12dd7ac7e0be1c",
-      "test_lines": 295,
-      "test_modules": [
-        "tests/test_cli.py",
-        "tests/test_handoff_safety_contract_enforcement.py",
-        "tests/test_plugin_distribution.py"
-      ],
-      "test_paths": [
-        "tests/test_cli.py",
-        "tests/test_handoff_safety_contract_enforcement.py",
-        "tests/test_plugin_distribution.py"
-      ],
-      "title": "fix(plugin): verify real Hermes registration",
-      "touched_packages": [
-        "commands",
-        "install",
-        "maintenance",
-        "skills"
-      ],
-      "verification_commands": [
-        "python -m compileall -q src",
-        "python -m unittest tests/test_awesome_hermes_agent_efficiency.py tests/test_code_review_references.py tests/test_domain_context_docs.py tests/test_native_capability_surfaces.py tests/test_parser_memory.py tests/test_skill_context_cost.py"
-      ]
-    },
-    {
-      "baseline_probe": {
-        "regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 26,
-          "status": "green"
-        },
-        "target": {
-          "errors": 2,
-          "failures": 5,
-          "ran": 246,
-          "status": "red"
-        },
-        "target_second_path": {
-          "errors": 2,
-          "failures": 5,
-          "ran": 246,
-          "status": "red"
-        },
-        "with_reference_fix": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 246,
-          "status": "green"
-        },
-        "with_reference_fix_regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 26,
-          "status": "green"
-        }
-      },
-      "changed_lines": 242,
-      "issue": 994,
-      "kind": "fix",
-      "leak_class": "clean",
-      "merge_base": "0c4cac1d4cef1c8c4103b9b1c54090fb16073668",
-      "merge_commit": "d45cf78c59b6a9a4bfe6e640250640f43a75f381",
-      "pull_request": 996,
-      "regression_modules": [
-        "tests/test_buzz_diagnostics.py",
-        "tests/test_evidence_copy.py",
-        "tests/test_memory_governance_policy.py",
-        "tests/test_memory_reapproval_path.py",
-        "tests/test_native_capability_surfaces.py",
-        "tests/test_parser_memory.py"
-      ],
-      "sections_dropped": [
-        "Two defects in the `omh` Hermes plugin break registration + menu bar",
-        "Bug 1 \u2014 `register()` discriminator collides with Hermes's loader, so 0 tools/hooks register",
-        "Bug 2 \u2014 Menu bar shows \"needs attention / Status unavailable\" because `node` is not on the launchagent PATH"
-      ],
-      "sections_kept": [
-        "Environment"
-      ],
-      "solution_blobs": {
-        "README.ja.md": "7901497136795473f005730dd029224d1bb3c0e3f9ff49f5d725d99838f19594",
-        "README.ko.md": "febfe387f8ed7ad6cef75c29d4f265d2f0fcd156c2c8cf6ac948ce2f8454f1d3",
-        "README.md": "30628d6097e06b6c77849fc544155084c24afaccb1f32409be125bda458f8ea0",
-        "README.zh.md": "541aee919de049e0b42cac7f78048ee12756a0dde3fcdc47d9223ff681d13aaf",
-        "src/commands/main.py": "b9219fc42e10ac48290a9eaf53948df082315b60f3b35c19469e4009444e4774",
-        "src/maintenance/doctor.py": "565ee250bd73a2dac4b83df743b85b46365c66c3be5c00eba3ccb02cd2941f1e",
-        "src/maintenance/hermes_tui.py": "02d518eb61fa7d3f4cb8f59da12daac64223730e249e55194976f410c861ec0a",
-        "src/omh/skins/omh.yaml": "1420e40835dffd7f88f5a94bf0c2413e768b7a8735b6d254a0e4ba6c621c0b89",
-        "src/omh/tui_widgets/omh-status.mjs": "c94853d3b9d3b1ba4ae51c28395f0342cec5f6df81ff5f96b07c1421899b22a5",
-        "src/plugin_bundle/omh/runtime_reader.py": "d0d9e04bb80abf81f6aaf84e5c6f9b5219063592145a03453196638398c9b5a1",
-        "src/surfaces/menubar_app.py": "3be97b70fd3b7b505065415d587b6093329a6d06c86c7d0c9e6a72cff83f7d23"
-      },
-      "solution_paths": [
-        "README.ja.md",
-        "README.ko.md",
-        "README.md",
-        "README.zh.md",
-        "src/commands/main.py",
-        "src/maintenance/doctor.py",
-        "src/maintenance/hermes_tui.py",
-        "src/omh/skins/omh.yaml",
-        "src/omh/tui_widgets/omh-status.mjs",
-        "src/plugin_bundle/omh/runtime_reader.py",
-        "src/surfaces/menubar_app.py"
-      ],
-      "source_paths": [
-        "src/commands/main.py",
-        "src/maintenance/doctor.py",
-        "src/maintenance/hermes_tui.py",
-        "src/plugin_bundle/omh/runtime_reader.py",
-        "src/surfaces/menubar_app.py"
-      ],
-      "task_id": "PR-996",
-      "task_source": "linked_issue",
-      "task_text": "Environment\n\n- macOS, Hermes agent (hermes-cli), `oh-my-hermes` 1.0.6 (preview).\n- `node` installed at `<user-local-node-path>` (not on the default\n  launchagent PATH).\n\nBoth bugs have local workarounds in place, but each should be fixed upstream so\na fresh `npm install -g oh-my-hermes` works out of the box.",
-      "task_text_names_source_paths": [],
-      "task_text_sha256": "6d21c0a47c86045626a41d9d7cec47557e4bc9a8e13ee631a74279cb0c55159a",
-      "test_blobs": {
-        "tests/test_handoff_safety_contract_enforcement.py": "7b4068d92268effa9b37d6f7458a0906c58fd436fcf2156aa80bf1205d7c4808",
-        "tests/test_hermes_tui_preflight.py": "d3f6063149ec9e069f46984f568d2c76df6af217bcc5314a2f8174c63c1ddc21",
-        "tests/test_hud.py": "db79d709b6b317853a52b50c6bf4e9c561ad75798808ae038144916388975e73",
-        "tests/test_memory_provider.py": "9b134c3a0f47c017993f32870044086cec81eb59d883c99e06b63d8787498103",
-        "tests/test_menubar_app.py": "cc4737abf77d62e0343c125af23b74a59e2b7234b01aaf791a2f06ba334eeb7c",
-        "tests/test_tui_widget_pack.py": "439b183edb0e5cfbc90982ee20e4ef00a133ba39d6afa2f164d87246b2277e86"
-      },
-      "test_diff_sha256": "ebf72699c29041825c9e806d18414d1a9d25a255e0f9eaf6734e50b835f46dc7",
-      "test_lines": 186,
-      "test_modules": [
-        "tests/test_handoff_safety_contract_enforcement.py",
-        "tests/test_hermes_tui_preflight.py",
-        "tests/test_hud.py",
-        "tests/test_memory_provider.py",
-        "tests/test_menubar_app.py",
-        "tests/test_tui_widget_pack.py"
-      ],
-      "test_paths": [
-        "tests/test_handoff_safety_contract_enforcement.py",
-        "tests/test_hermes_tui_preflight.py",
-        "tests/test_hud.py",
-        "tests/test_memory_provider.py",
-        "tests/test_menubar_app.py",
-        "tests/test_tui_widget_pack.py"
-      ],
-      "title": "fix(menubar): preserve npm runtime paths",
-      "touched_packages": [
-        "commands",
-        "maintenance",
-        "plugin_bundle",
-        "surfaces"
-      ],
-      "verification_commands": [
-        "python -m compileall -q src",
-        "python -m unittest tests/test_buzz_diagnostics.py tests/test_evidence_copy.py tests/test_memory_governance_policy.py tests/test_memory_reapproval_path.py tests/test_native_capability_surfaces.py tests/test_parser_memory.py"
       ]
     },
     {
@@ -1528,25 +961,393 @@
         "regression": {
           "errors": 0,
           "failures": 0,
-          "ran": 15,
+          "ran": 9,
           "status": "green"
         },
         "target": {
-          "errors": 4,
-          "failures": 12,
-          "ran": 561,
+          "errors": 0,
+          "failures": 2,
+          "ran": 17,
           "status": "red"
         },
         "target_second_path": {
-          "errors": 4,
-          "failures": 12,
-          "ran": 561,
+          "errors": 0,
+          "failures": 2,
+          "ran": 17,
           "status": "red"
         },
         "with_reference_fix": {
           "errors": 0,
           "failures": 0,
-          "ran": 561,
+          "ran": 17,
+          "status": "green"
+        },
+        "with_reference_fix_regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 9,
+          "status": "green"
+        }
+      },
+      "changed_lines": 22,
+      "issue": null,
+      "kind": "fix",
+      "leak_class": "clean",
+      "merge_base": "ae8185002113914399ad061b4b4e31722626ec95",
+      "merge_commit": "69a4cc02578714b14ef9d8e701fc1d8947899f1b",
+      "pull_request": 1161,
+      "regression_modules": [
+        "tests/test_awesome_hermes_agent_efficiency.py",
+        "tests/test_domain_context_docs.py",
+        "tests/test_skill_context_cost.py",
+        "tests/test_specialist_procedure_contracts.py",
+        "tests/test_specialist_procedure_generated_parity.py",
+        "tests/test_specialist_procedure_review_contracts.py"
+      ],
+      "sections_dropped": [
+        "Capability",
+        "Implementation (boundary level)",
+        "Verification (observed)",
+        "Risks"
+      ],
+      "sections_kept": [
+        "Motivation"
+      ],
+      "solution_blobs": {
+        "docs/WORKFLOWS.md": "1a024701f62658f8b5f18108059fe6ac122b12a7dc77867b2e6904fbe0797253",
+        "skills/ulw-maestro/SKILL.md": "8d61bf759b039b794724fae71918aab60d69a956317d0fdb86116632496d8295",
+        "src/maintenance/release.py": "664640a4b9203b86929a0b627e929233986fb6196411e2d0d6a2c487fcd40d1f",
+        "src/skills/catalog_definitions.py": "d123b0658a71bfd7ddb18dd49b8f6d13e3c5dc8ef87f17b28cf74f273b56289a",
+        "src/skills/catalog_types.py": "eb3798c5d7b83fa0d35878e0237ddc9f3533bd575916c881e2aae17169bb49c5"
+      },
+      "solution_paths": [
+        "docs/WORKFLOWS.md",
+        "skills/ulw-maestro/SKILL.md",
+        "src/maintenance/release.py",
+        "src/skills/catalog_definitions.py",
+        "src/skills/catalog_types.py"
+      ],
+      "source_paths": [
+        "src/maintenance/release.py",
+        "src/skills/catalog_definitions.py",
+        "src/skills/catalog_types.py"
+      ],
+      "task_id": "PR-1161",
+      "task_source": "pull_request_body",
+      "task_text": "Motivation\n\nDeferred consciously in #1156's review (\"a tier variant is its own surface change\"), now commissioned by the owner. The other handoff-gated members (`omh-executor-runtime-readiness`, `omh-ai-slop-cleaner`) genuinely can take Hermes as owner and keep the original line.",
+      "task_text_names_source_paths": [],
+      "task_text_sha256": "26663978144913e1d4105cca098ee3af14dc31bc38733b866c146c6fe35d790a",
+      "test_blobs": {
+        "tests/test_fanout_chaos.py": "801adc5dae1343aa6dacb21335831993fa33e04c17ee263ed77e44ba9cdbc0dc",
+        "tests/test_maestro_skill.py": "e71b750df6181887032ffb84b8727209e485054aebda3c2f19fe7285188497f0"
+      },
+      "test_diff_sha256": "41b32a0e69ef48c169aaac8acc8c1a8db3cf918e5b44f418f5ea4cf4d7cb13ee",
+      "test_lines": 52,
+      "test_modules": [
+        "tests/test_fanout_chaos.py",
+        "tests/test_maestro_skill.py"
+      ],
+      "test_paths": [
+        "tests/test_fanout_chaos.py",
+        "tests/test_maestro_skill.py"
+      ],
+      "title": "fix(skills): give maestro its own Hermes-owner final-checklist line",
+      "touched_packages": [
+        "maintenance",
+        "skills"
+      ],
+      "verification_commands": [
+        "python -m compileall -q src",
+        "python -m unittest tests/test_awesome_hermes_agent_efficiency.py tests/test_domain_context_docs.py tests/test_skill_context_cost.py tests/test_specialist_procedure_contracts.py tests/test_specialist_procedure_generated_parity.py tests/test_specialist_procedure_review_contracts.py"
+      ]
+    },
+    {
+      "baseline_probe": {
+        "regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 9,
+          "status": "green"
+        },
+        "target": {
+          "errors": 0,
+          "failures": 9,
+          "ran": 391,
+          "status": "red"
+        },
+        "target_second_path": {
+          "errors": 0,
+          "failures": 9,
+          "ran": 391,
+          "status": "red"
+        },
+        "with_reference_fix": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 391,
+          "status": "green"
+        },
+        "with_reference_fix_regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 9,
+          "status": "green"
+        }
+      },
+      "changed_lines": 124,
+      "issue": null,
+      "kind": "fix",
+      "leak_class": "clean",
+      "merge_base": "ae8185002113914399ad061b4b4e31722626ec95",
+      "merge_commit": "3b95f7112c50065bfeb2fe033e58cdf41301cfe4",
+      "pull_request": 1162,
+      "regression_modules": [
+        "tests/test_domain_context_docs.py",
+        "tests/test_hud_payload_budget.py",
+        "tests/test_missed_route_detection.py",
+        "tests/test_skill_context_cost.py",
+        "tests/test_specialist_procedure_contracts.py",
+        "tests/test_specialist_procedure_review_contracts.py"
+      ],
+      "sections_dropped": [
+        "Capability",
+        "Implementation (boundary level)",
+        "Verification (observed)",
+        "Risks"
+      ],
+      "sections_kept": [
+        "Motivation"
+      ],
+      "solution_blobs": {
+        "docs/WORKFLOWS.md": "1a024701f62658f8b5f18108059fe6ac122b12a7dc77867b2e6904fbe0797253",
+        "skills/ulw-maestro/SKILL.md": "8d61bf759b039b794724fae71918aab60d69a956317d0fdb86116632496d8295",
+        "src/maintenance/drift.py": "0e1565911a442208cd5f48cb903a6dd7d7e5c5ceb55f80d14a6902cc268568ec",
+        "src/maintenance/release.py": "664640a4b9203b86929a0b627e929233986fb6196411e2d0d6a2c487fcd40d1f",
+        "src/plugin_bundle/omh/awareness.py": "1d9ebc32fa80a3ab8471b50c5117fef1704c607a506c1c2692eb1883f8f46d12",
+        "src/quality/routing_precision.py": "cb57682b043acd3658b1201a9f44aa106606c18bd1ad521731e40c97afac57e7",
+        "src/routing/executor_cues.py": "4d03a839e25863713345887eaf6e8ba180b496175189156033ebfaf1be2c94d6",
+        "src/routing/policy.py": "d6ed2e0ef09a00d71712b31e667698de6ef48e98d6b082596b330125d5fa68ea",
+        "src/skills/catalog_definitions.py": "d123b0658a71bfd7ddb18dd49b8f6d13e3c5dc8ef87f17b28cf74f273b56289a",
+        "src/skills/catalog_types.py": "eb3798c5d7b83fa0d35878e0237ddc9f3533bd575916c881e2aae17169bb49c5"
+      },
+      "solution_paths": [
+        "docs/WORKFLOWS.md",
+        "skills/ulw-maestro/SKILL.md",
+        "src/maintenance/drift.py",
+        "src/maintenance/release.py",
+        "src/plugin_bundle/omh/awareness.py",
+        "src/quality/routing_precision.py",
+        "src/routing/executor_cues.py",
+        "src/routing/policy.py",
+        "src/skills/catalog_definitions.py",
+        "src/skills/catalog_types.py"
+      ],
+      "source_paths": [
+        "src/maintenance/drift.py",
+        "src/maintenance/release.py",
+        "src/plugin_bundle/omh/awareness.py",
+        "src/quality/routing_precision.py",
+        "src/routing/executor_cues.py",
+        "src/routing/policy.py",
+        "src/skills/catalog_definitions.py",
+        "src/skills/catalog_types.py"
+      ],
+      "task_id": "PR-1162",
+      "task_source": "pull_request_body",
+      "task_text": "Motivation\n\nBoth defects were live-measured during the ulw-maestro placement probes and recorded as follow-ups; owner commissioned the fix. Destination matches the existing named-CLI delivery behavior (`claude code\ub85c \uad6c\ud604\ud574\uc918` \u2192 ultrawork) \u2014 not maestro, not ask, per the owner-choice-signal doctrine.",
+      "task_text_names_source_paths": [],
+      "task_text_sha256": "9ad15b5d4343b70562a86064512a7487de830da299992686228d3b94ed14a646",
+      "test_blobs": {
+        "tests/test_cli.py": "093979e98096bd91dce464c4917d86107b6086f309700fb0a64f7c0a0b29f2f5",
+        "tests/test_fanout_chaos.py": "801adc5dae1343aa6dacb21335831993fa33e04c17ee263ed77e44ba9cdbc0dc",
+        "tests/test_hermes_ux_quality.py": "1619b85b20646f83484cf1988503c20486b477bcdd38d1a3263833695a6bb91a",
+        "tests/test_maestro_skill.py": "e71b750df6181887032ffb84b8727209e485054aebda3c2f19fe7285188497f0",
+        "tests/test_release_smoke.py": "d47d24176b5ae42b28a3fc987bb5c774727b648d8c9fc13e509db3ac90639154",
+        "tests/test_routing_precision.py": "95bf7f1faa8de007110ddf63bde356e9c4c0ce77e594676b7c4a062a5709384f"
+      },
+      "test_diff_sha256": "0587bd9c4633086a50196b62bc144c8bcf7e06acf198daa77863237c76563b17",
+      "test_lines": 106,
+      "test_modules": [
+        "tests/test_cli.py",
+        "tests/test_fanout_chaos.py",
+        "tests/test_hermes_ux_quality.py",
+        "tests/test_maestro_skill.py",
+        "tests/test_release_smoke.py",
+        "tests/test_routing_precision.py"
+      ],
+      "test_paths": [
+        "tests/test_cli.py",
+        "tests/test_fanout_chaos.py",
+        "tests/test_hermes_ux_quality.py",
+        "tests/test_maestro_skill.py",
+        "tests/test_release_smoke.py",
+        "tests/test_routing_precision.py"
+      ],
+      "title": "fix(routing): route Korean bare-name delegation and generic \ud574\uc918 delivery to the coding lane",
+      "touched_packages": [
+        "maintenance",
+        "plugin_bundle",
+        "quality",
+        "routing",
+        "skills"
+      ],
+      "verification_commands": [
+        "python -m compileall -q src",
+        "python -m unittest tests/test_domain_context_docs.py tests/test_hud_payload_budget.py tests/test_missed_route_detection.py tests/test_skill_context_cost.py tests/test_specialist_procedure_contracts.py tests/test_specialist_procedure_review_contracts.py"
+      ]
+    },
+    {
+      "baseline_probe": {
+        "regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 10,
+          "status": "green"
+        },
+        "target": {
+          "errors": 0,
+          "failures": 10,
+          "ran": 389,
+          "status": "red"
+        },
+        "target_second_path": {
+          "errors": 0,
+          "failures": 10,
+          "ran": 389,
+          "status": "red"
+        },
+        "with_reference_fix": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 389,
+          "status": "green"
+        },
+        "with_reference_fix_regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 10,
+          "status": "green"
+        }
+      },
+      "changed_lines": 124,
+      "issue": null,
+      "kind": "fix",
+      "leak_class": "clean",
+      "merge_base": "3b95f7112c50065bfeb2fe033e58cdf41301cfe4",
+      "merge_commit": "b5d0ed3a574363e2f98333abb680fb57d78424fb",
+      "pull_request": 1163,
+      "regression_modules": [
+        "tests/test_domain_context_docs.py",
+        "tests/test_missed_route_detection.py",
+        "tests/test_product_family_templates.py",
+        "tests/test_skill_context_cost.py",
+        "tests/test_specialist_procedure_contracts.py",
+        "tests/test_specialist_procedure_review_contracts.py"
+      ],
+      "sections_dropped": [
+        "Capability",
+        "Implementation (boundary level)",
+        "Verification (observed)",
+        "Risks"
+      ],
+      "sections_kept": [
+        "Motivation"
+      ],
+      "solution_blobs": {
+        "docs/WORKFLOWS.md": "7018df1ff57d10ac243ad5d56d1d7683cbc901f7808b880613855a8890918270",
+        "skills/omh-ask/SKILL.md": "6bbc2da8afb9c0f5bdbbea604903ca533beed0943d947a1501e421e4b584d85a",
+        "skills/omh-routing/references/workflow-registry.md": "c14ce65616ce15d21761ffeaf98ad02483eaa09ee22506ed3b7c1a9b1b9928a5",
+        "src/coding/coding_delegation.py": "e2a82b486a51ce47c59d2fab2c66566b67d395fe1565e7ed8790b1ea24b55e24",
+        "src/maintenance/drift.py": "fe3dc0b1cc85a0da39b2f06921083dc8ec89d888fc0ea7cc38a584df9abf08f7",
+        "src/maintenance/release.py": "e30cfd3b3b6c3058133cb35a6c4ee7bc308134a011406b3cdec1b284b32395c3",
+        "src/quality/routing_precision.py": "345842df908bd76b4735b3a7511e00b0d67b5453f4b351d159e2a601760d881f",
+        "src/routing/recommend.py": "fbead07d0af90de0c800078bcb32a32fd0a21b077694eb4eb2d7f5aad75b3da2",
+        "src/skills/catalog_definitions.py": "12de589963954ac1758be1f24185462a1dd0d510541c0532dfd91f594dd74d5f"
+      },
+      "solution_paths": [
+        "docs/WORKFLOWS.md",
+        "skills/omh-ask/SKILL.md",
+        "skills/omh-routing/references/workflow-registry.md",
+        "src/coding/coding_delegation.py",
+        "src/maintenance/drift.py",
+        "src/maintenance/release.py",
+        "src/quality/routing_precision.py",
+        "src/routing/recommend.py",
+        "src/skills/catalog_definitions.py"
+      ],
+      "source_paths": [
+        "src/coding/coding_delegation.py",
+        "src/maintenance/drift.py",
+        "src/maintenance/release.py",
+        "src/quality/routing_precision.py",
+        "src/routing/recommend.py",
+        "src/skills/catalog_definitions.py"
+      ],
+      "task_id": "PR-1163",
+      "task_source": "pull_request_body",
+      "task_text": "Motivation\n\nThe bare tokens were a documented compromise (\"cannot be removed yet\u2026 fix the delegation path first\") that caused real misroutes: a concept question like \"claude code\uac00 \ubb50\uc57c\" dispatched the external-advisor lane at high confidence off a residual token score. Owner commissioned the retirement.",
+      "task_text_names_source_paths": [],
+      "task_text_sha256": "ef7b5de370b8c2af5e7dfc463169a8afa015a0ea6ed85e5f705f13516f1c76f4",
+      "test_blobs": {
+        "tests/test_cli.py": "4c2f88523e03357a716e77c48617a8a0e39d76e0fffed62efadba3917fb7ae7a",
+        "tests/test_coding_delegation.py": "b14a5fd75696b7e69a67e6aff05559cdcfae5752e818bb36d629cb68b443322d",
+        "tests/test_hermes_ux_quality.py": "f0641c307f97b826f6e14427ee5e4641722cfac8698ae8b659e30c14955ae537",
+        "tests/test_release_smoke.py": "2baf8c9f7ada8e59c95f4022b03486ee7d602389c6b1eabe944d207036b1dc96",
+        "tests/test_routing_precision.py": "5cc57bf0b79489abba8820f7f3f843b7f4d615ea635040c6f88d1b6a9db42c46"
+      },
+      "test_diff_sha256": "cfd9e5d2a2fefba8285ea94899d4d862e4e1c07192397311269fcd3e07e27b04",
+      "test_lines": 74,
+      "test_modules": [
+        "tests/test_cli.py",
+        "tests/test_coding_delegation.py",
+        "tests/test_hermes_ux_quality.py",
+        "tests/test_release_smoke.py",
+        "tests/test_routing_precision.py"
+      ],
+      "test_paths": [
+        "tests/test_cli.py",
+        "tests/test_coding_delegation.py",
+        "tests/test_hermes_ux_quality.py",
+        "tests/test_release_smoke.py",
+        "tests/test_routing_precision.py"
+      ],
+      "title": "fix(routing): retire ask's bare claude/gemini triggers via named-executor detection",
+      "touched_packages": [
+        "coding",
+        "maintenance",
+        "quality",
+        "routing",
+        "skills"
+      ],
+      "verification_commands": [
+        "python -m compileall -q src",
+        "python -m unittest tests/test_domain_context_docs.py tests/test_missed_route_detection.py tests/test_product_family_templates.py tests/test_skill_context_cost.py tests/test_specialist_procedure_contracts.py tests/test_specialist_procedure_review_contracts.py"
+      ]
+    },
+    {
+      "baseline_probe": {
+        "regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 15,
+          "status": "green"
+        },
+        "target": {
+          "errors": 0,
+          "failures": 7,
+          "ran": 374,
+          "status": "red"
+        },
+        "target_second_path": {
+          "errors": 0,
+          "failures": 7,
+          "ran": 374,
+          "status": "red"
+        },
+        "with_reference_fix": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 374,
           "status": "green"
         },
         "with_reference_fix_regression": {
@@ -1556,125 +1357,291 @@
           "status": "green"
         }
       },
-      "changed_lines": 254,
-      "issue": 1061,
+      "changed_lines": 205,
+      "issue": null,
       "kind": "fix",
-      "leak_class": "names_changed_file",
-      "merge_base": "b7f9846b75bb25da78174b1b67c411c77c8a8d5a",
-      "merge_commit": "e087701c1767cd2216ebc01b1b9b95aef02b2628",
-      "pull_request": 1085,
+      "leak_class": "clean",
+      "merge_base": "e1731cba9f0d40b414b69e86a6cec57fb05fd319",
+      "merge_commit": "8f1c6040766a7ea288fb21dbb05df2dadf84c118",
+      "pull_request": 1166,
       "regression_modules": [
-        "tests/test_executor_capabilities.py",
+        "tests/test_common_request_coverage.py",
         "tests/test_localized_chat_copy.py",
         "tests/test_missed_route_detection.py",
         "tests/test_omh_shim_sweep.py",
-        "tests/test_product_family_templates.py",
-        "tests/test_router_fast_path.py"
+        "tests/test_router_fast_path.py",
+        "tests/test_routing_quality.py"
       ],
       "sections_dropped": [
-        "(unheaded preamble)",
-        "Task",
-        "Acceptance"
+        "Capability",
+        "Implementation (boundary level)",
+        "Verification (observed)",
+        "Risks"
       ],
       "sections_kept": [
-        "Context",
-        "Current state (exact)"
+        "Motivation"
       ],
       "solution_blobs": {
-        "MODEL_OPTI.md": "e0c41ef0e93f1a63607ab2f1cc5e0d5a39cfde44ac4e83ada3dd866ae7ba97e9",
-        "docs/INSTALLATION.md": "652a9ddb5af0fba758f25813ff42d719e7d72ee6ef78bbd018d8b7292106ed1d",
-        "src/coding/model_routing.py": "29d8a2c2c8449c96071501bc2c05494226184843820dfa161f621d22f4fe6e78",
-        "src/coding/throughput_prompting.py": "5307b8226435217c4634c3ad8d5fe53816fb17b4bd14a169f3424de2b93a6e0a",
-        "src/commands/language.py": "c1a67a602f3353525c23ac05df7db3e07529a899f67976f019cc5f3c44859f02",
-        "src/commands/setup.py": "19c54f83efdea316d6a0a16da32fb365976467728efb0b4a47cf9790fcbf6652",
-        "src/install/installer.py": "edaf87c443d61c4886b862e7a98191f6384b09cca7c4d4c6b94e37edf5205ab2",
-        "src/maintenance/drift.py": "8ed7f150dd90fe235cc7407a9fa6c83aee9a9fb6fa6f9d102138f558398727b0",
-        "src/quality/routing_precision.py": "fb2dac705808b2eb134b4804e672c190da2cc37f0c0a9b5af0861329689cf84e",
-        "src/routing/chat.py": "31ce66b0ee00d5bce41f48583231879bb640cd9f8ed9df13716906a932303e6c",
-        "src/routing/recommend.py": "12938624039b7d03798310af713a84372be50a6e267ed9331aaddd48dc1a09ee",
-        "src/runtime/records.py": "2e7b8ddd57f2336fc7e393c92272dd9b74ced305521c6cf41c74c3439544d691"
+        "src/maintenance/drift.py": "8d1d8a7b69daf689c439339f2c9a5345e950b13048456238574b34270944d5ee",
+        "src/quality/routing_precision.py": "fd19444fe52e010f398e5ffa77b70fd7ffeb8bf805a42a152dc6aac0afbe30f7",
+        "src/routing/chat.py": "9db2d0e6021f280ee6b5abc509a96e54e9ea3d446d52eeb18ab2b6db56498d1d",
+        "src/routing/policy.py": "c025e1e02accecf38a087006af5e5bfffcbfb0ab7d068e65c35e860840ff2909"
       },
       "solution_paths": [
-        "MODEL_OPTI.md",
-        "docs/INSTALLATION.md",
-        "src/coding/model_routing.py",
-        "src/coding/throughput_prompting.py",
-        "src/commands/language.py",
-        "src/commands/setup.py",
-        "src/install/installer.py",
         "src/maintenance/drift.py",
         "src/quality/routing_precision.py",
         "src/routing/chat.py",
-        "src/routing/recommend.py",
-        "src/runtime/records.py"
+        "src/routing/policy.py"
       ],
       "source_paths": [
-        "src/coding/model_routing.py",
-        "src/coding/throughput_prompting.py",
-        "src/commands/language.py",
-        "src/commands/setup.py",
-        "src/install/installer.py",
         "src/maintenance/drift.py",
         "src/quality/routing_precision.py",
         "src/routing/chat.py",
-        "src/routing/recommend.py",
-        "src/runtime/records.py"
+        "src/routing/policy.py"
       ],
-      "task_id": "PR-1085",
-      "task_source": "linked_issue",
-      "task_text": "Context\n\nFound while adding routing negatives in #1048: a conversational prompt like **\"explain how markov chain models work\"** scores toward `running-work-board` because the catalog scorer credits shared tokens across its trigger phrases \u2014 `models` (from `what models are running\") plus `work` (from \"running work board\"). The two corpus cases were REPHRASED to keep the suite green (`markov-chain-model-concept` uses Korean, `chain-models-ml-concept` says \"explain markov chain models to me\"), so the underlying imprecision is real but currently unguarded for the \"...how X models work\" shape.\n\nCurrent state (exact)\n\nCatalog triggers (`src/skills/catalog_definitions.py`, `running-work-board` entry \u2014 note the comments already document one round of this exact fight):\n\n```\n\"running-work-board\", \"running work board\", \"which units are running\",\n\"what models are running\", \"\uc9c0\uae08 \ubb50 \ub3cc\uace0 \uc788\uc5b4\", \"\ubb50\uac00 \ub3cc\uace0 \uc788\uc5b4\",\n\"\uc5b4\ub5a4 \ubaa8\ub378\ub85c \ub3cc\uace0 \uc788\uc5b4\", \"\uc2e4\ud589 \uc911\uc778 \uc791\uc5c5 \ubcf4\uc5ec\uc918\", ...\n```\n\nGeneric English phrasings are deliberately handled by `_coding_status_board_fast_path_decision` in `src/routing/chat.py` (`_CODING_STATUS_BOARD_CUES`, whole-phrase matching that a lone token cannot reach). The leak is on the catalog-scorer side, where multi-word triggers are credited token-by-token.",
-      "task_text_names_source_paths": [
-        "src/routing/chat.py"
-      ],
-      "task_text_sha256": "f6fc39357c6b388f753cb3fd3f72b8e98dfea52533bdafc53139680d2068ef77",
+      "task_id": "PR-1166",
+      "task_source": "pull_request_body",
+      "task_text": "Motivation\n\nThe #1152 bootstrap pass was reachable only from ten imperative phrases; the recorded follow-up listed these natural shapes still falling back. Root cause for the worst case: the file-lookup fast path intercepted \"files\"+\"repo\" tokens before guard scoring ever ran.",
+      "task_text_names_source_paths": [],
+      "task_text_sha256": "2dec83423a40d04f8354e52e31f6d7923d2c0d013cfdeb3a8b60417191541168",
       "test_blobs": {
-        "tests/test_awesome_hermes_agent_catalog.py": "96e3f9d68733f9b0fdecefa4b53f6e2673aba26239537fa11ce678ccf1255ccf",
-        "tests/test_cli.py": "9326fac76b48871b3d965c233b7e081e0462f7bbbf926a9510a4b58eef0c10ad",
-        "tests/test_executor_prompting.py": "7c356bfe76b3b749170c22adb279f90ccc3027cd3484aefd249c9d87494d1b31",
-        "tests/test_hermes_ux_quality.py": "128feded566a51fb07ca78cf385bf83b98781b9f7975bc5351b53fb6900fcd00",
-        "tests/test_model_routing.py": "3efcc8952f2e45f7e771fac135d9524f82808ab8841ddfa26dbb89726912c194",
-        "tests/test_plugin_distribution.py": "cd8d8197c990adb680fb0d777e2ecbfab95f8fd13e49b0f76b3284fb6a1c1f05",
-        "tests/test_release_smoke.py": "b22d7938ad4fada12605ea1eb82e2c123c1fba36cef0bbfee2220b51b269ceaa",
-        "tests/test_routing_precision.py": "d6644a67e017ac3b6409191ee55b2bd7d76da6384ff3f83507e7a8003e65d471",
-        "tests/test_unit_prompt_protocol.py": "3277f5221a456470e56988205e7e27603783be0d502fb01e3efcf106e7cfafac"
+        "tests/test_cli.py": "d17ab2599dd74e8738a98ee000e8508d155045f36db755b470a790c067d024d8",
+        "tests/test_hermes_ux_quality.py": "7d426443f7f90caf2155082b88f95bbb8089c2ae3b70e3ffc74251805bde3560",
+        "tests/test_release_smoke.py": "b6593f6d46980e66d9c041b7bb12364cc5cfde5356145e4c3e58deeb76e568db",
+        "tests/test_routing_precision.py": "892d571191547a0ff0abd8098eb1707c6896233185641f9f1d17ba825f704e1f"
       },
-      "test_diff_sha256": "de1e6003091a521b261887f4f0f8332c40954ef4b50431a734f22cfada58c4db",
-      "test_lines": 319,
+      "test_diff_sha256": "0fa5d63f121df66881b4e3d99e7d58f7b131ae1ffcc704528e607d328f7fe33f",
+      "test_lines": 56,
       "test_modules": [
-        "tests/test_awesome_hermes_agent_catalog.py",
         "tests/test_cli.py",
-        "tests/test_executor_prompting.py",
         "tests/test_hermes_ux_quality.py",
-        "tests/test_model_routing.py",
-        "tests/test_plugin_distribution.py",
         "tests/test_release_smoke.py",
-        "tests/test_routing_precision.py",
-        "tests/test_unit_prompt_protocol.py"
+        "tests/test_routing_precision.py"
       ],
       "test_paths": [
-        "tests/test_awesome_hermes_agent_catalog.py",
         "tests/test_cli.py",
-        "tests/test_executor_prompting.py",
         "tests/test_hermes_ux_quality.py",
-        "tests/test_model_routing.py",
-        "tests/test_plugin_distribution.py",
         "tests/test_release_smoke.py",
-        "tests/test_routing_precision.py",
-        "tests/test_unit_prompt_protocol.py"
+        "tests/test_routing_precision.py"
       ],
-      "title": "fix(routing): require complete work-board phrases",
+      "title": "fix(routing): widen greenfield project-bootstrap reach to file requests",
       "touched_packages": [
-        "coding",
-        "commands",
-        "install",
         "maintenance",
         "quality",
-        "routing",
-        "runtime"
+        "routing"
       ],
       "verification_commands": [
         "python -m compileall -q src",
-        "python -m unittest tests/test_executor_capabilities.py tests/test_localized_chat_copy.py tests/test_missed_route_detection.py tests/test_omh_shim_sweep.py tests/test_product_family_templates.py tests/test_router_fast_path.py"
+        "python -m unittest tests/test_common_request_coverage.py tests/test_localized_chat_copy.py tests/test_missed_route_detection.py tests/test_omh_shim_sweep.py tests/test_router_fast_path.py tests/test_routing_quality.py"
+      ]
+    },
+    {
+      "baseline_probe": {
+        "regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 15,
+          "status": "green"
+        },
+        "target": {
+          "errors": 6,
+          "failures": 3,
+          "ran": 135,
+          "status": "red"
+        },
+        "target_second_path": {
+          "errors": 6,
+          "failures": 3,
+          "ran": 135,
+          "status": "red"
+        },
+        "with_reference_fix": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 135,
+          "status": "green"
+        },
+        "with_reference_fix_regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 15,
+          "status": "green"
+        }
+      },
+      "changed_lines": 211,
+      "issue": null,
+      "kind": "feat",
+      "leak_class": "clean",
+      "merge_base": "afc334ab04f3774da7ce8c462ade15ae948870bc",
+      "merge_commit": "0bc329abfb41a351765d74e957786e53e57c8a96",
+      "pull_request": 1178,
+      "regression_modules": [
+        "tests/test_executor_capabilities.py",
+        "tests/test_omh_shim_sweep.py",
+        "tests/test_product_family_templates.py",
+        "tests/test_product_quality_harnesses.py",
+        "tests/test_skill_load_process_cleanup.py",
+        "tests/test_skill_load_windows_resolution.py"
+      ],
+      "sections_dropped": [
+        "Feature Report",
+        "What Changed",
+        "User / Operator Impact",
+        "How It Works",
+        "Files And Contracts Touched",
+        "Affected Surfaces",
+        "Validation",
+        "Observed Evidence",
+        "Not Tested / Not Applicable",
+        "Risk",
+        "Compatibility / Rollout",
+        "Release / Claims",
+        "Follow-Up"
+      ],
+      "sections_kept": [
+        "Why This Exists"
+      ],
+      "solution_blobs": {
+        "src/coding/executor_progress.py": "22c7fbbb9250ce89d8af9256558107b4707f5bf4d495f377dcc2fdc8511bfa17",
+        "src/coding/fanout_dispatch.py": "17bfc2e4b4d463e94544e1c29033fa55491feb84c623a0039adacb9a53953fe8"
+      },
+      "solution_paths": [
+        "src/coding/executor_progress.py",
+        "src/coding/fanout_dispatch.py"
+      ],
+      "source_paths": [
+        "src/coding/executor_progress.py",
+        "src/coding/fanout_dispatch.py"
+      ],
+      "task_id": "PR-1178",
+      "task_source": "pull_request_body",
+      "task_text": "Why This Exists\n\n- Follow-up to #1171 asked directly by the owner (\"maestro\uc138\uc158\uc740 \uc5b4\uce90 tokens \uce21\uc815\ud568?\"): Maestro rows render in the subagent section, but their token column stayed blank for the whole run. The runner collected stdout with a blocking `communicate()`, telemetry was parsed only at process exit, and the closed binding drops off the HUD on the next 2s poll \u2014 so live visibility was structurally impossible. Worse, the close path read only `tokens_total`, which neither codex-terminal nor claude events name for every owner, so claude rows never showed a count at all.",
+      "task_text_names_source_paths": [],
+      "task_text_sha256": "27be83feae3cdb8889fce289fca64af6b94979f3e00c70a5f04850cc1007dde7",
+      "test_blobs": {
+        "tests/test_broad_exception_policy.py": "671b8a6215bc3323fcd1eb9950692fbf721863db7df70079a712cd5c3e7101c4",
+        "tests/test_fanout_dispatch.py": "1490817bfe6f45962dcf0ae1940f56f0581acc3611e1408123ba79f7a449a518",
+        "tests/test_fanout_signal_safety.py": "244127fe4f3a70beab777d60cc0b0f95634089e398624cda0299aea47e2df68c"
+      },
+      "test_diff_sha256": "72023302eb852601d753015a8d33acaa7ea07179da9d0a4d700fdd5fab6236e3",
+      "test_lines": 276,
+      "test_modules": [
+        "tests/test_broad_exception_policy.py",
+        "tests/test_fanout_dispatch.py",
+        "tests/test_fanout_signal_safety.py"
+      ],
+      "test_paths": [
+        "tests/test_broad_exception_policy.py",
+        "tests/test_fanout_dispatch.py",
+        "tests/test_fanout_signal_safety.py"
+      ],
+      "title": "feat(coding): live mid-run token telemetry for Maestro-lane HUD rows",
+      "touched_packages": [
+        "coding"
+      ],
+      "verification_commands": [
+        "python -m compileall -q src",
+        "python -m unittest tests/test_executor_capabilities.py tests/test_omh_shim_sweep.py tests/test_product_family_templates.py tests/test_product_quality_harnesses.py tests/test_skill_load_process_cleanup.py tests/test_skill_load_windows_resolution.py"
+      ]
+    },
+    {
+      "baseline_probe": {
+        "regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 15,
+          "status": "green"
+        },
+        "target": {
+          "errors": 1,
+          "failures": 0,
+          "ran": 132,
+          "status": "red"
+        },
+        "target_second_path": {
+          "errors": 1,
+          "failures": 0,
+          "ran": 132,
+          "status": "red"
+        },
+        "with_reference_fix": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 132,
+          "status": "green"
+        },
+        "with_reference_fix_regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 15,
+          "status": "green"
+        }
+      },
+      "changed_lines": 20,
+      "issue": null,
+      "kind": "fix",
+      "leak_class": "clean",
+      "merge_base": "a0f7580b60acb5c624220a5215405671a1bd77fe",
+      "merge_commit": "d26b9dab8317a75a5fa62af5917943283373c4d1",
+      "pull_request": 1187,
+      "regression_modules": [
+        "tests/test_executor_capabilities.py",
+        "tests/test_omh_shim_sweep.py",
+        "tests/test_product_family_templates.py",
+        "tests/test_product_quality_harnesses.py",
+        "tests/test_skill_load_process_cleanup.py",
+        "tests/test_skill_load_windows_resolution.py"
+      ],
+      "sections_dropped": [
+        "Feature Report",
+        "What Changed",
+        "User / Operator Impact",
+        "How It Works",
+        "Files And Contracts Touched",
+        "Affected Surfaces",
+        "Validation",
+        "Observed Evidence",
+        "Not Tested / Not Applicable",
+        "Risk",
+        "Compatibility / Rollout",
+        "Release / Claims",
+        "Follow-Up"
+      ],
+      "sections_kept": [
+        "Why This Exists"
+      ],
+      "solution_blobs": {
+        "src/coding/fanout_dispatch.py": "1a60e37b8b245c2609bdf8455f749a1d129b464727229375a88b7883da05df66"
+      },
+      "solution_paths": [
+        "src/coding/fanout_dispatch.py"
+      ],
+      "source_paths": [
+        "src/coding/fanout_dispatch.py"
+      ],
+      "task_id": "PR-1187",
+      "task_source": "pull_request_body",
+      "task_text": "Why This Exists\n\n- `test_reserve_spaces_consecutive_slots` asserted a wall-clock spawn gap\n  `>= 0.045s` against a 0.05s stagger interval. Under CPU contention\n  (parallel test suites on one loaded machine) the OS scheduler occasionally\n  delivered a 0.041\u20130.043s gap and the assertion failed, even though\n  `_SpawnStagger` had correctly scheduled the next slot exactly one interval\n  later. The flake was in *observing* the schedule through real wall-clock\n  time under scheduler jitter, not in the schedule itself. Observed failing\n  twice on loaded machines during unrelated PRs, passing in isolation every\n  time.",
+      "task_text_names_source_paths": [],
+      "task_text_sha256": "389a0949f99a2e41857feac38c1f6e8715709084a8f1e204d46b7748fead2952",
+      "test_blobs": {
+        "tests/test_fanout_dispatch.py": "14bd4bd24ee63b61baf46c1c6914edf504f6e0d8e6e6d0332380966b352bf584"
+      },
+      "test_diff_sha256": "249157803c4c3df5c01022826d4d949328538b6dcdfaf0f4ff38d7bf5b02cf5c",
+      "test_lines": 30,
+      "test_modules": [
+        "tests/test_fanout_dispatch.py"
+      ],
+      "test_paths": [
+        "tests/test_fanout_dispatch.py"
+      ],
+      "title": "fix(tests): deflake spawn-stagger test with an injected clock",
+      "touched_packages": [
+        "coding"
+      ],
+      "verification_commands": [
+        "python -m compileall -q src",
+        "python -m unittest tests/test_executor_capabilities.py tests/test_omh_shim_sweep.py tests/test_product_family_templates.py tests/test_product_quality_harnesses.py tests/test_skill_load_process_cleanup.py tests/test_skill_load_windows_resolution.py"
       ]
     },
     {
@@ -2612,6 +2579,112 @@
           "status": "green"
         },
         "target": {
+          "errors": 0,
+          "failures": 1,
+          "ran": 88,
+          "status": "red"
+        },
+        "target_second_path": {
+          "errors": 0,
+          "failures": 1,
+          "ran": 88,
+          "status": "red"
+        },
+        "with_reference_fix": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 88,
+          "status": "green"
+        },
+        "with_reference_fix_regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 9,
+          "status": "green"
+        }
+      },
+      "changed_lines": 11,
+      "issue": null,
+      "kind": "fix",
+      "leak_class": "clean",
+      "merge_base": "4157e3c73d3ad5845bcb1ed8344f93c716e7a1e9",
+      "merge_commit": "aab355d0e998cf7f20092930e27179b93b217bf0",
+      "pull_request": 1264,
+      "regression_modules": [
+        "tests/test_awesome_hermes_agent_efficiency.py",
+        "tests/test_domain_context_docs.py",
+        "tests/test_skill_context_cost.py",
+        "tests/test_specialist_procedure_contracts.py",
+        "tests/test_specialist_procedure_generated_parity.py",
+        "tests/test_specialist_procedure_review_contracts.py"
+      ],
+      "sections_dropped": [
+        "Capability",
+        "Implementation (boundary level)",
+        "Verification (observed)",
+        "Risks"
+      ],
+      "sections_kept": [
+        "Motivation"
+      ],
+      "solution_blobs": {
+        "docs/WORKFLOWS.md": "7143f95a71d844ab88cc5a58ab85147ea9eec065c05c339fe3333d1a26cd4415",
+        "skills/omh-ai-slop-cleaner/SKILL.md": "48d55c038a834fff3e700508d3b7cc385284fe3d92046d93609a5e2f0fc86d59",
+        "skills/omh-frontend-refactor/SKILL.md": "52cb4df97a25e5f1d4017afab6d4d99c7738d5206635c92b63edd476e723bdbe",
+        "skills/ulw-plan/SKILL.md": "7521ff50aba0b9a089c03e1822e8a490f2b326dfaee402b625c4424f58c62758",
+        "src/maintenance/release.py": "b36054b0b136f175ef18ab7ddd51c8dee2ae6e4e2b217780475dc1f86a7a9f79",
+        "src/skills/catalog_definitions.py": "b7ec897dac1e45d0b8a9a1ebbcec0a5c8f1ed0ef6d275bf82a65632cb6765021"
+      },
+      "solution_paths": [
+        "docs/WORKFLOWS.md",
+        "skills/omh-ai-slop-cleaner/SKILL.md",
+        "skills/omh-frontend-refactor/SKILL.md",
+        "skills/ulw-plan/SKILL.md",
+        "src/maintenance/release.py",
+        "src/skills/catalog_definitions.py"
+      ],
+      "source_paths": [
+        "src/maintenance/release.py",
+        "src/skills/catalog_definitions.py"
+      ],
+      "task_id": "PR-1264",
+      "task_source": "pull_request_body",
+      "task_text": "Motivation\n\nNamed follow-up from the 2026-09-01 skill round (PRs #1238/#1239/#1241) and called out in #1241's own body. Both deference lines were authored before `refactor-plan` existed, so they sent a user whose direction was already settled into the workflow that re-settles direction \u2014 and `ralplan` named no way back out.",
+      "task_text_names_source_paths": [],
+      "task_text_sha256": "cabc27520c5e5505d003e195cd055336dbe3538890785b3ca7acde47f92e5c0d",
+      "test_blobs": {
+        "tests/test_catalog_deference_policy.py": "517952f30db502c03d783db2e4c0a700731189912f93271165c82ddcb787d396",
+        "tests/test_efficiency.py": "bf9687b60edb393d6de56e11904758778d7fe888b781ca272a93f9ab55ddc8f1"
+      },
+      "test_diff_sha256": "7f74cb2941708a0f921a0936a9c405631df91c58068237dcf59cb26f0ad9d783",
+      "test_lines": 17,
+      "test_modules": [
+        "tests/test_catalog_deference_policy.py",
+        "tests/test_efficiency.py"
+      ],
+      "test_paths": [
+        "tests/test_catalog_deference_policy.py",
+        "tests/test_efficiency.py"
+      ],
+      "title": "fix(skills): repoint the boundary-crossing refactor deference at refactor-plan",
+      "touched_packages": [
+        "maintenance",
+        "skills"
+      ],
+      "verification_commands": [
+        "python -m compileall -q src",
+        "python -m unittest tests/test_awesome_hermes_agent_efficiency.py tests/test_domain_context_docs.py tests/test_skill_context_cost.py tests/test_specialist_procedure_contracts.py tests/test_specialist_procedure_generated_parity.py tests/test_specialist_procedure_review_contracts.py"
+      ]
+    },
+    {
+      "baseline_probe": {
+        "regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 9,
+          "status": "green"
+        },
+        "target": {
           "errors": 1,
           "failures": 0,
           "ran": 1,
@@ -2707,6 +2780,100 @@
       "verification_commands": [
         "python -m compileall -q src",
         "python -m unittest tests/test_awesome_hermes_agent_efficiency.py tests/test_domain_context_docs.py tests/test_skill_context_cost.py tests/test_specialist_procedure_contracts.py tests/test_specialist_procedure_generated_parity.py tests/test_specialist_procedure_review_contracts.py"
+      ]
+    },
+    {
+      "baseline_probe": {
+        "regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 23,
+          "status": "green"
+        },
+        "target": {
+          "errors": 0,
+          "failures": 2,
+          "ran": 14,
+          "status": "red"
+        },
+        "target_second_path": {
+          "errors": 0,
+          "failures": 2,
+          "ran": 14,
+          "status": "red"
+        },
+        "with_reference_fix": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 14,
+          "status": "green"
+        },
+        "with_reference_fix_regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 23,
+          "status": "green"
+        }
+      },
+      "changed_lines": 94,
+      "issue": null,
+      "kind": "fix",
+      "leak_class": "clean",
+      "merge_base": "1b2962205e8571105820b5aef49eaa432825a4a0",
+      "merge_commit": "84865e6041dbc542673b98ae5a224f4c8d5114b3",
+      "pull_request": 1271,
+      "regression_modules": [
+        "tests/test_diff_presentation.py",
+        "tests/test_hud_payload_budget.py",
+        "tests/test_memory_governance_policy.py",
+        "tests/test_native_capability_surfaces.py",
+        "tests/test_subagent_graph_hud_bounds.py",
+        "tests/test_todo_reconciliation.py"
+      ],
+      "sections_dropped": [
+        "Capability",
+        "What changed",
+        "What deliberately did not change",
+        "Verification (observed)",
+        "Risks"
+      ],
+      "sections_kept": [
+        "Motivation"
+      ],
+      "solution_blobs": {
+        "src/omh/tui_widgets/omh-status.mjs": "88819ab34752b91ce043992529301ba8fe2e9c1598642ab6d760fedbb44ed1ca",
+        "src/plugin_bundle/omh/hermes_delegation.py": "21d6fec3dfc068afe9ee2cda13891ed775fc442fcbdb76072c257443f9d149e8"
+      },
+      "solution_paths": [
+        "src/omh/tui_widgets/omh-status.mjs",
+        "src/plugin_bundle/omh/hermes_delegation.py"
+      ],
+      "source_paths": [
+        "src/plugin_bundle/omh/hermes_delegation.py"
+      ],
+      "task_id": "PR-1271",
+      "task_source": "pull_request_body",
+      "task_text": "Motivation\n\nReported from a live session: the OMH line read `4 agents \u00b7 1 running \u00b7 3 blocked \u00b7 ctx --` with no tokens, cost, or cache. The dispatches had failed, so nothing was consumed \u2014 but the HUD rendered that identically to \"the reader could not measure this.\"\n\nThe contradiction was inside one function. `read_hermes_native_subagents` labels such a row `failed` with the hint `no model usage observed`, then eleven lines later sent `tokens: None` for that same row, so the widget blanked it.",
+      "task_text_names_source_paths": [],
+      "task_text_sha256": "e8cbc634af2f14c51e190f0a12581071d9103960d74ed99c47a66a2b9f817bd2",
+      "test_blobs": {
+        "tests/test_tui_widget_pack.py": "a8d045728e9e0310021f66686944241d4e83f46fd847e79ba3bec5a1d863c4fd"
+      },
+      "test_diff_sha256": "073d0f362d38451c562d7d35299e93e78b94fd9c50de43058bd2fb852a5363da",
+      "test_lines": 61,
+      "test_modules": [
+        "tests/test_tui_widget_pack.py"
+      ],
+      "test_paths": [
+        "tests/test_tui_widget_pack.py"
+      ],
+      "title": "fix(hud): the activity row's measured block sits beside its identity, and tells the truth",
+      "touched_packages": [
+        "plugin_bundle"
+      ],
+      "verification_commands": [
+        "python -m compileall -q src",
+        "python -m unittest tests/test_diff_presentation.py tests/test_hud_payload_budget.py tests/test_memory_governance_policy.py tests/test_native_capability_surfaces.py tests/test_subagent_graph_hud_bounds.py tests/test_todo_reconciliation.py"
       ]
     },
     {
@@ -2901,205 +3068,6 @@
         "regression": {
           "errors": 0,
           "failures": 0,
-          "ran": 23,
-          "status": "green"
-        },
-        "target": {
-          "errors": 1,
-          "failures": 0,
-          "ran": 1,
-          "status": "red"
-        },
-        "target_second_path": {
-          "errors": 1,
-          "failures": 0,
-          "ran": 1,
-          "status": "red"
-        },
-        "with_reference_fix": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 11,
-          "status": "green"
-        },
-        "with_reference_fix_regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 23,
-          "status": "green"
-        }
-      },
-      "changed_lines": 142,
-      "issue": 1274,
-      "kind": "feat",
-      "leak_class": "names_changed_file",
-      "merge_base": "78b745290d531f5684fd983d976c2bcac7d7c1c0",
-      "merge_commit": "55d83da7729c91c4e58aaa042f30b14c294e1120",
-      "pull_request": 1284,
-      "regression_modules": [
-        "tests/test_diff_presentation.py",
-        "tests/test_hud_payload_budget.py",
-        "tests/test_memory_governance_policy.py",
-        "tests/test_native_capability_surfaces.py",
-        "tests/test_subagent_graph_hud_bounds.py",
-        "tests/test_todo_reconciliation.py"
-      ],
-      "sections_dropped": [
-        "Supporting problems in the same table",
-        "Target behaviour",
-        "Scope"
-      ],
-      "sections_kept": [
-        "What breaks"
-      ],
-      "solution_blobs": {
-        "docs/INSTALLATION.md": "4efbccd814e5a9ad36bde101e74e56e0f18fb5ea48c6290e68391cf436631f4a",
-        "src/plugin_bundle/omh/hermes_delegation.py": "2fa3420250205b9f025223392bebcc2f468297069e77ccaf13d202779d8d26d1"
-      },
-      "solution_paths": [
-        "docs/INSTALLATION.md",
-        "src/plugin_bundle/omh/hermes_delegation.py"
-      ],
-      "source_paths": [
-        "src/plugin_bundle/omh/hermes_delegation.py"
-      ],
-      "task_id": "PR-1284",
-      "task_source": "linked_issue",
-      "task_text": "What breaks\n\nToken prices are a hardcoded dict literal in shipped source (`APPROX_PRICE_PER_MTOK` in `src/plugin_bundle/omh/hermes_delegation.py`), with no way for a user to override them. A user cannot correct a price without editing our source.\n\nThis contradicts the repo's own stated rule. `docs/INSTALLATION.md` says it outright for the neighbouring document: **\"Chain customization is a config edit, not a source edit.\"** Every other per-user-variable routing fact already lives under `~/.omh/routing/` \u2014 `model-chains.json` (`mixture_chain_overrides/v1`), `providers.json` (`provider_entitlements/v1`), `model-providers.json` (`model_provider_routes/v1`). Prices do not.\n\nPrices are exactly the kind of thing that differs per user and drifts over time:\n\n- a gateway (OpenGateway, OpenRouter, any relay) applies its own markup\n- enterprise and committed-use rates are not list prices\n- free tiers, promos, and subscription plans bill nothing per call\n- vendors change list prices, and our table has already gone stale once \u2014 the source comment says so: *\"Earlier entries here were stale.\"*",
-      "task_text_names_source_paths": [
-        "src/plugin_bundle/omh/hermes_delegation.py"
-      ],
-      "task_text_sha256": "f9984bc3f8a188fd0ba74075decb566d6c5f2a6b93c0019a2d82e6e76df102c1",
-      "test_blobs": {
-        "tests/test_model_price_overrides.py": "bd8188175e24d60d256da5b7da3116a58223d4caafc8fd72718a808dc08bf1ec"
-      },
-      "test_diff_sha256": "59b8770d3f7d7108f331ad1a5c3fba04b9049998950d9b74e11cf1e41a44e29c",
-      "test_lines": 151,
-      "test_modules": [
-        "tests/test_model_price_overrides.py"
-      ],
-      "test_paths": [
-        "tests/test_model_price_overrides.py"
-      ],
-      "title": "feat(cost): token prices become a config document, not a source edit",
-      "touched_packages": [
-        "plugin_bundle"
-      ],
-      "verification_commands": [
-        "python -m compileall -q src",
-        "python -m unittest tests/test_diff_presentation.py tests/test_hud_payload_budget.py tests/test_memory_governance_policy.py tests/test_native_capability_surfaces.py tests/test_subagent_graph_hud_bounds.py tests/test_todo_reconciliation.py"
-      ]
-    },
-    {
-      "baseline_probe": {
-        "regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 23,
-          "status": "green"
-        },
-        "target": {
-          "errors": 0,
-          "failures": 3,
-          "ran": 20,
-          "status": "red"
-        },
-        "target_second_path": {
-          "errors": 0,
-          "failures": 3,
-          "ran": 20,
-          "status": "red"
-        },
-        "with_reference_fix": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 20,
-          "status": "green"
-        },
-        "with_reference_fix_regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 23,
-          "status": "green"
-        }
-      },
-      "changed_lines": 173,
-      "issue": null,
-      "kind": "fix",
-      "leak_class": "clean",
-      "merge_base": "f589cf96d0c6cc8e3cd59a2b82229b6dc5701835",
-      "merge_commit": "a4a286e9db012528901b0914b5651302e1f7a97c",
-      "pull_request": 1287,
-      "regression_modules": [
-        "tests/test_diff_presentation.py",
-        "tests/test_hud_payload_budget.py",
-        "tests/test_memory_governance_policy.py",
-        "tests/test_native_capability_surfaces.py",
-        "tests/test_subagent_graph_hud_bounds.py",
-        "tests/test_todo_reconciliation.py"
-      ],
-      "sections_dropped": [
-        "Capability",
-        "What this is not",
-        "Rejected",
-        "Verification (observed)",
-        "Risks"
-      ],
-      "sections_kept": [
-        "Motivation"
-      ],
-      "solution_blobs": {
-        "docs/INSTALLATION.md": "20794df370ccdaf84704d390f91396ca6cbc848a89bf56c3471b40b9beb84bf2",
-        "src/omh/tui_widgets/omh-status.mjs": "05777ac8fb980b7cf4e883661302a746ddc6400ca4985c9174c060242746ae6e",
-        "src/plugin_bundle/omh/delegation_routing.py": "f8ee8da9668167a1e7252ba357a714f88805c9c5efccf48654766fd76378606a",
-        "src/plugin_bundle/omh/hermes_delegation.py": "19a11627a9f69f3b28b4856352178801ffae971ea9bec4258fa30ce6b43f24fa",
-        "src/plugin_bundle/omh/tools/delegate_route_tool.py": "f1e0d13e6cac99150660b613c0e39ebeefc4b68e768dd5858179a29b05a7e8bf"
-      },
-      "solution_paths": [
-        "docs/INSTALLATION.md",
-        "src/omh/tui_widgets/omh-status.mjs",
-        "src/plugin_bundle/omh/delegation_routing.py",
-        "src/plugin_bundle/omh/hermes_delegation.py",
-        "src/plugin_bundle/omh/tools/delegate_route_tool.py"
-      ],
-      "source_paths": [
-        "src/plugin_bundle/omh/delegation_routing.py",
-        "src/plugin_bundle/omh/hermes_delegation.py",
-        "src/plugin_bundle/omh/tools/delegate_route_tool.py"
-      ],
-      "task_id": "PR-1287",
-      "task_source": "pull_request_body",
-      "task_text": "Motivation\n\nThe dash was not \"absent on this session\". It is absent on **every** session, and always will be with the data OMH can reach:\n\n- **No writer.** `context_percentage` has a schema slot in `build_safe_progress_signal`, a projection in `runtime_reader`, and a render path in the widget \u2014 but `grep -rn \"context_percentage=\" src/ --include=\"*.py\"` outside tests finds no production caller. Both row producers set cost, cache, tokens, and rate; neither sets this.\n- **No derivation.** One cannot be built here either: the host's usage table sums input tokens *across calls*, which is a spend figure rather than the size of a context, and nothing in reach records a model's window to divide by.\n\nSo the dash announced a gap the reader cannot close, and read as a broken feature rather than an absent number \u2014 the same failure the row-level \"uncollected\" labels were removed for, which this very header line was written to survive.",
-      "task_text_names_source_paths": [],
-      "task_text_sha256": "9b0361affb49dcc52714c017859efce4e2fa2bbe4780ba3bd2f30bea6082fe29",
-      "test_blobs": {
-        "tests/test_provider_inheritance_guard.py": "3d52437f70033b15a5ccaf054fd5a6fbef96052822bd3b2e3f22dc0d3919bfe7",
-        "tests/test_tui_widget_pack.py": "01d7c93b6d6d75bacc9aabf76ad757893050e60b9aaf9b9c08663259f5b16d80"
-      },
-      "test_diff_sha256": "258921e9f23f5c2ddf5299246b8ec80d301ed306a50dd2abad2b5cb11d01c722",
-      "test_lines": 134,
-      "test_modules": [
-        "tests/test_provider_inheritance_guard.py",
-        "tests/test_tui_widget_pack.py"
-      ],
-      "test_paths": [
-        "tests/test_provider_inheritance_guard.py",
-        "tests/test_tui_widget_pack.py"
-      ],
-      "title": "fix(hud): drop the context dash the header could never fill",
-      "touched_packages": [
-        "plugin_bundle"
-      ],
-      "verification_commands": [
-        "python -m compileall -q src",
-        "python -m unittest tests/test_diff_presentation.py tests/test_hud_payload_budget.py tests/test_memory_governance_policy.py tests/test_native_capability_surfaces.py tests/test_subagent_graph_hud_bounds.py tests/test_todo_reconciliation.py"
-      ]
-    },
-    {
-      "baseline_probe": {
-        "regression": {
-          "errors": 0,
-          "failures": 0,
           "ran": 15,
           "status": "green"
         },
@@ -3151,6 +3119,7 @@
         "Files And Contracts Touched",
         "Affected Surfaces",
         "Validation",
+        "Observed Evidence",
         "Not Tested / Not Applicable",
         "Risk",
         "Compatibility / Rollout",
@@ -3158,8 +3127,7 @@
         "Follow-Up"
       ],
       "sections_kept": [
-        "Why This Exists",
-        "Observed Evidence"
+        "Why This Exists"
       ],
       "solution_blobs": {
         "MODEL_OPTI.md": "bf1a91feec4cae9747556a8b058395f0f25749a25c85709081e6c28023e1da4e",
@@ -3181,9 +3149,9 @@
       ],
       "task_id": "PR-1312",
       "task_source": "pull_request_body",
-      "task_text": "Why This Exists\n\n- Supersedes #1305. The CLI change is right and needed for the #1056 targeted-family path; the review findings (whitespace gate, DCO, tests passing for the wrong reason) are fixed here. While asserting on stderr it turned out both rejection tests were failing on `optimized file contains wrong condition` \u2014 they passed the baseline file twice \u2014 so they never reached the manifest check they were named for.\n\nObserved Evidence\n\n- 15/15; the two rejection tests now fail with the argparse-era CLI for the right reason and pass with the flag.",
+      "task_text": "Why This Exists\n\n- Supersedes #1305. The CLI change is right and needed for the #1056 targeted-family path; the review findings (whitespace gate, DCO, tests passing for the wrong reason) are fixed here. While asserting on stderr it turned out both rejection tests were failing on `optimized file contains wrong condition` \u2014 they passed the baseline file twice \u2014 so they never reached the manifest check they were named for.",
       "task_text_names_source_paths": [],
-      "task_text_sha256": "07263095343bdfdde4777a3ec02f4d07c41174daa41ec27b24bdddbc9d51f448",
+      "task_text_sha256": "2803649d3119ac33ed74fc565c1b9765a9b5aabdc5b9ad82d38bab1a7c6aca33",
       "test_blobs": {
         "tests/test_dynamic_workflow.py": "b01f8e049ca4239ed62c4434b102f18b21027b854649c6939a597128700945bd",
         "tests/test_model_routing.py": "f0260dedd8a56544b3f8cfca73c0f0875aa37ee48fa323262b9dee962f097c9e"
@@ -3296,6 +3264,114 @@
       "verification_commands": [
         "python -m compileall -q src",
         "python -m unittest tests/test_compression_defaults.py tests/test_parser_memory.py tests/test_release_version_display.py tests/test_skill_install_layout.py tests/test_skill_profile_inheritance.py tests/test_theme_picker.py"
+      ]
+    },
+    {
+      "baseline_probe": {
+        "regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 14,
+          "status": "green"
+        },
+        "target": {
+          "errors": 0,
+          "failures": 2,
+          "ran": 40,
+          "status": "red"
+        },
+        "target_second_path": {
+          "errors": 0,
+          "failures": 2,
+          "ran": 40,
+          "status": "red"
+        },
+        "with_reference_fix": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 40,
+          "status": "green"
+        },
+        "with_reference_fix_regression": {
+          "errors": 0,
+          "failures": 0,
+          "ran": 14,
+          "status": "green"
+        }
+      },
+      "changed_lines": 131,
+      "issue": null,
+      "kind": "feat",
+      "leak_class": "clean",
+      "merge_base": "a16e3ad1ccaa0df8d4261a4d2de476f34c49b40d",
+      "merge_commit": "29e56872f607810186b5a59ca7cd8abf1f3d29e5",
+      "pull_request": 1336,
+      "regression_modules": [
+        "tests/test_executor_capabilities.py",
+        "tests/test_omh_shim_sweep.py",
+        "tests/test_product_family_templates.py",
+        "tests/test_router_fast_path.py",
+        "tests/test_skill_load_process_cleanup.py",
+        "tests/test_skill_load_windows_resolution.py"
+      ],
+      "sections_dropped": [
+        "Feature Report",
+        "What Changed",
+        "User / Operator Impact",
+        "How It Works",
+        "Files And Contracts Touched",
+        "Affected Surfaces",
+        "Validation",
+        "Observed Evidence",
+        "Not Tested / Not Applicable",
+        "Risk",
+        "Compatibility / Rollout",
+        "Release / Claims",
+        "Follow-Up"
+      ],
+      "sections_kept": [
+        "Why This Exists"
+      ],
+      "solution_blobs": {
+        "benchmarks/live-model-tools/v1/README.md": "f6449b75e87a18b5280be30c2eb7e2acdf0a3d8d4fbfd1e07e25be51e23d8fda",
+        "docs/FANOUT.md": "fb2f7173f26385f07683cea1d128274836d8fcc3f313f921af02717cebf0afdb",
+        "src/coding/request_complexity.py": "10a93aca57eda405fbadf88f8ebe94c8edfc681abc7b2f9dc3969be2bd7b779e",
+        "src/quality/complexity_precision.py": "50c6a62887cfc2a30ab7b6ff6286941d7dc9f2e8ebb556b579956bcc861937f2"
+      },
+      "solution_paths": [
+        "benchmarks/live-model-tools/v1/README.md",
+        "docs/FANOUT.md",
+        "src/coding/request_complexity.py",
+        "src/quality/complexity_precision.py"
+      ],
+      "source_paths": [
+        "src/coding/request_complexity.py",
+        "src/quality/complexity_precision.py"
+      ],
+      "task_id": "PR-1336",
+      "task_source": "pull_request_body",
+      "task_text": "Why This Exists\n\n- On 2026-09-05 the router classified all 30 evaluation tasks as `light` (score 0, no signal) and sent them to the `quick` head. That head (`glm-5.2-ultrafast` low) tied the flagship (`gpt-6-astra` xhigh) on eight of ten templates at about one percent of the cost and a tenth of the wall clock, and lost only the two exhaustive-search templates (2/3 and 0/3 vs 3/3 and 3/3). Recall is the whole task there, and a scorer that only counts reasons to spend more could not see it.",
+      "task_text_names_source_paths": [],
+      "task_text_sha256": "9013c83252fd5c838ac1310182f49533781c14e37ced2017cbe343e42bd04c3a",
+      "test_blobs": {
+        "tests/test_request_complexity.py": "61ee06834146055ed02b2253d9562fe59c466e829825c7b2fd33e385ec94b535"
+      },
+      "test_diff_sha256": "5d97c6b3282680b063d7b41c8e5e719f7b4e4772e3d12876f9c5bc13593004cd",
+      "test_lines": 4,
+      "test_modules": [
+        "tests/test_request_complexity.py"
+      ],
+      "test_paths": [
+        "tests/test_request_complexity.py"
+      ],
+      "title": "feat(routing): an exhaustive-search request reaches the standard tier on its own",
+      "touched_packages": [
+        "coding",
+        "quality"
+      ],
+      "verification_commands": [
+        "python -m compileall -q src",
+        "python -m unittest tests/test_executor_capabilities.py tests/test_omh_shim_sweep.py tests/test_product_family_templates.py tests/test_router_fast_path.py tests/test_skill_load_process_cleanup.py tests/test_skill_load_windows_resolution.py"
       ]
     },
     {
@@ -3466,109 +3542,6 @@
         },
         "target": {
           "errors": 0,
-          "failures": 49,
-          "ran": 66,
-          "status": "red"
-        },
-        "target_second_path": {
-          "errors": 0,
-          "failures": 49,
-          "ran": 66,
-          "status": "red"
-        },
-        "with_reference_fix": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 66,
-          "status": "green"
-        },
-        "with_reference_fix_regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 15,
-          "status": "green"
-        }
-      },
-      "changed_lines": 174,
-      "issue": null,
-      "kind": "fix",
-      "leak_class": "clean",
-      "merge_base": "fbb6aaeb5bcea8c48e34a3350dcb8477a9993a13",
-      "merge_commit": "f4b9f6c25948f5940ea25f78590d5dd690d0fe8e",
-      "pull_request": 1351,
-      "regression_modules": [
-        "tests/test_executor_capabilities.py",
-        "tests/test_omh_shim_sweep.py",
-        "tests/test_product_family_templates.py",
-        "tests/test_product_quality_harnesses.py",
-        "tests/test_skill_load_process_cleanup.py",
-        "tests/test_skill_load_windows_resolution.py"
-      ],
-      "sections_dropped": [
-        "Feature Report",
-        "What Changed",
-        "User / Operator Impact",
-        "How It Works",
-        "Files And Contracts Touched",
-        "Affected Surfaces",
-        "Validation",
-        "Not Tested / Not Applicable",
-        "Risk",
-        "Compatibility / Rollout",
-        "Release / Claims",
-        "Follow-Up"
-      ],
-      "sections_kept": [
-        "Why This Exists",
-        "Observed Evidence"
-      ],
-      "solution_blobs": {
-        "src/coding/action_gate.py": "aea804ab1f7e7e610f4de2c80185c342d0091fa7764c6675a521ee8bb6c46b2c",
-        "src/coding/coding_delegation.py": "a7db694d2e6c00723dcbe9f57b8615269658a0414a24a5c3acd6bad6fddf4042"
-      },
-      "solution_paths": [
-        "src/coding/action_gate.py",
-        "src/coding/coding_delegation.py"
-      ],
-      "source_paths": [
-        "src/coding/action_gate.py",
-        "src/coding/coding_delegation.py"
-      ],
-      "task_id": "PR-1351",
-      "task_source": "pull_request_body",
-      "task_text": "Why This Exists\n\nAn external report showed that the workspace-boundary decision depended on the file extension in the request. `codex: append AUDIT_MARKER to ../outside/marker.txt` declared no target at all, so the containment rule saw an empty list, the action gate found no workspace target to classify, and the prepared handoff came back `allow` with `dispatchable: true`. The identical request naming `../outside/marker.py` denied. The root cause is that one regex answered two questions with opposite failure modes: routing discovery, where a false negative is cheap, and authorization scope, where a false negative is the vulnerability.\n\nReproduced on the real `omh coding delegate` CLI before any edit: 9 of 29 boundary and compatibility scenarios behaved correctly. Quoted paths lost their `../` and dotted directories were misread as hosts, so extending the extension list would not have closed it.\n\nObserved Evidence\n\n- Full suite on the final tree: 9345 tests, OK, 1 skipped. Also `docs ulw-inventory --check` and `docs ulw-site --check`, both exit 0.\n- Real-CLI matrix, 35 scenarios, one `omh coding delegate` process each in isolated temporary OMH and Hermes homes: 9/29 correct before the fix, 35/35 after, re-run 35/35 on the final tree. It covers extension-independent outside targets, quoted spaces, an unclosed quote, a dotted local directory, absolute, home, Windows drive and UNC spellings, a `file:` URI, a 33-target overflow, an authority-cue message, an assignment right-hand side, an embedded scheme, and cross-owner denial for `claude-code`, `hermes`, `generic` and the three runtime profiles, plus the compatibility cases listed above.\n- Direct CLI reruns after the false-denial fixes: `refactor api; rm -rf / # nope` allows with its `executor_handoff`, and `coding delegate --from-plan` allows with a recorded runtime delegation.\n- Failing-first evidence was captured for every regression before the production change, including the two false denials found by the full suite and the scan-budget bypass found in review.\n- Independent gate review: one reviewer, three passes. Pass 2 blocked on the scan-budget bypass with its own end-to-end reproduction; pass 3 approved after re-reproducing the deny and re-checking the overflow and `--from-plan` lanes.\n- Language-server diagnostics on the changed files match the pre-change baseline; no new diagnostic on any changed line.",
-      "task_text_names_source_paths": [],
-      "task_text_sha256": "b63599332cdc9cd51a11041ca3da666fa3d3d2b1d5fd2e3d9f7f40bb356bbf61",
-      "test_blobs": {
-        "tests/test_task_authority_envelope.py": "bf99ca4a93f0146344f03c1c0d18a92148cedcdd00b29c3edaa2405cb336af2f"
-      },
-      "test_diff_sha256": "5b31f33f5265adbc09478c101af0e5053d224f1fd3e6480c2cdbda6d11244536",
-      "test_lines": 262,
-      "test_modules": [
-        "tests/test_task_authority_envelope.py"
-      ],
-      "test_paths": [
-        "tests/test_task_authority_envelope.py"
-      ],
-      "title": "fix(coding): declare workspace targets by path shape, not source extension",
-      "touched_packages": [
-        "coding"
-      ],
-      "verification_commands": [
-        "python -m compileall -q src",
-        "python -m unittest tests/test_executor_capabilities.py tests/test_omh_shim_sweep.py tests/test_product_family_templates.py tests/test_product_quality_harnesses.py tests/test_skill_load_process_cleanup.py tests/test_skill_load_windows_resolution.py"
-      ]
-    },
-    {
-      "baseline_probe": {
-        "regression": {
-          "errors": 0,
-          "failures": 0,
-          "ran": 15,
-          "status": "green"
-        },
-        "target": {
-          "errors": 0,
           "failures": 17,
           "ran": 98,
           "status": "red"
@@ -3611,12 +3584,12 @@
         "(unheaded preamble)",
         "Feature Report",
         "What Changed",
-        "1351 stopped the workspace boundary from depending on a file extension. Its reviewer then reported that a token gluing a path to a delimiter is declared verbatim, and that percent-encoded traversals are declared but never decoded \u2014 non-blocking at the time because neither traverses as a literal filesystem name. Probing those two turned up a third, sharper one. Every input below reached an allowed, dispatchable handoff on `main`",
         "User / Operator Impact",
         "How It Works",
         "Files And Contracts Touched",
         "Affected Surfaces",
         "Validation",
+        "Observed Evidence",
         "Not Tested / Not Applicable",
         "Risk",
         "Compatibility / Rollout",
@@ -3624,8 +3597,7 @@
         "Follow-Up"
       ],
       "sections_kept": [
-        "Why This Exists",
-        "Observed Evidence"
+        "Why This Exists"
       ],
       "solution_blobs": {
         "install.ps1": "0846f6046835eef6966fe6996d3dc09ec5a3729eea89351c842a8153da031f78",
@@ -3640,9 +3612,9 @@
       ],
       "task_id": "PR-1353",
       "task_source": "pull_request_body",
-      "task_text": "Why This Exists\n\nObserved Evidence\n\n- Full suite on the final tree: 9346 tests, OK, 1 skipped. `docs ulw-inventory --check` and `docs ulw-site --check` also exit 0.\n- Real-CLI matrix, 55 scenarios, one `omh coding delegate` process each in isolated temporary OMH and Hermes homes: 55/55 pass with zero wrong outcomes and the temporary tree removed. It carries all 13 unsafe inputs above plus the backslash trio, the 7 negative controls, the earlier extension/quoting/URI cases, a 33-target overflow, and cross-owner denial for `claude-code`, `hermes`, `generic` and the three runtime profiles. Every one of the new unsafe cases was captured allowing before the fix.\n- Failing-first evidence was captured for every regression before the production change.\n- Independent gate review, two passes. Pass 1 blocked: `..\\` and `.\\` were not recognised as anchors, so `fix x;..\\outside\\marker.txt` still allowed \u2014 reproduced by the reviewer across all profiles. Pass 2 approved after the three-line anchor widening, having re-verified the three reproductions, probed in-project backslash spellings and encoded drive/UNC siblings for false positives, and confirmed the documented boundaries match the code.\n- Language-server diagnostics on the changed files match the recorded baseline; no new diagnostic on a changed line.",
+      "task_text": "Why This Exists\n\n#1351 stopped the workspace boundary from depending on a file extension. Its reviewer then reported that a token gluing a path to a delimiter is declared verbatim, and that percent-encoded traversals are declared but never decoded \u2014 non-blocking at the time because neither traverses as a literal filesystem name. Probing those two turned up a third, sharper one. Every input below reached an allowed, dispatchable handoff on `main`:\n\n```\nfix x;../outside/marker.txt        declared ['x;../outside/marker.txt']   allow\nfix a=b=../outside/marker.txt      declared ['b=../outside/marker.txt']   allow\nfix a/b:../outside/marker.txt                                            allow\nfix\"../outside/marker.txt\"                                               allow\nfix x;..\\outside\\marker.txt                                              allow\nfix ..%2foutside/marker.txt                                              allow\nfix %2e%2e%2foutside%2fmarker.txt                                        allow\nfix %2fetc%2fmarker.txt                                                  allow\nfix ../outside/marker.py?v=1       declared NOTHING                      allow\n```\n\nOne mechanism underneath all of them: extraction produced exactly one spelling per token, and containment reads segments. `_path_parts` (`src/quality/safety_preflight.py`) splits on `/` and `\\` only, so a `..` glued to a delimiter is not a segment it can see, and a `..` spelled `%2e%2e` is not one either. The last line is the worst of them: the assignment right-hand-side rewrite discarded an already-anchored path and declared its query value instead, so naming an escaping file with a query string declared no target at all.",
       "task_text_names_source_paths": [],
-      "task_text_sha256": "057e5f9ed0e63aba8775168230c157af013d4b78bc5931d43a31c7ad95906416",
+      "task_text_sha256": "e67346f2f7b4219794d03e48b1a66303966adff02fea4aee580c65f106e98103",
       "test_blobs": {
         "tests/test_task_authority_envelope.py": "d158f7230f7114439062ff09c08d7db7dbe22e7a62665b413d8afc70f98dbe3f",
         "tests/test_windows_install_path.py": "3c7fcf90299436dfd235baa93b39cf2f6f4bb735aebabf40e86dc26ad17d43ab"
@@ -3718,12 +3690,12 @@
         "(unheaded preamble)",
         "Feature Report",
         "What Changed",
-        "1353 shipped with two residuals written into a comment at the decoding site",
         "User / Operator Impact",
         "How It Works",
         "Files And Contracts Touched",
         "Affected Surfaces",
         "Validation",
+        "Observed Evidence",
         "Not Tested / Not Applicable",
         "Risk",
         "Compatibility / Rollout",
@@ -3731,8 +3703,7 @@
         "Follow-Up"
       ],
       "sections_kept": [
-        "Why This Exists",
-        "Observed Evidence"
+        "Why This Exists"
       ],
       "solution_blobs": {
         ".github/workflows/ci.yml": "cf0bf540658aee543b7877593855a2a9de2c2b6a727d89671f8397064ad463bc",
@@ -3747,9 +3718,9 @@
       ],
       "task_id": "PR-1355",
       "task_source": "pull_request_body",
-      "task_text": "Why This Exists\n\nObserved Evidence\n\n- Full suite on the final tree: 9348 tests, OK, 1 skipped. `docs ulw-inventory --check` and `docs ulw-site --check` also exit 0.\n- Real-CLI matrix, 75 scenarios, one `omh coding delegate` process each in isolated temporary homes: **75/75** with zero wrong outcomes and the temporary tree removed.\n- **Two independent differential fuzzes against base `f4b80d79`.** The author's: 50,000 inputs, 0 base-denies-now-allows. The reviewer's, deliberately built with a wider alphabet and multi-token messages: 55,000 inputs, 4,640 diffs \u2014 **every one `target_path_count_exceeded` on messages of 17-32 benign `%20` filenames**, which is precisely the allowance restoration this PR exists to make. The reviewer then took all 633 mixed-family diffs and all 416 masking allows and ran an unbounded decode over each core, finding **zero** spellings the containment rule would have refused.\n- RED was captured before each production change, including against the rejected shape-change design.\n- Independent gate review, two passes: pass 1 BLOCKED with the 75-regression fuzz above; pass 2 approved after the redesign, having re-probed all eight blocker inputs itself and audited the key against `_target_paths_denial` line by line.",
+      "task_text": "Why This Exists\n\n#1353 shipped with two residuals written into a comment at the decoding site:\n\n1. **Single-pass decoding.** `fix %252e%252e/outside/marker.txt` decoded once to `%2e%2e/outside/marker.txt`, stopped, was declared as a literal filename, and **allowed**.\n2. **The halved allowance.** Every decoded spelling was declared beside its original, so a message naming ordinary `%20` filenames burned two slots each and denied on count at roughly half of `MAX_TARGET_PATHS`.",
       "task_text_names_source_paths": [],
-      "task_text_sha256": "cc4e5f449207c10fad920875165d1b045e1f9f94ac011a7708b7135d34c0275a",
+      "task_text_sha256": "959921cbb26ff454105339a22617e329b3552744b2ad2d9c76f0aed66cbe7ec1",
       "test_blobs": {
         "tests/powershell/Test-OmhRedirectLocation.ps1": "1ef07aac715b87f42f8f1cd799d1d8888e9fc1da149cbd3303903a02754fc4a0",
         "tests/test_task_authority_envelope.py": "2666ffc7a02aec0ed2d6690b546b2445ba344bc077055feb3b36a7fb10a86581",
@@ -3780,120 +3751,102 @@
         "regression": {
           "errors": 0,
           "failures": 0,
-          "ran": 38,
+          "ran": 44,
           "status": "green"
         },
         "target": {
-          "errors": 2,
-          "failures": 5,
-          "ran": 73,
+          "errors": 1,
+          "failures": 1,
+          "ran": 30,
           "status": "red"
         },
         "target_second_path": {
-          "errors": 2,
-          "failures": 5,
-          "ran": 73,
+          "errors": 1,
+          "failures": 1,
+          "ran": 30,
           "status": "red"
         },
         "with_reference_fix": {
           "errors": 0,
           "failures": 0,
-          "ran": 78,
+          "ran": 30,
           "status": "green"
         },
         "with_reference_fix_regression": {
           "errors": 0,
           "failures": 0,
-          "ran": 38,
+          "ran": 44,
           "status": "green"
         }
       },
-      "changed_lines": 331,
+      "changed_lines": 61,
       "issue": null,
       "kind": "fix",
       "leak_class": "clean",
-      "merge_base": "94b956f175a01c8a9474158ee6e401a17e31365b",
-      "merge_commit": "b89d0cbb4cf4398c627c994b339a087d33704ec7",
-      "pull_request": 1393,
+      "merge_base": "5c723f34a2d5b1cb1fdc34a3d5cc64cf17b94a5f",
+      "merge_commit": "82b50ba03fee317400149cddac362ad3547cc724",
+      "pull_request": 1377,
       "regression_modules": [
         "tests/test_atomic_installer_update.py",
+        "tests/test_compression_defaults.py",
         "tests/test_design_data.py",
-        "tests/test_evidence_copy.py",
         "tests/test_fanout_diagnostic_cli.py",
         "tests/test_fanout_final_review_cli.py",
-        "tests/test_structural_search_detection.py"
+        "tests/test_skill_profile_inheritance.py"
       ],
       "sections_dropped": [
         "Feature Report",
-        "Capability",
-        "Implementation (boundary level)",
-        "Verification (observed)",
-        "Risks"
+        "What Changed",
+        "User / Operator Impact",
+        "How It Works",
+        "Files And Contracts Touched",
+        "Affected Surfaces",
+        "Validation",
+        "Observed Evidence",
+        "Not Tested / Not Applicable"
       ],
       "sections_kept": [
-        "Motivation"
+        "Why This Exists"
       ],
       "solution_blobs": {
-        "docs/ARCHITECTURE.md": "759027fcf6c74bab8c597a3789281af3bba607f82081b85b7f97545c23049d6c",
-        "src/commands/menubar.py": "5e37cbcfc057909daa7f7688859d2d7ec3d70ea5a314f629cdb30844d448e80e",
-        "src/omh/tui_widgets/omh-status.mjs": "ba367183491176bb464bbe5ffd2eaaccbf5c4e31ce676fef8bc075a4eddb76e4",
-        "src/surfaces/hermes_model_settings.py": "f2c6d1dba1462bbefc4f80ae8d288a4614403ad2d8ce915fb37043fdca591711",
-        "src/surfaces/hermes_sessions.py": "bf84892db099630632665ebc1299b8d7ff1b35aeb5c85e9dfc4808c3ee14f8ec",
-        "src/surfaces/menubar_app.py": "41915f3ef6c281cf41a28d52b4301690b31e3aa2ff7e5361794f2a176ac85d37",
-        "src/surfaces/menubar_status.py": "cff17b01d1cfe42581acccd5f2e318fa0ec5a22b775b46d10033172a387a0705"
+        "src/commands/setup.py": "c7916fb3ee106ad25a9a105040fdabaf2b411920d9bf6a97a4807770294e5e3a",
+        "src/install/installer.py": "76010e2f3548091cba595b2cdc3330029fd0f638ac34a91d9411034a20078203",
+        "src/install/self_update.py": "bed3640f79cc0620e0051d5bc3ffaffb5f16a6f5c7d6791f00695d96917fe01e"
       },
       "solution_paths": [
-        "docs/ARCHITECTURE.md",
-        "src/commands/menubar.py",
-        "src/omh/tui_widgets/omh-status.mjs",
-        "src/surfaces/hermes_model_settings.py",
-        "src/surfaces/hermes_sessions.py",
-        "src/surfaces/menubar_app.py",
-        "src/surfaces/menubar_status.py"
+        "src/commands/setup.py",
+        "src/install/installer.py",
+        "src/install/self_update.py"
       ],
       "source_paths": [
-        "src/commands/menubar.py",
-        "src/surfaces/hermes_model_settings.py",
-        "src/surfaces/hermes_sessions.py",
-        "src/surfaces/menubar_app.py",
-        "src/surfaces/menubar_status.py"
+        "src/commands/setup.py",
+        "src/install/installer.py",
+        "src/install/self_update.py"
       ],
-      "task_id": "PR-1393",
+      "task_id": "PR-1377",
       "task_source": "pull_request_body",
-      "task_text": "Motivation\n\nOwner report with a screenshot: the menu looked stuck (\"loading \ucd5c\uc2e0\ud654\uac00 \uc548 \ub418\ub294 \uac83 \uac19\uace0 \ubc84\uadf8\uac00 \ub9ce\uc740 \uac83 \uac19\uc740\ub370\"). Measured on the owner machine:\n\n- `sessions live 53` for two days. All 53 were open rows Hermes never closed (crashes, killed terminals, orphans reaped only on the next startup); none had activity in the last hour. The number could not move.\n- Every refresh ran the status subprocess synchronously on the main thread (~0.5 s), the timer lived in the default run-loop mode (silent while a menu is open), and each refresh replaced `statusItem.menu`, which AppKit shows only on the next open. Together: what you see when you open the menu is the previous reading, and it never changes while open.\n- All rows were disabled `NSMenuItem`s, rendered in the disabled gray that reads as \"still loading\".\n- `1 processes`; Models listed `current`/`main` but not the `delegation` model, which is what `delegate_task` children inherit (Astra on the owner machine while main is Sol).",
+      "task_text": "Why This Exists\n\n- A user updating 2.0.0 \u2192 2.0.1 on an installer-managed machine reported `OMH update stopped during post_activation; the known-good generation remains active.` with nothing else to act on.\n- The staged transaction renders the candidate pack into a new generation directory, then re-enters the update against the real home. That home's `manifest.json` still describes the active generation's pack, so the installer compared the candidate's fresh render against the recorded hashes and reported every skill the catalog had changed since the last install as a \"local modification\", refused without `--force`, and the transaction rolled back.\n- A machine whose recorded pack already matched the candidate render passed, which is why it did not reproduce locally. Every real version bump through the staged path would have hit it.",
       "task_text_names_source_paths": [],
-      "task_text_sha256": "1d02c27844e28e0c549e770cb4c9124564372503ad92869432972e1a46255340",
+      "task_text_sha256": "990d35e051f0ee318e9e4e4047734c1cd5327d8a7b54c876ec28cdd21b28b732",
       "test_blobs": {
-        "tests/test_hermes_model_settings.py": "9974c59aae3d3d7b9cfe86196a1b6181bb313b914734ee651033c74181591314",
-        "tests/test_hermes_sessions.py": "bedf1821caef549ec11bdb0cd06948a34328616de7bb5e9b97b48733590c926d",
-        "tests/test_menubar_app.py": "26026cc47ac05c743afbde87d3aa56314ac20f171f13a9decee2856b44d23342",
-        "tests/test_menubar_status.py": "4fc6d5acfebaab0eb0c786ca5c38b376e29e32dcea81d22367960f92a9dc7899",
-        "tests/test_tui_widget_pack.py": "62823a939ef71b49caa7a6699636ef1201ce8a1f05365c205060d076e0be88d5"
+        "tests/test_staged_self_update.py": "6cba81b53a0f01d14266e2a9b9f0f0eac545326a331b7919daba50f30406c84e"
       },
-      "test_diff_sha256": "5bbabe2590b3f126518263aa45d9a09f8c405df0695b89cec75b1f4e2778ab23",
-      "test_lines": 190,
+      "test_diff_sha256": "51fff0015bb595731fd137639d545094a45ee8869461022180053c66d3968486",
+      "test_lines": 68,
       "test_modules": [
-        "tests/test_hermes_model_settings.py",
-        "tests/test_hermes_sessions.py",
-        "tests/test_menubar_app.py",
-        "tests/test_menubar_status.py",
-        "tests/test_tui_widget_pack.py"
+        "tests/test_staged_self_update.py"
       ],
       "test_paths": [
-        "tests/test_hermes_model_settings.py",
-        "tests/test_hermes_sessions.py",
-        "tests/test_menubar_app.py",
-        "tests/test_menubar_status.py",
-        "tests/test_tui_widget_pack.py"
+        "tests/test_staged_self_update.py"
       ],
-      "title": "fix(menubar): the menu shows a current reading, not the first one",
+      "title": "fix(update): staged re-entry judges the candidate pack by its own manifest",
       "touched_packages": [
         "commands",
-        "surfaces"
+        "install"
       ],
       "verification_commands": [
         "python -m compileall -q src",
-        "python -m unittest tests/test_atomic_installer_update.py tests/test_design_data.py tests/test_evidence_copy.py tests/test_fanout_diagnostic_cli.py tests/test_fanout_final_review_cli.py tests/test_structural_search_detection.py"
+        "python -m unittest tests/test_atomic_installer_update.py tests/test_compression_defaults.py tests/test_design_data.py tests/test_fanout_diagnostic_cli.py tests/test_fanout_final_review_cli.py tests/test_skill_profile_inheritance.py"
       ]
     },
     {
@@ -4051,6 +4004,7 @@
         "Files And Contracts Touched",
         "Affected Surfaces",
         "Validation",
+        "Observed Evidence",
         "Not Tested / Not Applicable",
         "Risk",
         "Compatibility / Rollout",
@@ -4058,8 +4012,7 @@
         "Follow-Up"
       ],
       "sections_kept": [
-        "Why This Exists",
-        "Observed Evidence"
+        "Why This Exists"
       ],
       "solution_blobs": {
         "src/commands/setup.py": "bce2c475442aca7b2b9cb53e14d1085e791a424676891087dab920a3b1b44031",
@@ -4081,9 +4034,9 @@
       ],
       "task_id": "PR-1409",
       "task_source": "pull_request_body",
-      "task_text": "Why This Exists\n\n- The installer registers `<managed>/current/skills` so the entry survives generation switches; the running command resolves its generation directory. Compared as strings, every staged-update install reported two blocking doctor checks saying the skills directory is not registered while Hermes was loading it from that entry. Observed live on 2026-09-08 after `omh update`: `os.path.realpath` of both paths equal, doctor \"needs attention: 2 blocking\".\n\nObserved Evidence\n\n- New tests: generation dir registered via `current` symlink \u2192 both doctor checks ok; unrelated generation not registered; textual match without a directory on disk still works.\n- Live before the fix: `omh doctor` \u2192 `external_dir` and `runtime_context` failing with the generation path while `config.yaml` lists `current/skills`; realpaths equal.",
+      "task_text": "Why This Exists\n\n- The installer registers `<managed>/current/skills` so the entry survives generation switches; the running command resolves its generation directory. Compared as strings, every staged-update install reported two blocking doctor checks saying the skills directory is not registered while Hermes was loading it from that entry. Observed live on 2026-09-08 after `omh update`: `os.path.realpath` of both paths equal, doctor \"needs attention: 2 blocking\".",
       "task_text_names_source_paths": [],
-      "task_text_sha256": "0dda2fd94991e50ab938f3c36e68a6a6cfc6e5ee654cf132577b2f8103c2f3b6",
+      "task_text_sha256": "f5c65b3375294dbde42a9d10b29011e6dfa619c0cd2115840a15a3c5a9fcc217",
       "test_blobs": {
         "tests/test_config_adapter.py": "fe9240803a514ef24d108ab2b281ff77c5e5bd29c83143b7b75b826469e7c21f",
         "tests/test_doctor_advisory.py": "a5cf71ad4a649de4bcdab555fbe4f1b867e7606d8a8e019f92d84c6d70e03235"
@@ -4165,6 +4118,7 @@
         "Files And Contracts Touched",
         "Affected Surfaces",
         "Validation",
+        "Observed Evidence",
         "Not Tested / Not Applicable",
         "Risk",
         "Compatibility / Rollout",
@@ -4172,8 +4126,7 @@
         "Follow-Up"
       ],
       "sections_kept": [
-        "Why This Exists",
-        "Observed Evidence"
+        "Why This Exists"
       ],
       "solution_blobs": {
         "docs/MEMORY.md": "3762a8e9a949e6ddb01a6bfccc6a2ebdc7a13ed65d29e52a4642867ac2af0435",
@@ -4188,9 +4141,9 @@
       ],
       "task_id": "PR-1410",
       "task_source": "pull_request_body",
-      "task_text": "Why This Exists\n\n- Measured on the owner machine over seven days: 32 briefs written (26 `session_start_recovery`, 4 `session_end`, 2 `turn`), `memory_writes_observed` 0 at every one. The scheduler ran on time and nothing carried its brief into a Hermes turn \u2014 the only in-conversation consumer was the wrapper chat card, which a Hermes session never renders. Dreaming was invisible and inert. The owner asked for a \"memory is being consolidated\" signal on every surface (TUI, Slack, Discord, \u2026).\n\nObserved Evidence\n\n- New tests: a due brief is served and the recall status stays count 0; the section leaves the pack after an observed `replace`; the host hears the fire and honour lines and nothing on `add`; no callback and a raising callback both leave the hook intact; the rendered section is bounded, escaped, and empty when not due.\n- Live measurement before the change: `consolidation.jsonl` 32 briefs / 7 days by trigger `{session_start_recovery: 26, session_end: 4, turn: 2}`; `dreaming.json` `memory_writes_observed: 0`.",
+      "task_text": "Why This Exists\n\n- Measured on the owner machine over seven days: 32 briefs written (26 `session_start_recovery`, 4 `session_end`, 2 `turn`), `memory_writes_observed` 0 at every one. The scheduler ran on time and nothing carried its brief into a Hermes turn \u2014 the only in-conversation consumer was the wrapper chat card, which a Hermes session never renders. Dreaming was invisible and inert. The owner asked for a \"memory is being consolidated\" signal on every surface (TUI, Slack, Discord, \u2026).",
       "task_text_names_source_paths": [],
-      "task_text_sha256": "486a0225dc2741e01785ea7e7bc2d070be25c3dc3f7b691b992ab6740bd176ea",
+      "task_text_sha256": "3fd78aad06132544d638b9f5b77d61302bb032db693970240d188d070b4f2fe1",
       "test_blobs": {
         "tests/test_broad_exception_policy.py": "207193c77f560b39ec71895da23df39d91aac679e77f914da57929eaa7baa93f",
         "tests/test_memory_provider.py": "89a1e47215c336e418972de788763ffbd053b6a0824f82ee0fee6cc3fda6f8f0"
@@ -4270,6 +4223,7 @@
         "Files And Contracts Touched",
         "Affected Surfaces",
         "Validation",
+        "Observed Evidence",
         "Not Tested / Not Applicable",
         "Risk",
         "Compatibility / Rollout",
@@ -4277,8 +4231,7 @@
         "Follow-Up"
       ],
       "sections_kept": [
-        "Why This Exists",
-        "Observed Evidence"
+        "Why This Exists"
       ],
       "solution_blobs": {
         "src/plugin_bundle/omh/memory_provider.py": "03e5fda0088c3442c26c968d8d1dfcd6a14c1dc1d5b2f5ddc3d827f37a547b00"
@@ -4291,9 +4244,9 @@
       ],
       "task_id": "PR-1411",
       "task_source": "pull_request_body",
-      "task_text": "Why This Exists\n\n- Observed live right after #1410, through Hermes' `MemoryManager` with the installed bundle and this machine's real pending compaction brief: the pack was 754 chars of brief only and `describe_recall()` returned `\ud83e\udde0 OMH \u2014 recalled relevant memory`. Nothing was recalled. The line's whole point (#1402) is that it is true.\n\nObserved Evidence\n\n- Live before: brief-only pack \u2192 `\ud83e\udde0 OMH \u2014 recalled relevant memory`. Test after: brief-only \u2192 `recall_status()` is `None`; brief plus one approved block \u2192 `RecallStatus(\"OMH\", 1)`.",
+      "task_text": "Why This Exists\n\n- Observed live right after #1410, through Hermes' `MemoryManager` with the installed bundle and this machine's real pending compaction brief: the pack was 754 chars of brief only and `describe_recall()` returned `\ud83e\udde0 OMH \u2014 recalled relevant memory`. Nothing was recalled. The line's whole point (#1402) is that it is true.",
       "task_text_names_source_paths": [],
-      "task_text_sha256": "0959c32b4b169944f58022b943f5c4bd0c2a39198464fa57c649c6690064ab48",
+      "task_text_sha256": "44fbd3a6c36e2caccfa41df736068a859af81ccfed9c94c63eebbe309aad6104",
       "test_blobs": {
         "tests/test_memory_provider.py": "27359d4ad6605f61ee30d0983e1c88bb2490e0787e3a3b355d0ad3264d28e327"
       },
@@ -4319,95 +4272,121 @@
         "regression": {
           "errors": 0,
           "failures": 0,
-          "ran": 90,
+          "ran": 7,
           "status": "green"
         },
         "target": {
-          "errors": 1,
-          "failures": 0,
-          "ran": 1,
+          "errors": 0,
+          "failures": 1,
+          "ran": 37,
           "status": "red"
         },
         "target_second_path": {
-          "errors": 1,
-          "failures": 0,
-          "ran": 1,
+          "errors": 0,
+          "failures": 1,
+          "ran": 37,
           "status": "red"
         },
         "with_reference_fix": {
           "errors": 0,
           "failures": 0,
-          "ran": 59,
+          "ran": 37,
           "status": "green"
         },
         "with_reference_fix_regression": {
           "errors": 0,
           "failures": 0,
-          "ran": 90,
+          "ran": 7,
           "status": "green"
         }
       },
-      "changed_lines": 82,
-      "issue": 1437,
+      "changed_lines": 71,
+      "issue": null,
       "kind": "feat",
-      "leak_class": "names_changed_file",
-      "merge_base": "f04c4767cfb5ed91908d50be04c86471b2a893f8",
-      "merge_commit": "786d23b052943266001246edb0f638343895c12e",
-      "pull_request": 1439,
+      "leak_class": "clean",
+      "merge_base": "854e0087db92286e8077a0b53e709f9fadb15ffc",
+      "merge_commit": "8898eec16376ee301504538d2b3371cbae576690",
+      "pull_request": 1496,
       "regression_modules": [
-        "tests/test_compression_defaults.py",
-        "tests/test_external_rule_import.py",
-        "tests/test_parser_memory.py",
-        "tests/test_release_version_display.py",
-        "tests/test_skill_profile_inheritance.py",
-        "tests/test_theme_picker.py"
+        "tests/test_domain_context_docs.py",
+        "tests/test_domain_intelligence_validation_state.py",
+        "tests/test_hud_payload_budget.py",
+        "tests/test_skill_context_cost.py",
+        "tests/test_specialist_procedure_contracts.py",
+        "tests/test_specialist_procedure_review_contracts.py"
       ],
       "sections_dropped": [
-        "Complete user goal",
-        "Intended surfaces",
-        "Proposal",
-        "Alternatives considered",
-        "Success criteria",
-        "Boundaries and risks"
+        "Feature Report",
+        "What Changed",
+        "User / Operator Impact",
+        "How It Works",
+        "Files And Contracts Touched",
+        "Affected Surfaces",
+        "Validation",
+        "Observed Evidence",
+        "Not Tested / Not Applicable",
+        "Risk",
+        "Compatibility / Rollout",
+        "Release / Claims",
+        "Follow-Up"
       ],
       "sections_kept": [
-        "Problem",
-        "Observed evidence"
+        "Why This Exists"
       ],
       "solution_blobs": {
-        "src/install/plugin_pack.py": "94471aaa1a69dc4c40bf11da403a72455f0460a42fc1bd1165ef8b2e7af22d6e"
+        "docs/MEMORY.md": "4baefd8aed0e6f4dd3e0b9f6287a65432f6a14f3f3e1c7085d2eb6415cd64672",
+        "skills/omh-memory-new/SKILL.md": "a52b2e9d43a030293c138b981601fe2a0a869b9f8fce74a1462bae920e5df58a",
+        "src/maintenance/release.py": "05661dd0283977e545b9184439a0e76202f96e0277ff5e99ac93d8580aacfced",
+        "src/plugin_bundle/omh/_governance_safety.py": "474e149268c1a901ad59b959d64c66c0cf64935577b58dcc4b5703ec4e9e48ad",
+        "src/skills/render.py": "85e6d50368098fded1b91e1493c0df6a18bf520d8de7fda6bf7872706bef31b1",
+        "src/workflows/domain_intelligence_admission.py": "8cd3b57cc846bd7a8e688ca0ce802b9cf8ca060a5362bd36f56b2996e6773112",
+        "src/workflows/memory.py": "93c1e7ef9e6f4f48c3cb89916c742c3023dc7f2ddeb3e843b42d5f828949395c"
       },
       "solution_paths": [
-        "src/install/plugin_pack.py"
+        "docs/MEMORY.md",
+        "skills/omh-memory-new/SKILL.md",
+        "src/maintenance/release.py",
+        "src/plugin_bundle/omh/_governance_safety.py",
+        "src/skills/render.py",
+        "src/workflows/domain_intelligence_admission.py",
+        "src/workflows/memory.py"
       ],
       "source_paths": [
-        "src/install/plugin_pack.py"
+        "src/maintenance/release.py",
+        "src/plugin_bundle/omh/_governance_safety.py",
+        "src/skills/render.py",
+        "src/workflows/domain_intelligence_admission.py",
+        "src/workflows/memory.py"
       ],
-      "task_id": "PR-1439",
-      "task_source": "linked_issue",
-      "task_text": "Problem\n\nOMH can report a successful plugin registration smoke even when a registered tool has a missing or malformed parameter schema. The smoke context records only tool names and discards each toolset, schema, handler, and description, so the release gate cannot distinguish a callable registration from a provider-safe tool definition. A malformed definition can therefore ship past setup and doctor and fail only when Hermes prepares a model request.\n\nObserved evidence\n\nOn current OMH main:\n\n- `src/install/plugin_pack.py::_SmokeContext.register_tool()` appends only the tool name and accepts all positional and keyword arguments without inspecting them.\n- `src/install/plugin_pack.py::_register_smoke()` marks `register_smoke` successful when the expected tool and hook names are present; it has no schema-conformance result.\n- `src/plugin_bundle/omh/__init__.py::register()` passes one schema object for each bundled tool, but there is no shared validation at the OMH packaging boundary for schema name, description, or an object-shaped `parameters` field.\n- A process-local check registered a synthetic tool definition with no `parameters` field through `_SmokeContext`; the context accepted it and recorded the name.\n- All nine currently bundled OMH tool schemas have object-shaped `parameters`, so this is a release-regression blind spot rather than a confirmed failure in the current bundle.\n\nExisting plugin registration and host-load work verifies that tools are present and distinguishes local smoke from observed Hermes loading. It does not validate the model-facing schema contract described here.",
-      "task_text_names_source_paths": [
-        "src/install/plugin_pack.py"
-      ],
-      "task_text_sha256": "b2b6b8c1109839f7d6d80ae590cb7a35a292e5ade59890da3700dfa982e9978b",
+      "task_id": "PR-1496",
+      "task_source": "pull_request_body",
+      "task_text": "Why This Exists\n\nPersistent memory is context every later turn pays for, which is what makes it useful and why it should not hold conversation archaeology. The assessment found OMH already does the expensive half well: per-turn injection is bounded by four independent caps (system blocks 6000 chars; records 2400 chars / 6 records / 500-char summaries; consolidation brief 1600 chars / 6 items; references by label index only) with overflow reported as `render_budget_exhausted` rather than silently dropped; nothing writes without an explicit act; the Hermes write hook journals shape and never text; retention classes already age `episode` records out. What was missing was the routing advice at the moment of capture, and a docstring that promised more than its patterns delivered.",
+      "task_text_names_source_paths": [],
+      "task_text_sha256": "5ac846b114bfbe52e31c57730f8cc912eae5d75907de4285674acbd65ef6c3fa",
       "test_blobs": {
-        "tests/test_plugin_distribution.py": "5e1148869e2f6f36842f681cb9f9a6f8d15e67c96bdc5eb3a5b177cc25ea4eba"
+        "tests/test_memory_governance_evaluation.py": "8a5714335d8881b874e2fdcdcd92758d47c9e58357fcda5462e5880fc3d594c5",
+        "tests/test_memory_sync_skill.py": "4d0d38786841079018a8cd4d4c5e3271e9e9a65339004e0d2f6af471153b4bcd"
       },
-      "test_diff_sha256": "d533f833034d653dd07398f566e32d54151dfd4bb4bd739f8d3c71c14ed8b8d3",
-      "test_lines": 128,
+      "test_diff_sha256": "4a96c6b15b06d642b8061abc1987389445215d1660069c7a5b600cbbe7a96175",
+      "test_lines": 49,
       "test_modules": [
-        "tests/test_plugin_distribution.py"
+        "tests/test_memory_governance_evaluation.py",
+        "tests/test_memory_sync_skill.py"
       ],
       "test_paths": [
-        "tests/test_plugin_distribution.py"
+        "tests/test_memory_governance_evaluation.py",
+        "tests/test_memory_sync_skill.py"
       ],
-      "title": "feat(plugin): validate plugin tool schemas before registration smoke passes",
+      "title": "feat(memory): route past-session history to the session store, not a record",
       "touched_packages": [
-        "install"
+        "maintenance",
+        "plugin_bundle",
+        "skills",
+        "workflows"
       ],
       "verification_commands": [
         "python -m compileall -q src",
-        "python -m unittest tests/test_compression_defaults.py tests/test_external_rule_import.py tests/test_parser_memory.py tests/test_release_version_display.py tests/test_skill_profile_inheritance.py tests/test_theme_picker.py"
+        "python -m unittest tests/test_domain_context_docs.py tests/test_domain_intelligence_validation_state.py tests/test_hud_payload_budget.py tests/test_skill_context_cost.py tests/test_specialist_procedure_contracts.py tests/test_specialist_procedure_review_contracts.py"
       ]
     },
     {

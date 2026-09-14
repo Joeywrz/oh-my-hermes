@@ -1101,6 +1101,39 @@ def _prepared_versus_observed(spec: LoopActionSpec, mutation_applied: bool) -> d
 
 LOOP_TOOL_REDACTED_ARTIFACTS: Final[frozenset[str]] = frozenset({"loop"})
 
+# Failures whose exception text is the operating system's, not this repo's.
+# `FileNotFoundError` stringifies to the absolute path it could not open, and
+# an `OSError` carries whatever the platform put in it, so publishing either
+# one hands a model the host's filesystem layout in place of an explanation.
+# Every other code in the vocabulary is raised by a workflow function with a
+# sentence written here, which is what a caller should read.
+_OS_DERIVED_DETAILS: Final[dict[str, str]] = {
+    LOOP_NOT_FOUND: (
+        "no loop with that id exists in the configured OMH home; list the loops "
+        "with action=status and no loop_id"
+    ),
+    STORE_UNAVAILABLE: (
+        "the OMH loop store could not be read or written; the home may be "
+        "unavailable, unwritable, or held by another writer"
+    ),
+}
+_REDACTED_HOME: Final[str] = "<omh_home>"
+
+
+def _safe_detail(code: str, exc: BaseException, omh_home: str) -> str:
+    """Say what failed without naming where the store lives.
+
+    The written sentences cover the two codes whose text is the platform's.
+    The home prefix is stripped from the rest because a workflow message can
+    still quote a path it was handed -- a malformed `cycle.json` is reported as
+    `"{path}: {error}"` -- and that is the same leak by another route.
+    """
+    written = _OS_DERIVED_DETAILS.get(code)
+    if written is not None:
+        return written
+    text = str(exc)
+    return text.replace(omh_home, _REDACTED_HOME) if omh_home else text
+
 
 def loop_operation_envelope(
     paths: OmhPaths,
@@ -1126,7 +1159,7 @@ def loop_operation_envelope(
     try:
         result = run_loop_operation(paths, request)
     except (LoopRequestError, LoopDriverError, OSError, TypeError, ValueError) as exc:
-        return _failure_envelope(request, spec, exc)
+        return _failure_envelope(request, spec, exc, omh_home=str(paths.omh_home))
     artifacts = dict(result.artifacts)
     if redact:
         artifacts = {key: value for key, value in artifacts.items() if key not in redact}
@@ -1147,7 +1180,11 @@ def loop_operation_envelope(
 
 
 def _failure_envelope(
-    request: LoopOperationRequest, spec: LoopActionSpec | None, exc: BaseException
+    request: LoopOperationRequest,
+    spec: LoopActionSpec | None,
+    exc: BaseException,
+    *,
+    omh_home: str = "",
 ) -> dict[str, Any]:
     code = loop_operation_error_code(exc)
     return {
@@ -1158,7 +1195,7 @@ def _failure_envelope(
         "record_revision": 0,
         "mutation_applied": False,
         "error": code,
-        "error_detail": str(exc),
+        "error_detail": _safe_detail(code, exc, omh_home),
         "warnings": [],
         "next_actions": [],
         "prepared_versus_observed": (

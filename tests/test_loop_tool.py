@@ -137,7 +137,13 @@ class _LoopHome(unittest.TestCase):
         return json.loads(stdout)
 
     def cli_error(self, *args: str) -> tuple[int, str]:
-        status, _stdout, stderr = run_cli(self.base + list(args))
+        # argparse refuses an unknown flag or an out-of-choices value by
+        # raising SystemExit rather than returning, and that is one of the
+        # refusals these cases compare the tool against.
+        try:
+            status, _stdout, stderr = run_cli(self.base + list(args))
+        except SystemExit as exit_code:
+            return int(exit_code.code or 0), "argparse refused the arguments"
         return status, stderr
 
     def revision(self, loop_id: str) -> int:
@@ -696,7 +702,10 @@ class FailClosedTests(_LoopHome):
             with self.subTest(action=action):
                 self.assert_error(tool(action=action, loop_id=_TOOL_LOOP), "unknown_action")
 
-    def test_an_unknown_field_is_refused_before_any_write(self) -> None:
+    def test_the_service_refuses_an_unknown_field_before_any_write(self) -> None:
+        # The service half of the guard. The tool half is
+        # ForeignFieldTests below, and neither one covers the other: the
+        # bridge chooses which names reach the service at all.
         self.start_both()
         before = self.revision(_TOOL_LOOP)
         request = LoopOperationRequest(
@@ -745,6 +754,255 @@ class FailClosedTests(_LoopHome):
         from omh.system.paths import resolve_paths
 
         return resolve_paths(str(self.omh_home), str(self.hermes_home))
+
+
+class ForeignFieldTests(_LoopHome):
+    """A field sent to the wrong action is refused, never quietly dropped.
+
+    One flat tool schema means every property passes host validation for every
+    action, so the bridge is the only thing standing between "permit, and by
+    the way set permission_profile" and a caller told `ok` while the field it
+    sent did nothing. The CLI refuses the same request by exiting 2 on an
+    unknown flag; these cases hold the tool to that.
+    """
+
+    def test_permit_refuses_a_permission_profile_it_cannot_honour(self) -> None:
+        self.cli(
+            "loop", "start",
+            "--goal-summary", GOAL,
+            "--goal-reframe", REFRAME,
+            "--criterion", "install path fixed",
+            "--loop-id", _CLI_LOOP,
+            "--permission-profile", "full_loop",
+        )
+        started = tool(
+            action="start",
+            goal_summary=GOAL,
+            goal_reframe=REFRAME,
+            success_criteria=["install path fixed"],
+            loop_id=_TOOL_LOOP,
+            permission_profile="full_loop",
+        )
+        self.assertEqual(started["status"], "ok")
+        before = self.cli("loop", "status", "--loop", _TOOL_LOOP)["loop"]["authority_envelope"]
+        self.assertEqual(before["permission_profile"], "full_loop")
+
+        payload = tool(
+            action="permit",
+            loop_id=_TOOL_LOOP,
+            permission_profile="observe_only",
+            expected_revision=self.revision(_TOOL_LOOP),
+        )
+        self.assertEqual(payload["status"], "error", payload)
+        self.assertEqual(payload["error"], "invalid_request")
+        self.assertIn("permission_profile", payload["error_detail"])
+        self.assertFalse(payload["mutation_applied"])
+
+        after = self.cli("loop", "status", "--loop", _TOOL_LOOP)["loop"]["authority_envelope"]
+        self.assertEqual(after, before)
+
+        # The same request through the CLI is refused by argparse, which is
+        # the behaviour the tool now matches.
+        status, _stderr = self.cli_error(
+            "loop", "permit", "--loop", _CLI_LOOP, "--permission-profile", "observe_only"
+        )
+        self.assertEqual(status, 2)
+
+    def test_feedback_refuses_queue_evidence_refs(self) -> None:
+        self.start_both()
+        before = self.revision(_TOOL_LOOP)
+        payload = tool(
+            action="feedback",
+            loop_id=_TOOL_LOOP,
+            internal_gap="QA gate missing",
+            evidence_refs=["https://example.invalid/run/1"],
+            expected_revision=before,
+        )
+        self.assertEqual(payload["error"], "invalid_request", payload)
+        self.assertIn("evidence_refs", payload["error_detail"])
+        self.assertEqual(self.revision(_TOOL_LOOP), before)
+
+    def test_permit_refuses_a_feedback_field(self) -> None:
+        self.start_both()
+        before = self.revision(_TOOL_LOOP)
+        payload = tool(
+            action="permit",
+            loop_id=_TOOL_LOOP,
+            allow_actions=["research"],
+            internal_gap="QA gate missing",
+            expected_revision=before,
+        )
+        self.assertEqual(payload["error"], "invalid_request", payload)
+        self.assertIn("internal_gap", payload["error_detail"])
+        self.assertEqual(self.revision(_TOOL_LOOP), before)
+
+    def test_every_field_of_every_other_action_is_refused(self) -> None:
+        """The exhaustive form: no pair of actions may share a silent drop."""
+        self.start_both()
+        every_field = {
+            name
+            for names in loop_bridge.TOOL_ACTION_FIELDS.values()
+            for name in names
+        }
+        samples = {
+            "message": "text",
+            "include_goal": True,
+            "goal_summary": GOAL,
+            "goal_reframe": REFRAME,
+            "success_criteria": ["a"],
+            "permission_profile": "observe_only",
+            "allowed_executors": ["hermes"],
+            "allow_actions": ["research"],
+            "forbid_actions": ["merge"],
+            "linked_goal_id": "",
+            "loop_id": _TOOL_LOOP,
+            "allow_unloopable": True,
+            "executor": "hermes",
+            "work_kind": "coding",
+            "executor_session_ref": "ref",
+            "observed_artifacts": ["docs/INSTALLATION.md"],
+            "internal_gap": "gap",
+            "external_wait": "wait",
+            "context_exhausted": True,
+            "budget_exhausted": True,
+            "driver_observation": {},
+            "queue_id": "queue-1",
+            "evidence_refs": ["https://example.invalid/run/1"],
+            "worktree_evidence_refs": ["wt"],
+            "subagent_evidence_refs": ["sa"],
+            "connector_evidence_refs": ["co"],
+            "dispatch_attempt_id": "attempt-1",
+            "summary": "summary",
+        }
+        self.assertEqual(sorted(samples), sorted(every_field))
+        before = self.revision(_TOOL_LOOP)
+        for action in LOOP_TOOL_ACTIONS:
+            own = set(loop_bridge.TOOL_ACTION_FIELDS[action])
+            for name in sorted(every_field - own - set(loop_bridge.ENVELOPE_ARGS)):
+                with self.subTest(action=action, field=name):
+                    payload = tool(
+                        **{
+                            "action": action,
+                            "loop_id": _TOOL_LOOP,
+                            "expected_revision": before,
+                            name: samples[name],
+                        }
+                    )
+                    self.assertEqual(payload["status"], "error", payload)
+                    self.assertEqual(payload["error"], "invalid_request", payload)
+                    self.assertIn(name, payload["error_detail"])
+        self.assertEqual(self.revision(_TOOL_LOOP), before)
+
+    def test_an_argument_belonging_to_no_action_is_refused(self) -> None:
+        self.start_both()
+        payload = tool(action="status", loop_id=_TOOL_LOOP, not_a_field="x")
+        self.assertEqual(payload["error"], "invalid_request", payload)
+        self.assertIn("not_a_field", payload["error_detail"])
+
+
+class SessionBindingBoundaryTests(_LoopHome):
+    """What the identity gate is, and what it deliberately is not."""
+
+    def test_the_gate_records_nothing_anywhere_in_the_store(self) -> None:
+        self.start_both()
+        for _ in range(2):
+            tool(
+                action="feedback",
+                loop_id=_TOOL_LOOP,
+                internal_gap="QA gate missing",
+                expected_revision=self.revision(_TOOL_LOOP),
+            )
+        tool(
+            action="run_once",
+            loop_id=_TOOL_LOOP,
+            expected_revision=self.revision(_TOOL_LOOP),
+        )
+        # The session id is checked and echoed, never stored. If a later
+        # change persists it, this fails and the comment in `loop_bridge` that
+        # says it is not an attribution record has to move with it.
+        written = [path for path in self.omh_home.rglob("*") if path.is_file()]
+        self.assertTrue(written)
+        for path in written:
+            with self.subTest(path=path.name):
+                self.assertNotIn(SESSION, path.read_text(encoding="utf-8", errors="replace"))
+        self.assertNotIn(
+            SESSION, json.dumps(self.cli("loop", "status", "--loop", _TOOL_LOOP)["loop"])
+        )
+
+    def test_any_session_may_steer_a_loop_another_session_started(self) -> None:
+        # Deliberate, not an oversight: a loop outlives its first session, and
+        # the CLI carries no session at all. The revision guard is what keeps
+        # two steerers from overwriting each other.
+        self.start_both()
+        payload = tool(
+            action="feedback",
+            loop_id=_TOOL_LOOP,
+            internal_gap="steered from a second session",
+            expected_revision=self.revision(_TOOL_LOOP),
+            session_id="hermes-session-2",
+        )
+        self.assertEqual(payload["status"], "ok", payload)
+        self.assertEqual(payload["session_binding"]["session_ref"], "hermes-session-2")
+
+    def test_the_refusal_does_not_claim_attribution(self) -> None:
+        self.start_both()
+        detail = tool(
+            action="feedback",
+            loop_id=_TOOL_LOOP,
+            internal_gap="x",
+            expected_revision=1,
+            session_id="",
+        )["error_detail"]
+        self.assertIn("omh loop", detail)
+        self.assertNotIn("attribut", detail.lower())
+
+
+class ErrorDetailTests(_LoopHome):
+    """A refusal explains itself without describing the host's disk."""
+
+    def test_loop_not_found_hands_back_a_sentence_not_a_path(self) -> None:
+        payload = tool(action="status", loop_id="no-such-loop")
+        self.assertEqual(payload["error"], "loop_not_found")
+        detail = payload["error_detail"]
+        self.assertIn("action=status", detail)
+        self.assertNotIn(str(self.omh_home), detail)
+        self.assertNotIn("cycle.json", detail)
+        self.assertNotIn("/", detail)
+
+    def test_a_malformed_record_reports_the_fault_without_the_store_path(self) -> None:
+        from omh.system.paths import resolve_paths
+        from omh.workflows.loop_operations import loop_operation_envelope
+
+        self.start_both()
+        paths = resolve_paths(str(self.omh_home), str(self.hermes_home))
+        (paths.loops_dir / _TOOL_LOOP / "cycle.json").write_text("{ not json", encoding="utf-8")
+        payload = loop_operation_envelope(
+            paths, LoopOperationRequest(action="status", fields={"loop_id": _TOOL_LOOP})
+        )
+        self.assertEqual(payload["status"], "error")
+        self.assertTrue(payload["error_detail"].strip())
+        self.assertNotIn(str(self.omh_home), payload["error_detail"])
+
+    def test_a_workflow_message_that_quotes_the_store_is_redacted(self) -> None:
+        # Tested at the redactor, because which workflow message happens to
+        # quote a path is not a contract and would make this case drift.
+        from omh.workflows.loop_operations import _safe_detail
+
+        home = str(self.omh_home)
+        detail = _safe_detail(
+            "loop_rule_violation", ValueError(f"{home}/loops/x/cycle.json: broken"), home
+        )
+        self.assertNotIn(home, detail)
+        self.assertIn("<omh_home>", detail)
+        self.assertIn("broken", detail)
+
+    def test_the_cli_still_reports_the_path_it_could_not_read(self) -> None:
+        # The redaction is the model-facing envelope's, not the operator's: an
+        # operator debugging a broken store needs the filename.
+        self.start_both()
+        status, stderr = self.cli_error("loop", "status", "--loop", "no-such-loop")
+        self.assertNotEqual(status, 0)
+        self.assertIn("no-such-loop", stderr)
 
 
 class CliCompatibilityTests(_LoopHome):
@@ -838,11 +1096,25 @@ class BundleCoreParityTests(unittest.TestCase):
             with self.subTest(action=action):
                 self.assertTrue(set(names) <= properties, set(names) - properties)
 
-    def test_the_schema_declares_nothing_the_bridge_would_drop(self) -> None:
-        routed = {"action", "loop_id", "expected_revision", "mutation_id", "observation"}
+    def test_the_schema_declares_no_property_outside_the_union(self) -> None:
+        # Union-level only: it proves the schema advertises nothing the bridge
+        # has no home for. It says nothing about which action each property
+        # belongs to, which is what ForeignFieldTests covers.
+        routed = set(loop_bridge.ENVELOPE_ARGS)
         for names in loop_bridge.TOOL_ACTION_FIELDS.values():
             routed.update(names)
         self.assertEqual(set(OMH_LOOP_SCHEMA["parameters"]["properties"]), routed)
+
+    def test_envelope_args_are_disjoint_from_no_action(self) -> None:
+        # `loop_id` is deliberately both: the envelope names the loop to act
+        # on, and `start` / `status` take it as a field. Every other envelope
+        # argument belongs to the call, never to one action.
+        for name in loop_bridge.ENVELOPE_ARGS:
+            if name == "loop_id":
+                continue
+            for action, names in loop_bridge.TOOL_ACTION_FIELDS.items():
+                with self.subTest(argument=name, action=action):
+                    self.assertNotIn(name, names)
 
     def test_mutating_and_guarded_sets_match_the_manifest(self) -> None:
         self.assertEqual(

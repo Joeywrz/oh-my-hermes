@@ -90,8 +90,24 @@ TOOL_ACTION_FIELDS: dict[str, tuple[str, ...]] = {
 
 LOOP_TOOL_ACTIONS: tuple[str, ...] = tuple(sorted(TOOL_ACTION_FIELDS))
 
-# Actions that write. Each one needs the host's session or thread identity, so
-# a mutation is always attributable to the conversation that asked for it.
+# Actions that write. Each one needs the host's session or thread identity.
+#
+# What that gate is, precisely: a caller that cannot present a host session or
+# thread id is not a Hermes tool dispatch, and this tool only exists to serve
+# one. It is NOT an attribution record and must not be described as one -- the
+# id is checked, reported back in `session_binding`, and never stored. A tool
+# mutation and a CLI mutation write byte-identical `cycle.json`, and nothing in
+# the OMH home says which session moved a loop.
+#
+# It is also not an ownership check, deliberately. A loop outlives the
+# conversation that started it -- surviving context exhaustion and resuming
+# later is the workflow's whole premise -- and the CLI, the operator path for
+# every action this tool does not expose, carries no session at all. Binding a
+# loop to its first session would strand it when that session ends and split
+# the two adapters that this change exists to keep identical. Any session, and
+# the CLI, may steer any loop; the stale-revision guard below is what keeps two
+# of them from overwriting each other, and it works without knowing who they
+# are.
 MUTATING_TOOL_ACTIONS = frozenset(
     {"start", "feedback", "permit", "run_once", "goal_driver_observe", "queue_observe"}
 )
@@ -110,6 +126,10 @@ LOOP_ID_REQUIRED_TOOL_ACTIONS = frozenset(
 # makes the refusal observable on every host: silently dropping an unknown key
 # binds correctly and still leaves the caller believing the root was honoured.
 ROOT_SELECTING_ARGS = ("hermes_home", "omh_home", "paths", "root", "state_dir")
+# Arguments that belong to the call itself rather than to one action, plus the
+# host's own invocation metadata, which the handler strips before this module
+# sees it. Everything else must be a field of the requested action.
+ENVELOPE_ARGS = ("action", "expected_revision", "loop_id", "mutation_id", "observation")
 
 
 def _prepared_versus_observed(mutating: bool) -> dict[str, Any]:
@@ -180,8 +200,29 @@ def run_loop_tool_action(args: dict[str, Any], *, session_ref: str) -> dict[str,
             action,
             loop_id,
             IDENTITY_REQUIRED,
-            "this host supplied no session or thread identity, so a Loop mutation "
-            "cannot be attributed to a conversation; use the omh loop CLI instead",
+            "this host supplied no session or thread identity, so this call is not "
+            "a Hermes tool dispatch and omh_loop will not write; use the omh loop "
+            "CLI for an operator or automation path",
+        )
+    # One flat schema means every field of every action passes host validation
+    # for every action, so this is the only place a field sent to the wrong
+    # action can be caught. Filtering it away instead would apply the rest of
+    # the request and report `ok`, telling a caller its argument took effect
+    # when it did not -- the same failure ROOT_SELECTING_ARGS above refuses by
+    # name, and the CLI refuses it too, by exiting 2 on an unknown flag.
+    foreign = sorted(
+        name
+        for name in args
+        if name not in ENVELOPE_ARGS and name not in TOOL_ACTION_FIELDS[action]
+    )
+    if foreign:
+        accepted = ", ".join(TOOL_ACTION_FIELDS[action]) or "no action-specific fields"
+        return error_envelope(
+            action,
+            loop_id,
+            INVALID_REQUEST,
+            f"{action} does not accept field(s): " + ", ".join(foreign)
+            + f"; it accepts {accepted}",
         )
     if action in LOOP_ID_REQUIRED_TOOL_ACTIONS and not loop_id:
         return error_envelope(action, loop_id, INVALID_REQUEST, f"{action} requires loop_id")
@@ -209,6 +250,8 @@ def run_loop_tool_action(args: dict[str, Any], *, session_ref: str) -> dict[str,
             "the installed OMH package is unavailable on this host, so no Loop state "
             "can be read or written; install oh-my-hermes or use the omh loop CLI",
         )
+    # Every remaining name is already known to belong to this action; a None
+    # value means "not supplied" and takes the service's declared default.
     fields = {
         name: args[name]
         for name in TOOL_ACTION_FIELDS[action]
@@ -250,6 +293,7 @@ def run_loop_tool_action(args: dict[str, Any], *, session_ref: str) -> dict[str,
 
 
 __all__ = [
+    "ENVELOPE_ARGS",
     "LOOP_ID_REQUIRED_TOOL_ACTIONS",
     "LOOP_TOOL_ACTIONS",
     "LOOP_TOOL_CLAIM_BOUNDARY",

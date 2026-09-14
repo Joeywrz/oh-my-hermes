@@ -55,8 +55,10 @@ OMH_LOOP_SCHEMA = {
         "overwrite a change it never saw. A successful call records an OMH transition only: it is "
         "never executor dispatch, implementation, review, CI, merge readiness, or merge, and a "
         "queue item OMH prepares stays prepared_not_observed until separate evidence is recorded. "
-        "Operator-only Loop surfaces (tick, sticky rules, queue dispatch and recovery, driver "
-        "binding and migration, handoffs, narration) stay on the `omh loop` CLI."
+        "Each action accepts only its own fields, named per field below; sending a field that "
+        "belongs to a different action is refused rather than ignored, so nothing you pass is "
+        "silently dropped. Operator-only Loop surfaces (tick, sticky rules, queue dispatch and "
+        "recovery, driver binding and migration, handoffs, narration) stay on the `omh loop` CLI."
     ),
     "parameters": {
         "type": "object",
@@ -213,7 +215,13 @@ OMH_LOOP_SCHEMA = {
 # typed, and references belonging to the loop's own evidence ledger -- not host
 # metadata about the call. Two ledgers, and neither should be filled from the
 # other.
-_OBSERVER_ARG_KEYS = ("observation", "host", "session_id", "source")
+#
+# Only the nested block: the reader's top-level `host` / `session_id` /
+# `source` fallbacks cannot reach this tool, because the bridge refuses any
+# argument that is neither an envelope argument nor a field of the requested
+# action, and none of those three is either. That is the intended result --
+# a model-supplied `session_id` must never stand in for the host's.
+_OBSERVER_ARG_KEYS = ("observation",)
 
 
 def omh_loop_handler(args: dict[str, Any], **kwargs) -> str:

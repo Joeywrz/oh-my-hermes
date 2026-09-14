@@ -98,7 +98,8 @@ Expected outputs:
 
 Artifact expectations:
 
-- paper_learning_card/v1 under .omh/paper-learning when a wrapper or CLI records it
+- record the card with `omh paper plan --title <title> --source <path or url> --level <level> --source-state <state>`, which writes paper_learning_card/v1 to `$OMH_HOME/paper-learning/<paper_id>/card.json` and hashes a local source file without parsing it
+- record each explained chunk with `omh paper progress <paper_id> --covered <section> --next <section> [--missing <section>] [--note <text>]`, which updates the coverage ledger and appends one line to `ledger.jsonl`; `omh paper validate` checks the store
 
 Safety rules:
 

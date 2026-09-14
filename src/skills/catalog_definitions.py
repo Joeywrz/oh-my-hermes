@@ -1769,7 +1769,14 @@ _DEFINITIONS = [
             "section-by-section explanation outline",
             "missing-section and not-observed list",
         ),
-        artifact_expectations=("paper_learning_card/v1 under .omh/paper-learning when a wrapper or CLI records it",),
+        # Naming the commands is the point: the card used to be promised
+        # "under .omh/paper-learning when a wrapper or CLI records it" while
+        # no command wrote there, so a long paper restarted from the abstract
+        # every session. `omh paper` is that command.
+        artifact_expectations=(
+            "record the card with `omh paper plan --title <title> --source <path or url> --level <level> --source-state <state>`, which writes paper_learning_card/v1 to `$OMH_HOME/paper-learning/<paper_id>/card.json` and hashes a local source file without parsing it",
+            "record each explained chunk with `omh paper progress <paper_id> --covered <section> --next <section> [--missing <section>] [--note <text>]`, which updates the coverage ledger and appends one line to `ledger.jsonl`; `omh paper validate` checks the store",
+        ),
         safety_rules=(
             "Do not claim full PDF extraction, figure OCR, external citation checking, math validation, code reproduction, peer review, or full-paper coverage without observed evidence.",
             "A pasted abstract or excerpt supports only excerpt explanation until the remaining sections are observed.",
@@ -1815,7 +1822,7 @@ _DEFINITIONS = [
         recovery_notes=(
             "If no paper text is observed, prepare the learning card from metadata only and ask for an attachment, excerpt, or extraction evidence.",
             "If only an abstract or excerpt is supplied, label the result as excerpt explanation and list missing sections.",
-            "If context is too long, continue section-by-section and keep covered / next / missing state in the ledger.",
+            "If context is too long or the session ends mid-paper, continue section-by-section: record each chunk with `omh paper progress` and, in a new session, run `omh paper list` then `omh paper show <paper_id>` to resume from the recorded next section instead of re-reading from the abstract.",
             "If the paper is longer than one `read_file` window, call `omh_document_plan` (action=plan with the pages, lines, and outline the first read showed) and walk its numbered ranges, marking each covered.",
             "If the user asks for validation, citation checking, math proof review, or reproduction, create a separate observed-evidence or coding handoff path.",
         ),

@@ -43,6 +43,18 @@ All notable changes will be documented here.
   `caller_supplied`, and a covered mark is the caller's statement, not
   observed coverage. The paper-learning skill points to the tool when the
   paper exceeds one window.
+- **Paper reading progress survives the session.** The `paper-learning` skill
+  promised a `paper_learning_card/v1` under `.omh/paper-learning` "when a
+  wrapper or CLI records it", and no command wrote there, so a long paper
+  restarted from the abstract every session. `omh paper` is that command:
+  `plan` records the card (a local source file is hashed for identity, never
+  parsed), `progress <paper_id>` records one explained chunk as covered /
+  next / missing plus a short note, `list` and `show` print where reading
+  stopped so a resumed session continues from the recorded next section, and
+  `validate` checks every card, ledger, and the index cache. The store is
+  `$OMH_HOME/paper-learning/<paper_id>/card.json` plus an append-only
+  `ledger.jsonl`; page counts, PDF extraction, and explanation correctness
+  stay not observed until a host records them.
 - **DeepSeek V4.1 Flash override measured and revised.** On the first day a
   served route existed (`og` added `deepseek/deepseek-flash`), the
   `deepseek-v4.1-flash` high-effort override ran the #1463 five-arm pair on

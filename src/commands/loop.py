@@ -1,3 +1,14 @@
+"""CLI adapters over the typed Loop operation service.
+
+Every handler here builds one `LoopOperationRequest` and prints the artifacts
+the service returns. The lifecycle rules, the field vocabulary, and the error
+mapping live in `omh.workflows.loop_operations`, which the `omh_loop` plugin
+tool calls through the same entry point, so the two surfaces cannot drift.
+
+What stays here is what is genuinely a command-line concern: argparse shapes,
+reading an observation file from a path or stdin, the `OmhError` text these
+commands have always raised, and the exact top-level JSON keys they print.
+"""
 from __future__ import annotations
 
 import argparse
@@ -11,48 +22,38 @@ from ..goal_loop import (
     LOOP_STICKY_RULE_REPEAT_MODES,
     LOOP_WORKFLOW_PATTERNS,
     PERMISSION_PROFILES,
-    assess_loopability,
-    block_loop_queue_item,
-    build_loop_cycle_narration,
-    build_loop_goal_driver_handoff,
-    build_loop_queue_handoff,
-    build_loop_start_card,
-    build_loop_status_card,
-    create_loop_cycle,
-    declare_sticky_rule,
-    dispatch_loop_queue_item,
-    inspect_loop_queue_item,
-    list_loop_queue,
-    list_loop_cycles,
-    observe_codex_loop_queue_item,
-    observe_loop_queue_item,
-    read_loop_cycle,
-    record_loop_goal_driver_observation,
-    record_loop_feedback,
-    recover_loop_queue_item_dispatch,
-    run_loop_once_result,
-    tick_loop_runtime,
-    update_loop_permission,
-    validate_loop_cycle,
 )
 from ..installer import OmhError
 from ..workflows.loop_observation_input import read_loop_observation_json
+from ..workflows.loop_operations import LoopOperationRequest, run_loop_operation
 from .common import _chat_message, _paths, _print_json, add_revision_guard_arguments
 from .loop_driver import add_driver_commands
+
+
+def _run(args: argparse.Namespace, action: str, **fields: object) -> dict[str, object]:
+    """Run one service action against the paths this invocation resolved."""
+    request = LoopOperationRequest(
+        action=action,
+        loop_id=str(getattr(args, "loop_id", "") or ""),
+        fields=fields,
+        expected_revision=getattr(args, "expected_revision", None),
+        mutation_id=str(getattr(args, "mutation_id", "") or ""),
+    )
+    return run_loop_operation(_paths(args), request).artifacts
 
 
 def cmd_loop_start_card(args: argparse.Namespace) -> int:
     try:
         _print_json(
-            {
-                "loop_start_card": build_loop_start_card(
-                    _chat_message(args),
-                    include_goal=args.include_goal,
-                    source=args.source,
-                    default_permission_profile=args.permission_profile,
-                    default_executor=args.default_executor,
-                )
-            }
+            _run(
+                args,
+                "start_card",
+                message=_chat_message(args),
+                include_goal=args.include_goal,
+                source=args.source,
+                permission_profile=args.permission_profile,
+                default_executor=args.default_executor,
+            )
         )
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
@@ -62,12 +63,7 @@ def cmd_loop_start_card(args: argparse.Namespace) -> int:
 def cmd_loop_assess(args: argparse.Namespace) -> int:
     try:
         _print_json(
-            {
-                "loopability_assessment": assess_loopability(
-                    _chat_message(args),
-                    expose_goal=args.include_goal,
-                )
-            }
+            _run(args, "assess", message=_chat_message(args), include_goal=args.include_goal)
         )
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
@@ -76,26 +72,29 @@ def cmd_loop_assess(args: argparse.Namespace) -> int:
 
 def cmd_loop_start(args: argparse.Namespace) -> int:
     try:
-        cycle = create_loop_cycle(
-            _paths(args),
-            goal_summary=args.goal_summary,
-            goal_reframe=args.goal_reframe,
-            success_criteria=args.criterion or [],
-            permission_profile=args.permission_profile,
-            allowed_executors=args.allowed_executor or [],
-            allow_actions=args.allow_action or [],
-            forbid_actions=args.forbid_action or [],
-            linked_goal_id=args.linked_goal or "",
-            source=args.source,
-            loop_id=args.loop_id or None,
-            allow_unloopable=args.allow_unloopable,
-            driver_selection={
-                "executor": args.executor, "work_kind": args.work_kind,
-                "capability_snapshot": read_loop_observation_json(args.capability_json) if args.capability_json else None,
-                "session_ref": args.executor_session_ref or None,
-            },
+        _print_json(
+            _run(
+                args,
+                "start",
+                goal_summary=args.goal_summary,
+                goal_reframe=args.goal_reframe,
+                success_criteria=args.criterion or [],
+                permission_profile=args.permission_profile,
+                allowed_executors=args.allowed_executor or [],
+                allow_actions=args.allow_action or [],
+                forbid_actions=args.forbid_action or [],
+                linked_goal_id=args.linked_goal or "",
+                source=args.source,
+                loop_id=args.loop_id or "",
+                allow_unloopable=args.allow_unloopable,
+                executor=args.executor,
+                work_kind=args.work_kind,
+                capability_snapshot=(
+                    read_loop_observation_json(args.capability_json) if args.capability_json else None
+                ),
+                executor_session_ref=args.executor_session_ref or "",
+            )
         )
-        _print_json({"loop": cycle, "status_card": build_loop_status_card(_paths(args), str(cycle["loop_id"]))})
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -103,61 +102,25 @@ def cmd_loop_start(args: argparse.Namespace) -> int:
 
 def cmd_loop_status(args: argparse.Namespace) -> int:
     try:
-        if args.loop_id:
-            _print_json(
-                {
-                    "loop": read_loop_cycle(_paths(args), args.loop_id),
-                    "status_card": build_loop_status_card(_paths(args), args.loop_id),
-                }
-            )
-            return 0
-        loops = list_loop_cycles(_paths(args))
+        _print_json(_run(args, "status", loop_id=args.loop_id))
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
-    valid_loops = []
-    invalid_loops = []
-    for loop in loops:
-        validation = validate_loop_cycle(loop)
-        if not validation["ok"]:
-            invalid_loops.append(
-                {
-                    "loop_id": str(loop.get("loop_id", "unknown")),
-                    "errors": validation["errors"],
-                }
-            )
-            continue
-        valid_loops.append(
-            {
-                "loop_id": loop["loop_id"],
-                "phase": loop["phase"],
-                "wait_reason": loop["wait_reason"],
-                "permission_profile": loop["authority_envelope"]["permission_profile"],
-                "linked_goal_id": loop.get("linked_goal_id", ""),
-                "next_action": loop["next_action"],
-                "heartbeat_count": loop.get("runtime", {}).get("heartbeat_count", 0)
-                if isinstance(loop.get("runtime"), dict)
-                else 0,
-                "last_planned_action": loop.get("runtime", {}).get("last_planned_action", "")
-                if isinstance(loop.get("runtime"), dict)
-                else "",
-            }
-        )
-    _print_json({"loops": valid_loops, "invalid_loops": invalid_loops})
     return 0
 
 
 def cmd_loop_feedback(args: argparse.Namespace) -> int:
     try:
-        cycle = record_loop_feedback(
-            _paths(args),
-            args.loop_id,
-            observed_artifacts=args.observed_artifact or [],
-            internal_gap=args.internal_gap or "",
-            external_wait=args.external_wait or "",
-            context_exhausted=args.context_exhausted,
-            budget_exhausted=args.budget_exhausted,
+        _print_json(
+            _run(
+                args,
+                "feedback",
+                observed_artifacts=args.observed_artifact or [],
+                internal_gap=args.internal_gap or "",
+                external_wait=args.external_wait or "",
+                context_exhausted=args.context_exhausted,
+                budget_exhausted=args.budget_exhausted,
+            )
         )
-        _print_json({"loop": cycle, "status_card": build_loop_status_card(_paths(args), args.loop_id)})
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -165,14 +128,15 @@ def cmd_loop_feedback(args: argparse.Namespace) -> int:
 
 def cmd_loop_permit(args: argparse.Namespace) -> int:
     try:
-        cycle = update_loop_permission(
-            _paths(args),
-            args.loop_id,
-            allow_actions=args.allow_action or [],
-            forbid_actions=args.forbid_action or [],
-            allowed_executors=args.allowed_executor or [],
+        _print_json(
+            _run(
+                args,
+                "permit",
+                allow_actions=args.allow_action or [],
+                forbid_actions=args.forbid_action or [],
+                allowed_executors=args.allowed_executor or [],
+            )
         )
-        _print_json({"loop": cycle, "status_card": build_loop_status_card(_paths(args), args.loop_id)})
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -180,20 +144,21 @@ def cmd_loop_permit(args: argparse.Namespace) -> int:
 
 def cmd_loop_tick(args: argparse.Namespace) -> int:
     try:
-        cycle = tick_loop_runtime(
-            _paths(args),
-            args.loop_id,
-            trigger=args.trigger,
-            cadence=args.cadence or "",
-            worktree_base=args.worktree_base or "",
-            worktree_branch=args.worktree_branch or "",
-            subagent_role=args.subagent_role or "",
-            connector=args.connector or "",
-            connector_action=args.connector_action or "",
-            workflow_pattern=args.workflow_pattern,
-            note=args.note or "",
+        _print_json(
+            _run(
+                args,
+                "tick",
+                trigger=args.trigger,
+                cadence=args.cadence or "",
+                worktree_base=args.worktree_base or "",
+                worktree_branch=args.worktree_branch or "",
+                subagent_role=args.subagent_role or "",
+                connector=args.connector or "",
+                connector_action=args.connector_action or "",
+                workflow_pattern=args.workflow_pattern,
+                note=args.note or "",
+            )
         )
-        _print_json({"loop": cycle, "status_card": build_loop_status_card(_paths(args), args.loop_id)})
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -201,18 +166,17 @@ def cmd_loop_tick(args: argparse.Namespace) -> int:
 
 def cmd_loop_sticky_rule_declare(args: argparse.Namespace) -> int:
     try:
-        cycle = declare_sticky_rule(
-            _paths(args),
-            args.loop_id,
-            rule_id=args.rule_id,
-            text=args.text,
-            repeat_mode=args.repeat_mode,
-            repeat_gap=args.repeat_gap,
-            max_repeats=args.max_repeats,
-            expected_revision=args.expected_revision,
-            mutation_id=args.mutation_id or None,
+        _print_json(
+            _run(
+                args,
+                "sticky_rule_declare",
+                rule_id=args.rule_id,
+                text=args.text,
+                repeat_mode=args.repeat_mode,
+                repeat_gap=args.repeat_gap,
+                max_repeats=args.max_repeats,
+            )
         )
-        _print_json({"loop": cycle, "status_card": build_loop_status_card(_paths(args), args.loop_id)})
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -220,15 +184,7 @@ def cmd_loop_sticky_rule_declare(args: argparse.Namespace) -> int:
 
 def cmd_loop_run_once(args: argparse.Namespace) -> int:
     try:
-        result = run_loop_once_result(_paths(args), args.loop_id)
-        cycle = result["loop"]
-        _print_json(
-            {
-                "loop": cycle,
-                "run_once": result["run_once"],
-                "status_card": build_loop_status_card(_paths(args), args.loop_id),
-            }
-        )
+        _print_json(_run(args, "run_once"))
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -237,14 +193,12 @@ def cmd_loop_run_once(args: argparse.Namespace) -> int:
 def cmd_loop_goal_driver_handoff(args: argparse.Namespace) -> int:
     try:
         _print_json(
-            {
-                "goal_driver_handoff": build_loop_goal_driver_handoff(
-                    _paths(args),
-                    args.loop_id,
-                    gate_commands=args.gate_command or [],
-                    max_turns=args.max_turns,
-                )
-            }
+            _run(
+                args,
+                "goal_driver_handoff",
+                gate_commands=args.gate_command or [],
+                max_turns=args.max_turns,
+            )
         )
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
@@ -253,24 +207,12 @@ def cmd_loop_goal_driver_handoff(args: argparse.Namespace) -> int:
 
 def cmd_loop_goal_driver_observe(args: argparse.Namespace) -> int:
     try:
-        observation = read_loop_observation_json(args.observation_json)
-        cycle = record_loop_goal_driver_observation(
-            _paths(args),
-            args.loop_id,
-            observation,
-            expected_revision=args.expected_revision,
-            mutation_id=args.mutation_id or None,
-        )
-        status_card = build_loop_status_card(_paths(args), args.loop_id)
         _print_json(
-            {
-                "goal_driver_observation": (cycle["executor_goal_observations"][-1]
-                    if status_card["driver"]["kind"] == "external_executor_goal"
-                    else cycle["goal_driver_observations"][-1]),
-                "native_goal_status": status_card["native_goal_status"],
-                "loop": cycle,
-                "status_card": status_card,
-            }
+            _run(
+                args,
+                "goal_driver_observe",
+                driver_observation=read_loop_observation_json(args.observation_json),
+            )
         )
     except (FileNotFoundError, OSError, TypeError, ValueError) as exc:
         raise OmhError(f"invalid loop goal driver observation: {exc}") from exc
@@ -279,7 +221,7 @@ def cmd_loop_goal_driver_observe(args: argparse.Namespace) -> int:
 
 def cmd_loop_queue_list(args: argparse.Namespace) -> int:
     try:
-        _print_json({"loop_queue": list_loop_queue(_paths(args), args.loop_id, include_observed=args.include_observed)})
+        _print_json(_run(args, "queue_list", include_observed=args.include_observed))
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -287,7 +229,7 @@ def cmd_loop_queue_list(args: argparse.Namespace) -> int:
 
 def cmd_loop_queue_inspect(args: argparse.Namespace) -> int:
     try:
-        _print_json(inspect_loop_queue_item(_paths(args), args.loop_id, args.queue_id))
+        _print_json(_run(args, "queue_inspect", queue_id=args.queue_id))
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -295,7 +237,7 @@ def cmd_loop_queue_inspect(args: argparse.Namespace) -> int:
 
 def cmd_loop_queue_handoff(args: argparse.Namespace) -> int:
     try:
-        _print_json({"queue_handoff": build_loop_queue_handoff(_paths(args), args.loop_id, args.queue_id)})
+        _print_json(_run(args, "queue_handoff", queue_id=args.queue_id))
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -303,17 +245,18 @@ def cmd_loop_queue_handoff(args: argparse.Namespace) -> int:
 
 def cmd_loop_queue_dispatch(args: argparse.Namespace) -> int:
     try:
-        cycle = dispatch_loop_queue_item(
-            _paths(args),
-            args.loop_id,
-            args.queue_id,
-            executor=args.executor,
-            session_ref=args.codex_session_ref or args.session_ref or "",
-            thread_ref=args.codex_thread_ref or args.thread_ref or "",
-            evidence_refs=args.evidence_ref or [],
-            summary=args.summary or "",
+        _print_json(
+            _run(
+                args,
+                "queue_dispatch",
+                queue_id=args.queue_id,
+                executor=args.executor,
+                session_ref=args.codex_session_ref or args.session_ref or "",
+                thread_ref=args.codex_thread_ref or args.thread_ref or "",
+                evidence_refs=args.evidence_ref or [],
+                summary=args.summary or "",
+            )
         )
-        _print_json({"loop": cycle, "status_card": build_loop_status_card(_paths(args), args.loop_id)})
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -321,21 +264,22 @@ def cmd_loop_queue_dispatch(args: argparse.Namespace) -> int:
 
 def cmd_loop_queue_recover_dispatch(args: argparse.Namespace) -> int:
     try:
-        cycle = recover_loop_queue_item_dispatch(
-            _paths(args),
-            args.loop_id,
-            args.queue_id,
-            prior_attempt_id=args.prior_attempt_id or "",
-            prior_outcome=args.prior_outcome,
-            outcome_evidence_refs=args.outcome_evidence_ref or [],
-            outcome_summary=args.outcome_summary or "",
-            executor=args.executor,
-            session_ref=args.codex_session_ref or args.session_ref or "",
-            thread_ref=args.codex_thread_ref or args.thread_ref or "",
-            evidence_refs=args.evidence_ref or [],
-            summary=args.summary or "",
+        _print_json(
+            _run(
+                args,
+                "queue_recover_dispatch",
+                queue_id=args.queue_id,
+                prior_attempt_id=args.prior_attempt_id or "",
+                prior_outcome=args.prior_outcome,
+                outcome_evidence_refs=args.outcome_evidence_ref or [],
+                outcome_summary=args.outcome_summary or "",
+                executor=args.executor,
+                session_ref=args.codex_session_ref or args.session_ref or "",
+                thread_ref=args.codex_thread_ref or args.thread_ref or "",
+                evidence_refs=args.evidence_ref or [],
+                summary=args.summary or "",
+            )
         )
-        _print_json({"loop": cycle, "status_card": build_loop_status_card(_paths(args), args.loop_id)})
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -350,17 +294,18 @@ def cmd_loop_queue_observe_codex(args: argparse.Namespace) -> int:
             from pathlib import Path
 
             log_text = Path(args.codex_log_jsonl).read_text(encoding="utf-8")
-        cycle = observe_codex_loop_queue_item(
-            _paths(args),
-            args.loop_id,
-            args.queue_id,
-            codex_log_text=log_text,
-            evidence_refs=args.evidence_ref or [],
-            codex_log_ref=args.codex_log_ref or "",
-            summary=args.summary or "",
-            dispatch_attempt_id=args.dispatch_attempt_id or "",
+        _print_json(
+            _run(
+                args,
+                "queue_observe_codex",
+                queue_id=args.queue_id,
+                codex_log_text=log_text,
+                evidence_refs=args.evidence_ref or [],
+                codex_log_ref=args.codex_log_ref or "",
+                summary=args.summary or "",
+                dispatch_attempt_id=args.dispatch_attempt_id or "",
+            )
         )
-        _print_json({"loop": cycle, "narration": build_loop_cycle_narration(_paths(args), args.loop_id, args.queue_id)})
     except (FileNotFoundError, OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -368,7 +313,7 @@ def cmd_loop_queue_observe_codex(args: argparse.Namespace) -> int:
 
 def cmd_loop_queue_narrate(args: argparse.Namespace) -> int:
     try:
-        _print_json({"narration": build_loop_cycle_narration(_paths(args), args.loop_id, args.queue_id)})
+        _print_json(_run(args, "queue_narrate", queue_id=args.queue_id))
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -376,18 +321,19 @@ def cmd_loop_queue_narrate(args: argparse.Namespace) -> int:
 
 def cmd_loop_queue_observe(args: argparse.Namespace) -> int:
     try:
-        cycle = observe_loop_queue_item(
-            _paths(args),
-            args.loop_id,
-            args.queue_id,
-            evidence_refs=args.evidence_ref or [],
-            worktree_evidence_refs=args.worktree_evidence_ref or [],
-            subagent_evidence_refs=args.subagent_evidence_ref or [],
-            connector_evidence_refs=args.connector_evidence_ref or [],
-            summary=args.summary or "",
-            dispatch_attempt_id=args.dispatch_attempt_id or "",
+        _print_json(
+            _run(
+                args,
+                "queue_observe",
+                queue_id=args.queue_id,
+                evidence_refs=args.evidence_ref or [],
+                worktree_evidence_refs=args.worktree_evidence_ref or [],
+                subagent_evidence_refs=args.subagent_evidence_ref or [],
+                connector_evidence_refs=args.connector_evidence_ref or [],
+                summary=args.summary or "",
+                dispatch_attempt_id=args.dispatch_attempt_id or "",
+            )
         )
-        _print_json({"loop": cycle, "status_card": build_loop_status_card(_paths(args), args.loop_id)})
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -395,8 +341,7 @@ def cmd_loop_queue_observe(args: argparse.Namespace) -> int:
 
 def cmd_loop_queue_block(args: argparse.Namespace) -> int:
     try:
-        cycle = block_loop_queue_item(_paths(args), args.loop_id, args.queue_id, reason=args.reason)
-        _print_json({"loop": cycle, "status_card": build_loop_status_card(_paths(args), args.loop_id)})
+        _print_json(_run(args, "queue_block", queue_id=args.queue_id, reason=args.reason))
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0

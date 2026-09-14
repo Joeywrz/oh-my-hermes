@@ -1,24 +1,33 @@
-"""Explicit local driver transfer and migration command adapters."""
+"""Explicit local driver transfer and migration command adapters.
+
+Both handlers go through the same typed Loop operation service the rest of
+`omh loop` and the `omh_loop` plugin tool use; only the argparse shape, the
+observation file read, and the printed keys stay here.
+"""
 from __future__ import annotations
 
 import argparse
 
 from ..core.errors import OmhError
-from ..workflows.goal_loop import _guarded_cycle_update, build_loop_status_card, read_loop_cycle
-from ..workflows.loop_driver_updates import bind_driver, migrate_driver
 from ..workflows.loop_observation_input import read_loop_observation_json
+from ..workflows.loop_operations import LoopOperationRequest, run_loop_operation
 from .common import _paths, _print_json, add_revision_guard_arguments
+
+
+def _run(args: argparse.Namespace, action: str, **fields: object) -> dict[str, object]:
+    request = LoopOperationRequest(
+        action=action,
+        loop_id=str(args.loop_id),
+        fields=fields,
+        expected_revision=args.expected_revision,
+        mutation_id=str(getattr(args, "mutation_id", "") or ""),
+    )
+    return run_loop_operation(_paths(args), request).artifacts
 
 
 def cmd_loop_driver_bind(args: argparse.Namespace) -> int:
     try:
-        submitted = read_loop_observation_json(args.input)
-        paths = _paths(args)
-        cycle = _guarded_cycle_update(
-            paths, args.loop_id, lambda current: bind_driver(current, submitted),
-            operation="bind_loop_driver", expected_revision=args.expected_revision,
-        )
-        _print_json({"loop": cycle, "status_card": build_loop_status_card(paths, args.loop_id)})
+        _print_json(_run(args, "driver_bind", binding_observation=read_loop_observation_json(args.input)))
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
@@ -26,12 +35,7 @@ def cmd_loop_driver_bind(args: argparse.Namespace) -> int:
 
 def cmd_loop_migrate_driver(args: argparse.Namespace) -> int:
     try:
-        paths = _paths(args)
-        cycle = (_guarded_cycle_update(paths, args.loop_id, migrate_driver, operation="migrate_loop_driver",
-                                       expected_revision=args.expected_revision)
-                 if args.apply else read_loop_cycle(paths, args.loop_id))
-        _print_json({"loop": cycle, "applied": args.apply,
-                     "status_card": build_loop_status_card(paths, args.loop_id)})
+        _print_json(_run(args, "migrate_driver", apply=args.apply))
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return 0

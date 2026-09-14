@@ -61,14 +61,34 @@ MAX_TITLE_CHARS = 200
 MAX_SOURCE_CHARS = 1_000
 MAX_NOTE_CHARS = 500
 MAX_RANGES = 1_000
-# Filled per-range briefs are convenient up to a point; past it the template
-# alone travels so a thousand-range plan stays a metadata payload.
-MAX_FILLED_BRIEFS = 32
-# Hashing is a full read of the file; past this size only the size is recorded.
-MAX_HASHED_BYTES = 256 * 1024 * 1024
+# Hashing is a full read of the file; past this size the identity falls back
+# to size plus mtime, which a rewrite still moves, and the result says so.
+MAX_HASHED_BYTES = 1024 * 1024 * 1024
 _HASH_BLOCK_BYTES = 1024 * 1024
 
 CHUNK_STATES = ("covered", "next", "missing")
+# A tool result is paid for in the caller's context, so it never carries the
+# whole plan: ranges page through `show`, the ledger summary caps its id
+# lists, and a mark returns the next range rather than every range. The
+# sibling evidence tool caps its output at 20,000 characters; these limits
+# keep every result of this tool under that on a thousand-range plan.
+RESULT_RANGE_LIMIT_DEFAULT = 10
+RESULT_RANGE_LIMIT_MAX = 16
+LEDGER_ID_LIST_LIMIT = 64
+# An extracted line longer than this is not a line; the caller has passed
+# something other than the extraction's total_lines (one window's count,
+# a page count) and the windows built from it would all point at the top.
+MAX_PLAUSIBLE_CHARS_PER_LINE = 4_000
+DELEGATION_HINT_STATUS = "prepared_not_observed"
+DELEGATION_HINT_CLAIM_BOUNDARY = (
+    "The delegation hint is a prepared recommendation with a brief template; it is not a dispatch, "
+    "not evidence that any child was spawned, and not evidence that any range was read."
+)
+LEDGER_BINDING_WARNING = (
+    "This plan's identity is not bound to the document's content ({basis}): covered marks record the "
+    "caller's statements about whatever carried this label or size, and a changed document under the "
+    "same identity keeps them. Plan from a local path under the hash cap to bind the ledger to a sha256."
+)
 PLAN_ID_HEX_CHARS = 12
 _PLAN_ID = re.compile(r"\A[0-9a-f]{12}\Z")
 _MAX_PLAN_FILE_BYTES = 4 * 1024 * 1024
@@ -93,6 +113,10 @@ CLAIM_BOUNDARY = (
 
 class DocumentPlanError(ValueError):
     """The request cannot become a plan, or the stored plan cannot be trusted."""
+
+
+class DocumentPlanMissing(DocumentPlanError):
+    """No plan file exists for this id -- distinct from one that exists and cannot be read."""
 
 
 def strip_control_characters(value: object) -> str:
@@ -158,9 +182,11 @@ def _normalize_outline(raw: object, pages: int | None) -> list[dict[str, Any]]:
             raise DocumentPlanError(f"outline[{index}] page {page} is past the last page {pages}")
         entries.append({"title": title, "page": page})
     entries.sort(key=lambda entry: (entry["page"], entry["title"]))
+    # Only an exact repeat is dropped: two sections that start on the same
+    # page are both real and both belong in that range's `sections`.
     deduplicated: list[dict[str, Any]] = []
     for entry in entries:
-        if deduplicated and deduplicated[-1]["page"] == entry["page"]:
+        if deduplicated and deduplicated[-1] == entry:
             continue
         deduplicated.append(entry)
     return deduplicated
@@ -172,7 +198,10 @@ def normalize_plan_request(args: dict[str, Any]) -> dict[str, Any]:
     Refuses rather than guesses: a plan needs pages or an extracted length,
     an outline needs pages to anchor to, and every count is bounded.
     """
-    source = strip_control_characters(args.get("source", ""))
+    raw_source = args.get("source", "")
+    if raw_source is not None and not isinstance(raw_source, str):
+        raise DocumentPlanError(f"source must be a string, not {type(raw_source).__name__}")
+    source = strip_control_characters(raw_source)
     if not source:
         raise DocumentPlanError("source is required: a file path or a label naming the document")
     if len(source) > MAX_SOURCE_CHARS:
@@ -192,6 +221,19 @@ def normalize_plan_request(args: dict[str, Any]) -> dict[str, Any]:
         args, "chars_per_page", default=DEFAULT_CHARS_PER_PAGE, minimum=MIN_CHARS_PER_PAGE, maximum=MAX_CHARS_PER_PAGE
     )
     outline = _normalize_outline(args.get("outline"), pages)
+    if lines is not None:
+        total_chars = chars if chars is not None else pages * chars_per_page
+        if lines > total_chars:
+            raise DocumentPlanError(
+                f"lines ({lines}) exceed the document's characters ({total_chars}); pass the total_lines "
+                "the first read_file result reported for the whole extraction"
+            )
+        if total_chars / lines > MAX_PLAUSIBLE_CHARS_PER_LINE:
+            raise DocumentPlanError(
+                f"lines ({lines}) is implausible for {total_chars} characters (over "
+                f"{MAX_PLAUSIBLE_CHARS_PER_LINE} characters per line): pass the total_lines the first "
+                "read_file result reported for the whole extraction, not the lines one window returned"
+            )
     provenance = {
         "pages": "caller_supplied" if pages is not None else "not_supplied",
         "chars": "caller_supplied" if chars is not None else "not_supplied",
@@ -228,24 +270,30 @@ def fingerprint_source(label: str, path: Path | None) -> dict[str, Any]:
         "label": label,
         "kind": "label",
         "size_bytes": None,
+        "mtime_ns": None,
         "sha256": "",
         "fingerprint_basis": "label",
+        # What the plan id (and so the ledger) is bound to: the content hash,
+        # the file's size and mtime, or only the label the caller typed.
+        "identity_basis": "label",
     }
     if path is None:
         return record
     try:
         if not path.is_file():
             return record
-        size = path.stat().st_size
+        stat = path.stat()
     except OSError:
         return record
     record["kind"] = "file"
     record["path"] = str(path)
-    record["size_bytes"] = size
+    record["size_bytes"] = stat.st_size
+    record["mtime_ns"] = stat.st_mtime_ns
+    record["identity_basis"] = "size_and_mtime"
     if _sensitive_name(path.name):
         record["fingerprint_basis"] = "refused_sensitive_name"
         return record
-    if size > MAX_HASHED_BYTES:
+    if stat.st_size > MAX_HASHED_BYTES:
         record["fingerprint_basis"] = "size_only_over_hash_cap"
         return record
     digest = hashlib.sha256()
@@ -258,6 +306,7 @@ def fingerprint_source(label: str, path: Path | None) -> dict[str, Any]:
         return record
     record["sha256"] = digest.hexdigest()
     record["fingerprint_basis"] = "sha256"
+    record["identity_basis"] = "sha256"
     return record
 
 
@@ -267,11 +316,18 @@ def _canonical_digest(value: object) -> str:
 
 
 def plan_id_for(request: dict[str, Any], fingerprint: dict[str, Any]) -> str:
-    """Short, stable id: same document and same parameters give the same plan."""
+    """Short, stable id: same document and same parameters give the same plan.
+
+    The document half of the identity is its sha256 when one was taken. A
+    file that could not be hashed binds to its size and mtime instead, which
+    a rewrite still moves; only a bare label binds to nothing but itself,
+    and the result says so.
+    """
     identity = {
         "schema_version": DOCUMENT_CHUNK_PLAN_SCHEMA_VERSION,
         "fingerprint": fingerprint["sha256"] or fingerprint["label"],
         "size_bytes": fingerprint["size_bytes"],
+        "mtime_ns": None if fingerprint["sha256"] else fingerprint.get("mtime_ns"),
         "pages": request["pages"],
         "chars": request["chars"],
         "lines": request["lines"],
@@ -282,17 +338,26 @@ def plan_id_for(request: dict[str, Any], fingerprint: dict[str, Any]) -> str:
     return _canonical_digest(identity)[:PLAN_ID_HEX_CHARS]
 
 
-def _segments_from_outline(pages: int, outline: list[dict[str, Any]]) -> list[tuple[int, int, str]]:
-    """Section spans in page order; pages before the first entry are front matter."""
+def _segments_from_outline(pages: int, outline: list[dict[str, Any]]) -> list[tuple[int, int, tuple[str, ...]]]:
+    """Section spans in page order; pages before the first entry are front matter.
+
+    Sections that start on the same page share one span and all of their
+    titles travel with it.
+    """
     if not outline:
-        return [(1, pages, "")]
-    segments: list[tuple[int, int, str]] = []
-    first_page = outline[0]["page"]
-    if first_page > 1:
-        segments.append((1, first_page - 1, ""))
-    for index, entry in enumerate(outline):
-        end = outline[index + 1]["page"] - 1 if index + 1 < len(outline) else pages
-        segments.append((entry["page"], max(entry["page"], end), entry["title"]))
+        return [(1, pages, ())]
+    starts: list[int] = []
+    titles_by_page: dict[int, list[str]] = {}
+    for entry in outline:
+        if entry["page"] not in titles_by_page:
+            starts.append(entry["page"])
+        titles_by_page.setdefault(entry["page"], []).append(entry["title"])
+    segments: list[tuple[int, int, tuple[str, ...]]] = []
+    if starts[0] > 1:
+        segments.append((1, starts[0] - 1, ()))
+    for index, start in enumerate(starts):
+        end = starts[index + 1] - 1 if index + 1 < len(starts) else pages
+        segments.append((start, max(start, end), tuple(titles_by_page[start])))
     return segments
 
 
@@ -303,15 +368,15 @@ def _page_ranges(pages: int, pages_per_chunk: int, outline: list[dict[str, Any]]
     straddles a section boundary unless the sections are small enough to
     share it, so a range's `sections` list is the whole of what it covers.
     """
-    pieces: list[tuple[int, int, str]] = []
-    for start, end, title in _segments_from_outline(pages, outline):
+    pieces: list[tuple[int, int, tuple[str, ...]]] = []
+    for start, end, titles in _segments_from_outline(pages, outline):
         cursor = start
         while cursor <= end:
             piece_end = min(end, cursor + pages_per_chunk - 1)
-            pieces.append((cursor, piece_end, title))
+            pieces.append((cursor, piece_end, titles))
             cursor = piece_end + 1
     ranges: list[dict[str, Any]] = []
-    current: list[tuple[int, int, str]] = []
+    current: list[tuple[int, int, tuple[str, ...]]] = []
     current_pages = 0
     for piece in pieces:
         piece_pages = piece[1] - piece[0] + 1
@@ -325,11 +390,12 @@ def _page_ranges(pages: int, pages_per_chunk: int, outline: list[dict[str, Any]]
     return ranges
 
 
-def _page_range(pieces: list[tuple[int, int, str]]) -> dict[str, Any]:
+def _page_range(pieces: list[tuple[int, int, tuple[str, ...]]]) -> dict[str, Any]:
     sections: list[str] = []
-    for _start, _end, title in pieces:
-        if title and title not in sections:
-            sections.append(title)
+    for _start, _end, titles in pieces:
+        for title in titles:
+            if title not in sections:
+                sections.append(title)
     return {"start": pieces[0][0], "end": pieces[-1][1], "sections": sections}
 
 
@@ -423,6 +489,12 @@ def derive_ranges(request: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[s
                 "digest": _canonical_digest(spec)[:PLAN_ID_HEX_CHARS],
             }
         )
+    if lines is not None and len({entry["read_window"]["offset"] for entry in ranges}) < len(ranges):
+        raise DocumentPlanError(
+            f"lines ({lines}) cannot address {len(ranges)} distinct ranges: pass the total_lines the first "
+            "read_file result reported for the whole extraction, not the lines one window returned, "
+            "or raise budget_chars"
+        )
     assumptions = {
         "unit": unit,
         "chars_per_page": {"value": density, "basis": density_basis},
@@ -449,12 +521,26 @@ def initial_ledger(range_count: int) -> dict[str, dict[str, str]]:
     }
 
 
-def ledger_summary(ledger: dict[str, dict[str, str]]) -> dict[str, list[int]]:
-    summary: dict[str, list[int]] = {state: [] for state in CHUNK_STATES}
+def ledger_summary(ledger: dict[str, dict[str, str]]) -> dict[str, Any]:
+    """Counts per state plus the first ids of each, bounded for the caller's context."""
+    ids: dict[str, list[int]] = {state: [] for state in CHUNK_STATES}
     for key, entry in sorted(ledger.items(), key=lambda item: int(item[0])):
-        state = entry.get("state", "missing")
-        summary.setdefault(state, []).append(int(key))
+        ids.setdefault(entry.get("state", "missing"), []).append(int(key))
+    summary: dict[str, Any] = {
+        "counts": {state: len(ids[state]) for state in CHUNK_STATES},
+        "ids_truncated": any(len(ids[state]) > LEDGER_ID_LIST_LIMIT for state in CHUNK_STATES),
+        "id_list_limit": LEDGER_ID_LIST_LIMIT,
+    }
+    for state in CHUNK_STATES:
+        summary[state] = ids[state][:LEDGER_ID_LIST_LIMIT]
     return summary
+
+
+def next_chunk(ledger: dict[str, dict[str, str]]) -> int | None:
+    for key, entry in sorted(ledger.items(), key=lambda item: int(item[0])):
+        if entry.get("state") == "next":
+            return int(key)
+    return None
 
 
 def _brief_template() -> str:
@@ -515,9 +601,64 @@ def delegation_hint(plan: dict[str, Any]) -> dict[str, Any]:
             "(the next chunk advances to state=next)"
         ),
     }
-    if count <= MAX_FILLED_BRIEFS:
-        hint["range_briefs"] = [fill_brief(template, plan, entry) for entry in plan["ranges"]]
+    hint["status"] = DELEGATION_HINT_STATUS
+    hint["claim_boundary"] = DELEGATION_HINT_CLAIM_BOUNDARY
     return hint
+
+
+def range_view(plan: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
+    """One range as a result carries its filled brief; the file carries the template once."""
+    template = str(plan.get("delegation_hint", {}).get("per_range_brief_template") or _brief_template())
+    view = dict(entry)
+    view["state"] = str(plan["ledger"].get(str(entry["chunk"]), {}).get("state", "missing"))
+    view["brief"] = fill_brief(template, plan, entry)
+    return view
+
+
+def result_view(plan: dict[str, Any], *, start: int = 1, limit: int = RESULT_RANGE_LIMIT_DEFAULT) -> dict[str, Any]:
+    """The bounded projection every tool result is built from.
+
+    Metadata, the ledger summary, the next range, and one page of ranges
+    starting at chunk `start`; `truncated` says whether ranges remain past
+    the page so the caller pages through `show` instead of receiving the
+    whole plan in one result.
+    """
+    ranges = plan["ranges"]
+    count = len(ranges)
+    start = min(max(1, start), max(1, count))
+    limit = min(max(1, limit), RESULT_RANGE_LIMIT_MAX)
+    page = [range_view(plan, entry) for entry in ranges[start - 1 : start - 1 + limit]]
+    end = start + len(page) - 1
+    pending = next_chunk(plan["ledger"])
+    view: dict[str, Any] = {
+        "plan_id": plan["plan_id"],
+        "plan_schema_version": plan["schema_version"],
+        "created_at": plan["created_at"],
+        "updated_at": plan["updated_at"],
+        "source": plan["source"],
+        "inputs": plan["inputs"],
+        "provenance": plan["provenance"],
+        "assumptions": plan["assumptions"],
+        "unit": plan["unit"],
+        "range_count": count,
+        "ranges": page,
+        "ranges_from": start,
+        "ranges_to": end,
+        "ranges_returned": len(page),
+        "truncated": end < count,
+        "next_range": range_view(plan, ranges[pending - 1]) if pending else None,
+        "ledger_summary": ledger_summary(plan["ledger"]),
+        "delegation_hint": plan["delegation_hint"],
+    }
+    if end < count:
+        view["page_hint"] = (
+            f"ranges {end + 1}-{count} not returned; call action=show with from={end + 1} "
+            f"(limit up to {RESULT_RANGE_LIMIT_MAX}) to page through them"
+        )
+    basis = str(plan["source"].get("identity_basis") or "label")
+    if basis != "sha256":
+        view["ledger_binding_warning"] = LEDGER_BINDING_WARNING.format(basis=basis)
+    return view
 
 
 def build_document_plan(
@@ -581,6 +722,7 @@ def write_document_plan(omh_home: Path, plan: dict[str, Any]) -> Path:
     destination = plan_path(omh_home, str(plan["plan_id"]))
     _reject_symlink_ancestry(destination, root=omh_home)
     temporary = destination.with_name(f".{destination.name}.{os.getpid()}-{secrets.token_hex(8)}.tmp")
+    cleanup_error: OSError | None = None
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
         _reject_symlink_ancestry(destination, root=omh_home)
@@ -590,8 +732,17 @@ def write_document_plan(omh_home: Path, plan: dict[str, Any]) -> Path:
     except OSError as error:
         raise DocumentPlanError(f"document plan destination is not writable: {error.__class__.__name__}") from error
     finally:
+        # A leftover temp file is the write's own failure; the cleanup's
+        # failure is reported the same way, never as a raw OSError.
         if temporary.exists() and not temporary.is_symlink():
-            temporary.unlink()
+            try:
+                temporary.unlink()
+            except OSError as error:
+                cleanup_error = error
+    if cleanup_error is not None:
+        raise DocumentPlanError(
+            f"document plan temporary file could not be removed: {cleanup_error.__class__.__name__}"
+        ) from cleanup_error
     return destination
 
 
@@ -603,7 +754,7 @@ def read_document_plan(omh_home: Path, plan_id: str) -> dict[str, Any]:
         with path.open(encoding="utf-8") as handle:
             raw = handle.read(_MAX_PLAN_FILE_BYTES + 1)
     except FileNotFoundError:
-        raise DocumentPlanError(f"no document plan {plan_id} in this OMH home") from None
+        raise DocumentPlanMissing(f"no document plan {plan_id} in this OMH home") from None
     except OSError as error:
         raise DocumentPlanError(f"document plan {plan_id} is unreadable: {error.__class__.__name__}") from error
     if len(raw) > _MAX_PLAN_FILE_BYTES:
@@ -669,7 +820,10 @@ def mark_document_plan_chunk(
 
     Marking a chunk covered advances `next` to the lowest missing chunk when
     none is next; marking a chunk next demotes any other next chunk back to
-    missing. The mark records the caller's statement, never an observation.
+    missing; and while any chunk is missing exactly one is next, so a chunk
+    marked missing when nothing else is next is promoted straight back to
+    next -- it is the next thing to read. The mark records the caller's
+    statement, never an observation.
     """
     plan = read_document_plan(omh_home, plan_id)
     state_text = strip_control_characters(state).casefold()

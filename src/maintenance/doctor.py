@@ -698,8 +698,7 @@ def _provider_entitlements_check(paths: OmhPaths) -> Check:
     message.
     """
     from ..plugin_bundle.omh.hermes_delegation import (
-        HERMES_MIXTURE_CATEGORY_CHAINS,
-        UNKNOWN_ROUTE_EFFECT_CHAIN,
+        chains_with_overrides,
         effective_provider_entitlements,
         load_mixture_chain_overrides,
         load_model_provider_routes,
@@ -707,6 +706,8 @@ def _provider_entitlements_check(paths: OmhPaths) -> Check:
         model_provider_routes_path,
         provider_entitlements_path,
         routes_to_unknown_providers,
+        split_unknown_routes,
+        unknown_route_labels,
     )
 
     entitlements, document_status, rows = effective_provider_entitlements(paths.omh_home, paths.hermes_home)
@@ -715,7 +716,7 @@ def _provider_entitlements_check(paths: OmhPaths) -> Check:
     recorded, _recorded_status = load_provider_entitlements(paths.omh_home)
     routes, routes_status = load_model_provider_routes(paths.omh_home)
     overrides, _overrides_status = load_mixture_chain_overrides(paths.omh_home)
-    chains = {name: overrides.get(name, chain) for name, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items()}
+    chains = chains_with_overrides(overrides)
     document_path = provider_entitlements_path(paths.omh_home)
     routes_path = model_provider_routes_path(paths.omh_home)
     parts: list[str] = []
@@ -740,23 +741,24 @@ def _provider_entitlements_check(paths: OmhPaths) -> Check:
         )
     else:
         parts.append(f"model-providers.json {routes_status}")
-    unknown = routes_to_unknown_providers(routes, entitlements, chains)
-    demoted = [row for row in unknown if row["effect"] == UNKNOWN_ROUTE_EFFECT_CHAIN]
-    dispatch_only = [row for row in unknown if row["effect"] != UNKNOWN_ROUTE_EFFECT_CHAIN]
+    demoted, dispatch_only = split_unknown_routes(routes_to_unknown_providers(routes, entitlements, chains))
     if demoted:
         warnings.append(
             "chain entries routed to a provider neither recorded nor linked: "
-            + ", ".join(f"{row['alias']} -> {row['provider']}" for row in demoted)
+            + unknown_route_labels(demoted)
             + "; each sorts behind the served entries of every chain naming it"
         )
     if dispatch_only:
         warnings.append(
             "dispatch-only routes to a provider neither recorded nor linked: "
-            + ", ".join(f"{row['alias']} -> {row['provider']}" for row in dispatch_only)
+            + unknown_route_labels(dispatch_only)
             + "; no chain names these, so nothing is reordered, but a dispatch pinning one asks Hermes "
             "for a provider it is not linked to"
         )
-    message = "; ".join([*warnings, *parts])
+    # Each warning already carries "; " inside it, so the segments are
+    # joined with a separator no warning uses; the status fragments stay
+    # one segment at the end.
+    message = " | ".join([*warnings, "; ".join(parts)])
     if not warnings:
         return Check("provider_entitlements", True, message)
     return Check(

@@ -31,12 +31,20 @@ from omh.commands.model_chains import _print_state, _state  # noqa: E402
 from omh.maintenance.doctor import doctor_ok, run_doctor  # noqa: E402
 from omh.paths import OmhPaths  # noqa: E402
 from omh.plugin_bundle.omh.hermes_delegation import (  # noqa: E402
+    HERMES_MIXTURE_CATEGORY_CHAINS,
     MODEL_PROVIDER_ROUTES_SCHEMA_VERSION,
     PROVIDER_ENTITLEMENTS_SCHEMA_VERSION,
+    UNKNOWN_ROUTE_NAMED_LIMIT,
     alias_is_served,
+    chains_with_overrides,
+    effective_mixture_category_chains,
+    load_mixture_chain_overrides,
     model_provider_routes_path,
     provider_entitlements_path,
     routes_to_unknown_providers,
+    split_unknown_routes,
+    unknown_route_label,
+    unknown_route_labels,
 )
 
 
@@ -150,6 +158,48 @@ class UnknownRouteRuleTests(unittest.TestCase):
         self.assertEqual(routes_to_unknown_providers({}, {"providers": {"og": "gateway"}, "subscription_clis": []}), ())
 
 
+class UnknownRouteReportTests(unittest.TestCase):
+    def test_the_label_names_the_key_and_the_chain_spelling_only_when_it_differs(self) -> None:
+        self.assertEqual(unknown_route_label(_chain_row("glm-5.3", "work-relay")), "glm-5.3 -> work-relay")
+        self.assertEqual(unknown_route_label(_dispatch_row("GLM-5.3", "work-relay")), "GLM-5.3 -> work-relay")
+        # The key is what the document holds and a repair edits; the
+        # chain's own spelling rides along so the moved entry is named too.
+        self.assertEqual(
+            unknown_route_label(_chain_row("zai/glm-5.3", "work-relay", route="glm-5.3")),
+            "glm-5.3 (chain alias zai/glm-5.3) -> work-relay",
+        )
+
+    def test_labels_are_capped_with_a_remainder(self) -> None:
+        rows = [_dispatch_row(f"model-{index}", "work-relay") for index in range(UNKNOWN_ROUTE_NAMED_LIMIT + 2)]
+        text = unknown_route_labels(rows)
+        self.assertEqual(text.count("-> work-relay"), UNKNOWN_ROUTE_NAMED_LIMIT)
+        self.assertTrue(text.endswith(" … and 2 more"), text)
+        self.assertNotIn("more", unknown_route_labels(rows[:UNKNOWN_ROUTE_NAMED_LIMIT]))
+
+    def test_split_matches_both_effects_by_equality_and_refuses_a_third(self) -> None:
+        chain = _chain_row("glm-5.3", "work-relay")
+        dispatch = _dispatch_row("GLM-5.3", "work-relay")
+        self.assertEqual(split_unknown_routes([dispatch, chain]), ([chain], [dispatch]))
+        with self.assertRaises(ValueError):
+            split_unknown_routes([{**dispatch, "effect": "someday"}])
+        with self.assertRaises(ValueError):
+            split_unknown_routes([{"alias": "x", "route": "x", "provider": "p"}])
+
+    def test_the_stored_chains_have_one_producer(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            base = ["--omh-home", str(paths.omh_home), "--hermes-home", str(paths.hermes_home)]
+            status, _stdout, stderr = run_cli(base + ["model-chains", "set", "quick", "zai/glm-5.3:low"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            overrides, _status = load_mixture_chain_overrides(paths.omh_home)
+            chains = chains_with_overrides(overrides)
+            self.assertEqual(chains["quick"], (("zai/glm-5.3", "low"),))
+            self.assertEqual(set(chains), set(HERMES_MIXTURE_CATEGORY_CHAINS))
+            # With nothing linked or recorded the shaped reader is the stored
+            # chains verbatim: the two derivations are one function.
+            self.assertEqual(effective_mixture_category_chains(paths.omh_home, paths.hermes_home), chains)
+
+
 class DoctorProviderCheckTests(unittest.TestCase):
     def test_counted_providers_and_exclusions_are_named_with_their_sources(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -227,6 +277,68 @@ class DoctorProviderCheckTests(unittest.TestCase):
             # The route to the linked gateway is not a finding.
             self.assertNotIn("kimi-k3 -> og", check.message)
             self.assertIn("model-providers.json applied", check.message)
+
+    def test_a_chain_entry_spelled_differently_is_reported_by_its_route_key(self) -> None:
+        """The named key must exist in the operator's document.
+
+        `omh model-chains set quick "zai/glm-5.3:low"` with a route under
+        `glm-5.3` demotes the override entry through the unqualified
+        lookup; a warning that said `zai/glm-5.3 -> work-relay` would send
+        the repair after a key the routes document does not contain.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "providers:\n  og:\n    base_url: x\n")
+            _write_routes(paths, {"glm-5.3": ("work-relay", "zai/glm-5.3")})
+            base = ["--omh-home", str(paths.omh_home), "--hermes-home", str(paths.hermes_home)]
+            status, _stdout, stderr = run_cli(base + ["model-chains", "set", "quick", "zai/glm-5.3:low"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+
+            _checks, check = _doctor_check(paths)
+
+            self.assertEqual(check.severity, "warning")
+            self.assertIn("glm-5.3 (chain alias zai/glm-5.3) -> work-relay", check.message)
+            self.assertNotIn("zai/glm-5.3 -> work-relay", check.message)
+            # The shipped chains still name the plain alias, so the same
+            # key is reported once more under its own spelling.
+            self.assertIn(": glm-5.3 -> work-relay", check.message)
+            state = _state(paths.omh_home, paths.hermes_home)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                _print_state(state)
+            self.assertIn("glm-5.3 (chain alias zai/glm-5.3) -> work-relay", out.getvalue())
+            self.assertNotIn("zai/glm-5.3 -> work-relay", out.getvalue())
+
+    def test_many_unknown_routes_are_capped_and_the_segments_stay_readable(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "providers:\n  og:\n    base_url: x\n")
+            _write_invalid_record(paths)
+            _write_routes(
+                paths,
+                {f"private-model-{index}": ("work-relay", f"private/model-{index}") for index in range(UNKNOWN_ROUTE_NAMED_LIMIT + 3)},
+            )
+
+            _checks, check = _doctor_check(paths)
+
+            self.assertEqual(check.severity, "warning")
+            self.assertEqual(check.message.count("-> work-relay"), UNKNOWN_ROUTE_NAMED_LIMIT)
+            self.assertIn(" … and 3 more; no chain names these", check.message)
+            # Two warnings plus the status fragments: three segments, each
+            # readable on its own, joined by a separator no warning uses.
+            segments = check.message.split(" | ")
+            self.assertEqual(len(segments), 3)
+            self.assertTrue(segments[0].startswith(f"{provider_entitlements_path(paths.omh_home)} is ignored"))
+            self.assertTrue(segments[1].startswith("dispatch-only routes to a provider neither recorded nor linked: "))
+            self.assertIn("counted: og (config, config.yaml)", segments[2])
+            self.assertIn("model-providers.json applied", segments[2])
+            state = _state(paths.omh_home, paths.hermes_home)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                _print_state(state)
+            show_line = next(line for line in out.getvalue().splitlines() if line.startswith("Dispatch-only routes"))
+            self.assertEqual(show_line.count("-> work-relay"), UNKNOWN_ROUTE_NAMED_LIMIT)
+            self.assertIn(" … and 3 more (no chain names these", show_line)
 
     def test_a_route_to_an_unknown_provider_is_no_finding_when_nothing_is_held(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -438,6 +550,15 @@ class SetupSummaryProviderTests(unittest.TestCase):
             )
             self.assertNotIn("sk-secret-value", stdout)
 
+    def test_one_provider_reads_in_the_singular(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "providers:\n  og:\n    base_url: x\n")
+            status, stdout, stderr = run_cli(self._base(paths) + ["setup", "--yes"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("Model providers: og (config) counts; each model list puts the models it serves first.", stdout)
+            self.assertNotIn("og (config) count;", stdout)
+
     def test_nothing_linked_is_said_plainly(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = _paths(Path(tmp))
@@ -471,6 +592,7 @@ class SetupSummaryProviderTests(unittest.TestCase):
         for code in LANGUAGE_CODES:
             with self.subTest(language=code):
                 self.assertTrue(tr(code, "setup_providers_line", providers="og (config)").strip())
+                self.assertTrue(tr(code, "setup_providers_line_one", providers="og (config)").strip())
                 self.assertTrue(tr(code, "setup_providers_none").strip())
                 self.assertTrue(tr(code, "setup_providers_invalid", path="p", status="s", providers="-").strip())
 

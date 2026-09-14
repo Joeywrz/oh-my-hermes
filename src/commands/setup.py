@@ -3703,7 +3703,7 @@ def _provider_summary_line(providers: dict[str, object], *, language: str) -> st
         return tr(language, "setup_providers_none")
     return tr(
         language,
-        "setup_providers_line",
+        "setup_providers_line_one" if len(rows) == 1 else "setup_providers_line",
         providers=", ".join(f"{row.get('id', '')} ({row.get('source', '')})" for row in rows),
     )
 

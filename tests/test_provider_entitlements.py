@@ -450,6 +450,12 @@ class MultiChoicePromptTests(unittest.TestCase):
                     for phrase in retired:
                         self.assertNotIn(phrase, text)
         self.assertIn("count on their own and arrive pre-ticked", tr("en", "provider_entitlements_note"))
+        # The interview also offers a key exported only in the shell,
+        # pre-ticked; routing reads `.env`, not the process environment, so
+        # that row counts only once it is recorded, and the copy says so.
+        self.assertIn("a key exported only in this shell is offered pre-ticked too, but counts only once you record it", tr("en", "provider_entitlements_note"))
+        for code in ("ko", "ja", "zh"):
+            self.assertNotEqual(tr(code, "provider_entitlements_note"), tr("en", "provider_entitlements_note"))
         self.assertIn("on top of that", tr("en", "provider_entitlements_note"))
         self.assertIn("keep counting", tr("en", "provider_skip_desc"))
         self.assertIn("an earlier record stays as it is", tr("en", "provider_skip_desc"))

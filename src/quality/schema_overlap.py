@@ -131,6 +131,16 @@ REVIEWED_OVERLAP_DECISIONS: dict[str, str] = {
         "including that fallback advances the category chain and clears to parent inheritance "
         "when exhausted. None of that is in the enum."
     ),
+    "omh_document_plan.action:OVERLAP_ENUM_RESTATED": (
+        "keep — plan/show/mark are each named with what they do to the stored plan: plan writes "
+        "the file and keeps an existing ledger, show re-reads, mark advances next after a covered "
+        "mark. That is output shape and persistence, not member names."
+    ),
+    "omh_document_plan.state:OVERLAP_ENUM_RESTATED": (
+        "keep — covered/next/missing carry the claim boundary the enum cannot: covered is the "
+        "caller's statement rather than an observation, and marking next demotes the other next. "
+        "The members alone would read as observed reading progress."
+    ),
     "omh_todo.action:OVERLAP_ENUM_RESTATED": (
         "keep — set/clear/show are named with their effect on the stored list and the rendered "
         "projection, which is output shape, not member names."

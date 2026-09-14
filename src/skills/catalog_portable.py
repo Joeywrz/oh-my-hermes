@@ -799,7 +799,21 @@ PORTABLE_OVERRIDES: dict[str, dict[str, tuple[str, ...]]] = {'ulw-plan': {'artif
                                              'assumptions and missing-input list',
                                              'Optional supplied achievements summary when requested; '
                                              'plugin-backed badge retrieval is unavailable in this '
-                                             'projection.')}}
+                                             'projection.')},
+ 'omh-paper-learning': {'recovery_notes': ('If no paper text is observed, prepare the learning card from '
+                                           'metadata only and ask for an attachment, excerpt, or extraction '
+                                           'evidence.',
+                                           'If only an abstract or excerpt is supplied, label the result as '
+                                           'excerpt explanation and list missing sections.',
+                                           'If context is too long, continue section-by-section and keep '
+                                           'covered / next / missing state in the ledger.',
+                                           'If the paper is longer than one read window, plan numbered page '
+                                           'or line ranges in a durable host-owned ledger before reading, '
+                                           'walk them in order, and mark each covered; the native OMH plan '
+                                           'tool is unavailable in this projection.',
+                                           'If the user asks for validation, citation checking, math proof '
+                                           'review, or reproduction, create a separate observed-evidence or '
+                                           'coding handoff path.')}}
 
 # Reviewed domain procedures and methods. Omitted: router/wrapper/backend rails,
 # native campaign/TDD RPC guidance, route-capacity host injection, ecosystem

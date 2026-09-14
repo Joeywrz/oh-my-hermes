@@ -12,6 +12,7 @@ BUILTIN_TOOL_NAMES: tuple[str, ...] = (
     "omh_context",
     "omh_delegate_route",
     "omh_decision_gate",
+    "omh_document_plan",
     "omh_gather_evidence",
     "omh_hud",
     "omh_interact",
@@ -39,6 +40,7 @@ def builtin_tool_schemas() -> tuple[dict[str, Any], ...]:
     from .context_tool import OMH_CONTEXT_SCHEMA
     from .delegate_route_tool import OMH_DELEGATE_ROUTE_SCHEMA
     from .decision_gate_tool import OMH_DECISION_GATE_SCHEMA
+    from .document_plan_tool import OMH_DOCUMENT_PLAN_SCHEMA
     from .evidence_tool import OMH_EVIDENCE_SCHEMA
     from .hud_tool import OMH_HUD_SCHEMA
     from .memory_tool import OMH_MEMORY_SCHEMA
@@ -56,6 +58,7 @@ def builtin_tool_schemas() -> tuple[dict[str, Any], ...]:
         OMH_CONTEXT_SCHEMA,
         OMH_DELEGATE_ROUTE_SCHEMA,
         OMH_DECISION_GATE_SCHEMA,
+        OMH_DOCUMENT_PLAN_SCHEMA,
         OMH_EVIDENCE_SCHEMA,
         OMH_HUD_SCHEMA,
         OMH_INTERACT_SCHEMA,

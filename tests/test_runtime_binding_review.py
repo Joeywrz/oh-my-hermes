@@ -178,7 +178,8 @@ class RuntimeBindingReviewTests(unittest.TestCase):
         tools = {'delegate_route': ('omh_delegate_route', {'action': 'status'}),
                  'probe': ('omh_probe', {}), 'status': ('omh_status', {}), 'hud': ('omh_hud', {}),
                  'todo': ('omh_todo', {'action': 'show'}), 'chat': ('omh_interact', {'message': 'hello'}),
-                 'run_summary': ('omh_run_summary', {})}
+                 'run_summary': ('omh_run_summary', {}),
+                 'document_plan': ('omh_document_plan', {'action': 'show', 'plan_id': '0123456789ab'})}
         with patch.dict(sys.modules, native_modules(self.home, self.store)):
             for file, (name, args) in tools.items():
                 module = importlib.import_module('omh.plugin_bundle.omh.tools.' + file + '_tool')

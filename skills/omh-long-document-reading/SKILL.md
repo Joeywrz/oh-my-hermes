@@ -1,6 +1,6 @@
 ---
 name: "omh-long-document-reading"
-description: "[omh] Long document reading workflow: read a very large PDF, contract, manual, or report through Hermes in page-anchored ranges with a coverage ledger. Use when the user says: long-document-reading, long document reading, long document, very large pdf, very long pdf, large pdf, huge pdf, long pdf."
+description: "[omh] Long document reading workflow: read a very large PDF, contract, manual, or report through Hermes in page-anchored ranges with a coverage ledger. Use when the user says: long-document-reading, long document reading, summarize this pdf, read this pdf, process this pdf, go through this pdf, summarize this document, read this document."
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, research]
@@ -16,7 +16,7 @@ This is a Hermes-native `long-document-reading` workflow skill.
 
 ## Why This Exists
 
-`long-document-reading` exists because a 300-page PDF is about 500,000 characters and Hermes' `read_file` returns 100,000 per call with no page numbers, re-converting the whole file each time; without a page-anchored ledger the session either truncates, compacts the text away, or claims a summary of pages it never read.
+`long-document-reading` exists because a 300-page PDF is about 500,000 characters and Hermes' `read_file` returns 100,000 per call with no page numbers, re-converting the whole file each time; five unanchored reads then sit in the conversation until the ratio-based compressor summarizes them without a page number, so without a ledger the session either truncates, loses the early ranges to compaction, or claims a summary of pages it never read.
 
 ## Do Not Use When
 
@@ -36,8 +36,8 @@ Good example:
 
 Bad example:
 
-- Prompt: long-document-reading turn this pdf into a slide deck
-- Expected behavior: Route to `materials-package`: the user wants a produced file, not a page-anchored reading of the document.
+- Prompt: turn this 300-page pdf into a slide deck
+- Expected behavior: Route to `materials-package`: the user wants a produced file, not a page-anchored reading of the document; the page count alone does not make it a reading request.
 - Why: Reading and producing are different lanes; a deck request is file output work.
 
 ## Completion Checklist
@@ -50,7 +50,7 @@ Bad example:
 
 ## Recovery Notes
 
-- If `pdf_read.py --meta` reports missing dependencies, install `pypdf` and `pdfplumber` once with `pip install`, rerun, and record the install.
+- If a script reports a missing dependency, install the one it names once with `pip install` (`pdfplumber`, `pypdf`, `pymupdf`, or `pypdfium2`; poppler `pdftoppm` is the system alternative for rendering), rerun, and record the install.
 - If a range read truncates, halve the range, record the observed characters per page, and re-plan the remaining ranges from that measurement.
 - If the context was compacted or the session resumed, reread the ledger and continue from the `next` range; do not restart from page 1.
 - If the document is encrypted, ask for the password or stop; `pdf_read.py` and `pdf_split.py` accept `--password`.
@@ -66,7 +66,7 @@ Bad example:
 
 Use when Hermes must read a supplied document that does not fit one read: a contract, manual, annual report, specification, or any PDF past about 60 pages. The skill plans page ranges sized to the `read_file` budget, keeps a page-anchored chunk ledger with covered / next / missing state, and delegates ranges when there are more than 4, so a compacted or resumed session continues instead of restarting.
 
-    Strong routing signals: `long-document-reading`, `long document reading`, `long document`, `very large pdf`, `very long pdf`, `large pdf`, `huge pdf`, `long pdf`, `300 page pdf`, `300-page pdf`, `hundreds of pages`, `summarize this pdf`, `read this pdf`, `process this pdf`, `go through this pdf`, `summarize this document`, `read this document`, `process this document`, `read this whole document`, `summarize this manual`, `read this manual`, `summarize this contract`, `read this contract`, `review this contract`, `summarize this annual report`, `read this annual report`, `read the whole pdf`, `entire pdf`, `whole document`, `entire document`, `page by page`, `chunk this pdf`, `pdf in chunks`, `pdf too big`, `pdf too large`, `長い文書`, `長いpdf`, `大きなpdf`, `このpdfを要約`, `この文書を要約`, `この契約書を要約`, `マニュアルを要約`, `긴 문서 읽기`, `긴 문서`, `긴 pdf`, `대용량 pdf`, `300페이지 pdf`, `이 pdf 요약해줘`, `이 pdf 읽어줘`, `이 문서 요약해줘`, `이 문서 읽어줘`, `계약서 요약해줘`, `매뉴얼 요약해줘`, `연간 보고서 요약해줘`, `pdf 전체 읽어`, `문서 전체 읽어`, `长文档`, `很长的pdf`, `大pdf`, `总结这个pdf`, `总结这份文档`, `总结这份合同`, `总结这本手册`
+    Strong routing signals: `long-document-reading`, `long document reading`, `summarize this pdf`, `read this pdf`, `process this pdf`, `go through this pdf`, `summarize this document`, `read this document`, `process this document`, `read this whole document`, `summarize this manual`, `read this manual`, `summarize this contract`, `read this contract`, `summarize this annual report`, `read this annual report`, `read the whole pdf`, `chunk this pdf`, `pdf in chunks`, `pdf too big`, `pdf too large`, `このpdfを要約`, `この文書を要約`, `この契約書を要約`, `マニュアルを要約`, `긴 문서 읽기`, `이 pdf 요약해줘`, `이 pdf 읽어줘`, `이 문서 요약해줘`, `이 문서 읽어줘`, `계약서 요약해줘`, `매뉴얼 요약해줘`, `연간 보고서 요약해줘`, `pdf 전체 읽어`, `문서 전체 읽어`, `总结这个pdf`, `总结这份文档`, `总结这份合同`, `总结这本手册`
 
 ## Catalog Metadata
 
@@ -78,7 +78,7 @@ Reasoning demand: `standard`
 
 Quality bar:
 
-- Get the page count and scanned flags first with `pdf_read.py --meta`; install its deps (`pypdf`, `pdfplumber`) once when the script reports them missing, and say so.
+- Get the page count and scanned flags first with `pdf_read.py --meta`; each script names its own missing dependency (`pdfplumber` for `pdf_read.py`, `pypdf` for `pdf_split.py`, `pymupdf` for `extract_pymupdf.py`, `pypdfium2` or poppler `pdftoppm` for `pdf_page_image.py`); install it once, and say so.
 - Size ranges to the read budget: about 60 pages per 100,000-character call at typical density; halve the range when a probe read truncates.
 - Extract each range with page selection (`extract_pymupdf.py --pages` or `read_file` on a `pdf_split.py` output) so every note carries a page anchor.
 - Delegate ranges to `delegate_task` children with the fixed per-range brief when the plan has more than 4 ranges; read sequentially otherwise.
@@ -129,15 +129,15 @@ Safety rules:
 
 ## Long Document Reading Protocol
 
-Every command below runs through the `terminal` tool from the built-in Hermes `pdf` skill directory (`skills/productivity/pdf/scripts/`); each script prints JSON and exits non-zero on failure. Measured Hermes limits and config knobs are in `references/hermes-pdf-limits.md`.
+Every command below runs through the `terminal` tool from Hermes' built-in `pdf` skill. On current Hermes main all four scripts sit in `skills/productivity/pdf/scripts/` (the `ocr-and-documents` skill was merged into it); on older Hermes trees `extract_pymupdf.py` and `extract_marker.py` live in `skills/productivity/ocr-and-documents/scripts/` instead. Locate the directory with `skills_list` or `search_files` before the first run. Outputs differ per script: `pdf_read.py`, `pdf_split.py`, and `pdf_page_image.py` print JSON; `extract_pymupdf.py` prints plain text with `--- Page N/M ---` separators (JSON only with `--metadata`); and `pdf_page_image.py` exits 0 with `{"rendered": false, "missing": [...]}` when no rasterizer is installed, so read `rendered` before trusting a render. Measured Hermes limits are in `references/hermes-pdf-limits.md`.
 
 1. **Scope.** Confirm the path and the reading goal (full summary, clauses or sections, obligations and dates, or one question). If the goal is one lookup, search the extracted text for it instead of reading every range.
-2. **Probe.** Run `python pdf_read.py <file> --meta` for the page count, encrypted flag, and scanned flag. If it reports a missing dependency, run `pip install pypdf pdfplumber` once, rerun, and say you installed it. For an encrypted file ask for the password (`--password`) or stop.
+2. **Probe.** Run `python pdf_read.py <file> --meta` for the page count, encrypted flag, and scanned flag. Each script names its own missing dependency (`pdfplumber` here, `pypdf` for `pdf_split.py`, `pymupdf` for `extract_pymupdf.py`, `pypdfium2` or poppler `pdftoppm` for `pdf_page_image.py`); install the one named with `pip install` once, rerun, and say you installed it. For an encrypted file ask for the password (`--password`) or stop.
 3. **Plan.** At about 1,600 characters per page one `read_file` call (100,000 characters) holds about 60 pages, so split the page count into ranges of 60 pages. A document under 60 pages of prose is one read; answer directly. Record the plan as the chunk ledger: one row per range with `pages`, `offset`, `chars`, and `state` (`covered`, `next`, `missing`).
-4. **Extract with page anchors.** For each range run `python extract_pymupdf.py <file> --pages <start0>-<end0>` (0-indexed; install `pymupdf` once if missing) or `python pdf_split.py <file> --pages <start>-<end> -o <range>.pdf` (1-based) followed by `read_file` on the split file. Never read the whole file with `read_file` and paginate by `offset`: every call re-converts the entire document, and the extraction has no page numbers. If a range read truncates, halve the range, record the observed characters per page, and re-plan the remaining rows.
+4. **Extract with page anchors.** For each range run `python extract_pymupdf.py <file> --pages <start0>-<end0>` (0-indexed; plain text with a `--- Page N/M ---` line before each page, which is the page anchor to keep) or `python pdf_split.py <file> --pages <start>-<end> -o <range>.pdf` (1-based, JSON) followed by `read_file` on the split file. Never read the whole file with `read_file` and paginate by `offset`: every call re-converts the entire document, and the extraction has no page numbers. If a range read truncates, halve the range, record the observed characters per page, and re-plan the remaining rows.
 5. **Delegate above 4 ranges.** Send each range to a `delegate_task` child with this brief, unchanged except for the page numbers, then merge the notes in page order keeping every page anchor: `Read pages <start>-<end> only. Return: page-anchored key points, every defined term or obligation with its page, open questions, and the exact pages you could not read. Do not summarize pages outside this range.` A child that returns no missing-page list has not proven its range was readable.
 6. **Close every range.** After each range write covered / next / missing into the ledger before moving on, so a compacted or resumed session rereads the ledger and continues from `next` instead of page 1. Say done only when every row is covered and every scanned range is read or declined.
-7. **Scanned ranges.** The `read_file` coverage warning names page ranges that yielded no text. For the few pages the goal needs, run `python pdf_page_image.py <file> --pages <n> --out-dir <dir>` and `vision_analyze` one page per call; use `file_tools.hosted_ocr` when it is configured. Decline ranges the goal does not need and record the decision: a 300-page scan at one vision call per page is a separate approved job, not a side effect of a summary.
+7. **Scanned ranges.** The `read_file` coverage warning names page ranges that yielded no text. For the few pages the goal needs, run `python pdf_page_image.py <file> --pages <n> --out-dir <dir>` and `vision_analyze` one page per call; the script exits 0 either way, so a result with `"rendered": false` means no rasterizer (`pypdfium2` or poppler `pdftoppm`) is installed and nothing was rendered. Hosted OCR is not a knob to turn on: `read_file` uses it by itself when `FIRECRAWL_API_KEY` is set (`file_tools.hosted_ocr: false` turns it off), and its NEEDS OCR notice says whether it was attempted. For bulk OCR of a large range the coverage warning points at marker-pdf, `extract_marker.py` from the same skill, a multi-gigabyte install that needs its own approval. Decline ranges the goal does not need and record the decision: a 300-page scan at one vision call per page is a separate approved job, not a side effect of a summary.
 
 ## Runtime Evidence
 

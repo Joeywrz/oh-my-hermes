@@ -7512,15 +7512,6 @@ _DEFINITIONS.append(
         (
             "long-document-reading",
             "long document reading",
-            "long document",
-            "very large pdf",
-            "very long pdf",
-            "large pdf",
-            "huge pdf",
-            "long pdf",
-            "300 page pdf",
-            "300-page pdf",
-            "hundreds of pages",
             "summarize this pdf",
             "read this pdf",
             "process this pdf",
@@ -7533,14 +7524,9 @@ _DEFINITIONS.append(
             "read this manual",
             "summarize this contract",
             "read this contract",
-            "review this contract",
             "summarize this annual report",
             "read this annual report",
             "read the whole pdf",
-            "entire pdf",
-            "whole document",
-            "entire document",
-            "page by page",
             "chunk this pdf",
             "pdf in chunks",
             "pdf too big",
@@ -7599,7 +7585,7 @@ _DEFINITIONS.append(
         ),
         quality_tier="long-document-gated",
         quality_bar=(
-            "Get the page count and scanned flags first with `pdf_read.py --meta`; install its deps (`pypdf`, `pdfplumber`) once when the script reports them missing, and say so.",
+            "Get the page count and scanned flags first with `pdf_read.py --meta`; each script names its own missing dependency (`pdfplumber` for `pdf_read.py`, `pypdf` for `pdf_split.py`, `pymupdf` for `extract_pymupdf.py`, `pypdfium2` or poppler `pdftoppm` for `pdf_page_image.py`); install it once, and say so.",
             "Size ranges to the read budget: about " + str(DEFAULT_PAGES_PER_RANGE) + " pages per " + f"{HERMES_READ_FILE_CHAR_BUDGET:,}" + "-character call at typical density; halve the range when a probe read truncates.",
             "Extract each range with page selection (`extract_pymupdf.py --pages` or `read_file` on a `pdf_split.py` output) so every note carries a page anchor.",
             "Delegate ranges to `delegate_task` children with the fixed per-range brief when the plan has more than " + str(DELEGATION_RANGE_THRESHOLD) + " ranges; read sequentially otherwise.",
@@ -7608,8 +7594,9 @@ _DEFINITIONS.append(
         ),
         why_this_exists=(
             "`long-document-reading` exists because a 300-page PDF is about 500,000 characters and Hermes' `read_file` returns "
-            "100,000 per call with no page numbers, re-converting the whole file each time; without a page-anchored ledger the "
-            "session either truncates, compacts the text away, or claims a summary of pages it never read."
+            "100,000 per call with no page numbers, re-converting the whole file each time; five unanchored reads then sit in "
+            "the conversation until the ratio-based compressor summarizes them without a page number, so without a ledger the "
+            "session either truncates, loses the early ranges to compaction, or claims a summary of pages it never read."
         ),
         do_not_use_when=(
             "The document is a research paper and the user wants it explained by level; use `paper-learning`.",
@@ -7624,8 +7611,8 @@ _DEFINITIONS.append(
             why="The document is far past one read budget and the goal needs page-anchored claims from every range.",
         ),
         bad_example=SkillExample(
-            prompt="long-document-reading turn this pdf into a slide deck",
-            expected="Route to `materials-package`: the user wants a produced file, not a page-anchored reading of the document.",
+            prompt="turn this 300-page pdf into a slide deck",
+            expected="Route to `materials-package`: the user wants a produced file, not a page-anchored reading of the document; the page count alone does not make it a reading request.",
             why="Reading and producing are different lanes; a deck request is file output work.",
         ),
         final_checklist=(
@@ -7636,7 +7623,7 @@ _DEFINITIONS.append(
             "Not-observed boundaries remain visible: " + ", ".join(LONG_DOCUMENT_NOT_OBSERVED) + ".",
         ),
         recovery_notes=(
-            "If `pdf_read.py --meta` reports missing dependencies, install `pypdf` and `pdfplumber` once with `pip install`, rerun, and record the install.",
+            "If a script reports a missing dependency, install the one it names once with `pip install` (`pdfplumber`, `pypdf`, `pymupdf`, or `pypdfium2`; poppler `pdftoppm` is the system alternative for rendering), rerun, and record the install.",
             "If a range read truncates, halve the range, record the observed characters per page, and re-plan the remaining ranges from that measurement.",
             "If the context was compacted or the session resumed, reread the ledger and continue from the `next` range; do not restart from page 1.",
             "If the document is encrypted, ask for the password or stop; `pdf_read.py` and `pdf_split.py` accept `--password`.",

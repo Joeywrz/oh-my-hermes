@@ -3443,16 +3443,6 @@ _ROUTE_HINT_RULES = (
         "phrases": (
             "long-document-reading",
             "long document reading",
-            "long document",
-            "very large pdf",
-            "very long pdf",
-            "large pdf",
-            "huge pdf",
-            "long pdf",
-            "hundreds of pages",
-            "whole document",
-            "entire document",
-            "page by page",
             "chunk this pdf",
             "pdf in chunks",
             "pdf too big",
@@ -3468,12 +3458,8 @@ _ROUTE_HINT_RULES = (
             "read this manual",
             "summarize this contract",
             "read this contract",
-            "review this contract",
             "summarize this annual report",
             "read this annual report",
-            "긴 문서",
-            "긴 pdf",
-            "대용량 pdf",
             "이 pdf 요약",
             "이 pdf 읽어",
             "이 문서 요약",
@@ -5446,7 +5432,7 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
             not named_coding_agent_delivery
             and _jit_learn_route_hint_applies(matching_message, routing_normalized)
         )
-        long_document_page_count_match = _long_document_page_count_signal(routing_normalized)
+        long_document_page_count_match = _long_document_request_signal(routing_normalized)
         for rule in _prioritized_route_hint_rules(jit_learn_match):
             if len(hints) >= hint_limit:
                 break
@@ -7055,18 +7041,32 @@ _LONG_DOCUMENT_SIBLING_MARKERS = (
     "export",
     "screenshot",
     "receipt",
+    "write",
+    "draft",
+    "translate",
+    "debug",
+    "upload",
+    "failing",
+    "crash",
+    "ocr",
+    "compliance",
+    "작성",
+    "번역",
+    "업로드",
+    "실패",
+    "검토",
+    "書いて",
+    "翻訳",
+    "アップロード",
+    "失敗",
+    "写一",
+    "翻译",
+    "上传",
+    "失败",
 )
-# Cues that make paper tutoring and file packaging stand down: the document is
-# named as too large for one read, or as a plain document to be read.
+# Cues that make paper tutoring and file packaging stand down: a reading verb
+# on a document, never a bare size phrase (see `policy._LONG_DOCUMENT_EXPLICIT_PHRASES`).
 _LONG_DOCUMENT_HINT_MARKERS = (
-    "long document",
-    "very large pdf",
-    "very long pdf",
-    "large pdf",
-    "huge pdf",
-    "long pdf",
-    "hundreds of pages",
-    "page by page",
     "pdf too big",
     "pdf too large",
     "summarize this pdf",
@@ -7080,8 +7080,6 @@ _LONG_DOCUMENT_HINT_MARKERS = (
     "summarize this contract",
     "read this contract",
     "summarize this annual report",
-    "긴 문서",
-    "대용량 pdf",
     "이 pdf 요약",
     "이 문서 요약",
     "계약서 요약",
@@ -7091,9 +7089,26 @@ _LONG_DOCUMENT_HINT_MARKERS = (
 
 # "300 pages", "300-page", "300페이지": a stated page count past one read is a
 # long-document cue even when no phrase above appears. The floor matches
-# `policy._LONG_DOCUMENT_PAGE_COUNT_FLOOR`.
+# `policy._LONG_DOCUMENT_PAGE_COUNT_FLOOR`. This regex is the standalone-host
+# fallback; when the router is importable the hint asks the routing guard
+# itself, so the hint and the route never disagree.
 _LONG_DOCUMENT_PAGE_COUNT_RE = re.compile(r"(\d{2,5})\s*-?\s*(?:pages?|페이지)")
 _LONG_DOCUMENT_PAGE_COUNT_FLOOR = 60
+
+try:
+    from ...routing.localization import normalized_phrase as _long_document_normalized_phrase
+    from ...routing.localization import routing_tokens as _long_document_routing_tokens
+    from ...routing.policy import _long_document_reading_guard_applies as _long_document_guard_applies
+except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
+    _long_document_guard_applies = None
+
+
+def _long_document_request_signal(text: str) -> bool:
+    """True when the routing guard would send this text to long-document reading."""
+    if _long_document_guard_applies is None:
+        return _long_document_page_count_signal(text)
+    normalized = _long_document_normalized_phrase(text)
+    return _long_document_guard_applies(normalized, _long_document_routing_tokens(normalized))
 
 
 def _long_document_page_count_signal(text: str) -> bool:
@@ -7279,7 +7294,7 @@ def _rule_suppressed_by_context(rule: dict[str, object], text: str) -> bool:
     if rule_id == "long_document_reading" and long_document_sibling_requested:
         return True
     long_document_requested = not long_document_sibling_requested and (
-        any(phrase in text for phrase in _LONG_DOCUMENT_HINT_MARKERS) or _long_document_page_count_signal(text)
+        any(phrase in text for phrase in _LONG_DOCUMENT_HINT_MARKERS) or _long_document_request_signal(text)
     )
     if rule_id in {"paper_learning", "materials_package", "workspace_file_operator"} and long_document_requested:
         return True

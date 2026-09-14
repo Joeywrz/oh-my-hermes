@@ -81,8 +81,8 @@ def pages_per_range_for_budget(
     chars_per_page: int = DEFAULT_CHARS_PER_PAGE,
 ) -> int:
     """Pages one read call can hold, leaving ~4% headroom under the budget."""
-    if char_budget <= 0 or chars_per_page <= 0:
-        return DEFAULT_PAGES_PER_RANGE
+    _require_positive("char_budget", char_budget)
+    _require_positive("chars_per_page", chars_per_page)
     return max(1, (char_budget * 96 // 100) // chars_per_page)
 
 
@@ -137,7 +137,9 @@ def build_chunk_ledger(
     the observed extraction; they exist so a resumed session can pick the
     `read_file` offset for a range without re-reading from page one.
     """
-    covered = _parsed_ranges(covered_ranges)
+    _require_positive("pages_per_range", pages_per_range)
+    _require_positive("chars_per_page", chars_per_page)
+    covered = _merged_ranges(_parsed_ranges(covered_ranges))
     scanned = _parsed_ranges(scanned_ranges)
     ledger: list[dict[str, object]] = []
     next_assigned = False
@@ -175,16 +177,19 @@ def normalize_long_document_source_state(
     normalized = (state or "unknown_or_missing").strip().lower()
     if normalized not in LONG_DOCUMENT_SOURCE_STATES:
         normalized = "unknown_or_missing"
-    covered = _parsed_ranges(covered_ranges)
+    pages = page_count if _is_positive_int(page_count) else None
+    covered = _merged_ranges(_parsed_ranges(covered_ranges))
     if covered and normalized in {"metadata_only", "page_count_observed", "unknown_or_missing"}:
         normalized = "range_text_observed"
-    if normalized == "full_text_observed" and page_count and not _ranges_cover(covered, page_count):
+    if normalized == "full_text_observed" and (pages is None or not _ranges_cover(covered, pages)):
         normalized = "range_text_observed"
-    if normalized in {"metadata_only", "unknown_or_missing"} and page_count:
+    if normalized == "range_text_observed" and not covered:
+        normalized = "page_count_observed" if pages else "unknown_or_missing"
+    if normalized in {"metadata_only", "unknown_or_missing"} and pages:
         normalized = "page_count_observed"
     return {
         "state": normalized,
-        "page_count": page_count if page_count and page_count > 0 else None,
+        "page_count": pages,
         "covered_ranges": [format_page_range(start, end) for start, end in covered],
         "evidence_ref": evidence_ref.strip(),
     }
@@ -208,8 +213,10 @@ def build_long_document_card(
     kind = document_kind.strip().lower().replace("-", "_").replace(" ", "_") or "other"
     if kind not in LONG_DOCUMENT_DOCUMENT_KINDS:
         kind = "other"
+    if page_count is not None and not _is_positive_int(page_count):
+        raise ValueError("page_count must be a positive integer or None")
     pages_per_range = pages_per_range_for_budget(char_budget, chars_per_page)
-    pages = page_count if page_count and page_count > 0 else 0
+    pages = page_count or 0
     ledger = build_chunk_ledger(
         pages,
         pages_per_range=pages_per_range,
@@ -243,7 +250,9 @@ def build_long_document_card(
             "pages_per_range": pages_per_range,
             "estimated_total_chars": estimated_chars,
             "estimated_read_calls": range_count,
-            "single_read_fits": bool(pages) and estimated_chars <= char_budget,
+            # The same 4% headroom the range plan keeps: 61 pages is two ranges,
+            # so it is not one read even though 97,600 chars sit under the budget.
+            "single_read_fits": bool(pages) and pages <= pages_per_range,
         },
         "chunk_ledger": ledger,
         "chunking_policy": {
@@ -262,7 +271,7 @@ def build_long_document_card(
         },
         "scanned_policy": {
             "per_page_recovery": "pdf_page_image.py --pages <n> then vision_analyze, one page per call",
-            "hosted_ocr": "file_tools.hosted_ocr when configured; otherwise not observed",
+            "hosted_ocr": "read_file runs hosted OCR by itself when FIRECRAWL_API_KEY is set (file_tools.hosted_ocr: false turns it off); otherwise not observed",
             "decline_rule": (
                 "Decline scanned ranges the reading goal does not need; a 300-page scan at one "
                 "vision call per page is a separate approved job, not a side effect."
@@ -300,6 +309,32 @@ def validate_long_document_card(card: dict[str, Any]) -> list[str]:
             errors.append("chunk_ledger may name at most one next range")
     if not set(LONG_DOCUMENT_NOT_OBSERVED).issubset(set(card.get("not_observed", []))):
         errors.append("not_observed must include page count, extraction, OCR, and delegation boundaries")
+    errors.extend(_coverage_consistency_errors(card))
+    return errors
+
+
+def _coverage_consistency_errors(card: dict[str, Any]) -> list[str]:
+    """The source state and the ledger must tell the same coverage story."""
+    errors: list[str] = []
+    source_state = card.get("source_state")
+    ledger = card.get("chunk_ledger")
+    if not isinstance(source_state, dict) or not isinstance(ledger, list):
+        return errors
+    state = source_state.get("state")
+    page_count = source_state.get("page_count")
+    if page_count is not None and not _is_positive_int(page_count):
+        errors.append("source_state.page_count must be a positive integer when present")
+        page_count = None
+    covered = _parsed_ranges(str(value) for value in source_state.get("covered_ranges", []) if isinstance(value, str))
+    if page_count is not None and any(end > page_count for _, end in covered):
+        errors.append("source_state.covered_ranges must not run past page_count")
+    ledger_states = [entry.get("state") for entry in ledger if isinstance(entry, dict)]
+    if state == "full_text_observed" and (not ledger_states or any(value != "covered" for value in ledger_states)):
+        errors.append("full_text_observed requires every ledger range to be covered")
+    if state == "range_text_observed" and not covered:
+        errors.append("range_text_observed requires at least one covered range")
+    if state in {"metadata_only", "page_count_observed", "unknown_or_missing"} and "covered" in ledger_states:
+        errors.append(f"{state} cannot carry covered ledger ranges")
     return errors
 
 
@@ -312,15 +347,29 @@ def _parsed_ranges(values: Iterable[str]) -> list[tuple[int, int]]:
     return sorted(parsed)
 
 
+def _merged_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Overlapping or adjacent ranges as one, so `1-30` + `31-60` covers `1-60`."""
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(ranges):
+        if merged and start <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
 def _ranges_cover(ranges: list[tuple[int, int]], page_count: int) -> bool:
-    if not ranges:
-        return False
-    position = 1
-    for start, end in ranges:
-        if start > position:
-            return False
-        position = max(position, end + 1)
-    return position > page_count
+    merged = _merged_ranges(ranges)
+    return bool(merged) and merged[0][0] == 1 and merged[0][1] >= page_count
+
+
+def _is_positive_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _require_positive(name: str, value: object) -> None:
+    if not _is_positive_int(value):
+        raise ValueError(f"{name} must be a positive integer")
 
 
 def _card_id(title: str, source_ref: str) -> str:

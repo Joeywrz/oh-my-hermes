@@ -18,9 +18,15 @@ package (`tools/read_extract.py`) and returns at most 100,000 characters per
 call (`file_read_max_chars`, `tools/file_tools.py`), paginated by line
 `offset` and `limit` (2,000 lines max). Dense prose extracts to about 1,600
 characters per page, so 300 pages is roughly 500,000 characters, about 125,000
-tokens: five reads, and more than the conversation-compression threshold in
-`agent/conversation_compression.py`. A single unanchored read either truncates
-or is summarized away.
+tokens: five reads whose text sits in the conversation with no page numbers.
+Hermes compresses at a ratio of the model window (`compression.threshold:
+0.50` in `hermes_cli/config_defaults.py`, floored to 0.75 for windows under
+512K in `agent/context_compressor.py`), so a 200K-window model compacts near
+150K tokens and a 1M-window model near 500K. The five reads alone do not
+cross that; the sixth range or the reply on top of the rest of the session
+can, and the summary that replaces the early ranges carries no page anchor.
+A single read past the budget truncates; a run of unanchored reads is
+unrecoverable once compacted.
 
 ### Why not just page through it with `offset`?
 
@@ -31,16 +37,26 @@ Three reasons, all measured:
 - Page numbers do not survive the conversion. The scanned-page warning speaks
   in page ranges, but nothing maps a page to an offset, so "the clause on page
   212" cannot be found by offset.
-- The extracted text lands in the conversation, so five reads of 100,000
-  characters cross the compression threshold and the earlier ranges are
-  compacted away before the last one is read.
+- The extracted text lands in the conversation, and once the session reaches
+  the compression ratio the earlier ranges are summarized without page
+  numbers, so nothing can say which page a claim came from.
 
 ### What does give page control?
 
-Hermes' built-in `pdf` skill (`skills/productivity/pdf/scripts/`): argparse
-scripts run through the `terminal` tool, JSON on stdout. Their dependencies
-(`pypdf`, `pdfplumber`, `pymupdf`) are not in the shipped venv; each script
-prints an install hint, and the skill installs them once and says so.
+Hermes' built-in `pdf` skill: argparse scripts run through the `terminal`
+tool. `pdf_read.py` needs `pdfplumber`, `pdf_split.py` needs `pypdf`,
+`extract_pymupdf.py` needs `pymupdf`, and `pdf_page_image.py` needs
+`pypdfium2` or poppler's `pdftoppm`; none is in the shipped venv, each script
+names the one it is missing, and the skill installs it once and says so.
+`pdf_read.py`, `pdf_split.py`, and `pdf_page_image.py` print JSON;
+`extract_pymupdf.py` prints plain text with `--- Page N/M ---` separators;
+`pdf_page_image.py` exits 0 with `"rendered": false` when no rasterizer is
+installed, so the skill checks that field. Where the scripts live depends on the
+Hermes tree: on current main all of them sit in
+`skills/productivity/pdf/scripts/` (the `ocr-and-documents` skill was merged
+into `pdf`), while older trees keep `extract_pymupdf.py` and
+`extract_marker.py` in `skills/productivity/ocr-and-documents/scripts/`. The
+skill locates the directory with `skills_list` or `search_files` first.
 
 | Script | What it gives |
 | --- | --- |
@@ -81,13 +97,23 @@ layer and prints a coverage warning naming those page ranges
 (`tools/read_extract.py`). That scan has a 20-second timeout and silently
 returns nothing on the largest files, so a missing warning is not proof of a
 text layer; the `pdf_read.py --meta` scanned flag is the check. Recovery is
-one page per `vision_analyze` call after `pdf_page_image.py`, or hosted OCR
-when `file_tools.hosted_ocr` is configured. The skill declines scanned ranges
-the goal does not need and records the decision: a 300-page scan at one vision
-call per page is a separate approved job, not a side effect of a summary.
+one page per `vision_analyze` call after `pdf_page_image.py`. Hosted OCR is
+not a knob you turn on: `read_file` uses it by itself when `FIRECRAWL_API_KEY`
+is set, `file_tools.hosted_ocr: false` turns it off even with the key
+(`_hosted_ocr_config` in `tools/read_extract.py`), and the NEEDS OCR notice
+says whether it was attempted. For bulk OCR of a large range the coverage
+warning points at marker-pdf (`extract_marker.py` in the same skill), a
+multi-gigabyte install that needs its own approval. The skill declines
+scanned ranges the goal does not need and records the decision: a 300-page
+scan at one vision call per page is a separate approved job, not a side
+effect of a summary.
 
-The runtime warning and user guide name an `ocr-and-documents` skill; its
-content was merged into the `pdf` skill's `references/ocr-extraction.md`.
+The coverage warning names an `ocr-and-documents` skill. On current Hermes
+main that skill's scripts and notes were folded into `pdf`
+(`references/ocr-extraction.md`, the extractors in `pdf/scripts/`); on older
+trees it is a live separate skill with its own `SKILL.md` and `scripts/`
+that the `pdf` skill routes scanned pages to. That is why the skill looks the
+scripts up instead of assuming one path.
 
 ### Which requests go elsewhere?
 
@@ -103,14 +129,16 @@ content was merged into the `pdf` skill's `references/ocr-extraction.md`.
 
 - `file_read_max_chars`: raises the per-call character budget; the skill
   re-plans `pages_per_range` from it.
-- `file_tools.hosted_ocr`: hosted OCR for scanned pages.
+- `FIRECRAWL_API_KEY`: turns hosted OCR on inside `read_file`; `file_tools.hosted_ocr: false` turns it off even with the key. Nothing turns it on without the key.
 - `web.extract_char_limit`: bounds `web_extract` on a URL-hosted PDF.
 - `delegation.max_concurrent_children`: bounds range fan-out.
 
 ### TUI attachments
 
 The Modern TUI's `pdf.attach` rasterizes 25 pages per call
-(`tui_gateway/prompt_attachments.py`), so attaching a 300-page PDF to the
+(`_PDF_ATTACH_MAX_PAGES`: `tui_gateway/prompt_attachments.py` on current
+main, `tui_gateway/server.py` and `tui_gateway/methods_prompt.py` on older
+trees), so attaching a 300-page PDF to the
 prompt is twelve attachments of images, not a read. Give Hermes the file path
 and let the skill read it.
 

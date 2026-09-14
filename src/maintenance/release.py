@@ -230,11 +230,11 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # 411570 -> 412999: the same two shared engine rules and the extended
 # interjection rule render into the capability sections of the executing
 # engines (the section carries each engine's quality bar); warranted growth.
-# 412999 -> 416848: `long-document-reading` is a new installable skill (the
+# 412999 -> 417015: `long-document-reading` is a new installable skill (the
 # page-anchored chunk ledger over a document too large for one read); one new
 # capability section for one new workflow, not per-section padding; warranted
 # growth.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 416848
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 417015
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -863,7 +863,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # the first window is spent, so it belongs in the always-loaded body;
 # warranted growth. Re-derived from the producer after this branch met the
 # #1513 entry above, never by adding the two deltas.
-# 936264 -> 949097: `long-document-reading` is one new installable skill body
+# 936264 -> 950493: `long-document-reading` is one new installable skill body
 # (the page-count probe, page ranges sized to the read budget, the covered /
 # next / missing chunk ledger, the per-range delegation brief, and the
 # scanned-range decision rule), plus its lane name on the research_and_ops
@@ -871,9 +871,10 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # references file, outside this body; re-derived from the full-profile
 # producer on the rebased tree, not from accumulated deltas; warranted growth.
 # Stacked on the document-plan branch: both bodies land together, so the
-# limit is re-derived once from the producer on the combined tree
-# (936466 + the long-document body -> 949299), never by adding deltas.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 949299
+# limit is re-derived once from the producer on the combined tree, never by
+# adding deltas (936466 with the document-plan note, plus the long-document
+# body and the review's verb-bearing trigger phrases -> 950695).
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 950695
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

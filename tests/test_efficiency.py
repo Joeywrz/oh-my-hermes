@@ -247,7 +247,7 @@ class EfficiencyContractTests(unittest.TestCase):
         # The ceiling restores the ~11k standing headroom; the exact value stays
         # ratcheted in `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
         # 943,000 -> 960,000: `long-document-reading` takes the full profile to
-        # 949,097 bytes on the rebased tree (one new body plus its lane name on the
+        # 950,493 bytes on the rebased tree (one new body plus its lane name on the
         # research_and_ops skills' Workflow Lane lines). The ceiling restores
         # the ~11k standing headroom; the exact value stays ratcheted in
         # `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.

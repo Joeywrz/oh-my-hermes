@@ -6294,7 +6294,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks to read, summarize, or process a document that does not fit one read: a very large PDF, contract, manual, or annual report, kept honest by a page-anchored chunk ledger.
 - Handoff policy: Keep document reading in Hermes: `read_file`, the built-in `pdf` skill scripts, `delegate_task` range children, and `vision_analyze` for scanned pages. Route file export to `materials-package`, paper tutoring to `paper-learning`, and source acquisition to `source-finder`.
-- Why this exists: `long-document-reading` exists because a 300-page PDF is about 500,000 characters and Hermes' `read_file` returns 100,000 per call with no page numbers, re-converting the whole file each time; without a page-anchored ledger the session either truncates, compacts the text away, or claims a summary of pages it never read.
+- Why this exists: `long-document-reading` exists because a 300-page PDF is about 500,000 characters and Hermes' `read_file` returns 100,000 per call with no page numbers, re-converting the whole file each time; five unanchored reads then sit in the conversation until the ratio-based compressor summarizes them without a page number, so without a ledger the session either truncates, loses the early ranges to compaction, or claims a summary of pages it never read.
 - Use when: Use when Hermes must read a supplied document that does not fit one read: a contract, manual, annual report, specification, or any PDF past about 60 pages. The skill plans page ranges sized to the `read_file` budget, keeps a page-anchored chunk ledger with covered / next / missing state, and delegates ranges when there are more than 4, so a compacted or resumed session continues instead of restarting.
 - Do not use when:
   - The document is a research paper and the user wants it explained by level; use `paper-learning`.
@@ -6302,17 +6302,17 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The input is an image, screenshot, receipt, audio, or video rather than a document; use `media-input-operator`.
   - The user is still looking for the document or its download link; use `source-finder`.
   - The document fits one read (under about 60 pages of prose); read it directly and answer.
-- Strong routing signals: `long-document-reading`, `long document reading`, `long document`, `very large pdf`, `very long pdf`, `large pdf`, `huge pdf`, `long pdf`, `300 page pdf`, `300-page pdf`, `hundreds of pages`, `summarize this pdf`, `read this pdf`, `process this pdf`, `go through this pdf`, `summarize this document`, `read this document`, `process this document`, `read this whole document`, `summarize this manual`, `read this manual`, `summarize this contract`, `read this contract`, `review this contract`, `summarize this annual report`, `read this annual report`, `read the whole pdf`, `entire pdf`, `whole document`, `entire document`, `page by page`, `chunk this pdf`, `pdf in chunks`, `pdf too big`, `pdf too large`, `長い文書`, `長いpdf`, `大きなpdf`, `このpdfを要約`, `この文書を要約`, `この契約書を要約`, `マニュアルを要約`, `긴 문서 읽기`, `긴 문서`, `긴 pdf`, `대용량 pdf`, `300페이지 pdf`, `이 pdf 요약해줘`, `이 pdf 읽어줘`, `이 문서 요약해줘`, `이 문서 읽어줘`, `계약서 요약해줘`, `매뉴얼 요약해줘`, `연간 보고서 요약해줘`, `pdf 전체 읽어`, `문서 전체 읽어`, `长文档`, `很长的pdf`, `大pdf`, `总结这个pdf`, `总结这份文档`, `总结这份合同`, `总结这本手册`
+- Strong routing signals: `long-document-reading`, `long document reading`, `summarize this pdf`, `read this pdf`, `process this pdf`, `go through this pdf`, `summarize this document`, `read this document`, `process this document`, `read this whole document`, `summarize this manual`, `read this manual`, `summarize this contract`, `read this contract`, `summarize this annual report`, `read this annual report`, `read the whole pdf`, `chunk this pdf`, `pdf in chunks`, `pdf too big`, `pdf too large`, `このpdfを要約`, `この文書を要約`, `この契約書を要約`, `マニュアルを要約`, `긴 문서 읽기`, `이 pdf 요약해줘`, `이 pdf 읽어줘`, `이 문서 요약해줘`, `이 문서 읽어줘`, `계약서 요약해줘`, `매뉴얼 요약해줘`, `연간 보고서 요약해줘`, `pdf 전체 읽어`, `문서 전체 읽어`, `总结这个pdf`, `总结这份文档`, `总结这份合同`, `总结这本手册`
 - Good example:
   - Prompt: summarize this 300-page vendor contract pdf and list every obligation with a deadline
   - Expected behavior: Prepare long_document_card/v1: record the page count and scanned flags, plan five 60-page ranges, delegate them with the per-range brief, merge obligations with page anchors, and close with covered / next / missing.
   - Why: The document is far past one read budget and the goal needs page-anchored claims from every range.
 - Bad example:
-  - Prompt: long-document-reading turn this pdf into a slide deck
-  - Expected behavior: Route to `materials-package`: the user wants a produced file, not a page-anchored reading of the document.
+  - Prompt: turn this 300-page pdf into a slide deck
+  - Expected behavior: Route to `materials-package`: the user wants a produced file, not a page-anchored reading of the document; the page count alone does not make it a reading request.
   - Why: Reading and producing are different lanes; a deck request is file output work.
 - Quality bar:
-  - Get the page count and scanned flags first with `pdf_read.py --meta`; install its deps (`pypdf`, `pdfplumber`) once when the script reports them missing, and say so.
+  - Get the page count and scanned flags first with `pdf_read.py --meta`; each script names its own missing dependency (`pdfplumber` for `pdf_read.py`, `pypdf` for `pdf_split.py`, `pymupdf` for `extract_pymupdf.py`, `pypdfium2` or poppler `pdftoppm` for `pdf_page_image.py`); install it once, and say so.
   - Size ranges to the read budget: about 60 pages per 100,000-character call at typical density; halve the range when a probe read truncates.
   - Extract each range with page selection (`extract_pymupdf.py --pages` or `read_file` on a `pdf_split.py` output) so every note carries a page anchor.
   - Delegate ranges to `delegate_task` children with the fixed per-range brief when the plan has more than 4 ranges; read sequentially otherwise.
@@ -6325,7 +6325,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Scanned ranges are read, declined with a reason, or listed as missing.
   - Not-observed boundaries remain visible: page_count, text_extraction, scanned_page_ocr, range_delegation, hosted_ocr, cross_range_consistency.
 - Recovery notes:
-  - If `pdf_read.py --meta` reports missing dependencies, install `pypdf` and `pdfplumber` once with `pip install`, rerun, and record the install.
+  - If a script reports a missing dependency, install the one it names once with `pip install` (`pdfplumber`, `pypdf`, `pymupdf`, or `pypdfium2`; poppler `pdftoppm` is the system alternative for rendering), rerun, and record the install.
   - If a range read truncates, halve the range, record the observed characters per page, and re-plan the remaining ranges from that measurement.
   - If the context was compacted or the session resumed, reread the ledger and continue from the `next` range; do not restart from page 1.
   - If the document is encrypted, ask for the password or stop; `pdf_read.py` and `pdf_split.py` accept `--password`.

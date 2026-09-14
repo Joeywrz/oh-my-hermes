@@ -303,6 +303,51 @@ def source_paths_in_task_text(task_text: str, source_paths: Sequence[str]) -> li
     return sorted(path for path in source_paths if path in task_text)
 
 
+#: How much of the answer a task's text still carries, worst class first. A
+#: task is `clean` only when none of the weaker signals fires.
+#:
+#: Recorded per task rather than argued about in prose, because the honest
+#: reading of any published number depends on which of these classes the tasks
+#: behind it belong to, and a reader holding the field can subset the corpus
+#: instead of trusting a sentence about it.
+LEAK_CLASSES = (
+    "heading_prescriptive",
+    "names_new_identifier",
+    "names_changed_file",
+    "clean",
+)
+
+
+def has_prescriptive_heading(task_text: str) -> bool:
+    """Whether a solution-describing heading survived into the task text.
+
+    The cut removes everything from the first such heading onwards, so this
+    should never fire. It is checked and recorded anyway: the cut matches a
+    list of headings, that list is not the set of all headings an author might
+    write, and a corpus that assumes its own filter is exhaustive has no way to
+    discover that it is not.
+    """
+
+    return _section(task_text, SOLUTION_HEADINGS) is not None
+
+
+def leak_class(
+    *,
+    prescriptive_heading: bool,
+    introduced_names: Sequence[str],
+    named_paths: Sequence[str],
+) -> str:
+    """The worst leak signal a task's text still carries."""
+
+    if prescriptive_heading:
+        return "heading_prescriptive"
+    if introduced_names:
+        return "names_new_identifier"
+    if named_paths:
+        return "names_changed_file"
+    return "clean"
+
+
 def _touched_packages(source_paths: Iterable[str]) -> list[str]:
     packages = set()
     for path in source_paths:
@@ -456,6 +501,12 @@ def _candidate(
         # solving, which inflates the pass rate and compresses the delta.
         return None, "task_text_names_an_introduced_definition"
     named_source_paths = source_paths_in_task_text(task_text, source_paths)
+    prescriptive_heading = has_prescriptive_heading(task_text)
+    classification = leak_class(
+        prescriptive_heading=prescriptive_heading,
+        introduced_names=introduced,
+        named_paths=named_source_paths,
+    )
 
     packages = _touched_packages(source_paths)
     regression = _regression_modules(
@@ -480,6 +531,7 @@ def _candidate(
         # ordinary bug report does. A reader who wants the stricter corpus
         # subsets on this field rather than trusting a prose claim about it.
         "task_text_names_source_paths": named_source_paths,
+        "leak_class": classification,
         "changed_lines": changed_lines,
         "test_lines": test_lines,
         "touched_packages": packages,
@@ -611,11 +663,28 @@ def probe(
     kept: list[dict[str, Any]] = []
     rejected: dict[str, int] = {}
     probed = 0
-    # Newest first, stopping as soon as the corpus is full. Each probe runs
-    # the pull request's own test modules and its regression set twice over,
-    # which costs minutes on this repository's larger modules; sweeping every
-    # candidate after the corpus is already full buys nothing.
-    candidates = sorted(payload["tasks"], key=lambda item: int(item["pull_request"]), reverse=True)
+    # Issue-sourced candidates first, then newest first within each group,
+    # stopping as soon as the corpus is full.
+    #
+    # The ordering is the headline's. A task whose text came from the pull
+    # request body was written after the fix by its author, so only the
+    # issue-sourced tasks can carry a sentence about solving this repository's
+    # own issues. The probe rejects some of every group, so taking them in
+    # merge order would let pull-request-body tasks consume slots the headline
+    # subset needs, and the headline's `n` is the number under the most
+    # pressure.
+    #
+    # Newest first inside each group because the probe runs each candidate's
+    # validator twice and its regression set once, which costs minutes on this
+    # repository's larger modules, and sweeping candidates past a full corpus
+    # buys nothing.
+    candidates = sorted(
+        payload["tasks"],
+        key=lambda item: (
+            str(item.get("task_source")) != "linked_issue",
+            -int(item["pull_request"]),
+        ),
+    )
     def one_pass(
         task: Mapping[str, Any],
         root: Path,
@@ -732,9 +801,27 @@ def probe(
     selection["probe_rejected"] = dict(sorted(rejected.items()))
     selection["probed"] = probed
     selection["max_tasks"] = maximum_tasks
+    # The headline subset's size, recorded rather than left to be counted.
+    # Only issue-sourced tasks can carry a sentence about solving this
+    # repository's own issues, so that `n` is the one a reader needs beside
+    # any such number.
+    selection["task_source"] = _counts(str(task.get("task_source")) for task in kept)
+    selection["leak_class"] = _counts(str(task.get("leak_class")) for task in kept)
+    selection["leak_class_issue_sourced"] = _counts(
+        str(task.get("leak_class"))
+        for task in kept
+        if str(task.get("task_source")) == "linked_issue"
+    )
     result["selection"] = selection
     result["corpus_digest"] = corpus_digest(kept)
     return result
+
+
+def _counts(values: Iterable[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def corpus_digest(tasks: Sequence[Mapping[str, Any]]) -> str:

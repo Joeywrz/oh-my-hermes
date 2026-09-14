@@ -55,6 +55,13 @@ def authenticated() -> bool:
     return completed.returncode == 0
 
 
+#: One `gh pr list` across this repository's whole merged history returns
+#: several megabytes of bodies, which takes far longer than a single-issue
+#: read. Kept separate from `GH_TIMEOUT_SECONDS` so widening the read cannot
+#: loosen the small calls, and cannot quietly time out the large one.
+PULL_REQUEST_LIST_TIMEOUT_SECONDS = 900
+
+
 def merged_pull_requests(repository: str, limit: int) -> list[dict[str, Any]]:
     rows = gh_json(
         "pr",
@@ -67,6 +74,7 @@ def merged_pull_requests(repository: str, limit: int) -> list[dict[str, Any]]:
         str(limit),
         "--json",
         PULL_REQUEST_FIELDS,
+        timeout=PULL_REQUEST_LIST_TIMEOUT_SECONDS,
     )
     if not isinstance(rows, list):
         raise GitHubError("gh pr list did not return a list")

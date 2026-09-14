@@ -111,17 +111,41 @@ def diff_text(repo: Path, base: str, head: str, paths: Sequence[str]) -> str:
     return git(repo, "diff", "-M", "--no-renames", base, head, "--", *paths)
 
 
-def file_at(repo: Path, commit: str, path: str) -> str | None:
+def file_bytes(repo: Path, commit: str, path: str) -> bytes | None:
+    """One path's exact blob at one commit, or ``None`` when git has no such path.
+
+    Bytes, not text, and every caller that writes a file uses these. Two
+    reasons, and the first was found the hard way. A text-mode read decodes
+    with the ambient codec, so the first binary blob in this repository's
+    history -- a PNG, reached only once the corpus read was widened past the
+    recent pull requests -- crashed the build with a `UnicodeDecodeError` from
+    inside `subprocess`. The second is Windows: a text-mode round trip
+    translates newlines, so the file written into a candidate workspace would
+    not be the file git holds, and every digest over it would drift by
+    platform.
+    """
+
     completed = subprocess.run(
         ["git", "-C", str(repo), "show", f"{commit}:{path}"],
         capture_output=True,
-        text=True,
         check=False,
         timeout=GIT_TIMEOUT_SECONDS,
     )
     if completed.returncode:
         return None
     return completed.stdout
+
+
+def file_at(repo: Path, commit: str, path: str) -> str | None:
+    """One path's content as text, or ``None`` when it is missing or not text."""
+
+    raw = file_bytes(repo, commit, path)
+    if raw is None:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 def grep_paths(repo: Path, commit: str, needles: Sequence[str], prefix: str) -> list[str]:
@@ -168,12 +192,17 @@ def blob_sizes(repo: Path, commit: str, prefix: str) -> dict[str, int]:
 
 
 def blob_digest(repo: Path, commit: str, path: str) -> str:
-    """sha256 of one path's content at one commit; a missing path digests as ``-``."""
+    """sha256 of one path's bytes at one commit; a missing path digests as ``-``.
 
-    content = file_at(repo, commit, path)
-    if content is None:
+    Over the bytes git holds, not over decoded text: a digest that depends on
+    a codec or on newline translation is not a pin, and a binary path has no
+    text to digest at all.
+    """
+
+    raw = file_bytes(repo, commit, path)
+    if raw is None:
         return "-"
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+    return hashlib.sha256(raw).hexdigest()
 
 
 @contextmanager

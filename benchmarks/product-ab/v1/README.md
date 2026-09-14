@@ -29,6 +29,78 @@ with the merge commit's version of that file, and a path the pull request
 deleted is deleted. A candidate that edited the same test file can therefore
 neither break the validator nor weaken it.
 
+### Two subsets, and which one a headline may use
+
+Where the task text came from decides what can be said about the result, so
+every task records it as `task_source` and the two subsets are reported apart.
+
+| Subset | Task text | What it can carry |
+| --- | --- | --- |
+| `linked_issue` | the body of the issue the pull request closes, written **before** the fix, by someone describing a problem | the headline. A sentence of the form "solved N% of this repository's own issues" may be written only from these tasks |
+| `pull_request_body` | the *Why This Exists* section of the pull request, written **after** the fix, by its author | a secondary table, labelled as such |
+
+The distinction is not fussiness. Cutting the solution half at its heading
+removes the sections that prescribe the fix, and the corpus refuses any task
+whose text quotes a line of the diff or names a definition the fix introduces.
+None of that touches paraphrase, and a body written to explain a finished
+change paraphrases constantly. A corpus that needs a caveat paragraph to be
+read correctly will be quoted without the caveat.
+
+Reading every merged pull request in this repository yields 41 issue-sourced
+candidates, and the count stops growing at a read width of 800 -- 18 at width
+250, 25 at 350, 33 at 450, 40 at 600, then flat. The probe therefore takes
+issue-sourced candidates first, so that pull-request-body tasks cannot consume
+slots the headline subset needs.
+
+`analyze.py --task-source linked_issue` reports on the headline subset, and
+prints the subset and its `n` above the table. `--leak-class` subsets the same
+way on how much of the answer a task's text still carries.
+
+### What this corpus is made of
+
+Numbers describe the pinned corpus at digest `f6438aa2faf2`, and
+every one of them is re-derived from `corpus/evaluation.json` by a test, so
+they cannot drift away from the file they describe.
+
+| | Count |
+| --- | ---: |
+| Merged pull requests read, newest first | 800 |
+| Candidates probed | 48 |
+| **Tasks kept** | **40** |
+| — from a linked issue (the headline subset) | 35 |
+| — from a pull request body (secondary) | 5 |
+
+A reader who sees "40 tasks" without seeing what was probed and
+dropped cannot judge the number, so the rejections are here rather than in the
+corpus file alone.
+
+| Rejected by the probe | Count |
+| --- | ---: |
+| Validator not green with the pull request's own fix | 3 |
+| Verdict depends on the workspace path | 3 |
+| Regression set already red at the merge base | 2 |
+
+The first line means the corpus is selected partly on what this harness can
+run, and that belongs in how any number from it is read. The concrete case:
+PR-1488's validator asserts a filesystem-confinement receipt that cannot hold
+in a temp-directory workspace, so that task is red before the fix and still red
+after it, and it would have cost a call on every arm while deducting pass rate
+for something no arm did.
+
+How much of the answer each task's text still carries, worst class first:
+
+| Leak class | All tasks | Issue-sourced |
+| --- | ---: | ---: |
+| `heading_prescriptive` | 0 | 0 |
+| `names_new_identifier` | 0 | 0 |
+| `names_changed_file` | 14 | 14 |
+| `clean` | 26 | 21 |
+
+The first two are zero by construction: a task naming a definition the fix
+introduces is excluded outright, and a surviving solution heading would mean
+the cut missed one. They are counted anyway, because a corpus that assumes its
+own filter is exhaustive has no way to discover that it is not.
+
 ### What is excluded, and why
 
 | Excluded | Reason |
@@ -142,6 +214,20 @@ between the first two are the ones OMH owns.
 | `hermes` | the manifest's control model and effort | the bare task plus the completion contract | none |
 | `omh` | the same control model and effort | the delegation prompt OMH composes, including the calibration `omh coding model-route` resolves | yes |
 | `omh_mixture` | the model the complexity routing resolves from the category mixture | the same delegation prompt | yes |
+
+**`omh_mixture` is excluded from the published run**, and for a reason that is
+not methodological. It exists to keep the cost number attributable, and it
+cannot: the complexity routing resolves `glm-5.3-ultrafast` for part of this
+corpus, and the shipped price table has no rate for that alias, so the arm's
+cost column reads `unknown`. An arm whose cost is unknown cannot serve as a
+cost attribution aid -- it would be three arms of spend to produce two arms of
+answer. No rate was invented for it: every rate in that table carries the
+vendor page and the month it was read, which is the only reason the table is
+worth anything.
+
+The arm stays in the lane and stays working. To publish it, add a documented
+rate for `glm-5.3-ultrafast` to `APPROX_PRICE_PER_MTOK` and run with
+`--arm omh_mixture`. That is the whole of what is missing.
 
 `omh_mixture` is labelled separately on purpose: it is the only arm where the
 routing is allowed to move, so a cost difference stays attributable to routing
@@ -277,7 +363,8 @@ into a direction it does not have.
   `omh_repair_attempts` more for each OMH arm, because a verification gate that
   fails buys the arm another turn. Forty tasks over all three arms schedule 120
   runs and can launch 200 calls, so a budget of 120 refuses that run rather
-  than starting something it cannot pay for. Budgeting on the worst case can
+  than starting something it cannot pay for. The two published arms are 80
+  runs and 120 calls. Budgeting on the worst case can
   refuse a run that would have come in under the limit, which is the direction
   a spending limit should err in. `smoke` enforces the identical check: it
   calls into the runner directly rather than through the matrix, and for a
@@ -319,13 +406,20 @@ python benchmarks/product-ab/v1/bench.py corpus --probe --max-tasks 40
 python benchmarks/product-ab/v1/bench.py smoke
 
 # The measured run. Both flags are required and neither has a default.
-# 40 tasks x 3 arms schedules 120 runs and can launch 200 calls, so the budget
-# has to cover 200 or the run is refused before it starts.
+# 40 tasks over the two published arms schedules 80 runs and can launch 120
+# calls, because the OMH arm may take a repair turn. The budget has to cover
+# 120 or the run is refused before it starts.
 python benchmarks/product-ab/v1/bench.py run \
-  --arm hermes --arm omh --arm omh_mixture \
-  --allow-paid-live --max-paid-calls 200 \
+  --arm hermes --arm omh \
+  --allow-paid-live --max-paid-calls 120 \
   --output benchmarks/product-ab/v1/artifacts/runs.jsonl
 
+# The headline table, on the subset a sentence about our own issues may use.
+python benchmarks/product-ab/v1/analyze.py \
+  --records benchmarks/product-ab/v1/artifacts/runs.jsonl \
+  --task-source linked_issue --table
+
+# The full table, both subsets together, labelled as such.
 python benchmarks/product-ab/v1/analyze.py \
   --records benchmarks/product-ab/v1/artifacts/runs.jsonl --table
 ```
@@ -335,3 +429,10 @@ python benchmarks/product-ab/v1/analyze.py \
 No measured run has been published yet. The lane, its corpus, and its offline
 pilot are in place; the table lands here, and in `MODEL_OPTI.md`, only after a
 run whose records this repository can point at. Nothing above is a result.
+
+When it does land, two tables land together and they are not interchangeable.
+The headline sentence is written from the issue-sourced subset with its `n`
+stated beside the number, because only those tasks were described before the
+fix existed. The full table follows, labelled, and carries both subsets. A
+number quoted from the full table is a number about a corpus that is partly
+its own authors' description of work they had already finished.

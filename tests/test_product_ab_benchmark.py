@@ -382,6 +382,50 @@ class SolutionLeakTests(unittest.TestCase):
         text = "src/routing/chat.py and tests/test_cli.py"
         self.assertEqual(corpus.redact_home_directories(text), text)
 
+    def test_the_leak_class_takes_the_worst_signal_that_fires(self) -> None:
+        self.assertEqual(
+            corpus.leak_class(
+                prescriptive_heading=True, introduced_names=["x"], named_paths=["y"]
+            ),
+            "heading_prescriptive",
+        )
+        self.assertEqual(
+            corpus.leak_class(
+                prescriptive_heading=False, introduced_names=["x"], named_paths=["y"]
+            ),
+            "names_new_identifier",
+        )
+        self.assertEqual(
+            corpus.leak_class(
+                prescriptive_heading=False, introduced_names=[], named_paths=["y"]
+            ),
+            "names_changed_file",
+        )
+        self.assertEqual(
+            corpus.leak_class(
+                prescriptive_heading=False, introduced_names=[], named_paths=[]
+            ),
+            "clean",
+        )
+        self.assertEqual(set(corpus.LEAK_CLASSES), {
+            "heading_prescriptive", "names_new_identifier",
+            "names_changed_file", "clean",
+        })
+
+    def test_a_surviving_solution_heading_is_detected(self) -> None:
+        """This should never fire, which is exactly why it is checked.
+
+        The cut matches a list of headings, and that list is not the set of
+        all headings an author might write.
+        """
+
+        self.assertTrue(
+            corpus.has_prescriptive_heading("## Problem\n\nx\n\n## How It Works\n\ny\n")
+        )
+        self.assertFalse(
+            corpus.has_prescriptive_heading("## Problem\n\nthe counter never resets\n")
+        )
+
     def test_naming_a_changed_file_is_recorded_and_not_excluded(self) -> None:
         """Pointing at the file that misbehaves is ordinary bug-report content."""
 
@@ -398,6 +442,93 @@ class PinnedCorpusTests(unittest.TestCase):
     def setUp(self) -> None:
         self.payload = corpus.load(LANE / "corpus" / "evaluation.json")
         self.tasks = list(self.payload["tasks"])
+
+    def test_every_task_carries_a_leak_class_from_the_declared_set(self) -> None:
+        for task in self.tasks:
+            with self.subTest(task=task["task_id"]):
+                self.assertIn(task["leak_class"], corpus.LEAK_CLASSES)
+
+    def test_no_task_text_kept_a_solution_heading(self) -> None:
+        """`heading_prescriptive` should be unreachable; the corpus says so.
+
+        If this ever counts above zero, `SOLUTION_HEADINGS` is short a heading
+        somebody actually writes, and the count is how that gets discovered.
+        """
+
+        self.assertEqual(
+            self.payload["selection"]["leak_class"].get("heading_prescriptive", 0), 0
+        )
+
+    def test_the_headline_subset_is_large_enough_to_quote(self) -> None:
+        """Only issue-sourced tasks may carry "solved N% of our own issues".
+
+        Their text was written before the fix, by someone describing a
+        problem. A pull-request body was written after it, by its author, and
+        no heading rule removes what a paraphrase leaks.
+        """
+
+        issue_sourced = [
+            task for task in self.tasks if task["task_source"] == "linked_issue"
+        ]
+        self.assertGreaterEqual(
+            len(issue_sourced),
+            25,
+            "the headline subset is the number under the most pressure; the "
+            "probe takes issue-sourced candidates first for this reason",
+        )
+        self.assertEqual(
+            self.payload["selection"]["task_source"]["linked_issue"],
+            len(issue_sourced),
+        )
+
+    def test_the_selection_records_what_it_probed_and_why_it_dropped(self) -> None:
+        """40 tasks without 51 probed and 11 rejected cannot be judged."""
+
+        selection = self.payload["selection"]
+        self.assertGreater(selection["probed"], len(self.tasks))
+        self.assertTrue(selection["probe_rejected"])
+        self.assertEqual(
+            selection["probed"] - sum(selection["probe_rejected"].values()),
+            len(self.tasks),
+        )
+
+    def test_the_readme_numbers_are_the_corpus_numbers(self) -> None:
+        """Counts written into prose drift, and then mislead about their own file.
+
+        Every number in the lane README's composition tables is re-derived
+        here from the corpus, so a rebuild that changes the corpus and leaves
+        the README alone fails rather than publishing a stale figure.
+        """
+
+        readme = (LANE / "README.md").read_text(encoding="utf-8")
+        selection = self.payload["selection"]
+        expected = {
+            "Merged pull requests read, newest first": selection["pull_requests_read"],
+            "Candidates probed": selection["probed"],
+            "— from a linked issue (the headline subset)":
+                selection["task_source"]["linked_issue"],
+            "— from a pull request body (secondary)":
+                selection["task_source"].get("pull_request_body", 0),
+            "Validator not green with the pull request's own fix":
+                selection["probe_rejected"].get(
+                    "validator_not_green_with_the_reference_fix", 0
+                ),
+            "Verdict depends on the workspace path":
+                selection["probe_rejected"].get("verdict_depends_on_workspace_path", 0),
+            "Regression set already red at the merge base":
+                selection["probe_rejected"].get(
+                    "regression_set_not_green_at_merge_base", 0
+                ),
+        }
+        for label, value in expected.items():
+            with self.subTest(row=label):
+                self.assertIn(
+                    f"| {label} | {value} |",
+                    readme,
+                    f"the README row {label!r} does not say {value}",
+                )
+        self.assertIn(f"| **Tasks kept** | **{len(self.tasks)}** |", readme)
+        self.assertIn(self.payload["corpus_digest"][:12], readme)
 
     def test_every_task_records_which_of_its_own_files_it_names(self) -> None:
         """A weaker leak, recorded rather than excluded, so a reader can subset."""
@@ -591,11 +722,47 @@ class GradingTests(unittest.TestCase):
                 weakened.read_text(encoding="utf-8"), "# every assertion deleted\n"
             )
             self.assertEqual(
-                weakened.read_text(encoding="utf-8"),
-                repo_lib.file_at(ROOT, str(task["merge_base"]), module),
-                "restored from the merge base: the question is whether the "
-                "candidate broke what already worked",
+                weakened.read_bytes(),
+                repo_lib.file_bytes(ROOT, str(task["merge_base"]), module),
+                "restored byte for byte from the merge base: the question is "
+                "whether the candidate broke what already worked, and a "
+                "newline-translated copy would not answer it on every platform",
             )
+
+    def test_a_binary_blob_does_not_crash_the_reader(self) -> None:
+        """Widening the corpus read past the recent pull requests found this.
+
+        `git show` in text mode decodes with the ambient codec, so the first
+        binary blob in this repository's history raised `UnicodeDecodeError`
+        from inside `subprocess` and took the whole corpus build with it.
+        Bytes are read; text is a decode that may decline.
+        """
+
+        _skip_without_history(self)
+        head = repo_lib.resolve(ROOT, "HEAD")
+        with TemporaryDirectory() as root:
+            work = Path(root)
+            subprocess.run(["git", "init", "--quiet", str(work)], check=True, timeout=120)
+            binary = work / "logo.png"
+            binary.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x01\x02\xff")
+            for argv in (
+                ["git", "-C", str(work), "add", "logo.png"],
+                ["git", "-C", str(work), "-c", "user.name=t", "-c", "user.email=t@t",
+                 "commit", "--quiet", "-m", "binary"],
+            ):
+                subprocess.run(argv, check=True, timeout=120)
+            commit = repo_lib.resolve(work, "HEAD")
+            self.assertEqual(
+                repo_lib.file_bytes(work, commit, "logo.png"),
+                b"\x89PNG\r\n\x1a\n\x00\x01\x02\xff",
+            )
+            self.assertIsNone(
+                repo_lib.file_at(work, commit, "logo.png"),
+                "a blob that is not UTF-8 text is not text, and says so",
+            )
+            self.assertNotEqual(repo_lib.blob_digest(work, commit, "logo.png"), "-")
+            self.assertEqual(repo_lib.blob_digest(work, commit, "absent.png"), "-")
+        self.assertIsNotNone(repo_lib.file_at(ROOT, head, "README.md"))
 
     def test_a_commit_this_checkout_cannot_read_says_so(self) -> None:
         """"Vanished from the object store" sent a reader hunting for data loss.
@@ -1002,6 +1169,62 @@ class ReportTests(unittest.TestCase):
                 {"failure_receipt": {"classification": "rate_limited"}}
             )
         )
+
+    def test_a_report_can_be_restricted_to_the_headline_subset(self) -> None:
+        """Only issue-sourced tasks may carry a sentence about our own issues.
+
+        A pull-request body is written after the fix by its author, and no
+        heading rule removes what a paraphrase leaks, so the headline has to
+        be able to name the tasks that actually came from issues.
+        """
+
+        payload = {
+            "tasks": [
+                {"task_id": "PR-1", "task_source": "linked_issue", "leak_class": "clean"},
+                {"task_id": "PR-2", "task_source": "pull_request_body", "leak_class": "clean"},
+                {"task_id": "PR-3", "task_source": "linked_issue",
+                 "leak_class": "names_changed_file"},
+            ]
+        }
+        self.assertEqual(
+            report.subset_task_ids(payload, task_source="linked_issue"),
+            {"PR-1", "PR-3"},
+        )
+        self.assertEqual(
+            report.subset_task_ids(payload, leak_classes=["clean"]), {"PR-1", "PR-2"}
+        )
+        self.assertEqual(
+            report.subset_task_ids(
+                payload, task_source="linked_issue", leak_classes=["clean"]
+            ),
+            {"PR-1"},
+        )
+
+    def test_a_subset_report_states_which_tasks_it_is_about(self) -> None:
+        with TemporaryDirectory() as root:
+            produced = report.analyze(
+                records_path=self._write(root),
+                manifest=lane.load_object(LANE / "manifest.json"),
+                repetitions=200,
+                seed=1,
+                only_task_ids=["PR-1", "PR-2"],
+                subset_label="task_source=linked_issue",
+            )
+        self.assertEqual(produced["subset"], "task_source=linked_issue")
+        self.assertEqual(produced["subset_task_count"], 2)
+        for summary in produced["arms"].values():
+            self.assertEqual(summary["tasks"], 2)
+
+    def test_a_subset_that_matches_no_record_is_refused(self) -> None:
+        with TemporaryDirectory() as root:
+            with self.assertRaisesRegex(ValueError, "no run record is in the subset"):
+                report.analyze(
+                    records_path=self._write(root),
+                    manifest=lane.load_object(LANE / "manifest.json"),
+                    repetitions=200,
+                    only_task_ids=["PR-999"],
+                    subset_label="nothing",
+                )
 
     def test_the_report_pairs_every_arm_against_the_baseline(self) -> None:
         with TemporaryDirectory() as root:

@@ -69,7 +69,14 @@ def main(argv: list[str] | None = None) -> int:
     corpus_parser.add_argument("--repository", type=Path, default=lane.REPO_ROOT)
     corpus_parser.add_argument("--repository-name", default="rlaope/oh-my-hermes")
     corpus_parser.add_argument("--output", type=Path, default=DEFAULT_CORPUS)
-    corpus_parser.add_argument("--pull-request-limit", type=int, default=120)
+    corpus_parser.add_argument(
+        "--pull-request-limit",
+        type=int,
+        default=800,
+        help="How many merged pull requests to read, newest first. The "
+        "issue-sourced count stops growing at 800 on this repository; "
+        "reading further costs gh calls and adds no task.",
+    )
     corpus_parser.add_argument("--max-tasks", type=int)
     corpus_parser.add_argument("--build", action="store_true", help="Read GitHub and rewrite the corpus.")
     corpus_parser.add_argument("--verify", action="store_true", help="Re-derive every pinned digest.")

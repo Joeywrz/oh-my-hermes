@@ -137,6 +137,91 @@ Rules:
   error payload, so a wrapper can ask for a plan before `prepare` refuses the
   freeze, and can always parse the answer as JSON.
 
+## Document ranges as units
+
+A long document read is a fanout whose units are ranges, not files.
+`omh_document_plan` (the OMH plugin tool) writes a `document_chunk_plan/v1`
+file with numbered ranges, each carrying a page or character span, an
+estimated size, and the `read_file` window that reaches it. `fanout prepare`
+can take that file instead of a hand-written unit list:
+
+```sh
+omh coding fanout prepare --from-document-plan ~/.omh/documents/<plan_id>/plan.json \
+  [--goal <words...>] [--report-dir reports/paper] [--owner <profile>] [--record]
+```
+
+The derivation is deterministic and reads only the plan file:
+
+- **One unit per range.** `range-1` .. `range-N` (zero-padded past nine),
+  titled with the plan's own per-range brief, no `depends_on` edges (ranges
+  are disjoint spans), owner from `--owner` or unassigned.
+- **File scope is the range's report.** Each unit owns exactly
+  `<report-dir>/<unit_id>.md` (default `reports/document-plan-<plan_id>/`),
+  so boundaries never overlap and the merge order is trivial.
+- **Input budget from the plan.** Each unit's `input_budget` is the plan's
+  per-range character budget (raised to the range's own estimate when one
+  dense range exceeds it), the matching token estimate, and one
+  `source_ranges` entry naming the document, the span, the `read_file`
+  `offset`/`limit`/`end_line`, the range's estimated characters, and its
+  digest.
+- **Spawn plan.** A plan of more than four ranges is a split wider than the
+  spawn-plan threshold, so the payload carries a spawn plan derived from the
+  plan's facts (its id, range count, budget, and report directory); a
+  narrower plan carries none. `--goal` defaults to a sentence naming the
+  document, the range count, and the plan id.
+- **Refusals.** A file that is not a `document_chunk_plan/v1`, has no
+  ranges, a ledger that does not cover its ranges, or a range without a read
+  window is refused before anything is derived; `prepare` exits `2` and
+  freezes nothing. One range redirects to `omh coding run` exactly as a
+  one-unit list does.
+- **Verification is the operator's.** Derived units declare no
+  `verification_commands`; add them by editing the frozen units or by
+  freezing from a hand-written list instead.
+
+Dispatch is unchanged: the same opt-in `fanout dispatch`, the same worktrees,
+the same journal. What changes is the prompt each unit receives.
+
+### Per-unit input budget
+
+Any unit, derived or hand-written, may declare an optional `input_budget`:
+
+```json
+{
+  "unit_id": "range-1",
+  "file_scope": ["reports/paper/range-1.md"],
+  "input_budget": {
+    "chars": 100000,
+    "tokens": 25000,
+    "source_ranges": [
+      {"source": "arXiv:2401.00001", "span": "pages 1-62: Introduction",
+       "offset": 1, "limit": 1240, "end_line": 1240,
+       "estimated_chars": 99200, "digest": "5e5d52ce72f4"}
+    ]
+  }
+}
+```
+
+Rules, all applied at freeze time:
+
+- `chars` is required and is the ceiling the unit may read (at least 1, at
+  most 10,000,000). `tokens` is optional and must sit inside the sanity
+  window: never more tokens than characters, never fewer than one token per
+  sixteen characters. A pair outside it is a typo, not a budget.
+- `source_ranges` is optional, at most 64 entries, each an object with
+  `source` and `span` (required, bounded) plus optional `offset`, `limit`,
+  `end_line` (not before `offset`), `estimated_chars`, and a short
+  alphanumeric `digest`. Unknown keys are refused. The entries' estimates may
+  not add up to more than `chars`, or the budget is already broken at freeze.
+- The frozen unit carries the budget as `input_budget` with
+  `schema_version: fanout_unit_input_budget/v1` and a claim boundary; a unit
+  that declares none carries no key and its contract and prompt stay
+  byte-identical to one frozen before the field existed.
+- The executor prompt states the budget and the ranges after the unit's
+  boundary lines: the ceiling in characters (and tokens when declared), then
+  one line per source range with its `read_file` window. An input budget is
+  the prepared ceiling on what one unit may read; it is not evidence that the
+  unit read the range, stayed within the budget, or covered it.
+
 ## Dispatch bridge semantics
 
 - **Concurrency is fixed by default and adaptive only when requested.** The dispatch pool width comes from
@@ -1042,6 +1127,8 @@ probed source reports a status: `present`, `absent`, `unreadable`, or
 # units.json is either a JSON list of units, or an object:
 #   {"units": [...], "spawn_plan": {...}}   <- spawn_plan required above 4 units
 omh coding fanout prepare --goal <words...> --units units.json [--record] [--source discord]
+omh coding fanout prepare --from-document-plan plan.json [--goal <words...>] \
+  [--report-dir <dir>] [--owner <profile>] [--record]   # one unit per document range
 omh coding fanout validate --units units.json   # also reports spawn_plan_required
 omh coding fanout show <fanout-id> [--limit 20] [--full]
 omh coding fanout brief [<fanout-id>] [--json]

@@ -14,14 +14,23 @@ from .fanout_contracts import (
     FANOUT_SPAWN_PLAN_FIELDS,
     FANOUT_SPAWN_PLAN_SCHEMA_VERSION,
     FANOUT_SPAWN_PLAN_THRESHOLD,
+    FANOUT_UNIT_INPUT_BUDGET_CLAIM_BOUNDARY,
+    FANOUT_UNIT_INPUT_BUDGET_SCHEMA_VERSION,
     FANOUT_UNIT_OWNERS,
     FanoutContractError,
+    MAX_CHARS_PER_TOKEN,
     MAX_SPAWN_PLAN_FIELD_CHARS,
     MAX_UNIT_VERIFICATION_CHECK_ID_CHARS,
     MAX_UNIT_VERIFICATION_CHECK_TIMEOUT,
     MAX_UNIT_VERIFICATION_COMMAND_CHARS,
+    MAX_UNIT_INPUT_BUDGET_CHARS,
+    MAX_UNIT_SOURCE_RANGE_DIGEST_CHARS,
+    MAX_UNIT_SOURCE_RANGE_SOURCE_CHARS,
+    MAX_UNIT_SOURCE_RANGE_SPAN_CHARS,
+    MAX_UNIT_SOURCE_RANGES,
     MAX_UNIT_VERIFICATION_COMMANDS,
     PREPARED_NOT_OBSERVED,
+    UNIT_SOURCE_RANGE_KEYS,
     VERIFICATION_CHECK_ID_PATTERN,
     VERIFICATION_CHECK_CLAIM_SCOPES,
     VERIFICATION_CHECK_RESOURCE_CLASS_PATTERN,
@@ -432,7 +441,113 @@ def _normalized_unit(unit: Mapping[str, object], index: int) -> dict[str, object
         "verification_checks": checks,
         "input_representation": list(normalize_input_representation(unit.get("input_representation", "text_only"))),
         "transformation": dict(unit.get("transformation") or {}),
+        # How much source text the unit may read and from which ranges; None
+        # when undeclared so existing contracts stay byte-identical.
+        "input_budget": _normalized_input_budget(unit.get("input_budget"), index),
     }
+
+
+def _budget_int(mapping: Mapping[str, object], key: str, *, index: int, where: str, minimum: int, maximum: int) -> int | None:
+    value = mapping.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise FanoutContractError(f"unit at index {index} {where} {key} must be an integer")
+    if value < minimum:
+        raise FanoutContractError(f"unit at index {index} {where} {key} must be at least {minimum}")
+    if value > maximum:
+        raise FanoutContractError(f"unit at index {index} {where} {key} is capped at {maximum}")
+    return value
+
+
+def _normalized_source_range(value: object, index: int, position: int) -> dict[str, object]:
+    where = f"input_budget.source_ranges[{position}]"
+    if not isinstance(value, Mapping):
+        raise FanoutContractError(f"unit at index {index} {where} must be an object")
+    unknown = sorted(str(key) for key in value if str(key) not in UNIT_SOURCE_RANGE_KEYS)
+    if unknown:
+        raise FanoutContractError(
+            f"unit at index {index} {where} has unknown keys {unknown}; allowed: {', '.join(UNIT_SOURCE_RANGE_KEYS)}"
+        )
+    source = " ".join(str(value.get("source", "") or "").split())
+    span = " ".join(str(value.get("span", "") or "").split())
+    if not source or not span:
+        raise FanoutContractError(f"unit at index {index} {where} needs a source and a span")
+    if len(source) > MAX_UNIT_SOURCE_RANGE_SOURCE_CHARS or len(span) > MAX_UNIT_SOURCE_RANGE_SPAN_CHARS:
+        raise FanoutContractError(f"unit at index {index} {where} source or span is over its length cap")
+    normalized: dict[str, object] = {"source": source, "span": span}
+    offset = _budget_int(value, "offset", index=index, where=where, minimum=1, maximum=MAX_UNIT_INPUT_BUDGET_CHARS)
+    limit = _budget_int(value, "limit", index=index, where=where, minimum=1, maximum=MAX_UNIT_INPUT_BUDGET_CHARS)
+    end_line = _budget_int(value, "end_line", index=index, where=where, minimum=1, maximum=MAX_UNIT_INPUT_BUDGET_CHARS)
+    estimated = _budget_int(value, "estimated_chars", index=index, where=where, minimum=0, maximum=MAX_UNIT_INPUT_BUDGET_CHARS)
+    if end_line is not None and offset is not None and end_line < offset:
+        raise FanoutContractError(f"unit at index {index} {where} end_line is before its offset")
+    for key, number in (("offset", offset), ("limit", limit), ("end_line", end_line), ("estimated_chars", estimated)):
+        if number is not None:
+            normalized[key] = number
+    digest = str(value.get("digest", "") or "").strip()
+    if digest:
+        if len(digest) > MAX_UNIT_SOURCE_RANGE_DIGEST_CHARS or not digest.isalnum():
+            raise FanoutContractError(f"unit at index {index} {where} digest must be a short alphanumeric id")
+        normalized["digest"] = digest
+    return normalized
+
+
+def _normalized_input_budget(value: object, index: int) -> dict[str, object] | None:
+    """The per-unit input budget in its frozen shape, or None when undeclared.
+
+    `chars` is the ceiling; `tokens` may accompany it only inside the sanity
+    window (never more tokens than characters, never fewer than one token per
+    sixteen); `source_ranges` name what the unit reads and may not add up to
+    more than the ceiling, or the budget would already be broken at freeze.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise FanoutContractError(f"unit at index {index} input_budget must be an object")
+    unknown = sorted(str(key) for key in value if str(key) not in ("chars", "tokens", "source_ranges"))
+    if unknown:
+        raise FanoutContractError(
+            f"unit at index {index} input_budget has unknown keys {unknown}; allowed: chars, tokens, source_ranges"
+        )
+    chars = _budget_int(value, "chars", index=index, where="input_budget", minimum=1, maximum=MAX_UNIT_INPUT_BUDGET_CHARS)
+    if chars is None:
+        raise FanoutContractError(f"unit at index {index} input_budget needs chars: the ceiling the unit may read")
+    tokens = _budget_int(value, "tokens", index=index, where="input_budget", minimum=1, maximum=MAX_UNIT_INPUT_BUDGET_CHARS)
+    if tokens is not None:
+        if tokens > chars:
+            raise FanoutContractError(
+                f"unit at index {index} input_budget declares more tokens ({tokens}) than characters ({chars})"
+            )
+        if tokens * MAX_CHARS_PER_TOKEN < chars:
+            raise FanoutContractError(
+                f"unit at index {index} input_budget tokens ({tokens}) are fewer than one per "
+                f"{MAX_CHARS_PER_TOKEN} characters of the {chars}-char budget"
+            )
+    raw_ranges = value.get("source_ranges")
+    ranges: list[dict[str, object]] = []
+    if raw_ranges is not None:
+        if not isinstance(raw_ranges, (list, tuple)):
+            raise FanoutContractError(f"unit at index {index} input_budget.source_ranges must be a list")
+        if len(raw_ranges) > MAX_UNIT_SOURCE_RANGES:
+            raise FanoutContractError(
+                f"unit at index {index} input_budget.source_ranges is capped at {MAX_UNIT_SOURCE_RANGES} ranges"
+            )
+        ranges = [_normalized_source_range(item, index, position) for position, item in enumerate(raw_ranges)]
+        total = sum(int(item.get("estimated_chars", 0)) for item in ranges)
+        if total > chars:
+            raise FanoutContractError(
+                f"unit at index {index} input_budget.source_ranges estimate {total} chars, over the {chars}-char budget"
+            )
+    normalized: dict[str, object] = {
+        "schema_version": FANOUT_UNIT_INPUT_BUDGET_SCHEMA_VERSION,
+        "chars": chars,
+    }
+    if tokens is not None:
+        normalized["tokens"] = tokens
+    normalized["source_ranges"] = ranges
+    normalized["claim_boundary"] = FANOUT_UNIT_INPUT_BUDGET_CLAIM_BOUNDARY
+    return normalized
 
 
 # Declared skill invocations are the one operator-typed string that reaches
@@ -713,4 +828,8 @@ def _contract_unit(
     # And its structured sibling rides only when declared, for the same reason.
     if unit.get("verification_checks"):
         contract_unit["verification_checks"] = [dict(check) for check in unit["verification_checks"]]
+    # The input budget rides the frozen unit only when declared, so the
+    # executor prompt can state the range and the ceiling for that unit.
+    if unit.get("input_budget"):
+        contract_unit["input_budget"] = deepcopy(dict(unit["input_budget"]))
     return contract_unit

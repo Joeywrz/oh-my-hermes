@@ -201,6 +201,14 @@ into a direction it does not have.
 * **No paid call happens without `--allow-paid-live` and `--max-paid-calls`.**
   Without them the harness runs the whole pipeline — worktrees, routing,
   validator, grading — and never invokes Hermes.
+* **The budget counts invocations, not runs.** `--max-paid-calls` is compared
+  against the worst case, which is one call per scheduled run plus
+  `omh_repair_attempts` more for each OMH arm, because a verification gate that
+  fails buys the arm another turn. Forty tasks over all three arms schedule 120
+  runs and can launch 200 calls, so a budget of 120 refuses that run rather
+  than starting something it cannot pay for. Budgeting on the worst case can
+  refuse a run that would have come in under the limit, which is the direction
+  a spending limit should err in.
 * OMH core makes no LLM, API, or network call. This lane is benchmark tooling
   under `benchmarks/`, and it is allowed to run `gh`, `git`, and `hermes` as
   subprocesses. The only network reads are in `lib/github.py`, and they happen
@@ -238,9 +246,11 @@ python benchmarks/product-ab/v1/bench.py corpus --probe --max-tasks 40
 python benchmarks/product-ab/v1/bench.py smoke
 
 # The measured run. Both flags are required and neither has a default.
+# 40 tasks x 3 arms schedules 120 runs and can launch 200 calls, so the budget
+# has to cover 200 or the run is refused before it starts.
 python benchmarks/product-ab/v1/bench.py run \
   --arm hermes --arm omh --arm omh_mixture \
-  --allow-paid-live --max-paid-calls 120 \
+  --allow-paid-live --max-paid-calls 200 \
   --output benchmarks/product-ab/v1/artifacts/runs.jsonl
 
 python benchmarks/product-ab/v1/analyze.py \

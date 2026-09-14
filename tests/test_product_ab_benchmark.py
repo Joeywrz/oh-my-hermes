@@ -515,6 +515,30 @@ class MatrixTests(unittest.TestCase):
         self.assertEqual(mixture["id"], "glm-5.3-ultrafast")
         self.assertEqual(mixture["provider"], "og")
 
+    def test_the_budget_counts_repair_turns_not_only_scheduled_runs(self) -> None:
+        """`--max-paid-calls` is a spending limit, so it counts invocations.
+
+        Two tasks over the two OMH arms schedule four runs and can launch eight
+        model calls, because a verification gate that fails buys each of them a
+        repair turn. A budget compared against the scheduled count would let a
+        run through at half the money it can actually spend.
+        """
+
+        manifest = lane.load_object(LANE / "manifest.json")
+        self.assertEqual(int(manifest["execution"]["omh_repair_attempts"]), 1)
+        self.assertEqual(
+            runner.worst_case_paid_calls(manifest, 2, ["hermes"]),
+            2,
+            "the bare Hermes arm gets one attempt and no repair turn",
+        )
+        self.assertEqual(
+            runner.worst_case_paid_calls(manifest, 2, ["omh", "omh_mixture"]), 8
+        )
+        self.assertEqual(
+            runner.worst_case_paid_calls(manifest, 40, ["hermes", "omh", "omh_mixture"]),
+            200,
+        )
+
     def test_a_live_matrix_refuses_to_exceed_its_explicit_budget(self) -> None:
         with self.assertRaisesRegex(ValueError, "exceed the explicit budget"):
             runner.run_matrix(

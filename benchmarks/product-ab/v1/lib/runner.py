@@ -227,6 +227,26 @@ def doctor(
     }
 
 
+def worst_case_paid_calls(
+    manifest: Mapping[str, Any], task_count: int, selected_arms: Sequence[str]
+) -> int:
+    """Every model invocation the matrix could launch, repair turns included.
+
+    `--max-paid-calls` is a spending limit, so it has to be compared against
+    invocations rather than against graded runs. The two are not the same
+    number: an OMH arm whose verification gate fails gets `omh_repair_attempts`
+    further turns, and each one is a paid call the scheduled count never saw.
+    Budgeting on the worst case can refuse a run that would in fact have come
+    in under the limit, which is the direction a spending limit should err in.
+    """
+
+    repairs = int(dict(manifest.get("execution") or {}).get("omh_repair_attempts", 0))
+    per_task = 0
+    for arm in selected_arms:
+        per_task += 1 + (repairs if arm in {"omh", "omh_mixture"} else 0)
+    return task_count * per_task
+
+
 def arm_order(task_index: int, selected: Sequence[str]) -> list[str]:
     """Counterbalanced order: rotate the arms one position per task."""
 
@@ -480,9 +500,12 @@ def run_matrix(
     if task_limit is not None:
         tasks = tasks[:task_limit]
     scheduled = len(tasks) * len(selected_arms)
-    if live and (max_paid_calls < 1 or scheduled > max_paid_calls):
+    worst_case = worst_case_paid_calls(manifest, len(tasks), selected_arms)
+    if live and (max_paid_calls < 1 or worst_case > max_paid_calls):
         raise ValueError(
-            f"scheduled paid calls ({scheduled}) exceed the explicit budget ({max_paid_calls})"
+            f"paid calls in the worst case ({worst_case}) exceed the explicit "
+            f"budget ({max_paid_calls}); {scheduled} runs are scheduled and an "
+            f"OMH arm may spend one repair turn on top of its own"
         )
     records: list[dict[str, Any]] = []
     for index, task in enumerate(tasks):
@@ -511,6 +534,7 @@ def run_matrix(
         "arms": list(selected_arms),
         "tasks": len(tasks),
         "scheduled": scheduled,
+        "paid_calls_worst_case": worst_case,
         "graded": len(records),
         "passed": sum(bool(record["grade"]["pass"]) for record in records),
         "failed_runs": len(failures),

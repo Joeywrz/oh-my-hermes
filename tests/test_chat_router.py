@@ -1138,7 +1138,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("회의록을 예쁜 이미지로 만들어줘", "img-summary", "prepare_visual_prompt_card"),
             ("PR 요약 이미지로 만들어줘", "img-summary", "prepare_visual_prompt_card"),
             ("논문 요약해줘", "paper-learning", "prepare_paper_learning"),
-            ("이 PDF 요약해줘", "materials-package", "prepare_material_package"),
+            # A bare PDF summary is a reading request: the long-document lane owns
+            # it so a large file gets page ranges instead of a truncated read.
+            ("이 PDF 요약해줘", "long-document-reading", "prepare_long_document_reading"),
             ("README 요약해줘", "oh-my-hermes", "answer_file_lookup"),
             ("이 파일 요약해줘", "oh-my-hermes", "answer_file_lookup"),
         )

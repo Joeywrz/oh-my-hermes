@@ -5226,6 +5226,15 @@ RESEARCH_DEPARTMENT_GUARD = RoutingGuardRule(
     why="Matched guard/trigger metadata; recurring research operations should prepare a Scout/Analyst/Briefer research department plan.",
     activation_status="active",
 )
+LONG_DOCUMENT_READING_GUARD = RoutingGuardRule(
+    id="long_document_reading_before_paper_or_materials",
+    rule="Requests to read, summarize, or process a document past one read budget should route to long-document-reading before paper tutoring or file packaging.",
+    matched_label="guard:long_document_reading",
+    preferred_skills=("long-document-reading",),
+    score_boost=44,
+    why="Matched a long-document reading cue; the document needs a page-count probe, page ranges sized to the read budget, and a covered / next / missing ledger before any coverage claim.",
+    activation_status="active",
+)
 PAPER_LEARNING_GUARD = RoutingGuardRule(
     id="paper_learning_before_materials_or_research_ops",
     rule="One-off paper or paper-PDF explanation requests should route to paper-learning before generic file packaging or research ops.",
@@ -5638,9 +5647,17 @@ def _active_routing_guard_rules_cached(
         query_tokens,
         visual_summary_applies=visual_summary_applies,
     )
+    long_document_reading_applies = (
+        not delivery_cycle_applies
+        and not workflow_learning_applies
+        and _long_document_reading_guard_applies(normalized_query, query_tokens)
+    )
+    if long_document_reading_applies:
+        rules.append(LONG_DOCUMENT_READING_GUARD)
     paper_learning_applies = (
         not delivery_cycle_applies
         and not workflow_learning_applies
+        and not long_document_reading_applies
         and _paper_learning_guard_applies(
             normalized_query,
             query_tokens,
@@ -5716,6 +5733,7 @@ def _active_routing_guard_rules_cached(
         workspace_file_operator_applies
         and not feedback_before_coding_applies
         and not paper_learning_applies
+        and not long_document_reading_applies
         and not deliverable_package_applies
     ):
         rules.append(WORKSPACE_FILE_OPERATOR_GUARD)
@@ -5727,6 +5745,7 @@ def _active_routing_guard_rules_cached(
         )
         and not workspace_file_operator_applies
         and not paper_learning_applies
+        and not long_document_reading_applies
         and not deliverable_package_applies
     ):
         rules.append(MATERIALS_PACKAGE_GUARD)
@@ -6674,6 +6693,165 @@ def _paper_learning_guard_applies(
     if capability_question and paper_context and not search_only:
         return True
     return (paper_context or supplied_pdf_context) and explanation_context and not search_only
+
+
+# Complete phrases that name reading a document too big for one read. The
+# generic words inside them are held back from bare-token scoring in
+# `recommend._WHOLE_PHRASE_ONLY_TRIGGER_TOKENS`, so these phrases and the
+# noun + size + verb rule below are the whole lane.
+_LONG_DOCUMENT_EXPLICIT_PHRASES = (
+    "long-document-reading",
+    "long document reading",
+    "long document",
+    "very large pdf",
+    "very long pdf",
+    "large pdf",
+    "huge pdf",
+    "long pdf",
+    "hundreds of pages",
+    "whole document",
+    "entire document",
+    "whole pdf",
+    "entire pdf",
+    "page by page",
+    "chunk this pdf",
+    "pdf in chunks",
+    "pdf too big",
+    "pdf too large",
+    "read this pdf",
+    "summarize this pdf",
+    "process this pdf",
+    "go through this pdf",
+    "read this document",
+    "summarize this document",
+    "process this document",
+    "read this manual",
+    "summarize this manual",
+    "read this contract",
+    "summarize this contract",
+    "review this contract",
+    "read this annual report",
+    "summarize this annual report",
+    "긴 문서",
+    "긴 pdf",
+    "대용량 pdf",
+    "pdf 전체",
+    "문서 전체",
+    "이 pdf 요약",
+    "이 pdf 읽어",
+    "이 문서 요약",
+    "이 문서 읽어",
+    "매뉴얼 요약",
+    "계약서 요약",
+    "계약서 읽어",
+    "연간 보고서 요약",
+    "長い文書",
+    "長いpdf",
+    "大きなpdf",
+    "このpdfを要約",
+    "この文書を要約",
+    "この契約書を要約",
+    "マニュアルを要約",
+    "长文档",
+    "很长的pdf",
+    "大pdf",
+    "总结这个pdf",
+    "总结这份文档",
+    "总结这份合同",
+    "总结这本手册",
+)
+# Anything here is a sibling's job: paper tutoring, file production, office
+# conversion, or media extraction. Single words are matched as tokens so
+# "paper" does not fire on "newspaper".
+_LONG_DOCUMENT_BLOCKER_PHRASES = (
+    "into a ppt",
+    "into slides",
+    "into a deck",
+    "slide deck",
+    "into csv",
+    "to csv",
+    "action items",
+    "word document",
+    "compare these",
+    "compare two",
+    "create a pdf",
+    "make a pdf",
+    "generate a pdf",
+    "pdf report",
+    "arxiv",
+    "논문",
+    "論文",
+    "论文",
+    "ppt로",
+    "발표자료",
+    "액션아이템",
+)
+_LONG_DOCUMENT_BLOCKER_TOKENS = _normalized_token_set(
+    {
+        "paper",
+        "papers",
+        "ppt",
+        "pptx",
+        "deck",
+        "slides",
+        "csv",
+        "xlsx",
+        "spreadsheet",
+        "convert",
+        "export",
+        "merge",
+        "screenshot",
+        "receipt",
+        "image",
+        "audio",
+        "video",
+        "youtube",
+    }
+)
+_LONG_DOCUMENT_NOUN_TOKENS = _normalized_token_set(
+    {"pdf", "document", "manual", "contract", "handbook", "specification", "spec", "thesis", "문서", "계약서", "매뉴얼"}
+)
+_LONG_DOCUMENT_SIZE_TOKENS = _normalized_token_set(
+    {"large", "huge", "long", "massive", "giant", "enormous", "big", "lengthy", "대용량"}
+)
+_LONG_DOCUMENT_READ_TOKENS = _normalized_token_set(
+    {"read", "summarize", "summary", "summarise", "process", "digest", "explain", "review", "walk", "요약", "정리", "읽어"}
+)
+# A page count that cannot fit one read at typical prose density; below it
+# the document is one `read_file` call and no ledger is needed.
+_LONG_DOCUMENT_PAGE_COUNT_FLOOR = 60
+# Query tokens arrive NFKD-folded, so a Hangul literal only compares after the
+# same fold; `normalized_phrase` is that fold.
+_LONG_DOCUMENT_PAGE_WORD_KO = normalized_phrase("페이지")
+_LONG_DOCUMENT_READ_PREFIXES_KO = tuple(normalized_phrase(word) for word in ("요약", "읽어", "정리"))
+
+
+def _long_document_page_count_cue(query_tokens: set[str]) -> bool:
+    page_word = ({"page", "pages"} & query_tokens) or any(
+        token.endswith(_LONG_DOCUMENT_PAGE_WORD_KO) for token in query_tokens
+    )
+    if not page_word:
+        return False
+    for token in query_tokens:
+        digits = token.removesuffix(_LONG_DOCUMENT_PAGE_WORD_KO)
+        if digits.isdigit() and int(digits) >= _LONG_DOCUMENT_PAGE_COUNT_FLOOR:
+            return True
+    return False
+
+
+def _long_document_reading_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:
+    if _contains_phrase(normalized_query, _LONG_DOCUMENT_BLOCKER_PHRASES):
+        return False
+    if _LONG_DOCUMENT_BLOCKER_TOKENS & query_tokens:
+        return False
+    if _contains_phrase(normalized_query, _LONG_DOCUMENT_EXPLICIT_PHRASES):
+        return True
+    document_noun = bool(_LONG_DOCUMENT_NOUN_TOKENS & query_tokens)
+    size_cue = bool(_LONG_DOCUMENT_SIZE_TOKENS & query_tokens) or _long_document_page_count_cue(query_tokens)
+    reading_verb = bool(_LONG_DOCUMENT_READ_TOKENS & query_tokens) or any(
+        token.startswith(_LONG_DOCUMENT_READ_PREFIXES_KO) for token in query_tokens
+    )
+    return document_noun and size_cue and reading_verb
 
 
 def _paper_validation_or_citation_requested(normalized_query: str, query_tokens: set[str]) -> bool:

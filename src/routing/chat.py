@@ -3104,6 +3104,47 @@ _OPERATOR_SURFACE_FAST_PATH_RULES: tuple[tuple[str, tuple[str, ...], str, str], 
         "Clear thumbnail or release-thumbnail request; prepare the image prompt-card workflow without scoring every workflow.",
     ),
     (
+        "long-document-reading",
+        (
+            "long-document-reading",
+            "long document reading",
+            "very large pdf",
+            "very long pdf",
+            "huge pdf",
+            "hundreds of pages",
+            "page by page",
+            "chunk this pdf",
+            "pdf in chunks",
+            "pdf too big",
+            "pdf too large",
+            "summarize this pdf",
+            "read this pdf",
+            "process this pdf",
+            "go through this pdf",
+            "summarize this document",
+            "read this document",
+            "process this document",
+            "summarize this manual",
+            "read this manual",
+            "summarize this contract",
+            "read this contract",
+            "summarize this annual report",
+            "read this annual report",
+            "긴 문서",
+            "대용량 pdf",
+            "이 pdf 요약",
+            "이 문서 요약",
+            "계약서 요약",
+            "매뉴얼 요약",
+            "このpdfを要約",
+            "この文書を要約",
+            "总结这个pdf",
+            "总结这份文档",
+        ),
+        "operator_surface_fast_path:long_document",
+        "Clear large-document reading request; prepare the page-anchored chunk ledger without scoring every workflow.",
+    ),
+    (
         "paper-learning",
         (
             "paper summary",
@@ -4375,6 +4416,10 @@ def _operator_surface_fast_path_decision(
         or _is_paper_learning_materials_request(routing_message)
     ):
         return None
+    # A sibling's cue inside a long-document phrase hands the message to
+    # scoring, where the guard order (paper, materials, media) decides.
+    if selected_skill == "long-document-reading" and _is_long_document_sibling_request(routing_message):
+        return None
     if selected_skill == "command-operator" and _is_command_operator_failure_or_coding_request(routing_message):
         return None
     if selected_skill == "connector-operator" and _is_connector_operator_setup_or_gateway_request(routing_message):
@@ -4614,6 +4659,8 @@ def _operator_surface_extra_markers(skill: str, phrase: str) -> tuple[str, ...]:
         return ("guard:img_summary",)
     if skill == "paper-learning":
         return ("guard:paper_learning",)
+    if skill == "long-document-reading":
+        return ("guard:long_document_reading",)
     if skill == "doctor":
         return ("guard:doctor_health", "guard_fast_path:doctor_health_before_skill_catalog")
     if skill == "github-event-ops":
@@ -4751,6 +4798,16 @@ def _is_paper_learning_citation_research_request(message: str) -> bool:
         "citation" in normalized
         and any(marker in normalized for marker in ("verify", "validate", "check", "검증", "확인"))
     )
+
+
+def _is_long_document_sibling_request(message: str) -> bool:
+    from .policy import _LONG_DOCUMENT_BLOCKER_PHRASES, _LONG_DOCUMENT_BLOCKER_TOKENS
+
+    routing_text = prepare_routing_text(message)
+    normalized_query = normalized_phrase(routing_text.scoring_text)
+    if any(normalized_phrase(phrase) in normalized_query for phrase in _LONG_DOCUMENT_BLOCKER_PHRASES):
+        return True
+    return bool(_LONG_DOCUMENT_BLOCKER_TOKENS & routing_tokens(normalized_query))
 
 
 def _is_paper_learning_materials_request(message: str) -> bool:
@@ -4988,6 +5045,8 @@ def _operator_surface_phrase_marker(marker: str, phrase: str) -> str:
         return "phrase:visual_request"
     if marker == "operator_surface_fast_path:paper":
         return "phrase:paper_learning_request"
+    if marker == "operator_surface_fast_path:long_document":
+        return "phrase:long_document_request"
     if marker == "operator_surface_fast_path:web_research":
         return "phrase:web_research_request"
     if marker == "operator_surface_fast_path:source":

@@ -619,6 +619,7 @@ dimensions rather than collapsed into one marketing score. See
 - [Per-model calibration map](MODEL_OPTI.md)
 - [Evidence rules and capability impact](docs/CAPABILITY_IMPACT.md)
 - [Long-term memory model](docs/MEMORY.md)
+- [Processing a very large PDF with Hermes](docs/LONG-DOCUMENT-READING.md)
 - [Live model benchmark and measured results](benchmarks/live-model-tools/v1/README.md)
 - [Release and development](docs/RELEASE.md)
 

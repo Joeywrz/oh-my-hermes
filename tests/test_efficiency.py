@@ -246,7 +246,12 @@ class EfficiencyContractTests(unittest.TestCase):
         # interjection rule take the full profile to 932,859 bytes on this tree.
         # The ceiling restores the ~11k standing headroom; the exact value stays
         # ratcheted in `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
-        self.assertLess(full["skill_body"]["bytes"], 943_000)
+        # 943,000 -> 960,000: `long-document-reading` takes the full profile to
+        # 949,097 bytes on the rebased tree (one new body plus its lane name on the
+        # research_and_ops skills' Workflow Lane lines). The ceiling restores
+        # the ~11k standing headroom; the exact value stays ratcheted in
+        # `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
+        self.assertLess(full["skill_body"]["bytes"], 960_000)
         self.assertLess(full["repeated"]["share_percent"], 38.0)
 
         # References are progressive disclosure, counted outside the always-loaded body.

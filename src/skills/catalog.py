@@ -180,6 +180,14 @@ _SURFACE_EXPOSURES = (
         "Use as an installed Hermes workflow skill when the user asks to understand a supplied paper or paper PDF by level without dropping section coverage.",
     ),
     SurfaceExposure(
+        "long-document-reading",
+        "workflow_skill",
+        ("routable", "installable", "playbook", "harness", "workflow_reference", "capability"),
+        True,
+        "primary_workflow_skill",
+        "Use as an installed Hermes workflow skill when the user asks to read, summarize, or process a document that does not fit one read: a very large PDF, contract, manual, or annual report, kept honest by a page-anchored chunk ledger.",
+    ),
+    SurfaceExposure(
         "automation-blueprint",
         "workflow_skill",
         ("routable", "installable", "playbook", "harness", "workflow_reference", "capability"),

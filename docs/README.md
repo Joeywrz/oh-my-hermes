@@ -52,6 +52,7 @@ references rather than normal user steps.
 | Capture and recall reviewed project context | [Project Memory](MEMORY.md) |
 | Find out which stage failed when a saved memory was not used | [Memory Recall Incident](MEMORY-RECALL-INCIDENT.md) |
 | Answer what a web page said as of a date, or compare then versus now | [Temporal Source Receipts](TEMPORAL-SOURCE-RECEIPTS.md) |
+| Read a very large PDF, contract, or manual through Hermes in page ranges | [Long Document Reading](LONG-DOCUMENT-READING.md) |
 | Judge whether a realtime voice connector keeps whole spoken turns | [Realtime Voice Trial Receipts](REALTIME-VOICE-TRIAL-RECEIPTS.md) |
 | See which OMH workflow owns each plugin in the active host catalog | [Plugin Catalog Coverage](PLUGIN-CATALOG-COVERAGE.md) |
 | Choose a situation-level workflow | [Playbooks](PLAYBOOKS.md) |
@@ -64,7 +65,7 @@ Hermes memory, skills, tools, gateway surfaces, and OMH's role, see the
 
 ## Six Capability Families
 
-The public front door groups **123 installable skills** by user intent. Exact
+The public front door groups **124 installable skills** by user intent. Exact
 skill names remain available for deterministic routing, wrapper rendering, and
 operator control.
 

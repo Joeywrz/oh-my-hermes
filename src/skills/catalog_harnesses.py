@@ -14,6 +14,7 @@ from ..paper_learning import (
     PAPER_LEARNING_CARD_SCHEMA_VERSION,
     PAPER_LEARNING_COVERAGE_POLICY,
 )
+from ..workflows.long_document import LONG_DOCUMENT_CARD_SCHEMA_VERSION
 from ..source_finder import (
     SOURCE_ACQUISITION_STATUS_SCHEMA_VERSION,
     SOURCE_CANDIDATE_SCHEMA_VERSION,
@@ -1784,6 +1785,65 @@ _HARNESSES = [
         ),
     ),
     HarnessDefinition(
+        "long-document-reading",
+        "Read a very large document through Hermes in page-anchored ranges sized to the read budget, with a covered / next / missing chunk ledger and observed-only extraction boundaries.",
+        "Use when a supplied PDF, contract, manual, or report is past one read budget and the answer must stay anchored to pages the session actually read.",
+        (
+            "document path or attachment reference",
+            "reading goal",
+            "page count and scanned flags when observed",
+            "read budget",
+        ),
+        (
+            LONG_DOCUMENT_CARD_SCHEMA_VERSION,
+            "source_state boundary",
+            "page-range plan",
+            "chunk ledger",
+            "merged page-anchored notes",
+            "scanned-range decisions and not-observed list",
+        ),
+        (
+            "page count is observed or marked not observed",
+            "ranges are sized to the read budget",
+            "every range carries covered, next, or missing state",
+            "extraction, OCR, and delegation claims stay observed-only",
+        ),
+        (
+            "validate long_document_card/v1",
+            "check source_state and chunk state enums",
+            "check that at most one range is next",
+            "verify not_observed lists page count, extraction, scanned OCR, delegation, hosted OCR, and cross-range consistency",
+        ),
+        "If only the path exists, prepare the card, run the page-count probe, and ask for the reading goal before extracting a range.",
+        (
+            "document_scoped",
+            "page_count_observed_when_available",
+            "range_plan_prepared",
+            "range_text_observed_when_available",
+            "ledger_closed_or_missing_listed",
+        ),
+        "Record long-document-reading as Hermes-retained reading; record page counts, extraction, scanned-page OCR, range delegation, and hosted OCR only from observed tool results.",
+        "metadata_only",
+        quality_tier="long-document-gated",
+        quality_bar=(
+            "Probe the page count and scanned flags before planning ranges.",
+            "Keep every claim anchored to a page the ledger marks covered.",
+            "Never upgrade an estimate, a delegated child's note, or a truncated read into whole-document coverage.",
+        ),
+        evidence_ladder=(
+            "document_scoped",
+            "page_count_observed",
+            "range_plan_prepared",
+            "range_text_observed",
+            "ranges_merged",
+            "ledger_closed_or_missing_listed",
+        ),
+        wrapper_actions=("record_page_count_observed", "record_range_text_observed", "show_chunk_ledger", "continue_next_range", "show_status"),
+        overclaim_guards=(
+            "A long_document_card/v1 artifact is not page-count, extraction, OCR, delegation, or whole-document coverage evidence; only ranges the ledger marks covered from observed reads are read.",
+        ),
+    ),
+    HarnessDefinition(
         "paper-learning",
         "Explain supplied papers or paper PDFs at a chosen level with full section coverage, source-state evidence, and observed-only validation boundaries.",
         "Use when Hermes should tutor a user through a supplied paper, arXiv paper, paper PDF, pasted excerpt, or extracted paper text without reducing substantive content.",
@@ -3276,6 +3336,7 @@ _PRIMARY_HARNESSES = {
     "context-budget-review": "context-budget-review",
     "security-safety-review": "security-safety-review",
     "paper-learning": "paper-learning",
+    "long-document-reading": "long-document-reading",
     "automation-blueprint": "scheduled-ops-blueprint",
     "research-department": "research-department",
     "reliability-review": "reliability-review",

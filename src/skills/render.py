@@ -2283,6 +2283,110 @@ The terminal state is `learning_brief_prepared`: the brief is prepared, not obse
     return SkillTemplate(template.name, template.content.replace(marker, protocol + marker, 1))
 
 
+LONG_DOCUMENT_LIMITS_REFERENCE_PATH = "references/hermes-pdf-limits.md"
+
+
+def long_document_reading_skill() -> SkillTemplate:
+    """Render the long-document workflow with the page-range recipe Hermes follows."""
+    from ..workflows.long_document import (
+        DEFAULT_CHARS_PER_PAGE,
+        DEFAULT_PAGES_PER_RANGE,
+        DELEGATION_RANGE_THRESHOLD,
+        HERMES_READ_FILE_CHAR_BUDGET,
+        PER_RANGE_BRIEF,
+    )
+
+    template = workflow_skill("long-document-reading")
+    brief = PER_RANGE_BRIEF.replace("{pages}", "<start>-<end>")
+    protocol = f"""## Long Document Reading Protocol
+
+Every command below runs through the `terminal` tool from the built-in Hermes `pdf` skill directory (`skills/productivity/pdf/scripts/`); each script prints JSON and exits non-zero on failure. Measured Hermes limits and config knobs are in `{LONG_DOCUMENT_LIMITS_REFERENCE_PATH}`.
+
+1. **Scope.** Confirm the path and the reading goal (full summary, clauses or sections, obligations and dates, or one question). If the goal is one lookup, search the extracted text for it instead of reading every range.
+2. **Probe.** Run `python pdf_read.py <file> --meta` for the page count, encrypted flag, and scanned flag. If it reports a missing dependency, run `pip install pypdf pdfplumber` once, rerun, and say you installed it. For an encrypted file ask for the password (`--password`) or stop.
+3. **Plan.** At about {DEFAULT_CHARS_PER_PAGE:,} characters per page one `read_file` call ({HERMES_READ_FILE_CHAR_BUDGET:,} characters) holds about {DEFAULT_PAGES_PER_RANGE} pages, so split the page count into ranges of {DEFAULT_PAGES_PER_RANGE} pages. A document under {DEFAULT_PAGES_PER_RANGE} pages of prose is one read; answer directly. Record the plan as the chunk ledger: one row per range with `pages`, `offset`, `chars`, and `state` (`covered`, `next`, `missing`).
+4. **Extract with page anchors.** For each range run `python extract_pymupdf.py <file> --pages <start0>-<end0>` (0-indexed; install `pymupdf` once if missing) or `python pdf_split.py <file> --pages <start>-<end> -o <range>.pdf` (1-based) followed by `read_file` on the split file. Never read the whole file with `read_file` and paginate by `offset`: every call re-converts the entire document, and the extraction has no page numbers. If a range read truncates, halve the range, record the observed characters per page, and re-plan the remaining rows.
+5. **Delegate above {DELEGATION_RANGE_THRESHOLD} ranges.** Send each range to a `delegate_task` child with this brief, unchanged except for the page numbers, then merge the notes in page order keeping every page anchor: `{brief}` A child that returns no missing-page list has not proven its range was readable.
+6. **Close every range.** After each range write covered / next / missing into the ledger before moving on, so a compacted or resumed session rereads the ledger and continues from `next` instead of page 1. Say done only when every row is covered and every scanned range is read or declined.
+7. **Scanned ranges.** The `read_file` coverage warning names page ranges that yielded no text. For the few pages the goal needs, run `python pdf_page_image.py <file> --pages <n> --out-dir <dir>` and `vision_analyze` one page per call; use `file_tools.hosted_ocr` when it is configured. Decline ranges the goal does not need and record the decision: a 300-page scan at one vision call per page is a separate approved job, not a side effect of a summary.
+
+"""
+    marker = "## Runtime Evidence\n"
+    if marker not in template.content:
+        raise ValueError("long-document-reading skill runtime-evidence marker is missing")
+    return SkillTemplate(template.name, template.content.replace(marker, protocol + marker, 1))
+
+
+def long_document_reference_templates() -> list[SkillReferenceTemplate]:
+    return [
+        SkillReferenceTemplate(
+            "long-document-reading",
+            LONG_DOCUMENT_LIMITS_REFERENCE_PATH,
+            _long_document_limits_reference(),
+        )
+    ]
+
+
+def _long_document_limits_reference() -> str:
+    from ..workflows.long_document import (
+        DEFAULT_CHARS_PER_PAGE,
+        DEFAULT_PAGES_PER_RANGE,
+        DELEGATION_RANGE_THRESHOLD,
+        HERMES_DOCUMENT_BYTE_CAP,
+        HERMES_READ_FILE_CHAR_BUDGET,
+        HERMES_READ_FILE_LINE_LIMIT,
+        HERMES_TUI_ATTACH_PAGE_LIMIT,
+    )
+
+    return f"""# Hermes PDF Limits (measured 2026-09)
+
+What the installed Hermes Agent does with a large PDF, read off its source tree. Each row names the file the number comes from so a later Hermes release can be re-measured instead of trusted. None of these numbers is an OMH guarantee.
+
+## Budgets
+
+| Surface | Limit | Where |
+| --- | --- | --- |
+| `read_file` characters per call | {HERMES_READ_FILE_CHAR_BUDGET:,} (`file_read_max_chars`) | `tools/file_tools.py` |
+| `read_file` lines per call | {HERMES_READ_FILE_LINE_LIMIT:,} max (`limit`) | `tools/file_tools.py` |
+| Document size cap for extraction | {HERMES_DOCUMENT_BYTE_CAP // (1024 * 1024)} MB | `tools/read_extract.py` |
+| TUI `pdf.attach` rasterization | {HERMES_TUI_ATTACH_PAGE_LIMIT} pages per call | `tui_gateway/prompt_attachments.py` |
+| Scanned-page coverage scan | `pdftotext`, 20 s timeout; silently returns nothing when it times out | `tools/read_extract.py` |
+| Dense prose per page | about {DEFAULT_CHARS_PER_PAGE:,} characters, so about {DEFAULT_PAGES_PER_RANGE} pages per read | measured, not configured |
+
+A 300-page document is therefore about 500,000 characters, about 125,000 tokens: five reads, and more than the conversation-compression threshold in `agent/conversation_compression.py`, which is why an unanchored full read is summarized away.
+
+## What `read_file` does not do
+
+- It converts `.pdf` to Markdown through the optional `firecrawl-anydoc` package and paginates the text by line `offset` / `limit`; every paginated call re-converts the whole document, and `anydoc.to_markdown` has no page selection.
+- Page numbers do not survive the conversion. The scanned-page warning speaks in page ranges, but nothing maps a page to an offset; the chunk ledger is that map.
+- `ripgrep` skips binaries, so there is no search inside a PDF until a range is extracted to text.
+- The runtime warning and user guide name an `ocr-and-documents` skill; its content was merged into the `pdf` skill's `references/ocr-extraction.md`.
+
+## What gives page control
+
+The built-in `pdf` skill (`skills/productivity/pdf/scripts/`, argparse CLIs run through `terminal`, JSON on stdout). Its dependencies (`pypdf`, `pdfplumber`, `pymupdf`) are not in the shipped venv; each script prints an install hint when one is missing.
+
+| Script | Use |
+| --- | --- |
+| `pdf_read.py <file> --meta` | page count, page sizes, encrypted and scanned flags |
+| `pdf_read.py <file> --text` | per-page text as JSON (whole file; pipe into a file for large documents) |
+| `extract_pymupdf.py <file> --pages 0-59` | the only extractor with page selection (0-indexed) |
+| `pdf_split.py <file> --pages 1-60 -o part.pdf` | 1-based range into a new file for `read_file` |
+| `pdf_page_image.py <file> --pages 61-62 --out-dir imgs/` | PNG per page for `vision_analyze` |
+
+## Delegation
+
+`delegate_task` fans out subagents (`tools/delegate_tool.py`) but nothing splits a document into ranges; the parent plans the ranges and sends one fixed brief per child. Above {DELEGATION_RANGE_THRESHOLD} ranges, delegation keeps each child's context to one range; below it, sequential reads cost less. `delegation.max_concurrent_children` bounds the fan-out.
+
+## Config knobs
+
+- `file_read_max_chars` raises the per-call character budget; re-plan `pages_per_range` from it.
+- `file_tools.hosted_ocr` enables hosted OCR for scanned pages.
+- `web.extract_char_limit` bounds `web_extract` on a URL-hosted PDF.
+- `delegation.max_concurrent_children` bounds range fan-out.
+"""
+
+
 # Self-contained pointer section spliced into the two code-exploration skill
 # bodies. The trailing blank line separates it from `## Runtime Evidence`.
 _STRUCTURAL_SEARCH_SECTION = (

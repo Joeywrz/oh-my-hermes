@@ -1304,7 +1304,7 @@ export default function register(sdk) {
       h(Text, { color: providers.length ? t.color.text : t.color.muted }, providerText),
     ))
     if (ignoredRecord) {
-      lines.push(h(Text, { color: t.color.warn, wrap: 'truncate-end' }, `   ! providers.json ignored: ${safeText(ignoredRecord)} · its excluded providers count again`))
+      lines.push(h(Text, { color: t.color.warn, wrap: 'truncate-end' }, `   ! providers.json ignored: ${safeText(ignoredRecord)} · any providers it excluded count again`))
     }
     lines.push(h(Text, { color: t.color.muted, wrap: 'truncate-end' }, `   ${padCells('CATEGORY', 19)}${padCells('  HEAD MODEL', 26)}${padCells('  EFFORT', 16)}STATE`))
     if (start > 0) lines.push(h(Text, { color: t.color.muted }, `   ↑ ${start} more`))

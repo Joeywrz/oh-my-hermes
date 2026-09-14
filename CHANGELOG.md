@@ -11,13 +11,15 @@ All notable changes will be documented here.
   group: it names every provider counted with where it was found, the
   `providers.json` and `model-providers.json` statuses, the ids the record
   excludes, and warns (without flipping the exit code) when `providers.json`
-  is invalid — its recorded kinds are dropped and its excluded providers
+  is invalid — its recorded kinds are dropped and any providers it excluded
   count again — or when a route names a provider neither recorded nor
-  linked, whose alias sorts behind the served entries of every chain naming
-  it. `omh model-chains show` prints the same ignored-record consequence,
-  the routes document status when it is not applied, and the aliases routed
-  to an unknown provider (`routes_path`, `routes_status`, `unserved_routes`
-  in the JSON, schema unchanged). Non-interactive `omh setup` (`--yes`,
+  linked: an alias a chain names sorts behind the served entries of every
+  chain naming it, while a dispatch-only route reorders nothing but sends a
+  dispatch that pins it to a provider Hermes is not linked to.
+  `omh model-chains show` prints the same ignored-record consequence, the
+  routes document status when it is invalid, and both kinds of unknown-
+  provider route (`routes_path`, `routes_status`, `unserved_routes` in the
+  JSON, schema unchanged). Non-interactive `omh setup` (`--yes`,
   `--json`, a non-TTY) reports the counted providers and the record's status
   as an additive `providers` field and a printed line. The CLI picker and
   `/omh-model` show one row when `providers.json` is invalid. The interview

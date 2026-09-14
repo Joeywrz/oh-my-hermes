@@ -35,7 +35,7 @@ OVERRIDE_QUICK = (("kimi-k3-ultrafast", "low"), ("glm-5.3", "low"))
 
 HARNESS = r"""
 import { pathToFileURL } from 'node:url'
-const [widgetPath, keysJson] = process.argv.slice(2)
+const [widgetPath, keysJson, rowsArg] = process.argv.slice(2)
 const KEY = { upArrow: false, downArrow: false, leftArrow: false, rightArrow: false, return: false, escape: false, ctrl: false, shift: false, meta: false, tab: false }
 const inputs = {
   up: { ch: '', key: { ...KEY, upArrow: true } },
@@ -67,7 +67,7 @@ const settle = async phases => {
   for (let i = 0; i < 800 && phases.includes(held.state.phase); i += 1) await new Promise(resolve => setTimeout(resolve, 25))
 }
 const theme = { color: { border: 'b', error: 'e', label: 'l', muted: 'm', ok: 'o', primary: 'p', statusFg: 's', text: 't', warn: 'w' } }
-const render = () => JSON.stringify(app.render({ cols: 120, rows: 40, state: held.state, t: theme }))
+const render = () => JSON.stringify(app.render({ cols: 120, rows: Number(rowsArg || 40), state: held.state, t: theme }))
 held.state = app.init('')
 await settle(['loading'])
 const frames = [render()]
@@ -102,8 +102,19 @@ def _write_overrides(omh_home: Path, categories: dict[str, tuple[tuple[str, str]
 
 @unittest.skipUnless(NODE, "node is not installed; the widget harness needs it")
 class ModelWidgetTests(unittest.TestCase):
-    def _drive(self, keys: list[str], *, overrides: dict | None = None, entitlements_text: str | None = None):
-        """Run the harness; return (harness result, override document or None, python payload)."""
+    def _drive(
+        self,
+        keys: list[str],
+        *,
+        overrides: dict | None = None,
+        entitlements_text: str | None = None,
+        rows: int = 40,
+    ):
+        """Run the harness; return (harness result, override document or None, python payload).
+
+        ``rows`` is the terminal height the frames are rendered at: 40 fits
+        every category; a shorter height exercises the windowing.
+        """
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             hermes_home = root / "hermes"
@@ -125,7 +136,7 @@ class ModelWidgetTests(unittest.TestCase):
             # Node writes the report as UTF-8; without saying so, Windows
             # decodes the pipe in its code page and the frames' glyphs fail.
             completed = subprocess.run(
-                [NODE, str(harness), str(widget), json.dumps(keys)],
+                [NODE, str(harness), str(widget), json.dumps(keys), str(rows)],
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -172,12 +183,31 @@ class ModelWidgetTests(unittest.TestCase):
         result, _document, payload = self._drive(["quit"], entitlements_text="{")
         self.assertEqual(payload["entitlements_status"], "invalid: unreadable JSON")
         first = result["frames"][0]
-        self.assertIn("! providers.json ignored: unreadable JSON · its excluded providers count again", first)
+        self.assertIn("! providers.json ignored: unreadable JSON · any providers it excluded count again", first)
         self.assertEqual(first.count("providers.json ignored"), 1)
         # A valid or absent record adds no such row.
         result, _document, payload = self._drive(["quit"])
         self.assertEqual(payload["entitlements_status"], "absent")
         self.assertNotIn("providers.json ignored", result["frames"][0])
+
+    def test_the_ignored_record_row_costs_the_category_list_one_row_when_short(self) -> None:
+        """The row budget shifts by one only when the ignored-record row shows.
+
+        At 27 rows the twelve categories fit exactly (27 - 15 chrome rows)
+        with an absent record; with the extra row one category is windowed
+        out and the `more` marker says so. At the harness's usual 40 rows
+        the budget never binds, which is why this test picks a short one.
+        """
+        self.assertEqual(len(HERMES_MIXTURE_CATEGORY_CHAINS), 12)
+        result, _document, _payload = self._drive(["quit"], rows=27)
+        first = result["frames"][0]
+        self.assertIn("deep-work", first)
+        self.assertNotIn("↓ 1 more", first)
+        result, _document, _payload = self._drive(["quit"], rows=27, entitlements_text="{")
+        first = result["frames"][0]
+        self.assertIn("providers.json ignored", first)
+        self.assertNotIn("deep-work", first)
+        self.assertIn("↓ 1 more", first)
 
     def test_escape_after_edits_writes_nothing(self) -> None:
         result, document, _ = self._drive(["right", "minus", "quit"])

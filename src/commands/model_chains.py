@@ -32,6 +32,7 @@ from ..local_store import atomic_write_text
 from ..plugin_bundle.omh.hermes_delegation import (
     APPROX_PRICE_PER_MTOK,
     HERMES_MIXTURE_CATEGORY_CHAINS,
+    UNKNOWN_ROUTE_EFFECT_CHAIN,
     alias_is_served,
     entitlement_shaped_chain,
     load_mixture_chain_overrides,
@@ -109,9 +110,9 @@ def _state(omh_home, hermes_home=None) -> dict[str, object]:
     overrides, status = load_mixture_chain_overrides(omh_home)
     entitlements, entitlement_status, providers = effective_provider_entitlements(omh_home, hermes_home)
     routes, routes_status = load_model_provider_routes(omh_home)
+    chains = {name: overrides.get(name, chain) for name, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items()}
     categories = []
-    for name, default_chain in HERMES_MIXTURE_CATEGORY_CHAINS.items():
-        chain = overrides.get(name, default_chain)
+    for name, chain in chains.items():
         shaped = chain
         if entitlements is not None:
             shaped = entitlement_shaped_chain(chain, entitlements, routes)
@@ -144,12 +145,11 @@ def _state(omh_home, hermes_home=None) -> dict[str, object]:
         "providers": [dict(row) for row in providers],
         "routes_path": str(model_provider_routes_path(omh_home)),
         "routes_status": routes_status,
-        # Aliases a route sends to a provider neither recorded nor linked:
-        # unserved, so behind every served entry in the chains naming them.
-        "unserved_routes": [
-            {"alias": alias, "provider": provider}
-            for alias, provider in routes_to_unknown_providers(routes, entitlements)
-        ],
+        # Routes to a provider neither recorded nor linked, each with its
+        # effect: `chain` rows name an alias a chain names (demoted behind
+        # every served entry); `dispatch` rows reach no chain and only
+        # resolve a pinned dispatch, unchecked.
+        "unserved_routes": [dict(row) for row in routes_to_unknown_providers(routes, entitlements, chains)],
         "categories": categories,
     }
 
@@ -167,21 +167,31 @@ def _print_state(state: dict[str, object]) -> None:
         # An invalid record yields no document: its kinds are dropped and a
         # linked row it excluded counts again. Said here, not left to the
         # bracketed status.
-        print("  providers.json is ignored: its recorded kinds are dropped and its excluded providers count again")
+        print("  providers.json is ignored: its recorded kinds are dropped and any providers it excluded count again")
     linked = [row for row in state.get("providers", []) if row["source"] != "recorded"]
     if linked:
         print("Linked Hermes providers: " + ", ".join(f"{row['id']} ({row['source']})" for row in linked))
     else:
         print("Linked Hermes providers: none found (a `hermes auth` login, a config provider, or a key name counts)")
     routes_status = str(state.get("routes_status", ""))
-    if routes_status != "applied":
-        print(f"Provider routes: {state.get('routes_path', '')} [{routes_status}]")
-    unserved_routes = state.get("unserved_routes", [])
-    if unserved_routes:
+    if routes_status.startswith("invalid:"):
+        # An absent document is the common case and says nothing; an
+        # invalid one silently drops every route, so it is named.
+        print(f"Provider routes: {state.get('routes_path', '')} [{routes_status}] (ignored: every alias dispatches unchanged)")
+    unserved_routes = list(state.get("unserved_routes", []))
+    demoted = [row for row in unserved_routes if row.get("effect") == UNKNOWN_ROUTE_EFFECT_CHAIN]
+    dispatch_only = [row for row in unserved_routes if row.get("effect") != UNKNOWN_ROUTE_EFFECT_CHAIN]
+    if demoted:
         print(
-            "Routed to a provider neither recorded nor linked: "
-            + ", ".join(f"{row['alias']} -> {row['provider']}" for row in unserved_routes)
+            "Chain entries routed to a provider neither recorded nor linked: "
+            + ", ".join(f"{row['alias']} -> {row['provider']}" for row in demoted)
             + " (each sorts behind the served entries of every chain naming it)"
+        )
+    if dispatch_only:
+        print(
+            "Dispatch-only routes to a provider neither recorded nor linked: "
+            + ", ".join(f"{row['alias']} -> {row['provider']}" for row in dispatch_only)
+            + " (no chain names these; a dispatch pinning one asks Hermes for a provider it is not linked to)"
         )
     print("Edit a category with `omh model-chains set <category> \"model[:effort], ...\"`,")
     print("walk all of them with `omh model-chains interview`, or edit the JSON directly.")

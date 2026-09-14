@@ -33,10 +33,19 @@ from omh.paths import OmhPaths  # noqa: E402
 from omh.plugin_bundle.omh.hermes_delegation import (  # noqa: E402
     MODEL_PROVIDER_ROUTES_SCHEMA_VERSION,
     PROVIDER_ENTITLEMENTS_SCHEMA_VERSION,
+    alias_is_served,
     model_provider_routes_path,
     provider_entitlements_path,
     routes_to_unknown_providers,
 )
+
+
+def _chain_row(alias: str, provider: str, route: str | None = None) -> dict[str, str]:
+    return {"alias": alias, "route": route or alias, "provider": provider, "effect": "chain"}
+
+
+def _dispatch_row(key: str, provider: str) -> dict[str, str]:
+    return {"alias": key, "route": key, "provider": provider, "effect": "dispatch"}
 
 
 def _paths(root: Path) -> OmhPaths:
@@ -89,9 +98,48 @@ def _doctor_check(paths: OmhPaths):
 
 class UnknownRouteRuleTests(unittest.TestCase):
     def test_names_only_routes_to_a_provider_the_machine_does_not_hold(self) -> None:
-        routes = {"glm-5.3": ("work-relay", "zai/glm-5.3"), "kimi-k3": ("og", "kimi"), "gpt-6-astra": ("openai-codex", "gpt")}
+        routes = {
+            "glm-5.3": ("work-relay", "zai/glm-5.3"),
+            "kimi-k3": ("og", "kimi"),
+            "gpt-6-astra": ("openai-codex", "gpt"),
+            "my-private-model": ("work-relay", "private/model"),
+        }
         entitlements = {"providers": {"og": "gateway", "openai-codex": "openai-codex"}, "subscription_clis": []}
-        self.assertEqual(routes_to_unknown_providers(routes, entitlements), (("glm-5.3", "work-relay"),))
+        # A shipped chain names glm-5.3, so its route demotes it; nothing
+        # names my-private-model, so its route only ever resolves a pin.
+        self.assertEqual(
+            routes_to_unknown_providers(routes, entitlements),
+            (_chain_row("glm-5.3", "work-relay"), _dispatch_row("my-private-model", "work-relay")),
+        )
+
+    def test_a_key_the_serving_rule_never_reaches_is_dispatch_only(self) -> None:
+        """A capitalized or vendor-prefixed key is not a route for the plain alias.
+
+        `alias_is_served` looks a route up casefolded, then unqualified,
+        then verbatim -- so `GLM-5.3` and `zai/glm-5.3` are never found for
+        the chain entry `glm-5.3`, and reporting them as a demotion would
+        describe a reordering that never happens. The rule and the report
+        share one lookup, and this pins that they agree.
+        """
+        entitlements = {"providers": {"zai": "zai"}, "subscription_clis": []}
+        unreached = {"GLM-5.3": ("work-relay", "zai/glm-5.3"), "zai/glm-5.3": ("work-relay", "zai/glm-5.3")}
+        self.assertEqual(
+            routes_to_unknown_providers(unreached, entitlements),
+            (_dispatch_row("GLM-5.3", "work-relay"), _dispatch_row("zai/glm-5.3", "work-relay")),
+        )
+        self.assertTrue(alias_is_served("glm-5.3", entitlements, unreached))
+        reached = {"glm-5.3": ("work-relay", "zai/glm-5.3")}
+        self.assertEqual(routes_to_unknown_providers(reached, entitlements), (_chain_row("glm-5.3", "work-relay"),))
+        self.assertFalse(alias_is_served("glm-5.3", entitlements, reached))
+        # The unqualified lookup runs the other way too: an override chain
+        # naming `zai/glm-5.3` is reached by the plain key, and the row
+        # carries the chain's spelling beside the key as written.
+        override_chains = {"quick": (("zai/glm-5.3", "low"),)}
+        self.assertEqual(
+            routes_to_unknown_providers(reached, entitlements, override_chains),
+            (_chain_row("zai/glm-5.3", "work-relay", route="glm-5.3"),),
+        )
+        self.assertFalse(alias_is_served("zai/glm-5.3", entitlements, reached))
 
     def test_nothing_is_named_when_nothing_is_held(self) -> None:
         # No providers to judge against: `alias_is_served` fails open, so no
@@ -144,7 +192,7 @@ class DoctorProviderCheckTests(unittest.TestCase):
             self.assertEqual(check.severity, "warning")
             self.assertEqual(doctor_ok(checks), doctor_ok([item for item in checks if item.name != "provider_entitlements"]))
             self.assertIn(f"{provider_entitlements_path(paths.omh_home)} is ignored (invalid: unreadable JSON)", check.message)
-            self.assertIn("its recorded kinds are dropped and its excluded providers count again", check.message)
+            self.assertIn("its recorded kinds are dropped and any providers it excluded count again", check.message)
             # The linked row the record might have excluded is counted again,
             # and the check shows exactly that.
             self.assertIn("counted: zai (config, config.yaml)", check.message)
@@ -155,15 +203,27 @@ class DoctorProviderCheckTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = _paths(Path(tmp))
             _write_config(paths, "providers:\n  og:\n    base_url: x\n")
-            _write_routes(paths, {"glm-5.3": ("work-relay", "zai/glm-5.3"), "kimi-k3": ("og", "kimi")})
+            _write_routes(
+                paths,
+                {
+                    "glm-5.3": ("work-relay", "zai/glm-5.3"),
+                    "kimi-k3": ("og", "kimi"),
+                    "my-private-model": ("work-relay", "private/model"),
+                },
+            )
 
             checks, check = _doctor_check(paths)
 
             self.assertTrue(check.ok)
             self.assertEqual(check.severity, "warning")
             self.assertEqual(doctor_ok(checks), doctor_ok([item for item in checks if item.name != "provider_entitlements"]))
-            self.assertIn("routed to a provider neither recorded nor linked: glm-5.3 -> work-relay", check.message)
+            self.assertIn("chain entries routed to a provider neither recorded nor linked: glm-5.3 -> work-relay", check.message)
             self.assertIn("each sorts behind the served entries of every chain naming it", check.message)
+            # A route no chain reaches reorders nothing; its effect is the
+            # unchecked dispatch, and the check says that instead.
+            self.assertIn("dispatch-only routes to a provider neither recorded nor linked: my-private-model -> work-relay", check.message)
+            self.assertIn("a dispatch pinning one asks Hermes for a provider it is not linked to", check.message)
+            self.assertNotIn("my-private-model -> work-relay; each sorts", check.message)
             # The route to the linked gateway is not a finding.
             self.assertNotIn("kimi-k3 -> og", check.message)
             self.assertIn("model-providers.json applied", check.message)
@@ -224,7 +284,7 @@ class DoctorProviderCheckTests(unittest.TestCase):
 
             self.assertEqual(status, 0, stderr)
             self.assertIn("Model routing: warning (2/2)", stdout)
-            self.assertIn("- provider_entitlements: routed to a provider neither recorded nor linked: glm-5.3 -> work-relay", stdout)
+            self.assertIn("- provider_entitlements: chain entries routed to a provider neither recorded nor linked: glm-5.3 -> work-relay", stdout)
             self.assertIn("Fix: Repair the named routing document", stdout)
 
             with patch("omh.command_path.shutil.which", return_value="/usr/local/bin/omh"):
@@ -242,28 +302,54 @@ class ModelChainsShowTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = _paths(Path(tmp))
             _write_config(paths, "providers:\n  og:\n    base_url: x\n")
-            _write_routes(paths, {"glm-5.3": ("work-relay", "zai/glm-5.3"), "kimi-k3": ("og", "kimi")})
+            _write_routes(
+                paths,
+                {
+                    "glm-5.3": ("work-relay", "zai/glm-5.3"),
+                    "kimi-k3": ("og", "kimi"),
+                    "my-private-model": ("work-relay", "private/model"),
+                },
+            )
 
             state = _state(paths.omh_home, paths.hermes_home)
 
             self.assertEqual(state["schema_version"], "model_chain_state/v1")
             self.assertEqual(state["routes_status"], "applied")
             self.assertEqual(state["routes_path"], str(model_provider_routes_path(paths.omh_home)))
-            self.assertEqual(state["unserved_routes"], [{"alias": "glm-5.3", "provider": "work-relay"}])
+            self.assertEqual(
+                state["unserved_routes"],
+                [_chain_row("glm-5.3", "work-relay"), _dispatch_row("my-private-model", "work-relay")],
+            )
             out = io.StringIO()
             with redirect_stdout(out):
                 _print_state(state)
             text = out.getvalue()
             self.assertIn(
-                "Routed to a provider neither recorded nor linked: glm-5.3 -> work-relay "
+                "Chain entries routed to a provider neither recorded nor linked: glm-5.3 -> work-relay "
                 "(each sorts behind the served entries of every chain naming it)",
                 text,
             )
-            # An applied routes document is not restated; the finding is.
+            self.assertIn(
+                "Dispatch-only routes to a provider neither recorded nor linked: my-private-model -> work-relay "
+                "(no chain names these; a dispatch pinning one asks Hermes for a provider it is not linked to)",
+                text,
+            )
+            # An applied routes document is not restated; the findings are.
             self.assertNotIn("Provider routes:", text)
             self.assertNotIn("providers.json is ignored", text)
 
-    def test_an_absent_routes_document_and_no_findings_print_the_status_only(self) -> None:
+    def test_an_override_chain_alias_counts_as_chain_named(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_config(paths, "providers:\n  og:\n    base_url: x\n")
+            _write_routes(paths, {"my-private-model": ("work-relay", "private/model")})
+            base = ["--omh-home", str(paths.omh_home), "--hermes-home", str(paths.hermes_home)]
+            status, _stdout, stderr = run_cli(base + ["model-chains", "set", "quick", "my-private-model:low"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            state = _state(paths.omh_home, paths.hermes_home)
+            self.assertEqual(state["unserved_routes"], [_chain_row("my-private-model", "work-relay")])
+
+    def test_an_absent_routes_document_prints_nothing_and_an_invalid_one_is_named(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = _paths(Path(tmp))
             state = _state(paths.omh_home, paths.hermes_home)
@@ -272,8 +358,21 @@ class ModelChainsShowTests(unittest.TestCase):
             out = io.StringIO()
             with redirect_stdout(out):
                 _print_state(state)
-            self.assertIn(f"Provider routes: {model_provider_routes_path(paths.omh_home)} [absent]", out.getvalue())
-            self.assertNotIn("Routed to a provider", out.getvalue())
+            # Absent is the common case and says nothing on every machine.
+            self.assertNotIn("Provider routes:", out.getvalue())
+            self.assertNotIn("routed to a provider", out.getvalue())
+            path = model_provider_routes_path(paths.omh_home)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{", encoding="utf-8")
+            state = _state(paths.omh_home, paths.hermes_home)
+            self.assertEqual(state["routes_status"], "invalid: unreadable JSON")
+            out = io.StringIO()
+            with redirect_stdout(out):
+                _print_state(state)
+            self.assertIn(
+                f"Provider routes: {path} [invalid: unreadable JSON] (ignored: every alias dispatches unchanged)",
+                out.getvalue(),
+            )
 
     def test_an_invalid_record_says_what_it_drops(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -286,7 +385,7 @@ class ModelChainsShowTests(unittest.TestCase):
             with redirect_stdout(out):
                 _print_state(state)
             self.assertIn("[invalid: unreadable JSON]", out.getvalue())
-            self.assertIn("providers.json is ignored: its recorded kinds are dropped and its excluded providers count again", out.getvalue())
+            self.assertIn("providers.json is ignored: its recorded kinds are dropped and any providers it excluded count again", out.getvalue())
             self.assertIn("Linked Hermes providers: zai (config)", out.getvalue())
 
     def test_show_json_stays_additive(self) -> None:
@@ -353,7 +452,7 @@ class SetupSummaryProviderTests(unittest.TestCase):
             _write_invalid_record(paths)
             status, stdout, stderr = run_cli(self._base(paths) + ["setup", "--yes"], output_json=False)
             self.assertEqual(status, 0, stderr)
-            self.assertIn("is ignored (invalid: unreadable JSON); its recorded kinds and excluded providers do not count", stdout)
+            self.assertIn("is ignored (invalid: unreadable JSON); its recorded kinds are dropped and any providers it excluded count again", stdout)
             self.assertIn("Counting: og (config).", stdout)
             status, stdout, stderr = run_cli(self._base(paths) + ["setup", "--json"], output_json=False)
             self.assertEqual(json.loads(stdout)["operator_summary"]["providers"]["document_status"], "invalid: unreadable JSON")

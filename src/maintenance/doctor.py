@@ -698,7 +698,10 @@ def _provider_entitlements_check(paths: OmhPaths) -> Check:
     message.
     """
     from ..plugin_bundle.omh.hermes_delegation import (
+        HERMES_MIXTURE_CATEGORY_CHAINS,
+        UNKNOWN_ROUTE_EFFECT_CHAIN,
         effective_provider_entitlements,
+        load_mixture_chain_overrides,
         load_model_provider_routes,
         load_provider_entitlements,
         model_provider_routes_path,
@@ -711,14 +714,16 @@ def _provider_entitlements_check(paths: OmhPaths) -> Check:
     # made a linked row stop counting live in the record itself.
     recorded, _recorded_status = load_provider_entitlements(paths.omh_home)
     routes, routes_status = load_model_provider_routes(paths.omh_home)
+    overrides, _overrides_status = load_mixture_chain_overrides(paths.omh_home)
+    chains = {name: overrides.get(name, chain) for name, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items()}
     document_path = provider_entitlements_path(paths.omh_home)
     routes_path = model_provider_routes_path(paths.omh_home)
     parts: list[str] = []
     warnings: list[str] = []
     if document_status.startswith("invalid:"):
         warnings.append(
-            f"{document_path} is ignored ({document_status}): its recorded kinds are dropped and its "
-            "excluded providers count again until it is repaired"
+            f"{document_path} is ignored ({document_status}): its recorded kinds are dropped and any "
+            "providers it excluded count again until it is repaired"
         )
     else:
         parts.append(f"providers.json {document_status}")
@@ -735,12 +740,21 @@ def _provider_entitlements_check(paths: OmhPaths) -> Check:
         )
     else:
         parts.append(f"model-providers.json {routes_status}")
-    unknown = routes_to_unknown_providers(routes, entitlements)
-    if unknown:
+    unknown = routes_to_unknown_providers(routes, entitlements, chains)
+    demoted = [row for row in unknown if row["effect"] == UNKNOWN_ROUTE_EFFECT_CHAIN]
+    dispatch_only = [row for row in unknown if row["effect"] != UNKNOWN_ROUTE_EFFECT_CHAIN]
+    if demoted:
         warnings.append(
-            "routed to a provider neither recorded nor linked: "
-            + ", ".join(f"{alias} -> {provider}" for alias, provider in unknown)
+            "chain entries routed to a provider neither recorded nor linked: "
+            + ", ".join(f"{row['alias']} -> {row['provider']}" for row in demoted)
             + "; each sorts behind the served entries of every chain naming it"
+        )
+    if dispatch_only:
+        warnings.append(
+            "dispatch-only routes to a provider neither recorded nor linked: "
+            + ", ".join(f"{row['alias']} -> {row['provider']}" for row in dispatch_only)
+            + "; no chain names these, so nothing is reordered, but a dispatch pinning one asks Hermes "
+            "for a provider it is not linked to"
         )
     message = "; ".join([*warnings, *parts])
     if not warnings:

@@ -415,7 +415,7 @@ class PickerNavigationTests(unittest.TestCase):
         self.assertEqual(payload["entitlements_status"], "invalid: unreadable JSON")
         lines = render_frame(payload, _chains(payload), 0, use_color=False, width=200)
         self.assertEqual(lines[1], "   providers  og (config)")
-        self.assertEqual(lines[2], "   ! providers.json ignored: unreadable JSON · its excluded providers count again")
+        self.assertEqual(lines[2], "   ! providers.json ignored: unreadable JSON · any providers it excluded count again")
         self.assertIn("CATEGORY", lines[4])
         self.assertEqual(sum("providers.json ignored" in line for line in lines), 1)
         narrow = render_frame(payload, _chains(payload), 0, use_color=False, width=60)

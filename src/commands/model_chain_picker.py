@@ -250,7 +250,7 @@ def render_frame(
         reason = entitlements_status[len("invalid:"):].strip()
         lines.append(
             " " * _MARGIN
-            + paint(_clip(f"! providers.json ignored: {reason} · its excluded providers count again", inner), "ui_warn")
+            + paint(_clip(f"! providers.json ignored: {reason} · any providers it excluded count again", inner), "ui_warn")
         )
     lines += [rule, header]
     for index, row in enumerate(rows):

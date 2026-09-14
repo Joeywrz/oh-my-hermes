@@ -596,45 +596,93 @@ def alias_is_served(
     providers = entitlements.get("providers", {})
     if not isinstance(providers, Mapping) or not providers:
         return True
-    requested_key = str(alias or "").strip().casefold()
-    canonical_key = _unqualified_model_alias(alias)
-    if routes:
-        route = routes.get(requested_key) or routes.get(canonical_key) or routes.get(alias)
-        if route:
-            return route[0] in providers
+    route_key = _route_key_for(alias, routes)
+    if routes and route_key is not None:
+        return routes[route_key][0] in providers
     kinds = set(str(kind) for kind in providers.values())
     if kinds & MULTI_VENDOR_PROVIDER_KINDS:
         return True
-    projected_key, _tier = _projected_model_alias(canonical_key)
+    projected_key, _tier = _projected_model_alias(_unqualified_model_alias(alias))
     families = HERMES_MIXTURE_ALIAS_PROVIDER_FAMILIES.get(projected_key)
     if families is None:
         return True
     return bool(kinds & set(families))
 
 
+def _route_key_for(alias: object, routes: Mapping[str, tuple[str, str]] | None) -> str | None:
+    """The key under which ``routes`` answers for ``alias``, or None.
+
+    The one lookup the serving rule and every surface reporting on it
+    share: the alias casefolded, then unqualified (`vendor/model` ->
+    `model`), then verbatim. A key none of those spellings reach -- a
+    capitalized or vendor-prefixed key when the chain names the plain
+    alias -- is not a route for that alias, whatever it looks like.
+    """
+    if not routes:
+        return None
+    requested_key = str(alias or "").strip().casefold()
+    canonical_key = _unqualified_model_alias(alias)
+    for key in (requested_key, canonical_key, alias):
+        if isinstance(key, str) and key in routes:
+            return key
+    return None
+
+
+# What a route to a provider this machine does not hold does, per row of
+# `routes_to_unknown_providers`: `chain` demotes an alias a chain names;
+# `dispatch` reaches no chain and only ever resolves a pinned dispatch.
+UNKNOWN_ROUTE_EFFECT_CHAIN = "chain"
+UNKNOWN_ROUTE_EFFECT_DISPATCH = "dispatch"
+
+
 def routes_to_unknown_providers(
     routes: Mapping[str, tuple[str, str]],
     entitlements: Mapping[str, Any] | None,
-) -> tuple[tuple[str, str], ...]:
-    """``(alias, provider)`` pairs whose route names a provider this machine does not hold.
+    chains: Mapping[str, tuple[tuple[str, str], ...]] | None = None,
+) -> tuple[dict[str, str], ...]:
+    """Routes naming a provider this machine does not hold, each with its effect.
 
-    The route branch of `alias_is_served`, read the other way round: a
-    route decides first, so an alias routed to a provider that is neither
-    recorded nor linked is unserved and sorts behind the served entries of
-    every chain that names it. That is the one way a route demotes a model,
-    and the surfaces that show chains say it out loud rather than leaving a
-    `!` mark to explain itself. Empty when nothing is recorded or linked:
-    with no providers to judge against every alias counts as served.
+    Rows are ``{"alias", "route", "provider", "effect"}``, chain rows first.
+    A route decides `alias_is_served` before anything else, so one that
+    names a provider neither recorded nor linked has one of two effects,
+    and they are not the same sentence:
+
+    * ``chain`` -- the route is the one the serving rule finds for an alias
+      some chain names (``chains``: the effective chains; the shipped ones
+      when not given), looked up exactly as the rule looks it up
+      (`_route_key_for`). That alias is unserved and sorts behind the
+      served entries of every chain naming it. ``alias`` is the chain's
+      spelling, ``route`` the key as written.
+    * ``dispatch`` -- no chain alias reaches the key, so nothing is
+      reordered. The route still resolves, verbatim, when a dispatch pins
+      that alias (`resolve_provider_model`), and it resolves unchecked: a
+      route that names a provider skips the inheritance guard, so the
+      child asks Hermes for a provider it is not linked to. ``alias`` is
+      the key itself.
+
+    Empty when nothing is recorded or linked: with no providers to judge
+    against every alias counts as served and every route is left alone.
     """
     providers = (entitlements or {}).get("providers", {})
     if not isinstance(providers, Mapping) or not providers:
         return ()
+    effective_chains = chains if chains is not None else HERMES_MIXTURE_CATEGORY_CHAINS
+    chain_aliases = sorted({model for chain in effective_chains.values() for model, _effort in chain})
+    reached: dict[str, list[str]] = {}
+    for alias in chain_aliases:
+        key = _route_key_for(alias, routes)
+        if key is not None:
+            reached.setdefault(key, []).append(alias)
+    rows: list[dict[str, str]] = []
+    for key, (provider, _model) in routes.items():
+        if provider in providers:
+            continue
+        for alias in reached.get(key, []):
+            rows.append({"alias": alias, "route": key, "provider": provider, "effect": UNKNOWN_ROUTE_EFFECT_CHAIN})
+        if key not in reached:
+            rows.append({"alias": key, "route": key, "provider": provider, "effect": UNKNOWN_ROUTE_EFFECT_DISPATCH})
     return tuple(
-        sorted(
-            (alias, provider)
-            for alias, (provider, _model) in routes.items()
-            if provider not in providers
-        )
+        sorted(rows, key=lambda row: (row["effect"] != UNKNOWN_ROUTE_EFFECT_CHAIN, row["alias"], row["route"]))
     )
 
 

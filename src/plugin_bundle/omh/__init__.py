@@ -140,6 +140,7 @@ def register(ctx: _PluginContext) -> None:
     from .tools.document_plan_tool import OMH_DOCUMENT_PLAN_SCHEMA, omh_document_plan_handler
     from .tools.evidence_tool import OMH_EVIDENCE_SCHEMA, omh_evidence_handler
     from .tools.hud_tool import OMH_HUD_SCHEMA, omh_hud_handler
+    from .tools.loop_tool import OMH_LOOP_SCHEMA, omh_loop_handler
     from .tools.memory_tool import OMH_MEMORY_SCHEMA, omh_memory_handler
     from .tools.probe_tool import OMH_PROBE_SCHEMA, omh_probe_handler
     from .tools.recommend_tool import OMH_RECOMMEND_SCHEMA, omh_recommend_handler
@@ -211,6 +212,13 @@ def register(ctx: _PluginContext) -> None:
         OMH_INTERACT_SCHEMA,
         omh_interact_handler,
         description=OMH_INTERACT_SCHEMA["description"],
+    )
+    _ = ctx.register_tool(
+        "omh_loop",
+        _TOOLSET,
+        OMH_LOOP_SCHEMA,
+        omh_loop_handler,
+        description=OMH_LOOP_SCHEMA["description"],
     )
     _ = ctx.register_tool(
         "omh_memory",

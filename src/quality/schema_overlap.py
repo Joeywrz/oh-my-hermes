@@ -141,6 +141,17 @@ REVIEWED_OVERLAP_DECISIONS: dict[str, str] = {
         "caller's statement rather than an observation, and marking next demotes the other next. "
         "The members alone would read as observed reading progress."
     ),
+    "omh_loop.action:OVERLAP_ENUM_RESTATED": (
+        "keep — each member is named with the field set it needs and what it does to "
+        "loop_cycle/v2, then the text states the two cross-cutting rules the members cannot "
+        "carry: which actions need loop_id and which need expected_revision. A caller that "
+        "read only the member names would omit the guard and have the write refused."
+    ),
+    "omh_loop.work_kind:OVERLAP_ENUM_RESTATED": (
+        "keep — the two members are the enum, but the sentence carries the default. "
+        "non_coding is what a loop gets when the field is omitted, and which one is the "
+        "default is not visible in a member list."
+    ),
     "omh_todo.action:OVERLAP_ENUM_RESTATED": (
         "keep — set/clear/show are named with their effect on the stored list and the rendered "
         "projection, which is output shape, not member names."

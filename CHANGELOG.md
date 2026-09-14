@@ -4,6 +4,25 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **Loop is a native tool, and the CLI now speaks through the same
+  service.** `omh_loop` registers one session-bound plugin tool over eight
+  workflow-critical lifecycle actions -- `assess`, `start`, `status`,
+  `feedback`, `permit`, `run_once`, `goal_driver_observe`, `queue_observe` --
+  so Hermes manages one durable `loop_cycle/v2` without assembling shell
+  arguments or parsing command output. Every action runs through a new typed
+  operation service (`omh.workflows.loop_operations`) whose manifest is the
+  only place the Loop action vocabulary exists, and all twenty-two `omh loop`
+  subcommands are now adapters over that same service, keeping their flags,
+  exit codes, and JSON keys. Tool mutations bind to the configured OMH home
+  and the host session id, refuse a caller-named store, and refuse an
+  existing-loop write that does not submit the `record_revision` a read
+  reported; failures return a stable code from one closed vocabulary. Every
+  result carries prepared-versus-observed state: a successful call records an
+  OMH transition and never implies dispatch, implementation, review, CI,
+  merge readiness, or merge. Operator surfaces (tick, sticky rules, queue
+  dispatch and recovery, driver binding and migration, handoffs, narration)
+  stay on the CLI, and the Loop skill now names the tool first and the CLI as
+  the fallback. Existing installs need `omh update` before the tool appears.
 - **Every provider surface says which providers count.** With linked
   providers reordering chains on their own, the surfaces that describe
   providers now tell that truth. `omh doctor` gains a `provider_entitlements`

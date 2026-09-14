@@ -238,6 +238,14 @@ def build_memory_correction(
     if not safe_token(candidate_id):
         raise ValueError("unsafe_candidate_id")
     replacement = {**record, "summary": str(summary)[:500]}
+    # Correcting an open record IS the answer: the replacement carries
+    # `resolved` (confirm is the only other writer of it), the ceiling goes
+    # with the question, and the superseded history keeps the open marker as
+    # the record of what was unresolved and for how long.
+    staleness = record.get("staleness") if isinstance(record.get("staleness"), Mapping) else {}
+    if staleness.get("resolution") == "open":
+        resolved = {key: value for key, value in staleness.items() if key != "open_expires_at"}
+        replacement["staleness"] = {**resolved, "resolution": "resolved", "resolved_at": stamp(now)}
     safety = evaluate_renderable_strings(replacement)
     if safety["status"] != "safe":
         return _rejected("correct", record_id, revision, now, str(safety["reason_code"]))

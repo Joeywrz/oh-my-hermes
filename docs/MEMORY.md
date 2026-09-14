@@ -450,6 +450,8 @@ setup profile's `memory_policy` block may carry, additively and optionally:
 | `stale_after_days_default` | 90 | Review cadence minted for fact/decision/lesson/procedure captures without an explicit `--stale-after-days`. |
 | `episode_ttl_days` | 30 | TTL minted for episode captures without an explicit `--ttl-days`. |
 | `due_soon_days` | 14 | Advance-notice window recall packs warn inside, shared by review-due and expiry notices; accepted range 1–365. |
+| `open_max_days` | 365 | Open ceiling for a record marked `--unresolved`: `open_since` plus this many days is `staleness.open_expires_at`, past which the question is `expired/unresolved_expired`. Durable records carry no ceiling. |
+| `open_ask_days` | 14 | How often the provider may ask about the same open record after its review deadline passes; `omh memory keep-open` resets the clock. Accepted range 1–365. |
 
 An absent or invalid value falls back to the named default, and the effective
 values are always disclosed on the `project_memory_policy/v1` payload, so
@@ -490,18 +492,38 @@ durable.
 
 ## Freshness: Review-Due Dates and Source Evidence
 
-A record's freshness is one verdict derived from three stored inputs plus the
+A record's freshness is one verdict derived from four stored inputs plus the
 caller's clock. Nothing is inferred from conversation, and nothing is fetched.
 
 | Input | Field | Effect |
 | --- | --- | --- |
 | Retention deadline | `ttl.expires_at` | Past it, the record is `expired`. |
-| Review-due date | `staleness.review_due_at` | Past it, the record is `stale`. |
+| Review-due date | `staleness.review_due_at` | Past it, the record is `stale` — unless it is open, then it is `open`. |
 | Source digest | `source_evidence.sha256` | A changed source is `stale`; an unreadable one is `unknown`. |
+| Open marker | `staleness.resolution` | `open` (set by a person) keeps the record delivered past its review deadline as `open · N days unresolved`; `resolved` is written only by confirm or correct. |
+| Open ceiling | `staleness.open_expires_at` | `open_since` + `open_max_days` (default 365). Past it an open record is `expired` with reason `unresolved_expired`: a question that died unanswered, not a fact that aged out. Absent on durable records. |
 
 `review_due_at` is the readable name for the date `staleness.stale_after`
 always held; both are written, and when they disagree the earlier one wins, so
 editing one spelling can never restore freshness.
+
+The verdict is decided in this order: a passed retention TTL is `expired`;
+a passed open ceiling is `expired/unresolved_expired`; a passed review
+deadline on a record that is *not* open is `stale/review_due`; a changed
+source is `stale/source_changed` and an unreadable one `unknown`, because
+evidence that moved is not the same as an answer that has not arrived; only
+then is a passed review deadline on an open record `open/unresolved`. A
+record that is not open gets exactly the verdict it always got.
+
+An open record is a marker a person sets, never a state OMH infers from
+content: `omh memory capture --unresolved` starts the clock at capture and
+`omh memory approve <id> --unresolved` starts it at approval; the candidate
+carries `unresolved: true` and the review card shows the ceiling the record
+will expire under. Every verdict now also reports `resolution` (`open`,
+`resolved`, or empty) and `open_days`, the whole days since `open_since`
+while the record is open (0 otherwise). Nothing promotes an open record to a
+settled fact on a timeout: it stays `open`, delivered with its age, until a
+person answers.
 
 Deadlines can be given as absolute dates, not only day counts:
 `--stale-after YYYY-MM-DD` (review deadline) and `--expires-at YYYY-MM-DD`
@@ -534,7 +556,13 @@ source moved.
 Both `stale` and `unknown` are ineligible for default recall, exactly like
 `expired`. `omh memory recall --include-stale` surfaces them for inspection
 carrying their ineligible replay evidence, which keeps the pack unattachable
-as approved context.
+as approved context. `open` is the exception by design: an open record past
+its review deadline stays eligible and is delivered with `resolution: open`,
+a `resolution_marker` of `open · N days unresolved`, and one
+`unresolved_delivered` count per pack — never a banner per record. Ranking
+is unchanged, so an old open question sinks through the age tiers but never
+vanishes. `unresolved_expired` is terminal like `expired`: it leaves default
+recall and `--include-stale` does not bring it back.
 
 ### Freshness Warnings
 
@@ -579,6 +607,14 @@ page — advisory notices never displace blocking warnings inside the bounded
 list, and once a deadline actually passes, the ordinary blocking warning
 covers held-back records as before.
 
+An open record adds one advisory and one blocking reason. A delivered open
+record past its review deadline warns `unresolved_open` (`state: open`,
+`delivered: true`), whose `next_action` names the three answers — confirm
+(resolved), keep-open (still open), retire (drop it) — and which, like every
+advisory, never counts toward a wrapper's freshness-warning total. A record
+past its open ceiling warns `unresolved_expired` as a held-back blocking
+warning whose detail says the question died unanswered.
+
 ### Confirming, Correcting, or Retiring
 
 Answering the warning uses three verbs. `omh memory confirm <record-id>` is
@@ -603,6 +639,30 @@ Both preserve the prior revision — a correction writes
 `history/<record-id>.r<revision>.json` carrying the original payload, its
 admission provenance, its source evidence, and a `superseded_by` link to the
 successor revision.
+
+An open record has exactly three answers, and they are the same verbs plus
+one. `omh memory confirm <record-id>` is "resolved": it resets the review
+deadline as usual and writes `staleness.resolution: resolved` with a
+`resolved_at`, dropping the open ceiling; `omh memory correct` is the same
+answer with a different fact — the replacement carries `resolved`, the
+superseded history keeps `open`. `omh memory keep-open <record-id>` is
+"still open": it records the answer in the local ask ledger so the provider
+stops asking for another `open_ask_days`, and it writes nothing to the
+record — same state, same deadline, same ceiling; it refuses `not_open` for
+a record that is not marked unresolved and `unresolved_expired` for one past
+its ceiling. `omh memory retire <record-id>` is "drop it": with a record id
+the retire report narrows to that record and nominates an open one as
+`unresolved_dropped` even before it expires, while a settled live record is
+refused as `not_expired`. Without an id, the sweep nominates ceiling-expired
+open records as `unresolved_expired` beside the ordinary `retention_expired`
+rows, and the archive journal carries the reason. Nothing else clears the
+marker: `confirm --all-due` leaves open records untouched and counts them as
+`open_count`, no reminder writes a record, and no timeout resolves one.
+`omh memory status` reports `counts.unresolved` and a bounded `open_records`
+list (oldest first, at most 20: record id, summary, `open_days`,
+`open_since`, `open_expires_at`, `review_due_at`, `state`, `last_asked_at`),
+and `omh doctor` warns — never fails — when an open record has been open for
+more than half of `open_max_days`.
 
 ## Recall Ranking and Delivery Usage
 
@@ -989,6 +1049,37 @@ claims, not host delivery or model use. The recall line is aggregate status,
 not record-bound evidence that a memory entered a model request. Receipt
 integrity checks detect inconsistent edits but don't authenticate the sender.
 See [receipt privacy and identity](MEMORY-PREFETCH.md#receipt-privacy-and-identity).
+
+### The `omh reminder:` line
+
+An open record should not wait for someone to run a command; the provider
+asks. After the records section the pack may carry exactly one line:
+
+```text
+omh reminder: "<summary>" (<record_id>) has been unresolved for <N> days — resolved, still open, or drop it? Answer with omh memory confirm <id> · omh memory keep-open <id> · omh memory retire <id>
+```
+
+Hermes relays it as a question in its reply; the answer maps to the three
+verbs above. The summary is the same bounded, redacted projection a record
+element carries. Cadence: a record is asked about once its review deadline
+has passed (an open record still inside its deadline is delivered with its
+marker but not asked about), then at most every `open_ask_days` (default 14)
+per record; "still open" resets that clock. Never more than one line per
+pack — the rest queue by age, oldest `open_since` first — and only for
+records inside the pack's own scope allowlist; a shared surface (a group
+chat) is never asked to settle the operator's question.
+
+Boundary: the reminder only asks. Serving the pack writes one line to the
+local ask ledger `<omh_home>/memory/open_reminders.json`
+(`{"schema_version": "omh_memory_open_reminders/v1", "records": {"<record_id>":
+{"asked_at": ..., "asked_count": n}}}`) through the same best-effort path as
+the receipt; a queued re-render that is never served records nothing, and
+the same pack served to several API calls inside one turn is one ask. No
+reminder path writes a record — every state change still goes through
+confirm / correct / retire. The line never moves the recall count. Hermes'
+`RecallStatus` has no field for it, so the ask is disclosed in the prefetch
+receipt (`reminder: {record_id, open_days}`, no summary) and through the
+provider's `latest_open_reminder()` accessor.
 
 ## Dreaming
 

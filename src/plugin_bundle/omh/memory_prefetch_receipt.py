@@ -46,11 +46,18 @@ def build_prefetch_receipt(
     home_digests: tuple[str, ...] | list[str],
     rendered_block_count: int = 0,
     project_resolution: ProjectIdentityResolution | None = None,
+    reminder: dict[str, object] | None = None,
 ) -> dict[str, Any]:
     """Bind one selection and its rendering to configuration, lens, session and store.
 
     Raises ValueError when the rendering does not describe the selection it
     claims to render: a receipt must never be assembled from mismatched parts.
+
+    ``reminder`` discloses the one ``omh reminder:`` line the pack carries
+    about an open record -- record id and age only, never its summary -- so
+    a receipt says the turn was asked a question even though Hermes'
+    ``RecallStatus`` has no field to carry it. None when the pack asked
+    nothing.
     """
     selection, section = prepared.selection, prepared.section
     pack = selection.pack
@@ -110,6 +117,7 @@ def build_prefetch_receipt(
             "omission_counts": {str(key): int(value) for key, value in section.omissions.items()},
             "rendered_block_count": max(int(rendered_block_count), 0),
         },
+        "reminder": _reminder_projection(reminder),
         "delivery_observed": None,
         "model_use_observed": None,
         "proves": PROVES,
@@ -187,6 +195,17 @@ def validate_prefetch_receipt(value: object) -> list[str]:
                 errors.append("rendering.selected_prefix")
     if value.get("delivery_observed") is not None or value.get("model_use_observed") is not None:
         errors.append("observation_claims")
+    reminder = value.get("reminder")
+    if reminder is not None and (
+        not isinstance(reminder, dict)
+        or set(reminder) != {"record_id", "open_days"}
+        or not isinstance(reminder.get("record_id"), str)
+        or not reminder["record_id"]
+        or not isinstance(reminder.get("open_days"), int)
+        or isinstance(reminder.get("open_days"), bool)
+        or reminder["open_days"] < 0
+    ):
+        errors.append("reminder")
     if value.get("proves") != PROVES:
         errors.append("proves")
     for key in ("summary", "included_records", "query", "rendered_text"):
@@ -224,6 +243,17 @@ def read_prefetch_receipt(omh_home: str | Path) -> dict[str, Any] | None:
 
 def _object(value: object) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _reminder_projection(reminder: dict[str, object] | None) -> dict[str, object] | None:
+    """Record id and age only: the receipt never carries a summary."""
+    if not isinstance(reminder, dict) or not str(reminder.get("record_id", "") or ""):
+        return None
+    days = reminder.get("open_days", 0)
+    return {
+        "record_id": str(reminder["record_id"]),
+        "open_days": days if isinstance(days, int) and not isinstance(days, bool) and days >= 0 else 0,
+    }
 
 
 def _hex64(value: object) -> bool:

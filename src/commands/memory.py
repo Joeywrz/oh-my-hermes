@@ -56,6 +56,7 @@ from ..memory import (
     capture_project_memory_candidate,
     confirm_due_project_memory_records,
     confirm_project_memory_record,
+    keep_memory_record_open,
     stage_memory_demotion,
     read_memory_snapshot_file,
     reject_project_memory_candidate,
@@ -155,6 +156,7 @@ def cmd_memory_capture(args: argparse.Namespace) -> int:
             observed=args.observed,
             principal_context=_read_optional_json(args.principal_context),
             audience_principals=args.audience_principal or [],
+            unresolved=bool(getattr(args, "unresolved", False)),
         )
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
@@ -234,6 +236,7 @@ def cmd_memory_approve(args: argparse.Namespace) -> int:
                 if reviewer_context is not None and reviewer_context.get("actor_kind") == "human"
                 else None
             ),
+            unresolved=bool(getattr(args, "unresolved", False)),
         )
     except StaleMemoryReviewError as exc:
         _print_json(_review_revision_refusal(str(args.candidate_id), "stale_review", str(exc)))
@@ -243,6 +246,14 @@ def cmd_memory_approve(args: argparse.Namespace) -> int:
             raise OmhError(
                 "lifecycle candidates keep their reviewed retention class; "
                 "--retention-class applies only to plain approvals"
+            ) from None
+        if bool(getattr(args, "unresolved", False)):
+            # A correction or restore candidate carries its reviewed
+            # resolution marker; the answer to an open question is the
+            # correction itself, not a flag on its reapproval.
+            raise OmhError(
+                "lifecycle candidates keep their reviewed resolution marker; "
+                "--unresolved applies only to plain approvals"
             ) from None
         # Correction/restore candidates approve through the lifecycle
         # executor so the replacement payload and revision survive; the
@@ -424,6 +435,18 @@ def cmd_memory_confirm(args: argparse.Namespace) -> int:
         raise OmhError(str(exc)) from exc
     _print_json(payload)
     return 0
+
+
+def cmd_memory_keep_open(args: argparse.Namespace) -> int:
+    """The 'still open' answer: reset one open record's reminder clock, change nothing else."""
+    try:
+        payload = keep_memory_record_open(_paths(args), args.record_id)
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(payload)
+    # A refusal (not open, expired, missing) changed nothing and must not read
+    # as success to a shell that only checks the status.
+    return 0 if bool(payload.get("applied")) else 1
 
 
 def cmd_memory_attention(args: argparse.Namespace) -> int:
@@ -784,11 +807,12 @@ def cmd_memory_retire(args: argparse.Namespace) -> int:
     """Report expired records, or move them into the archive with --apply. Never deletes."""
     paths = _paths(args)
     window_days = _optional_positive_int(args.window_days, "--window-days") or 7
+    record_id = str(getattr(args, "record_id", "") or "").strip() or None
     try:
         if args.apply:
-            payload = apply_memory_retirement(paths, window_days=window_days)
+            payload = apply_memory_retirement(paths, window_days=window_days, record_id=record_id)
         else:
-            payload = build_memory_retirement(paths, window_days=window_days)
+            payload = build_memory_retirement(paths, window_days=window_days, record_id=record_id)
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     _print_json(payload)

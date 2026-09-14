@@ -55,6 +55,31 @@ All notable changes will be documented here.
   `$OMH_HOME/paper-learning/<paper_id>/card.json` plus an append-only
   `ledger.jsonl`; page counts, PDF extraction, and explanation correctness
   stay not observed until a host records them.
+- **An unresolved memory decays to open, not to a verdict.** A record whose
+  outcome is undecided used to be delivered like a settled fact until its
+  review deadline, then go `stale` and leave recall — read as decided, then
+  forgotten. `omh memory capture --unresolved` / `omh memory approve <id>
+  --unresolved` now set `staleness.resolution: open`. Past its review
+  deadline an open record is delivered as `open · N days unresolved`
+  (pack items carry `resolution` and `resolution_marker`, each pack one
+  `unresolved_delivered` count, the provider's record line the same marker)
+  instead of being held back; expiry, a changed source, and an unreadable
+  source still outrank it, and a non-open record keeps today's verdict byte
+  for byte. Only `confirm` or `correct` writes `resolved`, `retire` ends it,
+  and nothing else clears it — no timeout, no reminder, no batch confirm.
+  `open_max_days` (default 365, policy tunable) bounds every non-durable open
+  record as `expired/unresolved_expired`, and `omh memory retire` names that
+  reason so a question that died unanswered reads differently from a fact
+  that aged out. The provider asks: one `omh reminder: "<summary>" (<id>)
+  has been unresolved for N days — resolved, still open, or drop it?` line
+  per pack once the deadline passes, then at most every `open_ask_days`
+  (default 14); `omh memory keep-open <id>` is the "still open" answer that
+  resets the clock and touches nothing else, `omh memory retire <id>` the
+  "drop it" answer. The ask is recorded only when the pack is actually
+  served and disclosed in the prefetch receipt (`reminder`) and
+  `latest_open_reminder()`. `omh memory status` gains `counts.unresolved`
+  and a bounded oldest-first `open_records` list; `omh doctor` warns about
+  open records older than half the ceiling. Issue #1528.
 - **DeepSeek V4.1 Flash override measured and revised.** On the first day a
   served route existed (`og` added `deepseek/deepseek-flash`), the
   `deepseek-v4.1-flash` high-effort override ran the #1463 five-arm pair on

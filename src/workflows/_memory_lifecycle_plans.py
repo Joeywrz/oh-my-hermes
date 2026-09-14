@@ -145,6 +145,23 @@ def _attention(replacement: Mapping[str, object]) -> dict[str, object]:
     }
 
 
+def _resolution(replacement: Mapping[str, object]) -> dict[str, object]:
+    """Carry a reviewed revision's open/resolved marker into its successor, scalar-only.
+
+    A corrected open record arrives here already marked `resolved` (the
+    correction plan wrote the answer); a restored open record arrives still
+    `open`, and restoring a question must restore it as a question, ceiling
+    included. Without this the successor would silently read as a settled
+    fact -- the exact promotion an open record exists to refuse. Any other
+    value carries nothing, so a corrupt marker cannot exempt a record.
+    """
+    staleness = replacement.get("staleness")
+    if not isinstance(staleness, Mapping) or str(staleness.get("resolution", "") or "") not in {"open", "resolved"}:
+        return {}
+    keys = ("resolution", "open_since", "open_expires_at", "resolved_at")
+    return {key: str(staleness.get(key, "") or "") for key in keys if str(staleness.get(key, "") or "")}
+
+
 def _approved_record(replacement: Mapping[str, object], record_id: str, revision: int, reviewer: str, now: datetime) -> dict[str, object]:
     record_type = str(replacement.get("record_type", "fact"))
     retention = replacement.get("retention") if isinstance(replacement.get("retention"), Mapping) else {}
@@ -156,7 +173,7 @@ def _approved_record(replacement: Mapping[str, object], record_id: str, revision
             "reviewer": {"principal": identity.get("reviewer", {}).get("principal") if isinstance(identity.get("reviewer"), Mapping) else None, "review_ref": f"review-{record_id}-r{revision}"},
             "audience": {**identity.get("audience", {}), "review_ref": f"review-{record_id}-r{revision}"} if isinstance(identity.get("audience"), Mapping) else {},
         }
-    record: dict[str, object] = {"schema_version": PRINCIPAL_PROJECT_MEMORY_RECORD_SCHEMA_VERSION if identity is not None else PROJECT_MEMORY_RECORD_SCHEMA_VERSION, "record_id": record_id, "revision": revision, "record_type": record_type, "summary": str(replacement.get("summary", "")), "scope": _scope(replacement), "source_class": str(replacement.get("source_class", "omh_local")), "derived_from": [str(ref) for ref in (replacement.get("derived_from") if isinstance(replacement.get("derived_from"), list) else []) if isinstance(ref, str)], **({"perspective": {"observer": str(replacement["perspective"].get("observer", "")), "observed": str(replacement["perspective"].get("observed", ""))}} if isinstance(replacement.get("perspective"), Mapping) and str(replacement["perspective"].get("observed", "")) else {}), **({"source_evidence": evidence} if (evidence := _source_evidence(replacement)) else {}), **({"attention": attention} if (attention := _attention(replacement)) else {}), **({"identity": dict(identity)} if identity is not None else {}), "retention": build_retention(str(retention.get("class", "standard")), record_type=record_type, admitted_at=now, ttl_days=ttl_days), "revalidation": {}, "admission": {"state": "approved_manual", "review_id": f"review-{record_id}-r{revision}", "reviewer_claim": reviewer, "admitted_at": stamp(now), "policy_version": MEMORY_GOVERNANCE_POLICY_VERSION, "classifier_version": MEMORY_CLASSIFIER_VERSION}}
+    record: dict[str, object] = {"schema_version": PRINCIPAL_PROJECT_MEMORY_RECORD_SCHEMA_VERSION if identity is not None else PROJECT_MEMORY_RECORD_SCHEMA_VERSION, "record_id": record_id, "revision": revision, "record_type": record_type, "summary": str(replacement.get("summary", "")), "scope": _scope(replacement), "source_class": str(replacement.get("source_class", "omh_local")), "derived_from": [str(ref) for ref in (replacement.get("derived_from") if isinstance(replacement.get("derived_from"), list) else []) if isinstance(ref, str)], **({"perspective": {"observer": str(replacement["perspective"].get("observer", "")), "observed": str(replacement["perspective"].get("observed", ""))}} if isinstance(replacement.get("perspective"), Mapping) and str(replacement["perspective"].get("observed", "")) else {}), **({"source_evidence": evidence} if (evidence := _source_evidence(replacement)) else {}), **({"attention": attention} if (attention := _attention(replacement)) else {}), **({"staleness": resolution} if (resolution := _resolution(replacement)) else {}), **({"identity": dict(identity)} if identity is not None else {}), "retention": build_retention(str(retention.get("class", "standard")), record_type=record_type, admitted_at=now, ttl_days=ttl_days), "revalidation": {}, "admission": {"state": "approved_manual", "review_id": f"review-{record_id}-r{revision}", "reviewer_claim": reviewer, "admitted_at": stamp(now), "policy_version": MEMORY_GOVERNANCE_POLICY_VERSION, "classifier_version": MEMORY_CLASSIFIER_VERSION}}
     identity = stable_artifact_identity(record)
     record["admission"] = {**record["admission"], "artifact_identity": identity, "payload_digest": canonical_payload_digest(record)}
     return record

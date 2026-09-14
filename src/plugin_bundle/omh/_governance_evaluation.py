@@ -236,8 +236,22 @@ def evaluate_memory_replay(
                 return result
     
     # 6. Check stale/revalidation deadline
+    #
+    # An open record (`staleness.resolution == "open"`, set by a person at
+    # capture or approval) is exempt from this step and from nothing else.
+    # The deadline gate asks "has anyone re-confirmed this fact?", and an
+    # open record never claimed to be a fact: past its deadline it stays
+    # eligible and is delivered as `open` with its age. The exemption lives
+    # HERE, in the one evaluator every surface shares (recall, `memory
+    # status` counts, the bridge's approved-record view), rather than as a
+    # selector-side reversal of this verdict, so no surface can count an
+    # open record ineligible while another delivers it. The open ceiling
+    # (`unresolved_expired`) is the staleness verdict's job, folded by the
+    # selector the way source evidence is.
     revalidation = artifact.get("revalidation")
-    if isinstance(revalidation, dict):
+    staleness = artifact.get("staleness")
+    resolution_open = isinstance(staleness, dict) and staleness.get("resolution") == "open"
+    if isinstance(revalidation, dict) and not resolution_open:
         reval_deadline_str = revalidation.get("deadline")
         if reval_deadline_str:
             try:

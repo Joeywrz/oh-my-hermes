@@ -851,7 +851,13 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # names the audit command and keeps config-only, unsupported and ambiguous
 # names from becoming invocation evidence; re-derived from the full-profile
 # skill_context_cost_payload() producer, not from accumulated deltas.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 936264
+# 936264 -> 936466: `paper-learning` gained one recovery note pointing at
+# `omh_document_plan` for a paper longer than one `read_file` window. The
+# lane reads it at the moment it decides how to read the document, before
+# the first window is spent, so it belongs in the always-loaded body;
+# warranted growth. Re-derived from the producer after this branch met the
+# #1513 entry above, never by adding the two deltas.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 936466
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

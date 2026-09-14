@@ -26,6 +26,23 @@ All notable changes will be documented here.
   copy in all four languages no longer claims that skipping keeps the
   built-in order, and two docs pages say "recorded or linked" where they
   framed the record as the only route.
+- **Long documents get a chunk plan before they are read.** A new
+  `omh_document_plan` plugin tool splits a document larger than one
+  `read_file` window into numbered ranges from the numbers Hermes states
+  after its first read (page count, `total_lines`, extracted length, an
+  outline of section anchors): each range carries a page or character span,
+  the sections it covers, an estimated character and token size, the
+  `read_file` offset/limit window that reaches it, and a digest, and the
+  plan is written to `$OMH_HOME/documents/<plan_id>/plan.json` with a
+  covered / next / missing ledger that `mark` advances and `show` re-reads
+  after conversation compression. Ranges snap to the outline and to the
+  100k-character budget Hermes reads per call, and a plan of more than four
+  ranges carries a `delegate_task` brief per range so the reading can fan
+  out one child per range. OMH never opens the document: a local file
+  contributes only its size and sha256, every count is labelled
+  `caller_supplied`, and a covered mark is the caller's statement, not
+  observed coverage. The paper-learning skill points to the tool when the
+  paper exceeds one window.
 - **DeepSeek V4.1 Flash override measured and revised.** On the first day a
   served route existed (`og` added `deepseek/deepseek-flash`), the
   `deepseek-v4.1-flash` high-effort override ran the #1463 five-arm pair on

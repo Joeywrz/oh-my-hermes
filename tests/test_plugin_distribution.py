@@ -899,6 +899,7 @@ print(json.dumps(observed, ensure_ascii=False))
                     "omh_context",
                     "omh_decision_gate",
                     "omh_delegate_route",
+                    "omh_document_plan",
                     "omh_gather_evidence",
                     "omh_hud",
                     "omh_interact",

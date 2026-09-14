@@ -518,8 +518,15 @@ record that is not open gets exactly the verdict it always got.
 An open record is a marker a person sets, never a state OMH infers from
 content: `omh memory capture --unresolved` starts the clock at capture and
 `omh memory approve <id> --unresolved` starts it at approval; the candidate
-carries `unresolved: true` and the review card shows the ceiling the record
-will expire under. Every verdict now also reports `resolution` (`open`,
+carries `unresolved: true` and the review card shows the review deadline and
+the ceiling the record will expire under. An open record always carries a
+review deadline, even a durable record or an episode, which mint none on
+their own: "unresolved" means "needs an answer by then", and without a
+deadline the record could never reach `open`, never be asked about, and
+never be answered. The default cadence is minted (marked `cadence_source:
+default`) whenever the record would otherwise have none, and a durable
+re-class at approval keeps the deadline the card showed. Every verdict now
+also reports `resolution` (`open`,
 `resolved`, or empty) and `open_days`, the whole days since `open_since`
 while the record is open (0 otherwise). Nothing promotes an open record to a
 settled fact on a timeout: it stays `open`, delivered with its age, until a
@@ -643,7 +650,12 @@ successor revision.
 An open record has exactly three answers, and they are the same verbs plus
 one. `omh memory confirm <record-id>` is "resolved": it resets the review
 deadline as usual and writes `staleness.resolution: resolved` with a
-`resolved_at`, dropping the open ceiling; `omh memory correct` is the same
+`resolved_at`, dropping the open ceiling — and it succeeds on an open record
+that carries no deadline at all (one restored from the archive, or written
+before open records always minted one), resolving it without minting a clock
+nobody asked for unless `--stale-after` / `--stale-after-days` states one;
+the `no_review_deadline` refusal stays for records that are not open.
+`omh memory correct` is the same
 answer with a different fact — the replacement carries `resolved`, the
 superseded history keeps `open`. `omh memory keep-open <record-id>` is
 "still open": it records the answer in the local ask ledger so the provider
@@ -1066,8 +1078,15 @@ has passed (an open record still inside its deadline is delivered with its
 marker but not asked about), then at most every `open_ask_days` (default 14)
 per record; "still open" resets that clock. Never more than one line per
 pack — the rest queue by age, oldest `open_since` first — and only for
-records inside the pack's own scope allowlist; a shared surface (a group
-chat) is never asked to settle the operator's question.
+records the pack itself was willing to deliver: inside its scope allowlist
+and admitted by its eligibility evaluation (delivered, or held back only for
+no query overlap or the budget cut). A superseded, archived, or otherwise
+refused record is never asked about, because two of the three answers would
+refuse it; the reminder is eligibility-bound, not query-bound. Principal-bound
+(`project_memory_record/v3`) records are asked about on the same terms: the
+pack's own principal and audience rules decide whether they are eligible, and
+the reminder never reads them more loosely than the pack does. A shared
+surface (a group chat) is never asked to settle the operator's question.
 
 Boundary: the reminder only asks. Serving the pack writes one line to the
 local ask ledger `<omh_home>/memory/open_reminders.json`

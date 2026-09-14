@@ -20,7 +20,11 @@ half was "still open, still unresolved". The contracts pinned here:
 
 from __future__ import annotations
 
+import argparse
+import contextlib
+import io
 import json
+import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -41,6 +45,9 @@ from omh.plugin_bundle.omh.memory_open_reminders import (
 from omh.plugin_bundle.omh.memory_prefetch_receipt import read_prefetch_receipt, validate_prefetch_receipt
 from omh.plugin_bundle.omh.memory_provider import OmhMemoryProvider, RecallStatus
 from omh.plugin_bundle.omh.memory_records import render_memory_records
+from omh.plugin_bundle.omh.hermes_memory import read_approved_records
+from omh.plugin_bundle.omh.memory_open_reminders import select_open_reminder
+from omh.commands.memory import _memory_retire_exit_code, cmd_memory_retire
 from omh.workflows import memory as memory_workflow
 from omh.workflows.memory import (
     approve_project_memory_candidate,
@@ -262,14 +269,55 @@ class OpenVerdictTests(unittest.TestCase):
             source.unlink()
             self.assertEqual(memory_workflow._record_staleness(cited, now=now)["reason"], "source_unreadable")
 
-    def test_a_durable_open_record_has_no_ceiling(self) -> None:
+    def test_a_durable_open_record_has_no_ceiling_but_always_a_deadline(self) -> None:
+        # Durable means "does not expire", so no ceiling. But "unresolved"
+        # means "needs an answer by then", so the record still carries the
+        # default review deadline -- without one it could never reach `open`,
+        # never be asked about, and never be answered.
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
             record = _approved(paths, "which license should the SDK carry", retention_class="durable", unresolved=True)
             self.assertEqual(record["staleness"]["resolution"], "open")
             self.assertNotIn("open_expires_at", record["staleness"])
+            created = datetime.fromisoformat(record["created_at"].replace("Z", "+00:00"))
+            self.assertEqual(record["staleness"]["review_due_at"], _stamp(created + 90 * DAY))
+            self.assertEqual(record["revalidation"]["deadline"], record["staleness"]["review_due_at"])
+            self.assertEqual(record["staleness"]["stale_after_days"], 90)
             far = datetime.now(timezone.utc) + 3000 * DAY
-            self.assertEqual(memory_workflow._record_staleness(record, now=far)["state"], "fresh")
+            verdict = memory_workflow._record_staleness(record, now=far)
+            self.assertEqual((verdict["state"], verdict["reason"]), ("open", "unresolved"), "open forever, never expired, never stale")
+
+    def test_every_unresolved_record_carries_a_review_deadline(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            _write_policy(paths, stale_after_days_default=30)
+            for kwargs in (
+                {"record_type": "decision", "retention_class": "durable"},
+                {"record_type": "episode"},
+                {"record_type": "fact", "retention_class": "volatile"},
+            ):
+                with self.subTest(**kwargs):
+                    captured = capture_project_memory_candidate(paths, "an open question", unresolved=True, **kwargs)
+                    candidate = captured["candidate"]
+                    created = datetime.fromisoformat(candidate["created_at"].replace("Z", "+00:00"))
+                    self.assertEqual(candidate["staleness"]["review_due_at"], _stamp(created + 30 * DAY))
+                    self.assertEqual(candidate["staleness"]["cadence_source"], "default")
+                    card = build_project_memory_review(paths, candidate_id=candidate["candidate_id"])["cards"][0]
+                    self.assertEqual(card["review_due_at"], candidate["staleness"]["review_due_at"], "the deadline is disclosed on the card")
+                    record = approve_project_memory_candidate(paths, candidate["candidate_id"])["record"]
+                    self.assertEqual(record["revalidation"]["deadline"], candidate["staleness"]["review_due_at"])
+            # approve --unresolved on a candidate that minted no deadline of its own.
+            plain = capture_project_memory_candidate(paths, "a durable question", record_type="decision", retention_class="durable")
+            self.assertEqual(plain["candidate"]["staleness"]["review_due_at"], "")
+            record = approve_project_memory_candidate(paths, plain["candidate"]["candidate_id"], unresolved=True)["record"]
+            approved = datetime.fromisoformat(record["approved_at"].replace("Z", "+00:00"))
+            self.assertEqual(record["revalidation"]["deadline"], _stamp(approved + 30 * DAY))
+            self.assertEqual(record["staleness"]["review_due_at"], record["revalidation"]["deadline"])
+            # A durable re-class at approval keeps the deadline the card showed.
+            captured = capture_project_memory_candidate(paths, "re-classed open question", unresolved=True)
+            record = approve_project_memory_candidate(paths, captured["candidate"]["candidate_id"], retention_class="durable")["record"]
+            self.assertEqual(record["revalidation"]["deadline"], captured["candidate"]["staleness"]["review_due_at"])
+            self.assertNotIn("open_expires_at", record["staleness"])
 
 
 class OpenMarkerMintingTests(unittest.TestCase):
@@ -395,6 +443,44 @@ class OpenDeliveryTests(unittest.TestCase):
             self.assertEqual(inspected["record_count"], 0, "--include-stale does not resurrect a dead question")
             self.assertEqual(inspected["excluded_records"][0]["record_id"], record["record_id"])
 
+    def test_the_ceiling_is_one_gate_for_recall_status_and_the_bridge(self) -> None:
+        # The ceiling lives in the shared evaluator beside `expired_*`, so every
+        # surface that asks "is this record eligible?" gets the same answer.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            dead = _open_record(paths, "abandoned question about the cache", days_open=400, tags=["cache"])
+            live = _open_record(paths, "live question about the cache", days_open=30, tags=["cache"])
+            reviews = memory_workflow._project_memory_review_resolver(paths)
+            verdict = evaluate_memory_replay(dead, review_resolver=reviews)
+            self.assertEqual((verdict["eligible"], verdict["reason_code"]), (False, "unresolved_expired"))
+            self.assertTrue(evaluate_memory_replay(live, review_resolver=reviews)["eligible"])
+            status = build_project_memory_status(paths)
+            self.assertEqual(status["counts"]["expired_records"], 1, "status counts a dead question as expired")
+            self.assertEqual(status["counts"]["eligible_records"], 1)
+            self.assertEqual(status["counts"]["ineligible_records"], 1)
+            self.assertEqual(
+                [row["record_id"] for row in status["hermes_memory"]["promotable"]],
+                [live["record_id"]],
+                "the bridge promotes the live question and never the dead one",
+            )
+            approved = {record["record_id"] for record in read_approved_records(paths.omh_home)}
+            self.assertEqual(approved, {live["record_id"]}, "the bridge's approved view excludes the dead question")
+            pack = build_project_memory_recall_pack(paths, "cache")
+            self.assertEqual([item["record_id"] for item in pack["included_records"]], [live["record_id"]])
+            self.assertEqual([entry["reason"] for entry in pack["excluded_records"]], ["unresolved_expired"])
+
+    def test_a_malformed_deadline_or_ceiling_on_an_open_record_still_fails_closed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            record = _open_record(paths, "open with a garbled deadline", days_open=10)
+            reviews = memory_workflow._project_memory_review_resolver(paths)
+            garbled_deadline = {**record, "revalidation": {"deadline": "not-a-date"}}
+            self.assertEqual(evaluate_memory_replay(garbled_deadline, review_resolver=reviews)["reason_code"], "revalidation_parse_error")
+            garbled_ceiling = {**record, "staleness": {**record["staleness"], "open_expires_at": "not-a-date"}}
+            self.assertEqual(evaluate_memory_replay(garbled_ceiling, review_resolver=reviews)["reason_code"], "retention_parse_error")
+            naive_ceiling = {**record, "staleness": {**record["staleness"], "open_expires_at": "2020-01-01T00:00:00"}}
+            self.assertEqual(evaluate_memory_replay(naive_ceiling, review_resolver=reviews)["reason_code"], "unresolved_expired", "a naive stamp reads as UTC")
+
     def test_the_handoff_carries_the_open_record_and_its_advisory_is_not_a_warning_count(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -455,6 +541,50 @@ class OpenAnswerTests(unittest.TestCase):
             self.assertFalse(again["was_open"])
             self.assertEqual(_stored(paths, record["record_id"])["staleness"]["resolved_at"], result["confirmed_at"], "a later confirm keeps the answer date")
 
+    def test_confirm_answers_an_open_record_that_has_no_deadline(self) -> None:
+        # A restored or legacy open record carries no review deadline; "resolved"
+        # must still be an answer it can take. Resolving mints no clock nobody
+        # asked for, unless the operator states one.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            record = _open_record(paths, "restored open question", days_open=40)
+            stored = _mutate_record(
+                paths,
+                record["record_id"],
+                revalidation={},
+                staleness={key: value for key, value in record["staleness"].items() if key not in {"stale_after", "review_due_at", "stale_after_days"}},
+            )
+            self.assertEqual(memory_workflow._record_staleness(stored, now=datetime.now(timezone.utc))["review_due_at"], "")
+            result = confirm_project_memory_record(paths, record["record_id"])
+            self.assertEqual((result["applied"], result["reason_code"], result["was_open"]), (True, "confirmed", True))
+            self.assertEqual(result["review_due_at"], "")
+            self.assertIsNone(result["stale_after_days"])
+            self.assertFalse(result["shortened"])
+            self.assertIn("no review deadline", result["next_action"])
+            resolved = _stored(paths, record["record_id"])
+            self.assertEqual(resolved["staleness"]["resolution"], "resolved")
+            self.assertNotIn("deadline", resolved["revalidation"])
+            self.assertEqual(resolved["revalidation"]["confirmed_at"], result["confirmed_at"])
+            self.assertEqual(validate_project_memory_record(resolved), [])
+            verdict = memory_workflow._record_staleness(resolved, now=datetime.now(timezone.utc) + 3000 * DAY)
+            self.assertEqual((verdict["state"], verdict["resolution"]), ("fresh", "resolved"))
+
+            other = _open_record(paths, "another restored question", days_open=40)
+            _mutate_record(
+                paths,
+                other["record_id"],
+                revalidation={},
+                staleness={key: value for key, value in other["staleness"].items() if key not in {"stale_after", "review_due_at", "stale_after_days"}},
+            )
+            dated = confirm_project_memory_record(paths, other["record_id"], stale_after_days=30)
+            self.assertTrue(dated["applied"])
+            self.assertEqual(dated["stale_after_days"], 30)
+            self.assertEqual(_stored(paths, other["record_id"])["revalidation"]["deadline"], dated["review_due_at"])
+
+            settled = _approved(paths, "a durable settled fact", retention_class="durable")
+            refused = confirm_project_memory_record(paths, settled["record_id"])
+            self.assertEqual((refused["applied"], refused["reason_code"]), (False, "no_review_deadline"), "the refusal stays for records that are not open")
+
     def test_confirm_all_due_never_answers_an_open_question(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -489,7 +619,9 @@ class OpenAnswerTests(unittest.TestCase):
             ledger = read_open_reminders(paths.omh_home)
             self.assertEqual(ledger[record["record_id"]]["asked_at"], result["asked_at"])
             self.assertEqual(ledger[record["record_id"]]["asked_count"], 1)
-            self.assertEqual(open_reminders_path(paths.omh_home).stat().st_mode & 0o777, 0o600)
+            # Windows reports 0o666 for a file chmod'ed 0o600 (CLAUDE.md's
+            # platform pitfall); the sibling sidecar tests read it the same way.
+            self.assertEqual(open_reminders_path(paths.omh_home).stat().st_mode & 0o777, 0o666 if os.name == "nt" else 0o600)
             second = keep_memory_record_open(paths, record["record_id"])
             self.assertEqual(second["asked_count"], 2)
             expected_next = datetime.fromisoformat(second["asked_at"].replace("Z", "+00:00")) + 14 * DAY
@@ -618,6 +750,84 @@ class ProviderReminderTests(unittest.TestCase):
             self.assertEqual(_record_path(paths, record["record_id"]).read_bytes(), before, "no reminder path mutates a record")
             self.assertEqual(memory_workflow._record_staleness(_stored(paths, record["record_id"]), now=datetime.now(timezone.utc))["state"], "open")
 
+    def test_a_principal_that_blanks_the_pack_is_not_asked_and_the_ledger_stays_clean(self) -> None:
+        # The pack was rendered under one lens; a prefetch under another gets an
+        # empty pack. Nobody saw the reminder, so nothing may say it was asked.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            record = _open_record(paths, "question rendered under one lens", days_open=34)
+            provider = _provider(root)
+            other_principal = {
+                "schema_version": "memory_principal_context/v1",
+                "principal": "principal:v1:" + "a" * 64,
+                "profile_ref": "profile_fixture",
+                "surface_ref": "fixture",
+                "session_ref": "s1",
+                "turn_ref": "turn_1",
+                "actor_kind": "human",
+                "identity_evidence_refs": ["evidence:fixture"],
+                "binding_state": "validated_local",
+            }
+            pack = provider.prefetch("question", principal_context=other_principal)
+            self.assertEqual(pack, "")
+            self.assertIsNone(provider.recall_status())
+            self.assertIsNone(provider.latest_prefetch_receipt())
+            self.assertIsNone(provider.latest_open_reminder())
+            self.assertEqual(read_open_reminders(root / ".omh"), {}, "an ask nobody saw is not an ask")
+            provider.queue_prefetch("question")
+            served = provider.prefetch("question")
+            self.assertIn(f"({record['record_id']})", served, "re-rendered under the new lens, the question is asked")
+            self.assertEqual(read_open_reminders(root / ".omh")[record["record_id"]]["asked_count"], 1)
+
+    def test_a_durable_open_record_is_asked_about_once_its_deadline_passes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            record = _approved(paths, "which license should the SDK carry", record_type="decision", retention_class="durable", unresolved=True)
+            deadline = datetime.fromisoformat(record["staleness"]["review_due_at"].replace("Z", "+00:00"))
+            provider = _provider(root)
+            self.assertNotIn("omh reminder:", provider.prefetch("license"), "inside the deadline: marker, no ask")
+            provider.on_turn_start(2, "later")
+            provider.queue_prefetch("license", now=deadline + DAY)
+            pack = provider.prefetch("license")
+            self.assertIn(f"({record['record_id']}) has been unresolved for 91 days", pack)
+            self.assertEqual(read_open_reminders(root / ".omh")[record["record_id"]]["asked_count"], 1)
+            answered = confirm_project_memory_record(paths, record["record_id"])
+            self.assertEqual((answered["applied"], answered["was_open"]), (True, True))
+            self.assertEqual(_stored(paths, record["record_id"])["staleness"]["resolution"], "resolved")
+
+    def test_only_records_the_pack_would_deliver_are_asked_about(self) -> None:
+        # Two of the three answers refuse a superseded or archived record, so a
+        # reminder about one is a question with no working answer.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            superseded = _open_record(paths, "a superseded open question", days_open=90)
+            _mutate_record(paths, superseded["record_id"], superseded_by="mem_0000000000000001")
+            archived = _open_record(paths, "an archived open question", days_open=80)
+            _mutate_record(
+                paths,
+                archived["record_id"],
+                attention={"schema_version": "omh_memory_attention/v1", "tier": "archive", "reason": "parked", "previous_tier": "active", "changed_at": PAST},
+            )
+            provider = _provider(root)
+            pack = provider.prefetch("question")
+            self.assertNotIn("omh reminder:", pack)
+            self.assertIsNone(provider.latest_open_reminder())
+            self.assertIsNone(provider.latest_prefetch_receipt()["reminder"])
+            self.assertEqual(read_open_reminders(root / ".omh"), {})
+            # An eligible open record is asked about even when this turn's query
+            # does not mention it: the reminder is eligibility-bound, not
+            # query-bound.
+            unrelated = _open_record(paths, "the cache question nobody typed", days_open=34)
+            provider.on_turn_start(2, "next")
+            provider.queue_prefetch("zzz nothing overlaps")
+            pack = provider.prefetch("zzz nothing overlaps")
+            self.assertNotIn("<memory_records>", pack)
+            self.assertIn(f"({unrelated['record_id']})", pack)
+            self.assertEqual(set(read_open_reminders(root / ".omh")), {unrelated["record_id"]})
+
     def test_a_queued_rerender_that_is_never_served_does_not_ask(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -715,6 +925,83 @@ class ProviderReminderTests(unittest.TestCase):
             self.assertLessEqual(len(bounded), budget)
             if bounded:
                 ElementTree.fromstring(bounded)
+
+
+class ReviewRegressionTests(unittest.TestCase):
+    """Findings from the #1534 review, each pinned where it bit."""
+
+    def test_a_lone_open_record_never_blanks_the_section_at_any_budget(self) -> None:
+        # The summary line is emitted for a lone open record, so its budget must
+        # be reserved for one too -- measured before: budgets 353-420 blanked
+        # the whole section for a 200-char open summary while a settled record
+        # never did.
+        open_record = {
+            "record_id": "mem_open", "record_type": "fact", "summary": "q" * 200,
+            "approved_at": "2026-09-01T00:00:00Z", "resolution": "open", "resolution_marker": "open · 34 days unresolved",
+        }
+        settled = {**open_record, "record_id": "mem_settled", "resolution": "", "resolution_marker": ""}
+        for label, record in (("open", open_record), ("settled", settled)):
+            full, count = render_memory_records([record])
+            self.assertEqual(count, 1)
+            for budget in range(len(full) + 3):
+                with self.subTest(record=label, budget=budget):
+                    text, rendered = render_memory_records([record], budget_chars=budget)
+                    self.assertLessEqual(len(text), budget)
+                    if budget >= len(full):
+                        self.assertEqual((text, rendered), (full, 1), "a budget the section fits in must never blank it")
+                    if text:
+                        ElementTree.fromstring(text)
+
+    def test_a_principal_bound_open_record_is_asked_about_under_the_pack_bound(self) -> None:
+        scope = {"kind": "project", "ref": "demo"}
+        since = datetime.now(timezone.utc) - 20 * DAY
+        v3 = {
+            "schema_version": "project_memory_record/v3",
+            "record_id": "mem_v3open",
+            "scope": scope,
+            "summary": "a principal-bound open question",
+            "staleness": {"resolution": "open", "open_since": _stamp(since), "review_due_at": PAST, "stale_after": PAST},
+        }
+        now = datetime.now(timezone.utc)
+        asked = select_open_reminder([v3], {}, now=now, allowed_scopes=[scope], eligible_record_ids={"mem_v3open"})
+        self.assertIsNotNone(asked)
+        assert asked is not None
+        self.assertEqual((asked["record_id"], asked["open_days"]), ("mem_v3open", 20))
+        self.assertIsNone(
+            select_open_reminder([v3], {}, now=now, allowed_scopes=[scope], eligible_record_ids=set()),
+            "the pack's own principal and audience rules reach the reminder through the eligible set",
+        )
+        legacy = {**v3, "schema_version": "project_memory_record/v1"}
+        self.assertIsNone(select_open_reminder([legacy], {}, now=now, allowed_scopes=[scope], eligible_record_ids={"mem_v3open"}))
+
+    def test_a_targeted_retire_that_did_nothing_exits_non_zero(self) -> None:
+        self.assertEqual(_memory_retire_exit_code({"target_record_id": "mem_x", "expired": [], "skipped": [{"path_name": "mem_x.json", "reason": "record_not_found"}]}), 1)
+        self.assertEqual(_memory_retire_exit_code({"target_record_id": "mem_x", "expired": [], "skipped": [{"path_name": "mem_x.json", "reason": "not_expired"}]}), 1)
+        self.assertEqual(_memory_retire_exit_code({"target_record_id": "mem_x", "expired": [{"record_id": "mem_x", "reason": "unresolved_dropped"}], "skipped": []}), 0)
+        self.assertEqual(_memory_retire_exit_code({"target_record_id": "", "expired": [], "skipped": [{"path_name": "mem_c.json", "reason": "corrupt_json"}]}), 0, "the sweep keeps its own vocabulary")
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            live = _open_record(paths, "a live open question", days_open=10)
+            settled = _approved(paths, "a settled live fact")
+
+            def run(record_id: str, *, apply: bool) -> tuple[int, dict]:
+                args = argparse.Namespace(
+                    omh_home=str(paths.omh_home), hermes_home=str(paths.hermes_home), scope=None,
+                    record_id=record_id, apply=apply, window_days=7,
+                )
+                buffer = io.StringIO()
+                with contextlib.redirect_stdout(buffer):
+                    code = cmd_memory_retire(args)
+                return code, json.loads(buffer.getvalue())
+
+            code, payload = run("mem_ffffffffffffffff", apply=True)
+            self.assertEqual((code, payload["moved"]), (1, []))
+            code, payload = run(settled["record_id"], apply=False)
+            self.assertEqual((code, payload["skipped"][0]["reason"]), (1, "not_expired"))
+            code, payload = run(live["record_id"], apply=True)
+            self.assertEqual((code, [row["reason"] for row in payload["moved"]]), (0, ["unresolved_dropped"]))
+            code, payload = run("", apply=False)
+            self.assertEqual((code, payload["target_record_id"]), (0, ""))
 
 
 class DoctorOpenRecordsTests(unittest.TestCase):

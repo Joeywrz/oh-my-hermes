@@ -814,7 +814,13 @@ def build_project_memory_status(paths: OmhPaths) -> dict[str, object]:
     reviews = _read_project_memory_reviews(paths)
     now = datetime.now(timezone.utc)
     evaluations = [_evaluate_memory_artifact(record, paths=paths, now=now, review_resolver=_project_memory_review_resolver(paths)) for record in records]
-    expired_records = sum(1 for evaluation in evaluations if str(evaluation["reason_code"]).startswith("expired_"))
+    # `unresolved_expired` is the evaluator's other expiry -- a question that
+    # died past its open ceiling -- and counts here exactly like `expired_*`.
+    expired_records = sum(
+        1
+        for evaluation in evaluations
+        if str(evaluation["reason_code"]).startswith("expired_") or str(evaluation["reason_code"]) == "unresolved_expired"
+    )
     candidate_status_counts: dict[str, int] = {}
     for candidate in candidates:
         status = _redact_admitted_text(str(candidate.get("status", "unknown")))
@@ -1165,7 +1171,15 @@ def _project_memory_review_card_projection(candidate: dict[str, Any]) -> dict[st
         ),
         # A reviewer must see that approval mints an open question, not a
         # fact -- and the ceiling it will expire under -- before deciding.
-        **({"unresolved": True, "open_expires_at": str(_candidate_staleness(candidate).get("open_expires_at", "") or "")} if candidate.get("unresolved") is True else {}),
+        **(
+            {
+                "unresolved": True,
+                "review_due_at": str(_candidate_staleness(candidate).get("review_due_at", "") or ""),
+                "open_expires_at": str(_candidate_staleness(candidate).get("open_expires_at", "") or ""),
+            }
+            if candidate.get("unresolved") is True
+            else {}
+        ),
         "safety": safety,
         **({"identity": candidate["identity"]} if isinstance(candidate.get("identity"), dict) else {}),
     }
@@ -2146,13 +2160,21 @@ def confirm_project_memory_record(
         if str(staleness.get("source_state", "")) in {"changed", "unreadable"}:
             return _refused_confirmation(normalized_id, "source_requires_correction")
         previous_due = str(staleness.get("review_due_at", "") or "")
-        if not previous_due:
-            return _refused_confirmation(normalized_id, "no_review_deadline")
         was_open = str(staleness.get("resolution", "")) == "open"
+        if not previous_due and not was_open:
+            return _refused_confirmation(normalized_id, "no_review_deadline")
         cadence_reset = False
         if absolute_deadline:
             new_deadline = absolute_deadline
             days = None
+        elif not previous_due and days is None:
+            # An open record with no deadline -- restored from the archive, or
+            # written before open records always minted one -- can still be
+            # answered "resolved"; that is the whole point of confirm on an
+            # open record. Resolving mints no clock nobody asked for: the
+            # record becomes an ordinary deadline-less record, and an
+            # explicit --stale-after / --stale-after-days still sets one.
+            new_deadline = ""
         else:
             if days is None:
                 # No explicit cadence: honour the one stored on the record
@@ -2171,8 +2193,8 @@ def confirm_project_memory_record(
             new_deadline = _days_after(stamp, days)
         revalidation = record.get("revalidation") if isinstance(record.get("revalidation"), dict) else {}
         updated_revalidation = {
-            **revalidation,
-            "deadline": new_deadline,
+            **{key: value for key, value in revalidation.items() if key != "deadline"},
+            **({"deadline": new_deadline} if new_deadline else {}),
             "confirmed_at": stamp,
             "confirmed_by": actor,
         }
@@ -2211,7 +2233,11 @@ def confirm_project_memory_record(
         "confirmed_by": actor,
         "redaction_policy": "metadata_only",
         "next_action": (
-            f"The record recalls normally until {new_deadline}; confirm, correct, or retire it again by then."
+            (
+                f"The record recalls normally until {new_deadline}; confirm, correct, or retire it again by then."
+                if new_deadline
+                else "The record carries no review deadline, so it recalls as a settled record until corrected or retired."
+            )
             + (" It was marked unresolved; this confirmation resolved it, so it now reads as settled." if was_open else "")
             + (f" Note: this moved the deadline earlier than {previous_due}." if shortened else "")
             + (
@@ -3317,6 +3343,14 @@ def _build_project_memory_candidate(
         # The open clock starts at capture: the question has been open since
         # the moment it was written down, not since a reviewer got to it.
         staleness = {**staleness, **_open_staleness_fields(now, retention_class=retention_class, open_max_days=open_max_days)}
+        if not str(staleness.get("stale_after", "") or ""):
+            # "Unresolved" means "needs an answer by then". A durable record
+            # or an episode mints no review deadline on its own, and an open
+            # record with no deadline could never reach the `open` verdict,
+            # never be asked about, and (before confirm learned better) never
+            # be answered. So an open record always carries one: the default
+            # cadence, marked default, shown on the card.
+            staleness = {**staleness, **_open_review_deadline(now, default_days=default_stale_after_days), "cadence_source": "default"}
     candidate_id = "cand_" + os.urandom(8).hex()
     status = "blocked_review_required" if safety["status"] == "blocked" else "pending_review"
     # Digest the ref exactly as it will be stored, not as it was passed:
@@ -3443,6 +3477,30 @@ def _record_from_candidate(
             )
             revalidation = {"deadline": str(refreshed["stale_after"])} if refreshed["stale_after"] else {}
             staleness_days = refreshed["stale_after_days"]
+    # The open marker a person set -- at capture (the candidate's clock
+    # carries over) or here at approval (the approval clock starts it). Only
+    # confirm or correct ever writes `resolved`.
+    open_fields = _record_open_fields(
+        candidate,
+        approved_at=approved_at,
+        unresolved=unresolved,
+        retention_class=requested_class,
+        open_max_days=open_max_days,
+    )
+    if open_fields and not revalidation:
+        # An open record always carries a review deadline ("needs an answer
+        # by then"): a durable re-class dropped the one the card showed, or
+        # `approve --unresolved` landed on a candidate that minted none. Keep
+        # the candidate's own deadline when it has one -- approval must not
+        # move a date the reviewer saw -- else start the default cadence now.
+        carried = _candidate_revalidation(candidate)
+        if carried:
+            revalidation = carried
+            staleness_days = _candidate_stale_after_days(candidate)
+        else:
+            minted = _open_review_deadline(approved_at, default_days=default_stale_after_days)
+            revalidation = {"deadline": str(minted["stale_after"])}
+            staleness_days = minted["stale_after_days"]
     identity = candidate.get("identity") if isinstance(candidate.get("identity"), dict) else None
     if identity is not None:
         reviewer = {"principal": reviewer_principal, "review_ref": review_id}
@@ -3491,16 +3549,7 @@ def _record_from_candidate(
         "staleness": {
             **_staleness_projection(revalidation),
             "stale_after_days": staleness_days,
-            # The open marker a person set -- at capture (the candidate's
-            # clock carries over) or here at approval (the approval clock
-            # starts it). Only confirm or correct ever writes `resolved`.
-            **_record_open_fields(
-                candidate,
-                approved_at=approved_at,
-                unresolved=unresolved,
-                retention_class=requested_class,
-                open_max_days=open_max_days,
-            ),
+            **open_fields,
         },
         # Every approved record states its tier explicitly. An implicit
         # default would make "this record is active" and "nobody ever set a
@@ -3587,6 +3636,19 @@ def _open_staleness_fields(open_since: str, *, retention_class: str, open_max_da
     if retention_class != "durable":
         fields["open_expires_at"] = _days_after(str(open_since), open_max_days if open_max_days is not None else _OPEN_MAX_DAYS)
     return fields
+
+
+def _open_review_deadline(open_since: str, *, default_days: int | None) -> dict[str, object]:
+    """The review deadline every open record carries: the default cadence from ``open_since``.
+
+    An open record with no deadline would never reach the ``open`` verdict
+    and never be asked about, so "unresolved" always means "needs an answer
+    by then" -- including for durable records and episodes, which mint no
+    deadline of their own. Same shape as ``_staleness_metadata``.
+    """
+    days = default_days if default_days is not None else _REVIEW_DEFAULT_DAYS
+    deadline = _days_after(str(open_since), days)
+    return {"stale_after_days": days, "stale_after": deadline, "review_due_at": deadline}
 
 
 def _record_open_fields(

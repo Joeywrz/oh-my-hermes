@@ -66,7 +66,9 @@ All notable changes will be documented here.
   instead of being held back; expiry, a changed source, and an unreadable
   source still outrank it, and a non-open record keeps today's verdict byte
   for byte. Only `confirm` or `correct` writes `resolved`, `retire` ends it,
-  and nothing else clears it — no timeout, no reminder, no batch confirm.
+  and nothing else clears it — no timeout, no reminder, no batch confirm. An
+  open record always carries a review deadline (durable records and episodes
+  included), and `confirm` resolves an open record even when it has none.
   `open_max_days` (default 365, policy tunable) bounds every non-durable open
   record as `expired/unresolved_expired`, and `omh memory retire` names that
   reason so a question that died unanswered reads differently from a fact

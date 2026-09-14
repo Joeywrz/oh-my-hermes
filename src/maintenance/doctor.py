@@ -32,6 +32,7 @@ from ..workflows.memory import (
     _cadence_value,
     _record_resolution,
     _record_staleness,
+    _redacted_metadata_label,
     read_project_memory_policy,
     scan_project_memory_records,
 )
@@ -1036,7 +1037,8 @@ def _memory_open_records_check(paths: OmhPaths) -> Check:
         verdict = _record_staleness(record, now=now)
         days = int(verdict.get("open_days", 0) or 0)
         if days > threshold:
-            aging.append((days, str(record.get("record_id", ""))))
+            # The same label `omh memory status` prints for the row.
+            aging.append((days, _redacted_metadata_label(record.get("record_id", ""))))
     if not aging:
         return Check("memory_open_records", True, f"No unresolved memory record has been open for more than {threshold} days", observed=True)
     aging.sort(key=lambda item: (-item[0], item[1]))

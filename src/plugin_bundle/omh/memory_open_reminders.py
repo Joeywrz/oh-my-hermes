@@ -29,6 +29,8 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
+from .awareness_delivery import _awareness_delivery_lock as _ledger_lock
+from .memory_governance import PRINCIPAL_PROJECT_MEMORY_RECORD_SCHEMA_VERSION, evaluate_renderable_strings
 from .memory_recall_support import (
     PROJECT_MEMORY_RECORD_SCHEMA_VERSION,
     _MEMORY_CADENCE_DEFAULTS,
@@ -69,36 +71,44 @@ def read_open_reminders(homes: list[Path] | tuple[Path, ...] | Path | str) -> di
 def mark_open_reminder_asked(omh_home: str | Path, record_id: str, *, asked_at: str) -> dict[str, object]:
     """Record one ask (or one "still open" answer) for ``record_id`` at ``omh_home``.
 
-    Read-modify-write through a temporary file and ``os.replace`` so a racing
-    writer leaves a whole ledger, not half of one. Raises ``OSError`` on a
+    The read-modify-write runs under the bundle's own OS lock (the same
+    two-backend lock the awareness ledger uses, on a sidecar lock file next
+    to the ledger) so a provider prefetch racing an operator's
+    ``omh memory keep-open`` cannot read the same ledger and overwrite the
+    answer: both writers pass through this function. The write itself goes
+    through a temporary file and ``os.replace`` so a crash leaves a whole
+    ledger, not half of one. Raises ``OSError`` (a lock timeout is one) on a
     home that cannot be written; the provider swallows that through
-    ``_safely`` because a lost ledger line must never cost a turn.
+    ``_safely`` because a lost ledger line must never cost a turn, and the
+    CLI reports it, so an operator's answer is either recorded or refused
+    out loud, never dropped silently.
     """
     path = open_reminders_path(omh_home)
-    ledger = _read_ledger(path)
-    previous = ledger.get(str(record_id), {})
-    count = previous.get("asked_count", 0)
-    count = count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else 0
-    entry: dict[str, object] = {"asked_at": str(asked_at), "asked_count": count + 1}
-    ledger[str(record_id)] = entry
-    payload = json.dumps(
-        {"schema_version": MEMORY_OPEN_REMINDERS_SCHEMA_VERSION, "records": dict(sorted(ledger.items()))},
-        ensure_ascii=False,
-        sort_keys=True,
-    )
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, text=True)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(payload + "\n")
-        os.chmod(temporary, 0o600)
-        os.replace(temporary, path)
-    except OSError:
+    with _ledger_lock(path):
+        ledger = _read_ledger(path)
+        previous = ledger.get(str(record_id), {})
+        count = previous.get("asked_count", 0)
+        count = count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else 0
+        entry: dict[str, object] = {"asked_at": str(asked_at), "asked_count": count + 1}
+        ledger[str(record_id)] = entry
+        payload = json.dumps(
+            {"schema_version": MEMORY_OPEN_REMINDERS_SCHEMA_VERSION, "records": dict(sorted(ledger.items()))},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, text=True)
         try:
-            os.unlink(temporary)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(payload + "\n")
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, path)
         except OSError:
-            pass
-        raise
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
     return entry
 
 
@@ -109,6 +119,7 @@ def select_open_reminder(
     now: datetime,
     allowed_scopes: list[dict[str, str]] | tuple[dict[str, str], ...],
     open_ask_days: int | None = None,
+    eligible_record_ids: set[str] | frozenset[str] | None = None,
 ) -> dict[str, object] | None:
     """The one open record to ask about this turn, or None.
 
@@ -116,26 +127,36 @@ def select_open_reminder(
     unresolved AND past its review deadline -- an open record still inside
     its deadline is not asked about, the deadline is the first ask), its
     scope is inside the pack's explicit allowlist (a record from another
-    project must not be asked about in this session), and the ledger holds
-    no ask for it or the last ask is older than ``open_ask_days``. Only
-    ``project_memory_record/v2`` records qualify: a principal-bound record
-    carries an audience the pack selector enforces, and this selector must
-    not become a second, looser reader of it. Oldest ``open_since`` wins;
-    the record id breaks ties so the choice is reproducible.
+    project must not be asked about in this session), the pack's own
+    eligibility evaluation admitted it (``eligible_record_ids``: a
+    superseded, archived, or otherwise refused record is a question two of
+    the three answers would refuse, so it is never asked), its summary
+    passes the same renderable-string safety the pack applies, and the
+    ledger holds no ask for it or the last ask is older than
+    ``open_ask_days``. Principal-bound (``v3``) records qualify on the same
+    terms as ``v2`` ones: their audience and principal rules are the pack
+    selector's, and ``eligible_record_ids`` is how those rules reach here --
+    this selector never becomes a second, looser reader of them. Oldest
+    ``open_since`` wins; the record id breaks ties so the choice is
+    reproducible.
     """
     ask_days = open_ask_days if isinstance(open_ask_days, int) and open_ask_days >= 1 else _MEMORY_CADENCE_DEFAULTS["open_ask_days"]
     scopes = [dict(scope) for scope in allowed_scopes]
     candidates: list[tuple[str, str, dict[str, Any], dict[str, object]]] = []
     for record in records:
-        if record.get("schema_version") != PROJECT_MEMORY_RECORD_SCHEMA_VERSION:
+        if record.get("schema_version") not in {PROJECT_MEMORY_RECORD_SCHEMA_VERSION, PRINCIPAL_PROJECT_MEMORY_RECORD_SCHEMA_VERSION}:
             continue
         if record.get("scope") not in scopes:
+            continue
+        record_id = str(record.get("record_id", "") or "")
+        if not record_id:
+            continue
+        if eligible_record_ids is not None and record_id not in eligible_record_ids:
             continue
         verdict = _record_staleness(record, now=now)
         if str(verdict.get("state", "")) != "open":
             continue
-        record_id = str(record.get("record_id", "") or "")
-        if not record_id:
+        if evaluate_renderable_strings({"summary": str(record.get("summary", "") or "")}).get("status") != "safe":
             continue
         asked = ledger.get(record_id, {})
         asked_at = _parse_utc_naive_as_utc(str(asked.get("asked_at", "") or ""))

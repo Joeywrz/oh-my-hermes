@@ -5,6 +5,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from ..install.config_adapter import (
     clear_memory_provider,
@@ -816,6 +817,35 @@ def cmd_memory_retire(args: argparse.Namespace) -> int:
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     _print_json(payload)
+    return _memory_retire_exit_code(payload)
+
+
+_RETIRE_TARGET_REFUSALS = frozenset({"record_not_found", "not_expired"})
+
+
+def _memory_retire_exit_code(payload: Any) -> int:
+    """0 only when nothing the caller asked for failed to happen.
+
+    A targeted `omh memory retire <id>` that found no such record, or a
+    settled live record it refuses to archive, did not do what it was asked;
+    a shell reading only the status must not be told it did. The untargeted
+    sweep keeps its own vocabulary: an empty sweep is a clean store, not a
+    failure. Generic failure signals -- a refused or interrupted run, or a
+    unit that failed -- are never success either, so this mapper cannot be
+    passed by refusing everything or by ignoring everything.
+    """
+    summary = payload if isinstance(payload, dict) else {}
+    if summary.get("refused") or summary.get("interrupted"):
+        return 1
+    units = summary.get("units")
+    if isinstance(units, list) and any(isinstance(unit, dict) and unit.get("failure_kind") for unit in units):
+        return 1
+    if str(summary.get("target_record_id", "") or ""):
+        skipped = summary.get("skipped")
+        if isinstance(skipped, list) and any(
+            isinstance(row, dict) and str(row.get("reason", "")) in _RETIRE_TARGET_REFUSALS for row in skipped
+        ):
+            return 1
     return 0
 
 

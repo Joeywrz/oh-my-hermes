@@ -322,19 +322,23 @@ def _render_bounded(
         len(f'\n  <omitted count="{max(len(records), count)}" reason="{reason}" />')
         for reason, count in omissions.items()
     )
-    # The one-line unresolved summary is reserved the same way, at the largest
-    # count it can carry, so admitting an open record can never push the
-    # section past its budget at the closing tag.
-    if any(_is_open(record) for record in records):
-        reserve += len("\n" + _unresolved_line(len(records)))
     reserve_needed = len(records) > 1 or any(omissions.values())
+    # The one-line unresolved summary has its own reserve, at the largest
+    # count it can carry, taken whenever ANY record is open regardless of
+    # count. It is separate from the omission reserve on purpose: a lone
+    # record with nothing omitted skips that reserve so it fits at its exact
+    # serialized boundary, but the summary line IS emitted for a lone open
+    # record -- so skipping its reserve admitted the record and then blanked
+    # the whole section at the closing tag, while folding it into the
+    # omission reserve would cut the lone record short of its boundary.
+    unresolved_reserve = len("\n" + _unresolved_line(len(records))) if any(_is_open(record) for record in records) else 0
     for record in records:
         if limit is not None and len(rendered) >= max(limit, 0):
             omissions["record_limit_reached"] += 1
             continue
         element = _render_record(record)
         if (preserve_prefix and omissions["render_budget_exhausted"]) or (
-            used + 1 + len(element) + (reserve if reserve_needed else 0) > max(budget_chars, 0)
+            used + 1 + len(element) + (reserve if reserve_needed else 0) + unresolved_reserve > max(budget_chars, 0)
         ):
             omissions["render_budget_exhausted"] += 1
             continue

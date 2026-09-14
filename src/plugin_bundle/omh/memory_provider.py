@@ -257,6 +257,12 @@ class OmhMemoryProvider(_MemoryProviderBase):
             if supplied != self._principal_context:
                 self._pack, self._pack_count, self._pack_has_memory = "", 0, False
                 self._prepared_receipt = None
+                # The reminder was chosen under the lens this pack was rendered
+                # for. A different principal gets an empty pack, so it gets no
+                # ask either -- otherwise the ledger would say the question was
+                # asked while nobody saw it, and the record would go silent for
+                # open_ask_days.
+                self._prepared_reminder, self._reminder_recorded = None, False
                 self._principal_context = supplied
         self._served_pack, self._served_count = self._pack, self._pack_count
         self._served_has_memory = self._pack_has_memory
@@ -266,11 +272,17 @@ class OmhMemoryProvider(_MemoryProviderBase):
         if self._served_receipt is not None:
             payload = json.dumps(self._served_receipt, ensure_ascii=False, sort_keys=True)
             self._safely(lambda: _write_text(prefetch_receipt_path(self._omh_home), payload))
-        # Serving the pack is what makes the reminder an ask. The ledger line
-        # goes through `_safely` like the receipt: a home that cannot be
-        # written costs the cadence, never the turn. It writes the ledger and
-        # nothing else -- no record is touched by a reminder.
-        self._served_reminder = self._prepared_reminder
+        # Serving the pack is what makes the reminder an ask -- and only a pack
+        # that actually carries the line counts, never a prepared reminder
+        # whose pack was blanked. The ledger line goes through `_safely` like
+        # the receipt: a home that cannot be written costs the cadence, never
+        # the turn. It writes the ledger and nothing else -- no record is
+        # touched by a reminder.
+        self._served_reminder = (
+            self._prepared_reminder
+            if self._prepared_reminder is not None and render_open_reminder(self._prepared_reminder) in self._served_pack
+            else None
+        )
         if self._served_reminder is not None and not self._reminder_recorded:
             self._reminder_recorded = True
             record_id = str(self._served_reminder.get("record_id", ""))
@@ -504,6 +516,7 @@ class OmhMemoryProvider(_MemoryProviderBase):
                 read_open_reminders(self._record_homes()),
                 now=moment,
                 allowed_scopes=prepared.selection.scope_allowlist,
+                eligible_record_ids=_askable_record_ids(prepared.selection.pack),
             )
         self._prepared_receipt = build_prefetch_receipt(
             prepared,
@@ -819,6 +832,36 @@ class OmhMemoryProvider(_MemoryProviderBase):
             write()
         except OSError:
             return
+
+
+def _askable_record_ids(pack: dict[str, Any]) -> set[str]:
+    """The records this pack was willing to deliver: the only ones a reminder may ask about.
+
+    A reminder offers three answers, and two of them (`confirm`, `retire`)
+    refuse a record the pack itself refuses -- superseded, expired, archived,
+    principal-denied, out of lens. Asking about such a record is a question
+    with no working answer, and it would still mark the ledger. So the ask
+    set is what the selector delivered, plus records it held back only for
+    reasons that are not about eligibility: no query overlap and the budget
+    cut. The reminder is not query-bound -- an open question is open whether
+    or not this turn's message mentions it -- but it is eligibility-bound.
+    Hidden exclusions (scope, perspective, principal) never appear in the
+    pack at all, so they never appear here.
+    """
+    askable = {
+        str(item.get("record_id", ""))
+        for item in pack.get("included_records", [])
+        if isinstance(item, dict)
+    }
+    askable.update(
+        str(item.get("record_id", ""))
+        for item in pack.get("excluded_records", [])
+        if isinstance(item, dict)
+        and str(item.get("reason", "")) in {"no_query_overlap", "over_budget"}
+        and str(item.get("eligibility_reason", "")) == "eligible"
+    )
+    askable.discard("")
+    return askable
 
 
 def _write_text(path: Path, text: str) -> None:

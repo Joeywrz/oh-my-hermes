@@ -499,11 +499,13 @@ name is a sensible default — it is not proof of a working account, so every
 ticked row can be cleared and only what you leave ticked is recorded.
 
 The list's last row is **Skip — leave everything as it is**. Choosing it
-writes nothing at all: no entitlement document, no dispatch-model seed, so
-the built-in chain order stays in effect and the machine behaves exactly as
-it does for someone who never answered. It is exclusive — ticked beside a
-provider the prompt asks again rather than guessing which half you meant —
-and it is never pre-ticked.
+writes nothing at all: no entitlement document, no dispatch-model seed. An
+earlier record stays as it is, and the providers Hermes is linked to keep
+counting on their own (see below), so the machine behaves exactly as it does
+for someone who never answered — which is not the built-in chain order
+unless nothing is linked. It is exclusive — ticked beside a provider the
+prompt asks again rather than guessing which half you meant — and it is
+never pre-ticked.
 
 After the list you can type any further provider id (that one is asked for
 its kind, since OMH knows nothing about it), and, when the Claude Code CLI is
@@ -623,11 +625,11 @@ a reader can tell a current price from one that drifted.
 A dispatch that inherits its provider is checked before the route is written:
 if the session's own provider cannot serve the model being pinned — the
 catalog records which provider families serve each model — the route is
-refused, naming the inherited provider and which of your recorded providers
-could serve it instead. The check only refuses what is known wrong. An
-unrecorded provider, a model the catalog never described, and a multi-vendor
-relay (which serves every family) all leave the answer unknown, and unknown
-dispatches unchanged.
+refused, naming the inherited provider and which of your recorded or linked
+providers could serve it instead. The check only refuses what is known
+wrong. A provider neither recorded nor linked, a model the catalog never
+described, and a multi-vendor relay (which serves every family) all leave
+the answer unknown, and unknown dispatches unchanged.
 
 An alias listed here dispatches as that provider's model; an alias not listed
 dispatches unchanged with no provider, which is what a direct-billing host

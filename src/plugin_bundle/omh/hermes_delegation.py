@@ -35,7 +35,7 @@ import tempfile
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 # Mirrors SHIPPED_MODEL_RECOMMENDATIONS["categories"] in
 # src/coding/model_recommendations.py, projected to (model_alias,
@@ -231,6 +231,19 @@ def parse_mixture_chain_overrides(
     return overrides, "applied"
 
 
+def chains_with_overrides(
+    overrides: Mapping[str, tuple[tuple[str, str], ...]],
+) -> dict[str, tuple[tuple[str, str], ...]]:
+    """The shipped chains with ``overrides`` replacing the categories they name.
+
+    The one derivation of the stored chains -- what `omh model-chains set`
+    wrote, before entitlement shaping -- shared by the shaped reader below,
+    `omh model-chains show`, and doctor, so no surface carries its own copy
+    of "override or default".
+    """
+    return {name: overrides.get(name, chain) for name, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items()}
+
+
 def effective_mixture_category_chains(
     omh_home: str | Path | None = None,
     hermes_home: str | Path | None = None,
@@ -245,10 +258,7 @@ def effective_mixture_category_chains(
     missing model.
     """
     overrides, _ = load_mixture_chain_overrides(omh_home)
-    chains = {
-        name: overrides.get(name, chain)
-        for name, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items()
-    }
+    chains = chains_with_overrides(overrides)
     entitlements, _status, _providers = effective_provider_entitlements(omh_home, hermes_home)
     if entitlements is None:
         return chains
@@ -596,20 +606,146 @@ def alias_is_served(
     providers = entitlements.get("providers", {})
     if not isinstance(providers, Mapping) or not providers:
         return True
-    requested_key = str(alias or "").strip().casefold()
-    canonical_key = _unqualified_model_alias(alias)
-    if routes:
-        route = routes.get(requested_key) or routes.get(canonical_key) or routes.get(alias)
-        if route:
-            return route[0] in providers
+    route_key = _route_key_for(alias, routes)
+    if routes and route_key is not None:
+        return routes[route_key][0] in providers
     kinds = set(str(kind) for kind in providers.values())
     if kinds & MULTI_VENDOR_PROVIDER_KINDS:
         return True
-    projected_key, _tier = _projected_model_alias(canonical_key)
+    projected_key, _tier = _projected_model_alias(_unqualified_model_alias(alias))
     families = HERMES_MIXTURE_ALIAS_PROVIDER_FAMILIES.get(projected_key)
     if families is None:
         return True
     return bool(kinds & set(families))
+
+
+def _route_key_for(alias: object, routes: Mapping[str, tuple[str, str]] | None) -> str | None:
+    """The key under which ``routes`` answers for ``alias``, or None.
+
+    The one lookup the serving rule and every surface reporting on it
+    share: the alias casefolded, then unqualified (`vendor/model` ->
+    `model`), then verbatim. A key none of those spellings reach -- a
+    capitalized or vendor-prefixed key when the chain names the plain
+    alias -- is not a route for that alias, whatever it looks like.
+    """
+    if not routes:
+        return None
+    requested_key = str(alias or "").strip().casefold()
+    canonical_key = _unqualified_model_alias(alias)
+    for key in (requested_key, canonical_key, alias):
+        if isinstance(key, str) and key in routes:
+            return key
+    return None
+
+
+# What a route to a provider this machine does not hold does, per row of
+# `routes_to_unknown_providers`: `chain` demotes an alias a chain names;
+# `dispatch` reaches no chain and only ever resolves a pinned dispatch.
+UNKNOWN_ROUTE_EFFECT_CHAIN = "chain"
+UNKNOWN_ROUTE_EFFECT_DISPATCH = "dispatch"
+
+
+def routes_to_unknown_providers(
+    routes: Mapping[str, tuple[str, str]],
+    entitlements: Mapping[str, Any] | None,
+    chains: Mapping[str, tuple[tuple[str, str], ...]] | None = None,
+) -> tuple[dict[str, str], ...]:
+    """Routes naming a provider this machine does not hold, each with its effect.
+
+    Rows are ``{"alias", "route", "provider", "effect"}``, chain rows first.
+    A route decides `alias_is_served` before anything else, so one that
+    names a provider neither recorded nor linked has one of two effects,
+    and they are not the same sentence:
+
+    * ``chain`` -- the route is the one the serving rule finds for an alias
+      some chain names (``chains``: the effective chains; the shipped ones
+      when not given), looked up exactly as the rule looks it up
+      (`_route_key_for`). That alias is unserved and sorts behind the
+      served entries of every chain naming it. ``alias`` is the chain's
+      spelling, ``route`` the key as written.
+    * ``dispatch`` -- no chain alias reaches the key, so nothing is
+      reordered. The route still resolves, verbatim, when a dispatch pins
+      that alias (`resolve_provider_model`), and it resolves unchecked: a
+      route that names a provider skips the inheritance guard, so the
+      child asks Hermes for a provider it is not linked to. ``alias`` is
+      the key itself.
+
+    Empty when nothing is recorded or linked: with no providers to judge
+    against every alias counts as served and every route is left alone.
+    """
+    providers = (entitlements or {}).get("providers", {})
+    if not isinstance(providers, Mapping) or not providers:
+        return ()
+    effective_chains = chains if chains is not None else HERMES_MIXTURE_CATEGORY_CHAINS
+    chain_aliases = sorted({model for chain in effective_chains.values() for model, _effort in chain})
+    reached: dict[str, list[str]] = {}
+    for alias in chain_aliases:
+        key = _route_key_for(alias, routes)
+        if key is not None:
+            reached.setdefault(key, []).append(alias)
+    rows: list[dict[str, str]] = []
+    for key, (provider, _model) in routes.items():
+        if provider in providers:
+            continue
+        for alias in reached.get(key, []):
+            rows.append({"alias": alias, "route": key, "provider": provider, "effect": UNKNOWN_ROUTE_EFFECT_CHAIN})
+        if key not in reached:
+            rows.append({"alias": key, "route": key, "provider": provider, "effect": UNKNOWN_ROUTE_EFFECT_DISPATCH})
+    return tuple(
+        sorted(rows, key=lambda row: (row["effect"] != UNKNOWN_ROUTE_EFFECT_CHAIN, row["alias"], row["route"]))
+    )
+
+
+# How many unknown-provider routes a doctor or show line names before
+# folding the rest into "… and K more": thirty stale gateway routes are one
+# finding, not thirty lines.
+UNKNOWN_ROUTE_NAMED_LIMIT = 5
+
+
+def split_unknown_routes(
+    rows: Iterable[Mapping[str, str]],
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """``(chain rows, dispatch rows)`` of `routes_to_unknown_providers`.
+
+    Both effects are matched by equality; a row carrying any other value
+    raises rather than falling into the dispatch sentence, so a new effect
+    has to be given its own wording before a surface can print it.
+    """
+    chain_rows: list[dict[str, str]] = []
+    dispatch_rows: list[dict[str, str]] = []
+    for row in rows:
+        effect = row.get("effect")
+        if effect == UNKNOWN_ROUTE_EFFECT_CHAIN:
+            chain_rows.append(dict(row))
+        elif effect == UNKNOWN_ROUTE_EFFECT_DISPATCH:
+            dispatch_rows.append(dict(row))
+        else:
+            raise ValueError(f"unknown route effect {effect!r}")
+    return chain_rows, dispatch_rows
+
+
+def unknown_route_label(row: Mapping[str, str]) -> str:
+    """``<route key> -> <provider>``, plus the chain's spelling when it differs.
+
+    The key is what the operator's document contains and what a repair
+    edits, so it is always named; the chain alias is the entry that moves,
+    named only when the chain spells it differently (`zai/glm-5.3` reached
+    by the key `glm-5.3`), or the repair would hunt for a key that is not
+    there.
+    """
+    route = str(row.get("route") or row.get("alias") or "")
+    alias = str(row.get("alias") or "")
+    if alias and alias != route:
+        return f"{route} (chain alias {alias}) -> {row['provider']}"
+    return f"{route} -> {row['provider']}"
+
+
+def unknown_route_labels(rows: Iterable[Mapping[str, str]], limit: int = UNKNOWN_ROUTE_NAMED_LIMIT) -> str:
+    """Up to ``limit`` route labels, comma-joined, then ``… and K more``."""
+    labels = [unknown_route_label(row) for row in rows]
+    if len(labels) <= limit:
+        return ", ".join(labels)
+    return ", ".join(labels[:limit]) + f" … and {len(labels) - limit} more"
 
 
 def provider_family_for(provider_id: str, entitlements: Mapping[str, Any] | None) -> str:

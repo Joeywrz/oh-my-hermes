@@ -397,6 +397,36 @@ class PickerNavigationTests(unittest.TestCase):
         self.assertLessEqual(len(narrow[1]), 60)
         self.assertTrue(narrow[1].endswith("…"), narrow[1])
 
+    def test_an_ignored_record_is_said_once_under_the_providers_line(self) -> None:
+        """An invalid providers.json drops its kinds and its exclusions silently.
+
+        The providers line then shows the linked rows as if the operator had
+        never corrected them, so the frame says the record is ignored and
+        why; a valid or absent record adds no row and the layout is the one
+        every other frame test pins.
+        """
+        hermes_home = self.root / ".hermes"
+        hermes_home.mkdir(parents=True, exist_ok=True)
+        (hermes_home / "config.yaml").write_text("providers:\n  og:\n    base_url: x\n", encoding="utf-8")
+        record = _omh_home(self.root) / "routing" / "providers.json"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text("{", encoding="utf-8")
+        payload = _payload(self.root)
+        self.assertEqual(payload["entitlements_status"], "invalid: unreadable JSON")
+        lines = render_frame(payload, _chains(payload), 0, use_color=False, width=200)
+        self.assertEqual(lines[1], "   providers  og (config)")
+        self.assertEqual(lines[2], "   ! providers.json ignored: unreadable JSON · any providers it excluded count again")
+        self.assertIn("CATEGORY", lines[4])
+        self.assertEqual(sum("providers.json ignored" in line for line in lines), 1)
+        narrow = render_frame(payload, _chains(payload), 0, use_color=False, width=60)
+        self.assertLessEqual(len(narrow[2]), 60)
+        # A valid record restores the plain layout: header on the fourth line.
+        _write_entitlements(self.root, {"og": "gateway"})
+        payload = _payload(self.root)
+        lines = render_frame(payload, _chains(payload), 0, use_color=False, width=200)
+        self.assertFalse(any("providers.json ignored" in line for line in lines))
+        self.assertIn("CATEGORY", lines[3])
+
     def test_an_unserved_head_is_marked_on_its_row_and_explained_once(self) -> None:
         _write_entitlements(self.root, {"zai": "zai"})
         payload = _payload(self.root)

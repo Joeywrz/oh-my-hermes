@@ -338,6 +338,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
     checks.append(_plugin_ulw_lifecycle_check(paths))
     checks.extend(_hermes_tui_checks(paths))
     checks.append(_hermes_model_routing_check(paths))
+    checks.append(_provider_entitlements_check(paths))
     profile_installs = state.get("last_team_profile_install") if isinstance(state, dict) else None
     if not profile_installs:
         checks.append(Check("team_profile_packs", True, f"optional OMH team profile packs are not installed at {paths.hermes_agents_dir}"))
@@ -673,6 +674,102 @@ def _hermes_model_routing_check(paths: OmhPaths) -> Check:
         "; ".join(disagreements),
         severity="warning",
         next_action=model_routing_next_action(preflight),
+    )
+
+
+def _provider_entitlements_check(paths: OmhPaths) -> Check:
+    """Which providers routing counts on this machine, and what it cannot place.
+
+    Chains reorder around the providers this machine holds -- linked to
+    Hermes (a `hermes auth` login, a `providers:` key, a key name in `.env`)
+    or recorded by the setup interview in `providers.json` -- and nothing
+    else in the CLI says which ones were counted. Two faults stay silent
+    without this check: an invalid `providers.json` yields no document at
+    all, so its recorded kinds AND its `excluded_providers` stop applying
+    and a provider the operator cleared counts again; and a route in
+    `model-providers.json` that names a provider neither recorded nor
+    linked makes its alias unserved, so it sinks behind the served entries
+    of every chain naming it, with only a `!` mark to explain itself.
+
+    ok stays True like `hermes_model_routing`: a routing document the
+    operator owns is not an OMH install failure and must not flip the
+    doctor exit code. `severity="warning"` plus a next action carries it.
+    Only ids, names, and statuses are read; no key or token reaches a
+    message.
+    """
+    from ..plugin_bundle.omh.hermes_delegation import (
+        chains_with_overrides,
+        effective_provider_entitlements,
+        load_mixture_chain_overrides,
+        load_model_provider_routes,
+        load_provider_entitlements,
+        model_provider_routes_path,
+        provider_entitlements_path,
+        routes_to_unknown_providers,
+        split_unknown_routes,
+        unknown_route_labels,
+    )
+
+    entitlements, document_status, rows = effective_provider_entitlements(paths.omh_home, paths.hermes_home)
+    # The effective document carries only what counts; the exclusions that
+    # made a linked row stop counting live in the record itself.
+    recorded, _recorded_status = load_provider_entitlements(paths.omh_home)
+    routes, routes_status = load_model_provider_routes(paths.omh_home)
+    overrides, _overrides_status = load_mixture_chain_overrides(paths.omh_home)
+    chains = chains_with_overrides(overrides)
+    document_path = provider_entitlements_path(paths.omh_home)
+    routes_path = model_provider_routes_path(paths.omh_home)
+    parts: list[str] = []
+    warnings: list[str] = []
+    if document_status.startswith("invalid:"):
+        warnings.append(
+            f"{document_path} is ignored ({document_status}): its recorded kinds are dropped and any "
+            "providers it excluded count again until it is repaired"
+        )
+    else:
+        parts.append(f"providers.json {document_status}")
+    if rows:
+        parts.append("counted: " + ", ".join(f"{row['id']} ({row['source']}, {row['evidence']})" for row in rows))
+    else:
+        parts.append("counted: none linked to Hermes or recorded; every model counts as served")
+    excluded = list((recorded or {}).get("excluded_providers", []))
+    if excluded:
+        parts.append("excluded by the record: " + ", ".join(excluded))
+    if routes_status.startswith("invalid:"):
+        warnings.append(
+            f"{routes_path} is ignored ({routes_status}): every alias dispatches unchanged until it is repaired"
+        )
+    else:
+        parts.append(f"model-providers.json {routes_status}")
+    demoted, dispatch_only = split_unknown_routes(routes_to_unknown_providers(routes, entitlements, chains))
+    if demoted:
+        warnings.append(
+            "chain entries routed to a provider neither recorded nor linked: "
+            + unknown_route_labels(demoted)
+            + "; each sorts behind the served entries of every chain naming it"
+        )
+    if dispatch_only:
+        warnings.append(
+            "dispatch-only routes to a provider neither recorded nor linked: "
+            + unknown_route_labels(dispatch_only)
+            + "; no chain names these, so nothing is reordered, but a dispatch pinning one asks Hermes "
+            "for a provider it is not linked to"
+        )
+    # Each warning already carries "; " inside it, so the segments are
+    # joined with a separator no warning uses; the status fragments stay
+    # one segment at the end.
+    message = " | ".join([*warnings, "; ".join(parts)])
+    if not warnings:
+        return Check("provider_entitlements", True, message)
+    return Check(
+        "provider_entitlements",
+        True,
+        message,
+        severity="warning",
+        next_action=(
+            "Repair the named routing document under ~/.omh/routing (rerun `omh setup` interactively to "
+            "re-record providers), or link the named provider to Hermes; then rerun `omh doctor`."
+        ),
     )
 
 

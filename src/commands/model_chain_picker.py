@@ -240,7 +240,19 @@ def render_frame(
         + paint(_clip(provider_text, inner - _PROVIDERS_LABEL_WIDTH), "banner_text" if providers else "banner_dim")
     )
 
-    lines = [title, providers_line, rule, header]
+    lines = [title, providers_line]
+    # An invalid record yields no document at all: its recorded kinds are
+    # dropped and a linked row it excluded counts again, so the providers
+    # line above is missing the operator's own corrections. One row says so;
+    # a valid or absent record adds nothing.
+    entitlements_status = str(payload.get("entitlements_status") or "")
+    if entitlements_status.startswith("invalid:"):
+        reason = entitlements_status[len("invalid:"):].strip()
+        lines.append(
+            " " * _MARGIN
+            + paint(_clip(f"! providers.json ignored: {reason} · any providers it excluded count again", inner), "ui_warn")
+        )
+    lines += [rule, header]
     for index, row in enumerate(rows):
         is_cursor = index == cursor
         cells = _row_cells(

@@ -30,6 +30,8 @@ def gh_json(*arguments: str, timeout: int = GH_TIMEOUT_SECONDS) -> Any:
         ["gh", *arguments],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=timeout,
     )
@@ -49,6 +51,8 @@ def authenticated() -> bool:
         ["gh", "auth", "status"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=GH_TIMEOUT_SECONDS,
     )

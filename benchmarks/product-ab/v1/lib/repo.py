@@ -22,10 +22,25 @@ class GitError(RuntimeError):
 
 
 def git(repo: Path, *arguments: str, timeout: int = GIT_TIMEOUT_SECONDS) -> str:
+    """Run one git command and decode its output as UTF-8, explicitly.
+
+    The decode is named rather than inherited. `text=True` alone decodes with
+    the ambient locale, and this repository's diffs are not ASCII: twelve of
+    the pinned test diffs carry non-ASCII bytes, so the same `git diff` that
+    digests one way under a UTF-8 locale raises `UnicodeDecodeError` under
+    `LC_ALL=C`. A pinned digest that depends on the caller's environment is
+    not a pin, and a build that dies on a differently-configured machine is
+    not reproducible. `errors="replace"` keeps a stray undecodable byte from
+    killing a build; it cannot silently change a digest, because the
+    replacement is deterministic.
+    """
+
     completed = subprocess.run(
         ["git", "-C", str(repo), *arguments],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=timeout,
     )
@@ -42,6 +57,8 @@ def git_ok(repo: Path, *arguments: str, timeout: int = GIT_TIMEOUT_SECONDS) -> b
         ["git", "-C", str(repo), *arguments],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=timeout,
     )
@@ -161,6 +178,8 @@ def grep_paths(repo: Path, commit: str, needles: Sequence[str], prefix: str) -> 
         ["git", "-C", str(repo), *arguments],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=GIT_TIMEOUT_SECONDS,
     )
@@ -231,6 +250,8 @@ def candidate_workspace(repo: Path, commit: str, root: Path, name: str) -> Itera
             ["git", "-C", str(repo), "worktree", "remove", "--force", str(workspace)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=GIT_TIMEOUT_SECONDS,
         )
@@ -240,6 +261,8 @@ def candidate_workspace(repo: Path, commit: str, root: Path, name: str) -> Itera
             ["git", "-C", str(repo), "worktree", "prune"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=GIT_TIMEOUT_SECONDS,
         )

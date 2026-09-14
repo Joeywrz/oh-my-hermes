@@ -351,7 +351,7 @@ class SolutionLeakTests(unittest.TestCase):
 
     def test_a_task_text_naming_an_introduced_name_is_a_leak(self) -> None:
         head = repo_lib.resolve(ROOT, "HEAD")
-        name = "zz_definitely_not_in_this_repository_yet"
+        name = "qqq" + "_absent_from_this_repository_" + "token"
         self.assertEqual(
             corpus.introduced_names_in_task_text(
                 ROOT, head, f"it should call {name} instead", f"+def {name}(x):\n"
@@ -407,9 +407,18 @@ class SolutionLeakTests(unittest.TestCase):
             ),
             "clean",
         )
+        self.assertEqual(
+            corpus.leak_class(
+                prescriptive_heading=False,
+                introduced_names=[],
+                grading_modules=["tests/test_x.py"],
+                named_paths=["y"],
+            ),
+            "names_grading_module",
+        )
         self.assertEqual(set(corpus.LEAK_CLASSES), {
             "heading_prescriptive", "names_new_identifier",
-            "names_changed_file", "clean",
+            "names_grading_module", "names_changed_file", "clean",
         })
 
     def test_a_surviving_solution_heading_is_detected(self) -> None:
@@ -482,7 +491,7 @@ class PinnedCorpusTests(unittest.TestCase):
         )
 
     def test_the_selection_records_what_it_probed_and_why_it_dropped(self) -> None:
-        """40 tasks without 51 probed and 11 rejected cannot be judged."""
+        """A corpus size without the probed and rejected counts cannot be judged."""
 
         selection = self.payload["selection"]
         self.assertGreater(selection["probed"], len(self.tasks))
@@ -529,6 +538,20 @@ class PinnedCorpusTests(unittest.TestCase):
                 )
         self.assertIn(f"| **Tasks kept** | **{len(self.tasks)}** |", readme)
         self.assertIn(self.payload["corpus_digest"][:12], readme)
+
+        # The leak-class table sat outside this check, and a reviewer proved it
+        # by hand-editing its numbers and watching all 94 tests stay green.
+        # It is the table a skeptical reader inspects hardest, so it is the one
+        # that most needed pinning.
+        overall = selection["leak_class"]
+        issue_sourced = selection["leak_class_issue_sourced"]
+        for name in corpus.LEAK_CLASSES:
+            with self.subTest(leak_class=name):
+                self.assertIn(
+                    f"| `{name}` | {overall.get(name, 0)} | {issue_sourced.get(name, 0)} |",
+                    readme,
+                    f"the README leak-class row {name!r} does not match the corpus",
+                )
 
     def test_every_task_records_which_of_its_own_files_it_names(self) -> None:
         """A weaker leak, recorded rather than excluded, so a reader can subset."""
@@ -1217,13 +1240,24 @@ class ReportTests(unittest.TestCase):
 
     def test_a_subset_that_matches_no_record_is_refused(self) -> None:
         with TemporaryDirectory() as root:
-            with self.assertRaisesRegex(ValueError, "no run record is in the subset"):
+            # A subset naming a task the records do not carry means the corpus
+            # and the records are not the same corpus, which is exactly the
+            # drift the headline subset's definition must not suffer.
+            with self.assertRaisesRegex(ValueError, "not describe the same corpus"):
                 report.analyze(
                     records_path=self._write(root),
                     manifest=lane.load_object(LANE / "manifest.json"),
                     repetitions=200,
                     only_task_ids=["PR-999"],
                     subset_label="nothing",
+                )
+            with self.assertRaisesRegex(ValueError, "no run record is in the subset"):
+                report.analyze(
+                    records_path=self._write(root),
+                    manifest=lane.load_object(LANE / "manifest.json"),
+                    repetitions=200,
+                    only_task_ids=[],
+                    subset_label="empty",
                 )
 
     def test_the_report_pairs_every_arm_against_the_baseline(self) -> None:

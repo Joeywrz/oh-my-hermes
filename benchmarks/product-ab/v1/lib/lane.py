@@ -33,6 +33,11 @@ REPORT_SCHEMA = "omh_product_ab_report/v1"
 
 ARMS = ("hermes", "omh", "omh_mixture")
 
+#: The hash seed every graded and probed unittest run is given. Any fixed value
+#: works; what matters is that it is fixed, recorded, and the same on both
+#: sides of every comparison the lane makes.
+HASH_SEED = 0
+
 #: The file a candidate writes to claim the goal is finished. A run that never
 #: writes it made no completion claim, which is a different outcome from a
 #: claim the validator contradicts.
@@ -118,6 +123,14 @@ def unittest_environment(workspace: Path, scratch: Path) -> dict[str, str]:
         "PYTHONPATH": "tests",
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONNOUSERSITE": "1",
+        # Pinned so that two runs of one validator can differ only for a reason
+        # the harness caused. Unpinned, set and dict iteration order changes per
+        # process, so a test carrying an ordering assumption is red in one run
+        # and green in the next. The probe compares two runs and attributes any
+        # difference to the workspace path, so an unpinned seed delivers a
+        # flake under a name that asserts a cause the check cannot establish --
+        # which is how PR-746 came to be recorded as path-dependent.
+        "PYTHONHASHSEED": str(HASH_SEED),
         "HOME": str(scratch / "home"),
         "TMPDIR": str(scratch / "tmp"),
         "OMH_HOME": str(scratch / "omh"),

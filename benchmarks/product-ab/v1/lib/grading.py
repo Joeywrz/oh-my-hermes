@@ -189,6 +189,8 @@ def run_modules(
             env=lane.unittest_environment(workspace, scratch),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=timeout,
         )

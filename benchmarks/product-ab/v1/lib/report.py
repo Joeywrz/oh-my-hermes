@@ -280,6 +280,20 @@ def analyze(
     records = read_records(records_path)
     if only_task_ids is not None:
         keep = set(only_task_ids)
+        present = {str(row["task_id"]) for row in records}
+        # The subset comes from a corpus file and the records from a run, and
+        # nothing so far checked they are the same corpus. A task whose
+        # `task_source` differed between two corpus versions would quietly
+        # enter or leave the headline subset -- exactly the definition that
+        # must not drift. An empty intersection already raised; a partial one
+        # did not.
+        unknown = sorted(keep - present)
+        if unknown and present:
+            raise ValueError(
+                f"the subset {subset_label!r} names {len(unknown)} task(s) with no "
+                f"run record ({unknown[:3]}); the corpus and the records do not "
+                "describe the same corpus"
+            )
         records = [row for row in records if str(row["task_id"]) in keep]
         if not records:
             raise ValueError(f"no run record is in the subset {subset_label!r}")

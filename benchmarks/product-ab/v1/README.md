@@ -56,19 +56,68 @@ slots the headline subset needs.
 prints the subset and its `n` above the table. `--leak-class` subsets the same
 way on how much of the answer a task's text still carries.
 
+#### What "issue-sourced" does and does not buy
+
+It buys text written before the fix existed. It does not buy an outside
+reporter, and the difference matters to how the headline should be read.
+
+These issues are, in the main, specifications written shortly before
+implementation by the person who then implemented them. The numbers are in the
+composition table below: the issue author is the fixing author in most of the
+subset, most issues come from the project's two owner accounts, and the median
+gap from issue to merge is measured in hours, not weeks. A reader who sees
+"solved N% of our own issues" will picture a bug report that predates the
+diagnosis, and for most of these tasks that picture is wrong.
+
+What the cut removes is the prescription -- the section that says what to
+build. What it cannot remove is that the person writing the symptom already
+knew the answer. The five tasks filed by outside contributors are the only ones
+with the provenance a reader assumes, and they are counted separately below. A
+table is not built on five.
+
+#### Two subsets that are not comparable, and one subset that is not "stricter"
+
+Both of these invite a comparison that is not valid, so both are stated rather
+than left for a careful reader to fall into.
+
+The secondary subset is not a control for the headline subset. Its tasks are
+systematically larger on every dimension measured -- changed lines, test lines,
+test modules -- so any difference between the two tables is confounded by task
+size, not by where the text came from. Read each table on its own; do not
+subtract one from the other.
+
+`--leak-class clean` is not simply a stricter corpus. Tasks that name one of
+their own changed files are markedly smaller than the clean ones, so the clean
+subset is also the harder subset. A lower pass rate there is not evidence that
+leakage inflated the headline; it is mostly task size. The flag is there to let
+a reader see the tasks, not to produce a number to quote against the headline.
+
 ### What this corpus is made of
 
-Numbers describe the pinned corpus at digest `f6438aa2faf2`, and
-every one of them is re-derived from `corpus/evaluation.json` by a test, so
-they cannot drift away from the file they describe.
+Numbers describe the pinned corpus at digest `f7f34c5c3716`, and
+every one is re-derived from `corpus/evaluation.json` by a test, so they cannot
+drift away from the file they describe.
 
 | | Count |
 | --- | ---: |
 | Merged pull requests read, newest first | 800 |
-| Candidates probed | 48 |
+| Candidates probed | 46 |
 | **Tasks kept** | **40** |
-| — from a linked issue (the headline subset) | 35 |
-| — from a pull request body (secondary) | 5 |
+| — from a linked issue (the headline subset) | 29 |
+| — from a pull request body (secondary) | 11 |
+
+Who wrote the headline subset's task text, and when, over its 29 tasks:
+
+| | Count |
+| --- | ---: |
+| Issue author is the author of the fixing pull request | 22 |
+| Issue filed from one of the project's two owner accounts | 24 |
+| Issue filed by an outside contributor | 5 |
+| Median hours from issue to merge | 11.2 |
+
+Read that as what it is. Most of these are specifications written shortly
+before implementation, by the implementer. The cut removes the prescription; it
+cannot remove that the author already knew the answer.
 
 A reader who sees "40 tasks" without seeing what was probed and
 dropped cannot judge the number, so the rejections are here rather than in the
@@ -77,8 +126,9 @@ corpus file alone.
 | Rejected by the probe | Count |
 | --- | ---: |
 | Validator not green with the pull request's own fix | 3 |
-| Verdict depends on the workspace path | 3 |
+| Verdict depends on the workspace path | 1 |
 | Regression set already red at the merge base | 2 |
+| Validator disagrees with itself at one path | 0 |
 
 The first line means the corpus is selected partly on what this harness can
 run, and that belongs in how any number from it is read. The concrete case:
@@ -93,13 +143,15 @@ How much of the answer each task's text still carries, worst class first:
 | --- | ---: | ---: |
 | `heading_prescriptive` | 0 | 0 |
 | `names_new_identifier` | 0 | 0 |
-| `names_changed_file` | 14 | 14 |
-| `clean` | 26 | 21 |
+| `names_grading_module` | 0 | 0 |
+| `names_changed_file` | 12 | 12 |
+| `clean` | 28 | 17 |
 
-The first two are zero by construction: a task naming a definition the fix
-introduces is excluded outright, and a surviving solution heading would mean
-the cut missed one. They are counted anyway, because a corpus that assumes its
-own filter is exhaustive has no way to discover that it is not.
+The first three are zero because each is an outright exclusion, not because
+nothing was found: 43 candidates were dropped for naming a token the fix
+introduces, and 20 for naming the very test module that grades them. They
+are counted here anyway, because a corpus that assumes its own filters are
+exhaustive has no way to discover that they are not.
 
 ### What is excluded, and why
 
@@ -113,7 +165,8 @@ own filter is exhaustive has no way to discover that it is not.
 | Only `.github/`, packaging, or dependency files changed | maintenance without a behavioural validator |
 | Task text under 200 characters | not a brief |
 | Task text quoting the diff | see *Leak rules* below |
-| Task text naming a definition the fix introduces | see *Leak rules* below |
+| Task text naming a token the fix introduces | see *Leak rules* below |
+| Task text naming the test module that grades it | it points at the hidden validator |
 | Validator already green at the merge base | nothing has to be built to pass it |
 | Validator still red with the fix that shipped | the task is unsolvable here; see *Both directions* below |
 | Regression set already red at the merge base | every arm would fail for a reason no arm caused |
@@ -136,12 +189,58 @@ pull the published pass rate down for a reason no arm caused.
 No arm ever sees the reference solution. It is pinned in the corpus under
 `solution_blobs` and read only by `corpus --probe`.
 
+### Cutting the task text
+
+The task text keeps only the sections that state a symptom, and drops every
+other section including ones nobody listed. That is an allowlist, and it
+replaced a denylist that could not be completed.
+
+A survey of every issue reachable from the 800 newest merged pull requests
+found 205 bodies carrying over a hundred distinct headings. The fix was
+prescribed under `Target behaviour`, `Acceptance criteria`, `Native capability
+to add`, `Boundary-level design`, `Expected behavior`, `Proposed
+implementation`, `Requested outcome`, `What will ship` and a long tail. A
+denylist kept every one of them, silently, and the canary built from that same
+list could not report the gap either, because it asked the same question with
+the same vocabulary.
+
+Inverted, an unrecognized heading fails safe: dropped, not kept. The cost is
+tasks, which this corpus can afford; the alternative cost is credibility, which
+it cannot. Unheaded text before the first heading is dropped for the same
+reason, and the survey says that costs nothing here -- in this repository it is
+boilerplate, "Contributions welcome — good first issue".
+
+Two entries are worth naming. `Expected behavior` is deliberately **not** on
+the allowlist: in this repository it reads as specification, and issue 1111's
+says a mismatch "must result in `hold`" while the validator asserts exactly
+that. `Observed evidence` **is** on it: it reports what the code does today,
+and naming an existing function hands over nothing -- the novelty rule above
+catches the case where such a section names something new.
+
+Every task records `sections_kept` and `sections_dropped`, so the allowlist's
+own gaps are visible in the artifact rather than inferred. A heading nobody
+recognized appears there by name.
+
 ### Two-path probe
 
 `bench.py corpus --probe` runs each candidate's validator twice, under two
 parent directories that differ in spelling, in depth, and in length. It keeps
 the task only if both runs reached the *same verdict*: the same status and the
 same ran, failure, and error counts.
+
+When they disagree, the probe repeats at the **first** root before blaming the
+path. Two runs disagreeing proves they disagreed, not that the path is why: a
+validator that is simply unstable disagrees with itself anywhere, and recording
+that as path dependence asserts a cause the comparison cannot establish. A task
+that also disagrees with itself at one root is rejected as
+`validator_disagrees_with_itself_at_one_path`. `PYTHONHASHSEED` is pinned for
+the same reason, so iteration order cannot make one run differ from the next.
+
+The interpreter decides membership, not just timing: PR-1502 classifies as
+path-dependent under CPython 3.13.15 and as already-green under 3.14.7. The
+interpreter version, the hash seed, and the verdict fields are recorded in the
+corpus, and `corpus --verify` fails when the corpus is re-derived under a
+different interpreter rather than silently producing a different corpus.
 
 That check is there because a candidate disagreed with itself. PR-1502 fixes a
 fixture that built a verification command out of the checkout path and compared
@@ -168,10 +267,13 @@ rejected as `verdict_depends_on_workspace_path` and counted under that name in
 the corpus's `selection.probe_rejected`, so a dropped task is never a silent
 one.
 
-The probe also stops as soon as the corpus is full, working from the newest
-pull request backwards. Each probe runs the validator twice and the regression
-set once, which costs minutes on this repository's larger modules, and sweeping
-candidates past a full corpus buys nothing.
+The probe takes issue-sourced candidates first, then newest first within each
+group, and stops as soon as the corpus is full. The ordering is the headline's:
+the probe rejects some of every group, so merge order alone would let
+pull-request-body tasks consume slots the headline subset needs. Each probe
+runs the validator two or three times and the regression set twice, which costs
+minutes on this repository's larger modules, and sweeping candidates past a
+full corpus buys nothing.
 
 ### Leak rules
 
@@ -182,18 +284,23 @@ code rather than promised in prose:
    request's non-test diff that is at least 40 characters long is searched for,
    whitespace-normalized, in the task text. A hit excludes the pull request
    (`corpus.leaked_solution_lines`).
-1. **The task text may not name what the fix introduces.** A pull request body
-   is written after the change, by its author, and it paraphrases rather than
-   quotes -- so it can name the function to write without reproducing a line of
-   it, and the rule above never fires. A name counts as a leak when the pull
-   request defines it, the task text uses it, and `git grep` finds it nowhere
-   under `src/` at the merge base. That last condition is what separates
-   handing over the answer from naming something the candidate could have read
-   for itself (`corpus.introduced_names_in_task_text`).
-1. **The solution half of the body is cut at its heading.** Headings match by
-   prefix, not equality: this repository's own template writes `Implementation
-   (boundary level)`, and an equality test kept that entire section. A `#` line
-   inside a fenced code block is a comment, not a section boundary.
+1. **The task text may not name what the fix introduces.** A body written after
+   the change paraphrases rather than quotes, so it can name the thing to build
+   without reproducing a line of it, and the rule above never fires. A token
+   counts as a leak when an added line introduces it, the task text uses it,
+   and `git grep` finds it nowhere in the tree at the merge base. "Introduce"
+   means any name or literal on an added line, not only a `def`, `class` or
+   `CONSTANT =`: restricting it to those three shapes missed every new dict
+   key, mode name and status string, which is most of what a validator asserts
+   on. The novelty test searches the whole tree rather than `src/` alone,
+   because a token that exists anywhere the candidate can read is not something
+   the fix introduced (`corpus.introduced_names_in_task_text`).
+1. **The task text may not name the test module that grades it.** The
+   validator is meant to be hidden; a text naming `tests/test_router_content.py`
+   -- or just the bare stem -- tells the candidate exactly which file it will
+   be judged by (`corpus.grading_modules_in_task_text`).
+1. **Only symptom sections survive the cut.** An allowlist of problem-statement
+   headings, not a denylist of solution ones; see *Cutting the task text* below.
 1. **Naming one of the pull request's own changed files is recorded, not
    excluded.** Pointing at the file that misbehaves is what an ordinary bug
    report does and hands over no part of the fix. Every task carries
@@ -399,7 +506,7 @@ python benchmarks/product-ab/v1/bench.py doctor
 python benchmarks/product-ab/v1/bench.py corpus --verify
 
 # Rebuild the corpus from GitHub, then re-prove every task offline.
-python benchmarks/product-ab/v1/bench.py corpus --build --pull-request-limit 250
+python benchmarks/product-ab/v1/bench.py corpus --build   # reads 800 by default
 python benchmarks/product-ab/v1/bench.py corpus --probe --max-tasks 40
 
 # The whole pipeline with no model call at all.

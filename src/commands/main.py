@@ -144,6 +144,14 @@ from .ops import (
     cmd_ops_validate,
     cmd_ops_write,
 )
+from .paper import (
+    _add_paper_commands,
+    cmd_paper_list,
+    cmd_paper_plan,
+    cmd_paper_progress,
+    cmd_paper_show,
+    cmd_paper_validate,
+)
 from .playbook import _add_playbook_commands, cmd_playbook_inspect, cmd_playbook_list, cmd_playbook_recommend
 from .release import _add_release_commands, cmd_release_checklist, cmd_release_hermes_smoke
 from .runtime import (
@@ -234,6 +242,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  omh loop status\n"
             "  omh ops list\n"
             "  omh materials list\n"
+            "  omh paper list\n"
             "  omh img-summary prompt-card --kind github_pr --visual-format auto --section summary:What_changed:Safer_setup_copy\n"
             "  omh img-summary prompt-card --kind report --aspect-ratio long_scroll --section summary:Executive_summary:Weekly_metrics_changed\n"
             "  omh worktree list\n"
@@ -305,6 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_plugin_commands(sub)
     _add_ops_commands(sub)
     _add_materials_commands(sub)
+    _add_paper_commands(sub)
     _add_visual_commands(sub)
     _add_adapter_quality_commands(sub)
     _add_benchmark_commands(sub)
@@ -367,6 +377,7 @@ Useful operator commands:
   omh loop status        Show loopable goal cycle state
   omh ops list           List local operations artifacts
   omh materials list     List material-processing artifacts
+  omh paper list         List paper-learning records and where reading stopped
   omh img-summary prompt-card Prepare image-generation-ready summary cards
   omh worktree list      List observed worktree isolation records
   omh worktree bind --path .worktrees/risky-refactor --executor codex --session <session-id>

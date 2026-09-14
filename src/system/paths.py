@@ -249,6 +249,14 @@ class OmhPaths:
         return self.materials_dir / "index.json"
 
     @property
+    def paper_learning_dir(self) -> Path:
+        return self.omh_home / "paper-learning"
+
+    @property
+    def paper_learning_index_path(self) -> Path:
+        return self.paper_learning_dir / "index.json"
+
+    @property
     def visual_dir(self) -> Path:
         return self.omh_home / "visual"
 

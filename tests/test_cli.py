@@ -567,6 +567,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("omh cases recommend", help_text)
         self.assertIn("omh ops list", help_text)
         self.assertIn("omh materials list", help_text)
+        self.assertIn("omh paper list", help_text)
         self.assertIn("Human-facing maintenance, catalog, and operator checklist commands print summaries", help_text)
         self.assertIn("Plain chat preview commands such as chat route, route-hint, and interact are summary-first", help_text)
         self.assertIn("Ledger/control-plane commands", help_text)

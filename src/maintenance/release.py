@@ -874,7 +874,21 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # limit is re-derived once from the producer on the combined tree, never by
 # adding deltas (936466 with the document-plan note, plus the long-document
 # body and the review's verb-bearing trigger phrases -> 950695).
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 950695
+# 936264 -> 936870: `paper-learning`'s artifact expectations now name the
+# `omh paper plan` / `omh paper progress` commands that write the card and
+# the chunk ledger, and its long-paper recovery note says to resume from
+# `omh paper show` instead of re-reading from the abstract. The old line
+# promised a card "under .omh/paper-learning when a wrapper or CLI records
+# it" while no command wrote there, so nothing was ever recorded; naming the
+# command where the lane reads it is the fix. The store itself lives in
+# `src/workflows/paper_learning.py`, outside this budget; warranted growth,
+# re-derived from the producer after this branch met the #1513 entry
+# above, never by adding the two deltas.
+# Stacked with document-plan and long-document-reading: the three bodies
+# land together, so the limit is re-derived once from the producer on the
+# combined tree (950695 plus paper-learning's command-naming expectations
+# and its resume note -> 951301), never by adding deltas.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 951301
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

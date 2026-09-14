@@ -65,7 +65,12 @@ from .policy import _hermes_setup_guide_requested
 from .policy import _github_event_ops_guard_applies
 from .policy import _github_issue_intake_guard_applies
 from .policy import _invocation_token
-from .recommend import has_strong_named_catalog_owner, recommendation_for_definition, recommend_skills
+from .recommend import (
+    has_strong_named_catalog_owner,
+    recommendation_for_definition,
+    recommend_skills,
+    user_trigger_pack_phrase_match,
+)
 from .route_plan import (
     build_workflow_route_plan,
     compact_workflow_route_plan,
@@ -1451,6 +1456,50 @@ def route_chat_message(
         skill_policy=skill_policy,
         active_design_direction_iteration=active_design_direction_iteration,
     )
+
+
+def user_trigger_pack_route_hint(message: str) -> dict[str, str]:
+    """Return this router's own dispatch for a message only a user pack recognises.
+
+    The hint rail has its own rule table, and that table knows shipped cue
+    phrases only. So a language added through `<omh-home>/routing/trigger-packs/`
+    upgraded scoring and left the hint silent, and one payload could report
+    `no_hint` beside a high-confidence `route_decision` for the same text
+    (#1535). The answer is not a second matcher inside the hint rail: this asks
+    the router for the decision it already made and reports that, so the hint
+    and `route_decision` cannot disagree about whether a message routes.
+
+    `matched_phrase` is set only when the router's own selection is the skill
+    the pack named. A pack phrase can sit in a message the router hands to a
+    different owner -- the pack widened recognition without deciding anything --
+    and reporting that phrase as the matched cue would state a cause the
+    decision does not rest on.
+
+    There is deliberately no `source` parameter. Nothing under `src/routing/`
+    branches on the chat source, and neither `awareness_route_hint` nor
+    `llm_hooks.pre_llm_call` carries one to pass, so a parameter no caller can
+    fill would be a knob that silently answers for `generic` while the wrapper's
+    `route_decision` was computed for the real source. If the source ever
+    becomes decision-relevant, thread the real source through the rail rather
+    than restoring a defaulted parameter here.
+
+    Empty when no user pack phrase is present, or when the router does not
+    dispatch. With no user packs installed the first line is the whole cost and
+    every shipped-language message keeps exactly today's hint.
+    """
+    skill, phrase = user_trigger_pack_phrase_match(message)
+    if not skill:
+        return {}
+    decision = route_chat_message(message, limit=1)["route_decision"]
+    if not isinstance(decision, dict) or str(decision.get("action") or "") != "dispatch":
+        return {}
+    selected = str(decision.get("selected_skill") or "")
+    if not selected:
+        return {}
+    # The router's own selection, not the pack's skill: when a guard hands the
+    # message to a different owner, the hint has to name the owner the user
+    # will actually be routed to, and the pack phrase stops being the cue.
+    return {"workflow": selected, "matched_phrase": phrase if selected == skill else ""}
 
 
 def _route_has_strong_blocked_owner(

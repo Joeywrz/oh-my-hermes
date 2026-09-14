@@ -5539,6 +5539,14 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
                     },
                 )
                 del hints[hint_limit:]
+        if not hints:
+            # Last resort, and only here: every rule above reads shipped cue
+            # phrases, so a message whose only trigger lives in the person's own
+            # language pack falls through all of them. The original message goes
+            # in because the router has to see what the router saw.
+            user_pack_hint = _user_trigger_pack_route_hint(message)
+            if user_pack_hint:
+                hints.append(user_pack_hint)
     hints = [_route_hint_with_coding_route_decision(hint, routing_normalized) for hint in hints]
     hints = [_route_hint_with_action_labels(hint) for hint in hints]
     # Emission boundary (#1249): every consumer above keys off the catalog name
@@ -7109,6 +7117,99 @@ def _long_document_request_signal(text: str) -> bool:
         return _long_document_page_count_signal(text)
     normalized = _long_document_normalized_phrase(text)
     return _long_document_guard_applies(normalized, _long_document_routing_tokens(normalized))
+
+
+def _user_trigger_pack_route_decision(message: str) -> dict[str, str]:
+    """Ask the router itself; empty in a standalone host with no `omh` package.
+
+    The import is deferred to call time on purpose, unlike the module-level
+    guarded imports elsewhere in this file. `routing.chat` is the router, and
+    the router's own import graph reaches this module, so a module-level import
+    of it binds `None` in any process that imports the CLI first -- an
+    import-order bug that fails silently, because the fallback for a standalone
+    host and the fallback for a half-built module look identical from here.
+    """
+    try:
+        from ...routing.chat import user_trigger_pack_route_hint
+    except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
+        return {}
+    return user_trigger_pack_route_hint(message)
+
+
+def _user_trigger_pack_route_hint(message: str) -> dict[str, object]:
+    """Build the hint a person's own trigger language pack earns (#1535).
+
+    The rule table above carries shipped cue phrases only, so a language added
+    through `<omh-home>/routing/trigger-packs/` reached scoring and never this
+    rail. Teaching the table to read pack files would put a second, blinder
+    matcher beside the router; instead this asks the router for the decision it
+    already made, exactly as the long-document guard above does, so a hinted
+    workflow is by construction the workflow the message routes to.
+
+    A standalone plugin host has no installed `omh` package to ask, so the
+    guarded import leaves this inert there and the rail keeps today's shape.
+    Callers reach it only when no rule fired, so no existing hint can move.
+    """
+    decision = _user_trigger_pack_route_decision(message)
+    if not decision:
+        return {}
+    workflow = str(decision.get("workflow") or "")
+    if not workflow:
+        return {}
+    rule = next(
+        (item for item in _ROUTE_HINT_RULES if str(item.get("workflow") or "") == workflow),
+        None,
+    )
+    context_card = workflow_context_card_for_workflow(workflow)
+    if rule is not None:
+        # A workflow the rule table already describes keeps that description, so
+        # a pack-matched hint reads exactly like the shipped-cue hint for the
+        # same workflow instead of introducing a second wording for one lane.
+        lane = str(rule["lane"])
+        next_action = str(rule["next_action"])
+        fallback_action = str(rule["fallback_action"])
+        adjacent_workflows = list(rule["adjacent_workflows"])
+    else:
+        lane = str(context_card.get("id") or "") if isinstance(context_card, dict) else ""
+        next_action = "dispatch_to_workflow"
+        fallback_action = "open_picker_or_clarify"
+        adjacent_workflows = []
+    # The router sets `matched_phrase` only when its own selection is the skill
+    # the pack named. When it does, the cue is that phrase as the pack author
+    # wrote it -- the same class of label a shipped cue is, a trigger-table entry
+    # that happens to appear in the message, never a span lifted out of the
+    # prompt. When it does not, the pack widened recognition and something else
+    # in the message decided, so naming the phrase here would state a cause the
+    # decision does not rest on; the cue falls back to the rule id and the reason
+    # drops the causal claim with it.
+    matched_phrase = str(decision.get("matched_phrase") or "")
+    if matched_phrase:
+        matched_cue = matched_phrase
+        reason = (
+            "A trigger language pack installed in this OMH home names this phrase for this workflow, "
+            "and the router dispatches the message there."
+        )
+    else:
+        matched_cue = "user_trigger_pack"
+        reason = (
+            "A trigger language pack installed in this OMH home recognises part of this message; "
+            "the router weighed the whole message and dispatches it to this workflow."
+        )
+    hint: dict[str, object] = {
+        "id": "user_trigger_pack",
+        "workflow": workflow,
+        "lane": lane,
+        "next_action": next_action,
+        "reason": reason,
+        "fallback_action": fallback_action,
+        "matched_cues": _bounded_matches([matched_cue]),
+        "adjacent_workflows": adjacent_workflows,
+        "workflow_context_card": context_card,
+        "not_evidence_yet": _workflow_not_evidence_yet(workflow, context_card, rule)
+        if isinstance(context_card, dict)
+        else [],
+    }
+    return hint
 
 
 def _long_document_page_count_signal(text: str) -> bool:

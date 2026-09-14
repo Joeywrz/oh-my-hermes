@@ -2287,6 +2287,67 @@ def _user_trigger_pack_phrases() -> dict[str, tuple[str, ...]]:
 
 
 @lru_cache(maxsize=1)
+def _normalized_user_trigger_pack_phrases() -> tuple[tuple[str, str, str], ...]:
+    """(skill, authored phrase, normalized phrase), longest normalized first.
+
+    Longest first so a phrase is reported over a shorter one it contains; the
+    tie-breakers keep the order total, because this is a cached tuple another
+    surface reads and an unstable order would make the reported cue drift
+    between processes for the same message.
+    """
+    rows = [
+        (skill, phrase, normalized_phrase(phrase))
+        for skill, phrases in _user_trigger_pack_phrases().items()
+        for phrase in phrases
+    ]
+    return tuple(
+        sorted(
+            (row for row in rows if row[2]),
+            key=lambda row: (-len(row[2]), row[0], row[2]),
+        )
+    )
+
+
+def user_trigger_pack_phrase_match(query: str) -> tuple[str, str]:
+    """Return (skill, authored phrase) for the user-pack phrase this query contains.
+
+    `("", "")` when no user pack recognises the text. Shipped packs are excluded
+    deliberately: their phrases merge into the catalog and reach every surface
+    built from it, so this answers the one question no other surface can --
+    whether the person's own pack is the only reason this message routes.
+
+    Normalization and command-phrase handling both mirror the scoring path, so a
+    match here is never looser than the match the router itself makes on the same
+    phrase. The command split is the part that is easy to leave out and wrong to:
+    `_prepare_definition` sorts a trigger like `/omh` into `command_trigger_phrases`
+    and matches it with a word-boundary pattern rather than plain containment, so
+    a gate using containment alone would fire on `abre /omh. ahora` for a skill
+    the router scores no pack trigger for.
+    """
+    phrases = _normalized_user_trigger_pack_phrases()
+    # Ahead of normalization on purpose: with no user packs installed -- the
+    # shipped case and every repo test -- this is a cached tuple lookup and the
+    # caller pays nothing for a question that has no answer here.
+    if not phrases:
+        return ("", "")
+    routing_text = prepare_routing_text(
+        _strip_path_like_fragments(scrub_diagnostic_status_text(executable_routing_text(query)))
+    )
+    normalized_query = normalized_phrase(routing_text.scoring_text)
+    if not normalized_query:
+        return ("", "")
+    for skill, phrase, normalized_trigger in phrases:
+        matcher = (
+            _command_trigger_match
+            if normalized_trigger in _COMMAND_TRIGGER_PHRASES
+            else _trigger_phrase_match
+        )
+        if matcher(normalized_query, normalized_trigger):
+            return (skill, phrase)
+    return ("", "")
+
+
+@lru_cache(maxsize=1)
 def _pack_trigger_token_holdback() -> dict[str, frozenset[str]]:
     return {
         skill: _normalized_trigger_token_holdback(frozenset(tokens))

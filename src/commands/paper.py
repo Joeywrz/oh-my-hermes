@@ -4,17 +4,18 @@ import argparse
 
 from ..installer import OmhError
 from ..paper_learning import (
-    DEFAULT_PAPER_SECTIONS,
     PAPER_LEARNING_LEVELS,
     PAPER_LEARNING_SOURCE_STATES,
+    PaperLearningStoreError,
     build_paper_learning_record,
-    list_paper_learning_records,
     paper_learning_card_path,
+    paper_learning_level_or_none,
     paper_learning_ledger_path,
     read_paper_progress_ledger,
     record_paper_progress,
     render_paper_learning_list_text,
     render_paper_learning_record_text,
+    scan_paper_learning_store,
     show_paper_learning_record,
     summarize_paper_learning_record,
     validate_paper_learning_store,
@@ -47,13 +48,15 @@ def cmd_paper_plan(args: argparse.Namespace) -> int:
             authors=args.author or [],
             level=args.level,
             source_state=args.source_state,
-            sections=args.section or DEFAULT_PAPER_SECTIONS,
+            sections=args.section,
             observed_sections=args.observed_section or [],
             missing_sections=args.missing_section or [],
             evidence_ref=args.evidence_ref or "",
             output_language=args.output_language or "source",
         )
         written = write_paper_learning_record(paths, record)
+    except PaperLearningStoreError as exc:
+        raise OmhError(_store_error_message(exc)) from exc
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
     return _emit_record(args, paths, written, schema_version="omh_paper_learning_plan_result/v1")
@@ -65,7 +68,7 @@ def cmd_paper_list(args: argparse.Namespace) -> int:
         limit = _limit_from_args(args, default=DEFAULT_PAPER_LIST_LIMIT)
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
-    all_records = list_paper_learning_records(paths)
+    all_records, unreadable = scan_paper_learning_store(paths)
     records = all_records if limit is None else all_records[-limit:]
     summaries = [summarize_paper_learning_record(record) for record in records]
     if _wants_json(args):
@@ -79,10 +82,16 @@ def cmd_paper_list(args: argparse.Namespace) -> int:
                 "summary_only": True,
                 "index_authority": "cache_only",
                 "papers": summaries,
+                # A record the scan could not read is counted and named here,
+                # never dropped: a list that says "1 of 1" over a directory
+                # holding two records is the lie `validate` exists to catch.
+                "unreadable_count": len(unreadable),
+                "unreadable_records": unreadable,
+                "next_action": "run `omh paper validate` to see every store fault" if unreadable else "",
             }
         )
     else:
-        print(render_paper_learning_list_text(summaries))
+        print(render_paper_learning_list_text(summaries, unreadable, total_count=len(all_records)))
     return 0
 
 
@@ -91,8 +100,8 @@ def cmd_paper_show(args: argparse.Namespace) -> int:
         paths = _paths(args)
         record = show_paper_learning_record(paths, args.paper_id)
         entries, ledger_errors = read_paper_progress_ledger(paths, args.paper_id)
-    except (FileNotFoundError, ValueError) as exc:
-        raise OmhError(f"paper learning record not found: {exc}") from exc
+    except PaperLearningStoreError as exc:
+        raise OmhError(_store_error_message(exc)) from exc
     if _wants_json(args):
         _print_json(
             {
@@ -123,12 +132,13 @@ def cmd_paper_progress(args: argparse.Namespace) -> int:
             covered=args.covered or [],
             next_section=args.next,
             missing=args.missing or [],
+            observed=args.observed_section or [],
             note=args.note or "",
             source_state=args.source_state,
             evidence_ref=args.evidence_ref,
         )
-    except FileNotFoundError as exc:
-        raise OmhError(f"paper learning record not found: {exc}") from exc
+    except PaperLearningStoreError as exc:
+        raise OmhError(_store_error_message(exc)) from exc
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
     return _emit_record(args, paths, updated, schema_version="omh_paper_learning_progress_result/v1", entry=entry)
@@ -164,6 +174,22 @@ def _emit_record(args: argparse.Namespace, paths, record: dict, *, schema_versio
     print(render_paper_learning_record_text(record, entries))
     print(f"Card: {paper_learning_card_path(paths, record['paper_id'])}")
     return 0
+
+
+def _store_error_message(exc: PaperLearningStoreError) -> str:
+    """One line per reason code, so a wrapper reading stderr can tell a typo from a broken file."""
+    if exc.reason_code == "record_not_found":
+        return f"paper learning record not found (record_not_found): {exc.detail}"
+    if exc.reason_code == "source_unreadable":
+        return f"paper source is unreadable (source_unreadable): {exc.detail}; nothing was recorded"
+    return f"paper learning record is corrupt (record_corrupt): {exc.detail}; run `omh paper validate`"
+
+
+def _level_argument(value: str) -> str:
+    level = paper_learning_level_or_none(value)
+    if level is None:
+        raise argparse.ArgumentTypeError(f"unknown level {value!r}; use one of {', '.join(PAPER_LEARNING_LEVELS)} (aliases such as 'very easy' or 'advanced' are accepted)")
+    return level
 
 
 def _store_block(paths, paper_id: str) -> dict[str, str]:
@@ -206,7 +232,7 @@ def _add_paper_commands(sub) -> None:
     plan.add_argument("--title", required=True)
     plan.add_argument("--source", default="", help="Path, URL, or reference such as arxiv:1706.03762.")
     plan.add_argument("--author", action="append")
-    plan.add_argument("--level", default="choose", help="One of " + ", ".join(PAPER_LEARNING_LEVELS) + " (aliases accepted).")
+    plan.add_argument("--level", type=_level_argument, default="choose", help="One of " + ", ".join(PAPER_LEARNING_LEVELS) + " (aliases accepted; an unknown level is refused).")
     plan.add_argument("--source-state", choices=PAPER_LEARNING_SOURCE_STATES, default="metadata_only")
     plan.add_argument("--section", action="append", help="Replace the ten default sections; repeat once per section in reading order.")
     plan.add_argument("--observed-section", action="append", help="Section whose text a host already observed.")
@@ -232,12 +258,13 @@ def _add_paper_commands(sub) -> None:
         help="Record one explained chunk: which sections were covered, what comes next, what is missing.",
     )
     progress.add_argument("paper_id")
-    progress.add_argument("--covered", action="append", help="Section explained in this chunk; repeatable.")
+    progress.add_argument("--covered", action="append", help="Section explained in this chunk; repeatable. Moves explanation status only, never the source state.")
     progress.add_argument("--next", default=None, help="Section to resume from; defaults to the first pending section.")
     progress.add_argument("--missing", action="append", help="Section found absent from the observed text; repeatable.")
+    progress.add_argument("--observed-section", action="append", help="Section whose text the host observed; repeatable; needs --evidence-ref.")
     progress.add_argument("--note", default="", help="Short resume note (max 500 characters); not the explanation itself.")
-    progress.add_argument("--source-state", choices=PAPER_LEARNING_SOURCE_STATES, default=None)
-    progress.add_argument("--evidence-ref", default=None)
+    progress.add_argument("--source-state", choices=PAPER_LEARNING_SOURCE_STATES, default=None, help="Record a new source state; needs --evidence-ref.")
+    progress.add_argument("--evidence-ref", default=None, help="Host evidence reference for --observed-section / --source-state.")
     progress.add_argument("--json", action="store_true")
     progress.set_defaults(func=cmd_paper_progress)
 

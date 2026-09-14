@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -11,7 +12,8 @@ from ..local_store import (
     append_jsonl_locked,
     atomic_write_json,
     ensure_dir,
-    read_json_object,
+    file_lock,
+    is_directory_link,
     read_json_object_result,
     read_jsonl_objects,
     utc_now,
@@ -28,6 +30,30 @@ PAPER_SOURCE_KINDS = ("none", "file", "url", "reference")
 PAPER_LEARNING_NOTE_CHAR_LIMIT = 500
 PAPER_LEARNING_CARD_FILENAME = "card.json"
 PAPER_LEARNING_LEDGER_FILENAME = "ledger.jsonl"
+PAPER_LEARNING_STORE_REASON_CODES = ("record_not_found", "record_corrupt", "source_unreadable")
+# A --source file is hashed for identity only. Past this size the hash is
+# skipped and recorded as skipped, so a multi-gigabyte scan cannot block `plan`
+# silently; the size and path are still recorded.
+PAPER_SOURCE_HASH_BYTE_BUDGET = 256 * 1024 * 1024
+
+
+class PaperLearningStoreError(ValueError):
+    """A store read that cannot yield a usable record, with the reason named.
+
+    `record_not_found`: no record exists for the id (or the id is not a valid
+    store id). `record_corrupt`: a file exists but is unparsable or fails
+    `validate_paper_learning_record`. The two are kept apart because the
+    repair differs: the first is a typo or a deleted record, the second is
+    something `omh paper validate` can name file by file.
+    """
+
+    def __init__(self, reason_code: str, detail: str, *, paper_id: str = "") -> None:
+        if reason_code not in PAPER_LEARNING_STORE_REASON_CODES:
+            raise ValueError(f"unsupported paper learning store reason_code: {reason_code}")
+        super().__init__(detail)
+        self.reason_code = reason_code
+        self.detail = detail
+        self.paper_id = paper_id
 PAPER_LEARNING_LEVELS = ("very_easy", "moderate", "expert", "choose")
 PAPER_LEARNING_SOURCE_STATES = (
     "metadata_only",
@@ -96,6 +122,16 @@ PAPER_LEARNING_LEVEL_CONTRACT = {
 
 def normalize_paper_learning_level(level: str | None) -> str:
     """Normalize user-facing level aliases without changing explanation content."""
+    return paper_learning_level_or_none(level) or "choose"
+
+
+def paper_learning_level_or_none(level: str | None) -> str | None:
+    """The contract level for a user-facing alias, or None when the alias is unknown.
+
+    `normalize_paper_learning_level` folds unknown input to `choose`, which is
+    right for a card built from free text. A command flag needs the other
+    answer too: `--level expret` must be refused, not recorded as `choose`.
+    """
     if not level:
         return "choose"
     normalized = level.strip().lower().replace("-", "_").replace(" ", "_")
@@ -118,7 +154,7 @@ def normalize_paper_learning_level(level: str | None) -> str:
         "choose": "choose",
         "ask": "choose",
     }
-    return aliases.get(normalized, "choose")
+    return aliases.get(normalized)
 
 
 def normalize_paper_source_state(
@@ -315,20 +351,37 @@ def describe_paper_source(source_ref: str) -> dict[str, Any]:
     if ref.lower().startswith(_URL_PREFIXES):
         return {"ref": ref, "kind": "url", "path": "", "exists": False, "sha256": "", "size_bytes": None}
     candidate = Path(ref).expanduser()
-    if candidate.is_file():
+    if not candidate.is_file():
+        return {"ref": ref, "kind": "reference", "path": "", "exists": False, "sha256": "", "size_bytes": None}
+    try:
+        size = candidate.stat().st_size
+        resolved = str(candidate.resolve())
+        if size > PAPER_SOURCE_HASH_BYTE_BUDGET:
+            return _file_source(ref, resolved, size, sha256="", hash_skipped="over_budget")
         digest = hashlib.sha256()
+        seen = 0
         with candidate.open("rb") as handle:
             for chunk in iter(lambda: handle.read(1 << 20), b""):
                 digest.update(chunk)
-        return {
-            "ref": ref,
-            "kind": "file",
-            "path": str(candidate.resolve()),
-            "exists": True,
-            "sha256": digest.hexdigest(),
-            "size_bytes": candidate.stat().st_size,
-        }
-    return {"ref": ref, "kind": "reference", "path": "", "exists": False, "sha256": "", "size_bytes": None}
+                seen += len(chunk)
+    except OSError as exc:
+        raise PaperLearningStoreError("source_unreadable", f"{ref}: {exc}") from exc
+    if seen != size:
+        raise PaperLearningStoreError("source_unreadable", f"{ref}: file changed while it was being hashed ({seen} bytes read, {size} expected)")
+    return _file_source(ref, resolved, size, sha256=digest.hexdigest(), hash_skipped="")
+
+
+def _file_source(ref: str, path: str, size: int, *, sha256: str, hash_skipped: str) -> dict[str, Any]:
+    return {
+        "ref": ref,
+        "kind": "file",
+        "path": path,
+        "exists": True,
+        "sha256": sha256,
+        "size_bytes": size,
+        "hash_skipped": hash_skipped,
+        "hash_budget_bytes": PAPER_SOURCE_HASH_BYTE_BUDGET,
+    }
 
 
 def build_paper_learning_record(
@@ -338,17 +391,24 @@ def build_paper_learning_record(
     authors: Iterable[str] = (),
     level: str | None = "choose",
     source_state: str | None = "metadata_only",
-    sections: Iterable[str] = DEFAULT_PAPER_SECTIONS,
+    sections: Iterable[str] | None = None,
     observed_sections: Iterable[str] = (),
     missing_sections: Iterable[str] = (),
     evidence_ref: str = "",
     output_language: str = "source",
     paper_id: str | None = None,
     created_at: str | None = None,
+    created_at_ns: int | None = None,
 ) -> dict[str, Any]:
     clean_title = str(title).strip()
     if not clean_title:
         raise ValueError("title is required")
+    if sections is None:
+        section_names: list[str] = list(DEFAULT_PAPER_SECTIONS)
+    else:
+        section_names = [str(name) for name in sections]
+        if not section_names or any(not name.strip() for name in section_names):
+            raise ValueError("--section must name a non-empty section; omit it to use the ten default sections")
     created = created_at or utc_now()
     card = build_paper_learning_card(
         title=clean_title,
@@ -359,7 +419,7 @@ def build_paper_learning_record(
         observed_sections=observed_sections,
         missing_sections=missing_sections,
         evidence_ref=evidence_ref,
-        sections=sections,
+        sections=section_names,
         output_language=output_language,
     )
     record = {
@@ -370,6 +430,12 @@ def build_paper_learning_record(
         "reading": _reading_state(card, progress_count=0, next_section=None, last_note=""),
         "progress_count": 0,
         "created_at": created,
+        # `created_at` keeps the store's second-precision timestamp; this is
+        # the ordering instant. `write_paper_learning_record` raises it above
+        # the newest record already in the store, so two plans recorded in
+        # one second (or one clock tick) still list in the order they were
+        # recorded rather than by the random id suffix.
+        "created_at_ns": time.time_ns() if created_at_ns is None else int(created_at_ns),
         "updated_at": created,
     }
     errors = validate_paper_learning_record(record)
@@ -405,6 +471,9 @@ def validate_paper_learning_record(record: dict[str, Any]) -> list[str]:
     progress_count = record.get("progress_count")
     if not isinstance(progress_count, int) or isinstance(progress_count, bool) or progress_count < 0:
         errors.append("progress_count must be a non-negative integer")
+    created_ns = record.get("created_at_ns")
+    if not isinstance(created_ns, int) or isinstance(created_ns, bool) or created_ns < 0:
+        errors.append("created_at_ns must be a non-negative integer")
     return errors
 
 
@@ -414,6 +483,7 @@ def apply_paper_progress(
     covered: Iterable[str] = (),
     next_section: str | None = None,
     missing: Iterable[str] = (),
+    observed: Iterable[str] = (),
     note: str = "",
     source_state: str | None = None,
     evidence_ref: str | None = None,
@@ -425,14 +495,25 @@ def apply_paper_progress(
     way the coverage ledger matches them (case- and punctuation-insensitive)
     and must already be in the ledger, so a typo cannot silently create an
     eleventh section that nothing will ever explain.
+
+    Two claims stay apart. `covered` says a section was explained and moves
+    only `explanation_status`. `observed` says the host saw that section's
+    text and moves `status` (the source-observation side); it and
+    `source_state` are the only inputs that can change the card's
+    `source_state`, and on this path both need an evidence reference, either
+    passed now or already on the card.
     """
+    errors = validate_paper_learning_record(record)
+    if errors:
+        raise PaperLearningStoreError("record_corrupt", "; ".join(errors), paper_id=str(record.get("paper_id", "")))
     card = record["card"]
     ledger = card["coverage_ledger"]
     covered_names = _resolve_sections(ledger, covered, flag="--covered")
     missing_names = _resolve_sections(ledger, missing, flag="--missing")
-    overlap = [name for name in covered_names if name in missing_names]
+    observed_names = _resolve_sections(ledger, observed, flag="--observed-section")
+    overlap = [name for name in covered_names + observed_names if name in missing_names]
     if overlap:
-        raise ValueError("a section cannot be both covered and missing in one chunk: " + ", ".join(overlap))
+        raise ValueError("a section cannot be both covered or observed and missing in one chunk: " + ", ".join(overlap))
     clean_note = " ".join(str(note).split())
     if len(clean_note) > PAPER_LEARNING_NOTE_CHAR_LIMIT:
         raise ValueError(
@@ -440,31 +521,51 @@ def apply_paper_progress(
         )
     if source_state is not None and source_state not in PAPER_LEARNING_SOURCE_STATES:
         raise ValueError("source_state must be one of " + ", ".join(PAPER_LEARNING_SOURCE_STATES))
-    if not covered_names and not missing_names and next_section is None and not clean_note and source_state is None and evidence_ref is None:
-        raise ValueError("nothing to record: pass --covered, --missing, --next, --note, --source-state, or --evidence-ref")
+    if (
+        not covered_names
+        and not missing_names
+        and not observed_names
+        and next_section is None
+        and not clean_note
+        and source_state is None
+        and evidence_ref is None
+    ):
+        raise ValueError("nothing to record: pass --covered, --observed-section, --missing, --next, --note, --source-state, or --evidence-ref")
+    previous_state = record["card"]["source_state"]
+    effective_evidence = evidence_ref if evidence_ref is not None else str(previous_state.get("evidence_ref", ""))
+    if (observed_names or source_state is not None) and not effective_evidence.strip():
+        raise ValueError("--observed-section and --source-state record a source observation and need --evidence-ref (none is on the card yet)")
 
     updated = _deep_copy(record)
     card = updated["card"]
     ledger = card["coverage_ledger"]
     for item in ledger:
-        if item["paper_section"] in covered_names:
-            item["status"] = "observed"
-            item["explanation_status"] = "explained"
-        elif item["paper_section"] in missing_names:
+        if item["paper_section"] in missing_names:
             item["status"] = "missing"
             item["explanation_status"] = "pending"
+        elif item["paper_section"] in observed_names:
+            item["status"] = "observed"
+    still_missing = [item["paper_section"] for item in ledger if item["paper_section"] in covered_names and item["status"] == "missing"]
+    if still_missing:
+        raise ValueError(
+            "cannot cover a section the ledger records as missing: "
+            + ", ".join(still_missing)
+            + "; record it with --observed-section <section> --evidence-ref <ref> in the same call once its text is seen"
+        )
+    for item in ledger:
+        if item["paper_section"] in covered_names:
+            item["explanation_status"] = "explained"
     resolved_next = None
     if next_section is not None:
         resolved_next = _resolve_sections(ledger, [next_section], flag="--next")[0]
 
     observed_now = [item["paper_section"] for item in ledger if item["status"] == "observed"]
     missing_now = [item["paper_section"] for item in ledger if item["status"] == "missing"]
-    previous_state = card["source_state"]
     card["source_state"] = normalize_paper_source_state(
         source_state if source_state is not None else previous_state["state"],
         observed_sections=observed_now,
         missing_sections=missing_now,
-        evidence_ref=evidence_ref if evidence_ref is not None else previous_state["evidence_ref"],
+        evidence_ref=effective_evidence,
     )
     progress_count = int(record["progress_count"]) + 1
     stamp = recorded_at or utc_now()
@@ -477,6 +578,7 @@ def apply_paper_progress(
         "paper_id": record["paper_id"],
         "part_index": progress_count,
         "covered": covered_names,
+        "observed": observed_names,
         "next": updated["reading"]["next"],
         "missing": missing_names,
         "note": clean_note,
@@ -489,37 +591,97 @@ def apply_paper_progress(
 
 
 def write_paper_learning_record(paths: OmhPaths, record: dict[str, Any]) -> dict[str, Any]:
+    """Write a new record, keeping creation order strict across the store.
+
+    Under one store-level lock (the index sidecar), the record's
+    `created_at_ns` is raised above the newest record already present when
+    the clock did not move between two plans, so listing order is insertion
+    order and never the random id suffix. The returned record carries the
+    instant that was written.
+    """
     errors = validate_paper_learning_record(record)
     if errors:
         raise ValueError("; ".join(errors))
     paper_id = str(record["paper_id"])
-    if paper_learning_record_exists(paths, paper_id):
-        raise ValueError(f"paper learning record already exists: {paper_id}")
-    atomic_write_json(paper_learning_card_path(paths, paper_id), record, private=True)
-    _write_index_cache(paths)
+    card_path = paper_learning_card_path(paths, paper_id)
+    with file_lock(paths.paper_learning_index_path, private=True):
+        if card_path.exists():
+            raise ValueError(f"paper learning record already exists: {paper_id}")
+        existing, _ = scan_paper_learning_store(paths)
+        newest = max((int(item["created_at_ns"]) for item in existing), default=-1)
+        if int(record["created_at_ns"]) <= newest:
+            record = dict(record, created_at_ns=newest + 1)
+        atomic_write_json(card_path, record, private=True)
+        _write_index_cache(paths)
     return record
 
 
 def record_paper_progress(paths: OmhPaths, paper_id: str, **kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Apply one chunk to the stored record: rewrite the card, append the ledger line."""
-    record = show_paper_learning_record(paths, paper_id)
-    updated, entry = apply_paper_progress(record, **kwargs)
-    atomic_write_json(paper_learning_card_path(paths, paper_id), updated, private=True)
-    append_jsonl_locked(paper_learning_ledger_path(paths, paper_id), entry, private=True)
+    """Apply one chunk to the stored record: rewrite the card, append the ledger line.
+
+    The read, the ledger append, and the card rewrite all happen under one
+    exclusive lock on the card, so two concurrent chunks serialize instead of
+    both reading progress_count N and both writing N+1 while the ledger
+    grows by two. The ledger line is appended first and the card written
+    last: the ledger is the append-only history and the card is a projection
+    of it, so a failure between the two writes leaves the history complete
+    and the card one chunk behind, which `validate` names and a replay of the
+    ledger can repair. The reverse order would leave a chunk in the card
+    that the history never recorded, which nothing can reconstruct.
+    """
+    card_path = _card_path_or_not_found(paths, paper_id)
+    with file_lock(card_path, private=True):
+        record = _read_valid_record(card_path, paper_id)
+        updated, entry = apply_paper_progress(record, **kwargs)
+        append_jsonl_locked(paper_learning_ledger_path(paths, paper_id), entry, private=True)
+        atomic_write_json(card_path, updated, private=True)
     _write_index_cache(paths)
     return updated, entry
 
 
-def list_paper_learning_records(paths: OmhPaths, *, limit: int | None = None) -> list[dict[str, Any]]:
+def scan_paper_learning_store(paths: OmhPaths) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Read every record directory: usable records, and the ones that are not.
+
+    A directory without a card, a card that does not parse, and a card that
+    fails validation are all returned in the second list with a reason code,
+    never skipped, so `list` can say how many records it could not show and
+    `validate` can name each one.
+    """
     records: list[dict[str, Any]] = []
+    unreadable: list[dict[str, str]] = []
     if not paths.paper_learning_dir.is_dir():
-        return records
-    for card_path in sorted(paths.paper_learning_dir.glob(f"*/{PAPER_LEARNING_CARD_FILENAME}")):
+        return records, unreadable
+    for entry in sorted(paths.paper_learning_dir.iterdir()):
+        # A linked directory is skipped the way `show` refuses it: the record
+        # id must name a real directory under the store, so a link would list
+        # a row for an id that no other command accepts.
+        if is_directory_link(entry) or not entry.is_dir():
+            continue
+        card_path = entry / PAPER_LEARNING_CARD_FILENAME
+        if not card_path.exists():
+            unreadable.append(_unreadable(entry.name, card_path, "record_corrupt", f"missing {PAPER_LEARNING_CARD_FILENAME}"))
+            continue
         record, error = read_json_object_result(card_path)
-        if error or not record:
+        if error:
+            unreadable.append(_unreadable(entry.name, card_path, "record_corrupt", error))
+            continue
+        if not record:
+            unreadable.append(_unreadable(entry.name, card_path, "record_corrupt", "empty record"))
+            continue
+        errors = validate_paper_learning_record(record)
+        if errors:
+            unreadable.append(_unreadable(entry.name, card_path, "record_corrupt", "; ".join(errors)))
+            continue
+        if str(record.get("paper_id", "")) != entry.name:
+            unreadable.append(_unreadable(entry.name, card_path, "record_corrupt", f"paper_id {record.get('paper_id')!r} does not match its directory"))
             continue
         records.append(record)
-    records.sort(key=lambda item: (str(item.get("created_at", "")), str(item.get("paper_id", ""))))
+    records.sort(key=lambda item: (int(item["created_at_ns"]), str(item["created_at"]), str(item["paper_id"])))
+    return records, unreadable
+
+
+def list_paper_learning_records(paths: OmhPaths, *, limit: int | None = None) -> list[dict[str, Any]]:
+    records, _ = scan_paper_learning_store(paths)
     if limit is not None:
         if limit < 1:
             return []
@@ -528,17 +690,11 @@ def list_paper_learning_records(paths: OmhPaths, *, limit: int | None = None) ->
 
 
 def show_paper_learning_record(paths: OmhPaths, paper_id: str) -> dict[str, Any]:
-    if not _valid_paper_id(paper_id):
-        raise FileNotFoundError(paper_id)
-    record = read_json_object(paper_learning_card_path(paths, paper_id))
-    if not record:
-        raise FileNotFoundError(paper_id)
-    return record
+    return _read_valid_record(_card_path_or_not_found(paths, paper_id), paper_id)
 
 
 def read_paper_progress_ledger(paths: OmhPaths, paper_id: str) -> tuple[list[dict[str, Any]], list[str]]:
-    if not _valid_paper_id(paper_id):
-        raise FileNotFoundError(paper_id)
+    _card_path_or_not_found(paths, paper_id)
     return read_jsonl_objects(paper_learning_ledger_path(paths, paper_id))
 
 
@@ -570,45 +726,32 @@ def summarize_paper_learning_record(record: dict[str, Any]) -> dict[str, Any]:
 
 def validate_paper_learning_store(paths: OmhPaths) -> dict[str, Any]:
     errors: list[str] = []
-    records: list[dict[str, Any]] = []
-    if paths.paper_learning_dir.is_dir():
-        for entry in sorted(paths.paper_learning_dir.iterdir()):
-            if not entry.is_dir():
-                continue
-            card_path = entry / PAPER_LEARNING_CARD_FILENAME
-            if not card_path.exists():
-                errors.append(f"{entry}: missing {PAPER_LEARNING_CARD_FILENAME}")
-                continue
-            record, error = read_json_object_result(card_path)
-            if error:
-                errors.append(f"{card_path}: {error}")
-                continue
-            if not record:
-                errors.append(f"{card_path}: empty record")
-                continue
-            records.append(record)
-            paper_id = str(record.get("paper_id", ""))
-            for problem in validate_paper_learning_record(record):
-                errors.append(f"{paper_id or entry.name}: {problem}")
-            if paper_id != entry.name:
-                errors.append(f"{entry.name}: paper_id {paper_id!r} does not match its directory")
-            ledger_entries, ledger_errors = read_jsonl_objects(entry / PAPER_LEARNING_LEDGER_FILENAME)
-            errors.extend(ledger_errors)
-            recorded = record.get("progress_count", 0)
-            if isinstance(recorded, int) and len(ledger_entries) != recorded:
-                errors.append(f"{entry.name}: progress_count {recorded} but the ledger holds {len(ledger_entries)} entries")
-            for index, ledger_entry in enumerate(ledger_entries, start=1):
-                if ledger_entry.get("schema_version") != PAPER_LEARNING_PROGRESS_SCHEMA_VERSION:
-                    errors.append(f"{entry.name}: ledger entry {index} has unsupported schema_version")
-                if ledger_entry.get("paper_id") != paper_id:
-                    errors.append(f"{entry.name}: ledger entry {index} names paper_id {ledger_entry.get('paper_id')!r}")
-    index = read_json_object(paths.paper_learning_index_path)
-    if index and index.get("schema_version") != PAPER_LEARNING_INDEX_SCHEMA_VERSION:
+    records, unreadable = scan_paper_learning_store(paths)
+    for item in unreadable:
+        errors.append(f"{item['paper_id']}: {item['reason_code']}: {item['detail']}")
+    for record in records:
+        paper_id = str(record["paper_id"])
+        ledger_entries, ledger_errors = read_jsonl_objects(paths.paper_learning_dir / paper_id / PAPER_LEARNING_LEDGER_FILENAME)
+        errors.extend(ledger_errors)
+        recorded = record["progress_count"]
+        if len(ledger_entries) != recorded:
+            errors.append(f"{paper_id}: progress_count {recorded} but the ledger holds {len(ledger_entries)} entries")
+        for index, ledger_entry in enumerate(ledger_entries, start=1):
+            if ledger_entry.get("schema_version") != PAPER_LEARNING_PROGRESS_SCHEMA_VERSION:
+                errors.append(f"{paper_id}: ledger entry {index} has unsupported schema_version")
+            if ledger_entry.get("paper_id") != paper_id:
+                errors.append(f"{paper_id}: ledger entry {index} names paper_id {ledger_entry.get('paper_id')!r}")
+    index, index_error = read_json_object_result(paths.paper_learning_index_path)
+    if index_error:
+        errors.append(f"paper-learning index cache is unreadable: {index_error}")
+    elif index and index.get("schema_version") != PAPER_LEARNING_INDEX_SCHEMA_VERSION:
         errors.append("paper-learning index cache has unsupported schema_version")
     return {
         "schema_version": "omh_paper_learning_validation/v1",
         "ok": not errors,
         "paper_count": len(records),
+        "unreadable_count": len(unreadable),
+        "unreadable_records": unreadable,
         "errors": errors,
         "index_authority": "cache_only",
     }
@@ -625,7 +768,9 @@ def render_paper_learning_record_text(record: dict[str, Any], ledger_entries: It
         f"  level: {card['level']}",
         f"  source: {source['ref'] or 'not supplied'} ({source['kind']})",
     ]
-    if source["kind"] == "file":
+    if source["kind"] == "file" and source.get("hash_skipped"):
+        lines.append(f"  source sha256: skipped ({source['hash_skipped']}; {source['size_bytes']} bytes exceeds the {source.get('hash_budget_bytes')} byte hash budget)")
+    elif source["kind"] == "file":
         lines.append(f"  source sha256: {source['sha256']} ({source['size_bytes']} bytes; identity only, not extraction evidence)")
     lines.extend(
         [
@@ -648,6 +793,8 @@ def render_paper_learning_record_text(record: dict[str, Any], ledger_entries: It
         lines.append("Progress ledger:")
         for entry in entries:
             summary = f"  part {entry.get('part_index')}: covered {', '.join(entry.get('covered', [])) or '-'}; next {entry.get('next') or '-'}"
+            if entry.get("observed"):
+                summary += f"; observed {', '.join(entry['observed'])}"
             if entry.get("missing"):
                 summary += f"; missing {', '.join(entry['missing'])}"
             if entry.get("note"):
@@ -659,16 +806,31 @@ def render_paper_learning_record_text(record: dict[str, Any], ledger_entries: It
     return "\n".join(lines)
 
 
-def render_paper_learning_list_text(summaries: Iterable[dict[str, Any]]) -> str:
+def render_paper_learning_list_text(
+    summaries: Iterable[dict[str, Any]],
+    unreadable: Iterable[dict[str, str]] = (),
+    *,
+    total_count: int | None = None,
+) -> str:
     rows = list(summaries)
+    broken = list(unreadable)
+    lines: list[str] = []
     if not rows:
-        return "No paper learning records yet. Start one with: omh paper plan --title <title> --source <path or url>"
-    lines = ["Paper learning records:"]
-    for row in rows:
-        next_text = f"next {row['next']}" if row["next"] else "no next section"
-        lines.append(
-            f"  {row['paper_id']}  {row['title']}  [{row['reading_status']}, {row['explained_count']}/{row['section_count']} explained, {next_text}]"
-        )
+        lines.append("No paper learning records yet. Start one with: omh paper plan --title <title> --source <path or url>")
+    else:
+        lines.append("Paper learning records:")
+        for row in rows:
+            next_text = f"next {row['next']}" if row["next"] else "no next section"
+            lines.append(
+                f"  {row['paper_id']}  {row['title']}  [{row['reading_status']}, {row['explained_count']}/{row['section_count']} explained, {next_text}]"
+            )
+        if total_count is not None and total_count > len(rows):
+            lines.append(f"Showing the latest {len(rows)} of {total_count} records; pass --all or --limit N for more.")
+    if broken:
+        lines.append(f"Unreadable records ({len(broken)}), not shown above:")
+        for item in broken:
+            lines.append(f"  {item['paper_id']}: {item['reason_code']}: {item['detail']}")
+        lines.append("Next: omh paper validate")
     return "\n".join(lines)
 
 
@@ -678,6 +840,35 @@ def paper_learning_card_path(paths: OmhPaths, paper_id: str) -> Path:
 
 def paper_learning_ledger_path(paths: OmhPaths, paper_id: str) -> Path:
     return _paper_dir(paths, paper_id) / PAPER_LEARNING_LEDGER_FILENAME
+
+
+def _card_path_or_not_found(paths: OmhPaths, paper_id: str) -> Path:
+    if not _valid_paper_id(paper_id):
+        raise PaperLearningStoreError("record_not_found", paper_id, paper_id=paper_id)
+    # A link under the store is not a record: `scan` skips it, and the same id
+    # must not open through `show` or `progress` either.
+    if is_directory_link(paths.paper_learning_dir / paper_id):
+        raise PaperLearningStoreError("record_not_found", paper_id, paper_id=paper_id)
+    card_path = paper_learning_card_path(paths, paper_id)
+    if not card_path.exists():
+        raise PaperLearningStoreError("record_not_found", paper_id, paper_id=paper_id)
+    return card_path
+
+
+def _read_valid_record(card_path: Path, paper_id: str) -> dict[str, Any]:
+    record, error = read_json_object_result(card_path)
+    if error:
+        raise PaperLearningStoreError("record_corrupt", f"{paper_id}: {error}", paper_id=paper_id)
+    if not record:
+        raise PaperLearningStoreError("record_corrupt", f"{paper_id}: empty record", paper_id=paper_id)
+    errors = validate_paper_learning_record(record)
+    if errors:
+        raise PaperLearningStoreError("record_corrupt", f"{paper_id}: " + "; ".join(errors), paper_id=paper_id)
+    return record
+
+
+def _unreadable(paper_id: str, card_path: Path, reason_code: str, detail: str) -> dict[str, str]:
+    return {"paper_id": paper_id, "path_name": card_path.name, "reason_code": reason_code, "detail": detail}
 
 
 def _paper_dir(paths: OmhPaths, paper_id: str) -> Path:

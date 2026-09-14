@@ -2236,25 +2236,46 @@ omh paper validate
 - `plan` writes `paper_learning_card/v1` to
   `$OMH_HOME/paper-learning/<paper-id>/card.json`. A `--source` that names a
   local file is recorded with its absolute path, size, and SHA-256 so a later
-  session can tell it is the same bytes; the file is never parsed. A URL or a
-  reference such as `arxiv:1706.03762` is recorded as text. `--section`
-  (repeatable) replaces the ten default sections; `--source-state`,
-  `--observed-section`, `--missing-section`, and `--evidence-ref` record what
-  a host already observed.
+  session can tell it is the same bytes; the file is never parsed. The size is
+  read before the bytes, a file above the 256 MiB hash budget records
+  `hash_skipped: over_budget` instead of blocking, a file that changes while
+  it is being hashed is refused, and a file that cannot be read refuses the
+  plan with `source_unreadable` and writes nothing. A URL or a reference such
+  as `arxiv:1706.03762` is recorded as text. `--level` accepts the four
+  contract levels and their aliases and refuses anything else rather than
+  recording `choose`. `--section` (repeatable) replaces the ten default
+  sections and must not be empty; `--source-state`, `--observed-section`,
+  `--missing-section`, and `--evidence-ref` record what a host already
+  observed.
 - `progress` records one explained chunk: `--covered` sections become
-  `observed / explained` in the coverage ledger, `--missing` sections become
-  `missing`, `--next` names where to resume (default: the first pending
-  section), and `--note` keeps a short resume note (500 characters at most;
-  the explanation itself stays in chat). Each call rewrites the card and
-  appends one line to `ledger.jsonl`. Section names must already be in the
-  ledger; a typo is refused rather than becoming an eleventh section.
+  `explained` in the coverage ledger, `--missing` sections become `missing`,
+  `--next` names where to resume (default: the first pending section), and
+  `--note` keeps a short resume note (500 characters at most; the explanation
+  itself stays in chat). Explaining a section is not the same claim as having
+  seen its text: `--covered` never moves the card's `source_state`. Only
+  `--observed-section` and `--source-state` do, and on this path both need
+  `--evidence-ref` (or one already on the card). A section recorded missing
+  cannot be covered until the same call records it observed. Each call
+  appends one line to `ledger.jsonl` and then rewrites the card, both under
+  one lock, so concurrent chunks serialize; the ledger is the history and the
+  card its projection, so a failure between the two writes leaves the history
+  complete and the card one chunk behind, which `validate` names. Section
+  names must already be in the ledger; a typo is refused rather than becoming
+  an eleventh section.
 - `list` and `show` print plain text by default with the reading status
   (`not_started`, `in_progress`, `waiting_for_missing_sections`,
-  `complete`), the covered and missing sections, and the next section. Pass
-  `--json` or set `OMH_OUTPUT=json` for the full payload.
+  `complete`), the covered and missing sections, and the next section.
+  `list` orders records by their recorded creation instant (two plans in one
+  second keep the order they were recorded), shows the latest 20 and says so
+  when more exist; a linked directory under the store is skipped, the way
+  `show` refuses its id. Pass `--json` or set `OMH_OUTPUT=json` for the full
+  payload.
 - `validate` exits 1 when a card fails its schema, a ledger line does not
   parse, a directory name disagrees with its `paper_id`, or the ledger length
-  disagrees with the card's `progress_count`.
+  disagrees with the card's `progress_count`. A record `list` cannot read is
+  counted and named in `unreadable_records` rather than dropped, and `show`
+  or `progress` on one reports `record_corrupt` (as opposed to
+  `record_not_found` for an id that has no record) instead of a traceback.
 
 What the store proves is where reading stopped and which bytes the source
 had. PDF extraction, page counts, figure OCR, citation checks, and the

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import stat
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -120,6 +123,10 @@ class PaperLearningCliTests(unittest.TestCase):
                     "Introduction",
                     "--missing",
                     "Figures, tables, and equations",
+                    "--observed-section",
+                    "Abstract",
+                    "--observed-section",
+                    "Introduction",
                     "--note",
                     "Stopped before the method section.",
                     "--source-state",
@@ -135,6 +142,7 @@ class PaperLearningCliTests(unittest.TestCase):
             self.assertEqual(entry["schema_version"], "omh_paper_learning_progress/v1")
             self.assertEqual(entry["part_index"], 1)
             self.assertEqual(entry["covered"], ["Abstract", "Introduction"])
+            self.assertEqual(entry["observed"], ["Abstract", "Introduction"])
             self.assertEqual(entry["missing"], ["Figures, tables, and equations"])
             self.assertEqual(entry["next"], "Related work / prior context")
             self.assertEqual(entry["note"], "Stopped before the method section.")
@@ -175,7 +183,7 @@ class PaperLearningCliTests(unittest.TestCase):
             self.assertIn("last note: Stopped before the method section.", stdout)
             self.assertIn("  - Abstract: observed / explained", stdout)
             self.assertIn("  - Figures, tables, and equations: missing / pending", stdout)
-            self.assertIn("part 1: covered Abstract, Introduction; next Related work / prior context; missing Figures, tables, and equations; note: Stopped before the method section.", stdout)
+            self.assertIn("part 1: covered Abstract, Introduction; next Related work / prior context; observed Abstract, Introduction; missing Figures, tables, and equations; note: Stopped before the method section.", stdout)
             self.assertIn("part 2: covered Related work / prior context; next Results", stdout)
             self.assertIn("not proof the explanation was correct or complete", stdout)
 
@@ -213,12 +221,23 @@ class PaperLearningCliTests(unittest.TestCase):
             self.assertEqual(reading["next"], "")
             self.assertEqual(reading["missing"], ["Appendix"])
 
-            status, stdout, stderr = run_cli(base + ["progress", paper_id, "--covered", "Appendix", "--source-state", "full_text_observed"])
+            status, _, stderr = run_cli(base + ["progress", paper_id, "--covered", "Appendix"])
+            self.assertEqual(status, 2)
+            self.assertIn("cannot cover a section the ledger records as missing", stderr)
+
+            status, _, stderr = run_cli(base + ["progress", paper_id, "--covered", "Appendix", "--observed-section", "Appendix"])
+            self.assertEqual(status, 2)
+            self.assertIn("need --evidence-ref", stderr)
+
+            status, stdout, stderr = run_cli(
+                base + ["progress", paper_id, "--covered", "Appendix", "--observed-section", "Appendix", "--source-state", "full_text_observed", "--evidence-ref", "host-extract-2"]
+            )
             self.assertEqual(status, 0, stderr)
             record = json.loads(stdout)["record"]
             self.assertEqual(record["reading"]["status"], "complete")
             self.assertEqual(record["card"]["source_state"]["state"], "full_text_observed")
             self.assertEqual(record["card"]["source_state"]["missing_sections"], [])
+            self.assertEqual(record["card"]["source_state"]["evidence_ref"], "host-extract-2")
 
     def test_progress_refuses_bad_input_without_writing(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -234,7 +253,7 @@ class PaperLearningCliTests(unittest.TestCase):
 
             status, _, stderr = run_cli(base + ["progress", paper_id, "--covered", "Abstract", "--missing", "abstract"])
             self.assertEqual(status, 2)
-            self.assertIn("cannot be both covered and missing", stderr)
+            self.assertIn("cannot be both covered or observed and missing", stderr)
 
             status, _, stderr = run_cli(base + ["progress", paper_id, "--note", "x" * 501])
             self.assertEqual(status, 2)
@@ -246,11 +265,11 @@ class PaperLearningCliTests(unittest.TestCase):
 
             status, _, stderr = run_cli(base + ["progress", "no-such-paper", "--covered", "Abstract"])
             self.assertEqual(status, 2)
-            self.assertIn("paper learning record not found: no-such-paper", stderr)
+            self.assertIn("paper learning record not found (record_not_found): no-such-paper", stderr)
 
             status, _, stderr = run_cli(base + ["show", "../escape"])
             self.assertEqual(status, 2)
-            self.assertIn("paper learning record not found", stderr)
+            self.assertIn("(record_not_found): ../escape", stderr)
 
             self.assertFalse(ledger_path.exists())
             status, stdout, stderr = run_cli(base + ["show", paper_id])
@@ -277,7 +296,9 @@ class PaperLearningCliTests(unittest.TestCase):
             self.assertEqual(payload["count"], 2)
             self.assertEqual(payload["total_count"], 2)
             self.assertTrue(payload["summary_only"])
-            self.assertEqual({row["paper_id"] for row in payload["papers"]}, {first, second})
+            # Oldest first, newest last, by recorded creation instant: two
+            # plans in one second still list in the order they were recorded.
+            self.assertEqual([row["paper_id"] for row in payload["papers"]], [first, second])
             self.assertEqual(set(payload["papers"][0]), {
                 "paper_id", "title", "level", "source_state", "reading_status", "explained_count",
                 "section_count", "next", "missing_count", "progress_count", "updated_at",
@@ -298,10 +319,17 @@ class PaperLearningCliTests(unittest.TestCase):
             self.assertEqual(status, 2)
             self.assertIn("--limit must be at least 1", stderr)
 
+            status, stdout, stderr = run_cli(base + ["list", "--limit", "1"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("Showing the latest 1 of 2 records; pass --all or --limit N for more.", stdout)
+            self.assertIn(f"  {second}  ", stdout)
+            self.assertNotIn(f"  {first}  ", stdout)
+
             status, stdout, stderr = run_cli(base + ["list"], output_json=False)
             self.assertEqual(status, 0, stderr)
             self.assertIn("Paper learning records:", stdout)
             self.assertIn(f"  {first}  Attention Is All You Need  [not_started, 0/10 explained, next Abstract]", stdout)
+            self.assertNotIn("Showing the latest", stdout)
 
     def test_validate_reports_ok_then_names_each_store_fault(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -337,14 +365,139 @@ class PaperLearningCliTests(unittest.TestCase):
             result = json.loads(stdout)
             self.assertFalse(result["ok"])
             joined = "\n".join(result["errors"])
+            self.assertIn("renamed-dir: record_corrupt: paper_id", joined)
             self.assertIn("does not match its directory", joined)
-            self.assertIn("ledger.jsonl:2", joined)
-            self.assertIn("empty-dir: missing card.json", joined)
+            self.assertIn("empty-dir: record_corrupt: missing card.json", joined)
+            self.assertEqual(result["unreadable_count"], 2)
+            self.assertEqual(result["paper_count"], 0)
 
             status, stdout, stderr = run_cli(base + ["validate"], output_json=False)
             self.assertEqual(status, 1, stderr)
             self.assertIn("paper-learning store has", stdout)
             self.assertIn("  - ", stdout)
+
+    def test_covered_never_promotes_source_state(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = ["--omh-home", str(root / ".omh"), "paper"]
+            paper_id = _plan(base, "--source-state", "metadata_only")["record"]["paper_id"]
+
+            status, stdout, stderr = run_cli(base + ["progress", paper_id, "--covered", "Abstract", "--covered", "Introduction"])
+            self.assertEqual(status, 0, stderr)
+            record = json.loads(stdout)["record"]
+            self.assertEqual(record["card"]["source_state"]["state"], "metadata_only")
+            self.assertEqual(record["card"]["source_state"]["observed_sections"], [])
+            self.assertEqual(record["card"]["source_state"]["evidence_ref"], "")
+            self.assertEqual(record["card"]["coverage_ledger"][0], {"paper_section": "Abstract", "status": "prepared", "explanation_status": "explained"})
+            self.assertEqual(record["reading"]["covered"], ["Abstract", "Introduction"])
+
+            status, stdout, stderr = run_cli(base + ["show", paper_id], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("source state: metadata_only", stdout)
+            self.assertIn("  - Abstract: prepared / explained", stdout)
+
+    def test_corrupt_card_is_named_not_hidden_and_never_a_traceback(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = ["--omh-home", str(root / ".omh"), "paper"]
+            good_id = _plan(base, "--source", "arxiv:good")["record"]["paper_id"]
+            broken_id = _plan(base, "--source", "arxiv:broken")["record"]["paper_id"]
+            broken_card = root / ".omh" / "paper-learning" / broken_id / "card.json"
+            broken_card.write_text(json.dumps({"paper_id": broken_id}), encoding="utf-8")
+
+            status, _, stderr = run_cli(base + ["show", broken_id])
+            self.assertEqual(status, 2)
+            self.assertIn(f"paper learning record is corrupt (record_corrupt): {broken_id}: ", stderr)
+            self.assertIn("card must be an object", stderr)
+            self.assertIn("run `omh paper validate`", stderr)
+            self.assertNotIn("Traceback", stderr)
+
+            status, _, stderr = run_cli(base + ["progress", broken_id, "--covered", "Abstract"])
+            self.assertEqual(status, 2)
+            self.assertIn("(record_corrupt)", stderr)
+            self.assertFalse((broken_card.parent / "ledger.jsonl").exists())
+
+            status, stdout, stderr = run_cli(base + ["list"])
+            self.assertEqual(status, 0, stderr)
+            listed = json.loads(stdout)
+            self.assertEqual(listed["count"], 1)
+            self.assertEqual(listed["total_count"], 1)
+            self.assertEqual([row["paper_id"] for row in listed["papers"]], [good_id])
+            self.assertEqual(listed["unreadable_count"], 1)
+            self.assertEqual(listed["unreadable_records"][0]["paper_id"], broken_id)
+            self.assertEqual(listed["unreadable_records"][0]["reason_code"], "record_corrupt")
+            self.assertIn("omh paper validate", listed["next_action"])
+
+            status, stdout, stderr = run_cli(base + ["list"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("Unreadable records (1), not shown above:", stdout)
+            self.assertIn(f"  {broken_id}: record_corrupt: ", stdout)
+            self.assertIn("card must be an object", stdout)
+            self.assertIn("Next: omh paper validate", stdout)
+
+            broken_card.write_text("{not json", encoding="utf-8")
+            status, _, stderr = run_cli(base + ["show", broken_id])
+            self.assertEqual(status, 2)
+            self.assertIn("(record_corrupt)", stderr)
+            self.assertNotIn("not found", stderr)
+            status, stdout, stderr = run_cli(base + ["validate"])
+            self.assertEqual(status, 1, stderr)
+            result = json.loads(stdout)
+            self.assertEqual(result["unreadable_count"], 1)
+            self.assertTrue(any(f"{broken_id}: record_corrupt: " in error for error in result["errors"]))
+
+            status, stdout, stderr = run_cli(base + ["list"])
+            self.assertEqual(status, 0, stderr)
+            self.assertEqual(json.loads(stdout)["unreadable_records"][0]["reason_code"], "record_corrupt")
+
+    def test_plan_refuses_bad_level_empty_section_and_unreadable_source(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = ["--omh-home", str(root / ".omh"), "paper"]
+            store = root / ".omh" / "paper-learning"
+
+            from omh.commands.main import build_parser
+
+            stderr_buffer = io.StringIO()
+            with patch("sys.stderr", stderr_buffer), self.assertRaises(SystemExit) as exit_context:
+                build_parser().parse_args(base + ["plan", "--title", "T", "--level", "expret"])
+            self.assertEqual(exit_context.exception.code, 2)
+            self.assertIn("unknown level 'expret'", stderr_buffer.getvalue())
+            self.assertIn("very_easy, moderate, expert, choose", stderr_buffer.getvalue())
+            self.assertEqual(build_parser().parse_args(base + ["plan", "--title", "T", "--level", "very easy"]).level, "very_easy")
+
+            status, _, stderr = run_cli(base + ["plan", "--title", "T", "--section", "Abstract", "--section", ""])
+            self.assertEqual(status, 2)
+            self.assertIn("--section must name a non-empty section", stderr)
+
+            source = root / "locked.pdf"
+            source.write_bytes(b"%PDF")
+            if sys.platform != "win32" and os.geteuid() != 0:
+                source.chmod(0)
+                try:
+                    status, _, stderr = run_cli(base + ["plan", "--title", "T", "--source", str(source)])
+                finally:
+                    source.chmod(stat.S_IRUSR | stat.S_IWUSR)
+                self.assertEqual(status, 2)
+                self.assertIn("paper source is unreadable (source_unreadable): ", stderr)
+                self.assertIn("nothing was recorded", stderr)
+                self.assertNotIn("Traceback", stderr)
+
+            self.assertFalse(store.exists(), "a refused plan must write nothing")
+
+            with patch("omh.workflows.paper_learning.PAPER_SOURCE_HASH_BYTE_BUDGET", 2):
+                status, stdout, stderr = run_cli(base + ["plan", "--title", "Big", "--source", str(source)])
+            self.assertEqual(status, 0, stderr)
+            source_block = json.loads(stdout)["record"]["source"]
+            self.assertEqual(source_block["hash_skipped"], "over_budget")
+            self.assertEqual(source_block["sha256"], "")
+            self.assertEqual(source_block["size_bytes"], 4)
+            status, stdout, stderr = run_cli(base + ["list", "--json"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            paper_id = json.loads(stdout)["papers"][0]["paper_id"]
+            status, stdout, stderr = run_cli(base + ["show", paper_id], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("source sha256: skipped (over_budget; 4 bytes exceeds the 2 byte hash budget)", stdout)
 
     def test_paper_help_names_every_subcommand(self) -> None:
         from omh.commands.main import build_parser

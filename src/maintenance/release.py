@@ -234,7 +234,7 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # page-anchored chunk ledger over a document too large for one read); one new
 # capability section for one new workflow, not per-section padding; warranted
 # growth.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 417015
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 417027
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -888,7 +888,10 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # land together, so the limit is re-derived once from the producer on the
 # combined tree (950695 plus paper-learning's command-naming expectations
 # and its resume note -> 951301), never by adding deltas.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 951301
+# Stacked with document-plan, long-document-reading and paper-learning: all
+# four bodies land together, so the limit is re-derived once from the
+# producer on the combined tree (953190), never by adding deltas.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 953190
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

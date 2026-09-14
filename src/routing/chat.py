@@ -65,7 +65,12 @@ from .policy import _hermes_setup_guide_requested
 from .policy import _github_event_ops_guard_applies
 from .policy import _github_issue_intake_guard_applies
 from .policy import _invocation_token
-from .recommend import has_strong_named_catalog_owner, recommendation_for_definition, recommend_skills
+from .recommend import (
+    has_strong_named_catalog_owner,
+    recommendation_for_definition,
+    recommend_skills,
+    user_trigger_pack_phrase_match,
+)
 from .route_plan import (
     build_workflow_route_plan,
     compact_workflow_route_plan,
@@ -1451,6 +1456,36 @@ def route_chat_message(
         skill_policy=skill_policy,
         active_design_direction_iteration=active_design_direction_iteration,
     )
+
+
+def user_trigger_pack_route_hint(message: str, *, source: str = "generic") -> dict[str, str]:
+    """Return this router's own dispatch for a message only a user pack recognises.
+
+    The hint rail has its own rule table, and that table knows shipped cue
+    phrases only. So a language added through `<omh-home>/routing/trigger-packs/`
+    upgraded scoring and left the hint silent, and one payload could report
+    `no_hint` beside a high-confidence `route_decision` for the same text
+    (#1535). The answer is not a second matcher inside the hint rail: this asks
+    the router for the decision it already made and reports that, so the hint
+    and `route_decision` cannot disagree about whether a message routes.
+
+    Empty when no user pack phrase is present, or when the router does not
+    dispatch. With no user packs installed the first line is the whole cost and
+    every shipped-language message keeps exactly today's hint.
+    """
+    skill, phrase = user_trigger_pack_phrase_match(message)
+    if not skill:
+        return {}
+    decision = route_chat_message(message, source=source, limit=1)["route_decision"]
+    if not isinstance(decision, dict) or str(decision.get("action") or "") != "dispatch":
+        return {}
+    selected = str(decision.get("selected_skill") or "")
+    if not selected:
+        return {}
+    # The router's own selection, not the pack's skill: when a guard hands the
+    # message to a different owner, the hint has to name the owner the user
+    # will actually be routed to.
+    return {"workflow": selected, "matched_phrase": phrase}
 
 
 def _route_has_strong_blocked_owner(

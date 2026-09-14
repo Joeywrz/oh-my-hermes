@@ -1725,7 +1725,13 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
     from ..coding.fanout_contracts import FanoutContractError
     from ..coding.model_routing import EXECUTOR_MODEL_OPTIONS
 
-    units, spawn_plan = _read_fanout_payload(args.units)
+    if args.from_document_plan:
+        units, spawn_plan, goal_text = _document_plan_units(args)
+    else:
+        if not args.goal:
+            raise OmhError("--goal is required with --units")
+        units, spawn_plan = _read_fanout_payload(args.units)
+        goal_text = " ".join(args.goal).strip()
     if is_degenerate_single_unit(units):
         _print_json(single_unit_redirect(units))
         return 0
@@ -1753,7 +1759,7 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
             for owner in sorted(owners)
         }
         contract = build_fanout_contract(
-            " ".join(args.goal).strip(),
+            goal_text,
             units,
             source=args.source,
             source_metadata=_explicit_source_metadata(args),
@@ -2899,6 +2905,26 @@ def cmd_coding_fanout_migrate_legacy(args: argparse.Namespace) -> int:
     return 0
 
 
+def _document_plan_units(args: argparse.Namespace) -> tuple[list[dict[str, object]], object, str]:
+    """One unit per range of a `document_chunk_plan/v1` file, plus its spawn plan and goal.
+
+    The plan file is validated before anything is derived, so a plan without
+    ranges, a foreign file, or a missing path is an `OmhError` (exit 2) and
+    never an empty contract. The goal defaults to the plan's own sentence
+    when `--goal` is not given.
+    """
+    from ..coding.fanout_contracts import FanoutContractError
+    from ..coding.fanout_document_units import fanout_units_from_document_plan, read_document_plan_file
+
+    try:
+        plan = read_document_plan_file(args.from_document_plan)
+        derived = fanout_units_from_document_plan(plan, report_dir=args.report_dir, owner=args.owner)
+    except FanoutContractError as exc:
+        raise OmhError(str(exc)) from exc
+    goal_text = " ".join(args.goal).strip() if args.goal else str(derived["default_goal"])
+    return list(derived["units"]), derived["spawn_plan"], goal_text
+
+
 def _read_fanout_payload(units_arg: str) -> tuple[list[dict[str, object]], object]:
     """The unit list, plus the spawn plan when the object form carries one.
 
@@ -3045,8 +3071,22 @@ def _add_coding_commands(sub) -> None:
     answer.set_defaults(func=cmd_coding_fanout_clarifications)
 
     fanout_prepare = fanout_sub.add_parser("prepare")
-    fanout_prepare.add_argument("--goal", nargs="+", required=True, help="Accepted user goal being split.")
-    fanout_prepare.add_argument("--units", required=True, help="JSON unit list path, or '-' for stdin.")
+    fanout_prepare.add_argument(
+        "--goal",
+        nargs="+",
+        help="Accepted user goal being split; required with --units, derived from the plan with --from-document-plan.",
+    )
+    prepare_input = fanout_prepare.add_mutually_exclusive_group(required=True)
+    prepare_input.add_argument("--units", help="JSON unit list path, or '-' for stdin.")
+    prepare_input.add_argument(
+        "--from-document-plan",
+        help="document_chunk_plan/v1 file (omh_document_plan output): one unit per range, each with its input budget.",
+    )
+    fanout_prepare.add_argument(
+        "--report-dir",
+        help="Directory for the per-range report files that bound each derived unit (default reports/document-plan-<plan_id>).",
+    )
+    fanout_prepare.add_argument("--owner", help="Coding owner for every derived unit (default unassigned).")
     fanout_prepare.add_argument("--source", choices=CHAT_SOURCES, default="generic")
     fanout_prepare.add_argument("--record", action="store_true", help="Persist the contract under ~/.omh/coding/fanout/.")
     fanout_prepare.set_defaults(func=cmd_coding_fanout_prepare)

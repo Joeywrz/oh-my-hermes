@@ -888,6 +888,9 @@ def build_unit_prompt(
     if do_not_touch:
         lines.append(f"Do not touch: {do_not_touch} (owned by sibling units).")
     lines.append(f"Work on branch {unit.get('branch_suggestion', '')} in the current worktree.")
+    # A declared input budget states the ranges and the ceiling; an absent one
+    # leaves the prompt byte-identical.
+    lines.extend(unit_input_budget_lines(unit))
     # Pre-declared completion criteria (absorbing the unit's integration
     # checks) and — on high-effort routes — the per-family over-verification
     # calibration; the unit-invariant discipline blocks already rode the
@@ -905,6 +908,38 @@ def build_unit_prompt(
     lines.append(STRUCTURAL_SEARCH_GUIDANCE)
     lines.append("Commit your work; do not merge or push other branches.")
     return "\n".join(lines)
+
+
+def unit_input_budget_lines(unit: Mapping[str, Any]) -> list[str]:
+    """The input-budget block for one unit, or an empty list when undeclared.
+
+    Absent budgets leave the prompt byte-identical, the same additive rule
+    every other declared field follows.
+    """
+    budget = unit.get("input_budget")
+    if not isinstance(budget, Mapping):
+        return []
+    chars = int(budget.get("chars", 0) or 0)
+    tokens = budget.get("tokens")
+    head = f"Input budget for this unit: at most {chars} characters"
+    if isinstance(tokens, int) and not isinstance(tokens, bool):
+        head += f" (about {tokens} tokens)"
+    lines = [head + " of source text; do not read past it."]
+    ranges = budget.get("source_ranges")
+    if isinstance(ranges, list) and ranges:
+        lines.append("Read only these source ranges:")
+        for position, item in enumerate(ranges, start=1):
+            if not isinstance(item, Mapping):
+                continue
+            text = f"{position}. {item.get('source', '')} — {item.get('span', '')}"
+            if isinstance(item.get("offset"), int) and isinstance(item.get("limit"), int):
+                text += f": read_file offset={item['offset']} limit={item['limit']}"
+                if isinstance(item.get("end_line"), int):
+                    text += f", continue via next_offset to line {item['end_line']}"
+            if isinstance(item.get("estimated_chars"), int):
+                text += f" (about {item['estimated_chars']} chars)"
+            lines.append(text)
+    return lines
 
 
 def _unit_result_prompt_lines(contract: Mapping[str, Any]) -> list[str]:

@@ -26,6 +26,18 @@ All notable changes will be documented here.
   copy in all four languages no longer claims that skipping keeps the
   built-in order, and two docs pages say "recorded or linked" where they
   framed the record as the only route.
+- **A document plan fans out one unit per range.** `omh coding fanout
+  prepare --from-document-plan <plan.json>` derives a fanout unit from every
+  range of a `document_chunk_plan/v1` file: the unit's title is the plan's
+  per-range brief, its file scope is that range's report file, and its new
+  optional `input_budget` carries the plan's per-range character budget, a
+  token estimate, and the range's `read_file` window as a source range. The
+  budget is validated at freeze (bounded, typed, tokens consistent with
+  chars, source estimates within the ceiling), rides the frozen unit only
+  when declared, and the executor prompt states the ceiling and the ranges
+  after the unit's boundary lines. A plan without ranges is refused with
+  exit 2 and nothing is frozen; dispatch itself is unchanged and still
+  opt-in.
 - **Long documents get a chunk plan before they are read.** A new
   `omh_document_plan` plugin tool splits a document larger than one
   `read_file` window into numbered ranges from the numbers Hermes states

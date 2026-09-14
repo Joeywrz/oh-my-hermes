@@ -102,6 +102,25 @@ MAX_UNIT_VERIFICATION_CHECK_TIMEOUT = 600
 VERIFICATION_CHECK_ID_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
 MAX_UNIT_VERIFICATION_CHECK_ID_CHARS = 40
 
+# Optional per-unit input budget: how much document text a unit may read and
+# from which ranges. Bounded like every other operator-typed contract field.
+# `tokens` is a sanity window on `chars`, not a tokenizer claim: no tokenizer
+# emits more tokens than characters, and none averages more than sixteen
+# characters per token on prose, so a pair outside that window is a typo
+# rather than a budget.
+FANOUT_UNIT_INPUT_BUDGET_SCHEMA_VERSION = "fanout_unit_input_budget/v1"
+MAX_UNIT_INPUT_BUDGET_CHARS = 10_000_000
+MAX_CHARS_PER_TOKEN = 16
+MAX_UNIT_SOURCE_RANGES = 64
+MAX_UNIT_SOURCE_RANGE_SOURCE_CHARS = 1_000
+MAX_UNIT_SOURCE_RANGE_SPAN_CHARS = 200
+MAX_UNIT_SOURCE_RANGE_DIGEST_CHARS = 64
+UNIT_SOURCE_RANGE_KEYS = ("source", "span", "offset", "limit", "end_line", "estimated_chars", "digest")
+FANOUT_UNIT_INPUT_BUDGET_CLAIM_BOUNDARY = (
+    "An input budget is the prepared ceiling on what one unit may read and the ranges it reads from. "
+    "It is not evidence that the unit read them, stayed within the budget, or covered the range."
+)
+
 # A leading `NAME=VALUE` token: the one shell idiom a verification command may
 # use, because the repo's own integration gate is spelled that way.
 _ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")

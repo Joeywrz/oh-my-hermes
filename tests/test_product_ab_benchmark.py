@@ -54,6 +54,28 @@ def _lane_import_scope() -> Iterator[None]:
                 sys.modules[name] = module
 
 
+def _skip_without_history(case: unittest.TestCase) -> None:
+    """Skip a test that reads a commit older than HEAD when there is none.
+
+    CI's Linux lanes check out with `fetch-depth: 0` so the whitespace gate can
+    resolve a merge base, but the Windows lane takes the action's default,
+    which is a depth-1 clone. Every corpus task names a merge base and a merge
+    commit from this repository's history, and `git show <commit>:<path>`
+    against a shallow clone fails for all of them. That is the checkout's
+    shape, not a defect in the lane, so these tests say so and skip rather than
+    reporting a failure the platform guarantees.
+    """
+
+    shallow = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--is-shallow-repository"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if shallow.stdout.strip() != "false":
+        case.skipTest("a shallow checkout has no history to read a merge commit from")
+
+
 def _lane_modules() -> dict[str, ModuleType]:
     with _lane_import_scope():
         import arms  # noqa: PLC0415
@@ -307,14 +329,7 @@ class PinnedCorpusTests(unittest.TestCase):
                 )
 
     def test_the_pinned_digests_re_derive_from_this_checkout(self) -> None:
-        shallow = subprocess.run(
-            ["git", "-C", str(ROOT), "rev-parse", "--is-shallow-repository"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if shallow.stdout.strip() != "false":
-            self.skipTest("a shallow checkout cannot re-derive historical diffs")
+        _skip_without_history(self)
         self.assertEqual(corpus.verify(ROOT, self.payload), [])
 
 
@@ -386,6 +401,7 @@ class GradingTests(unittest.TestCase):
             self.assertEqual(grading.completion_claim(workspace)["claim"], "unreadable")
 
     def test_the_validator_is_written_from_the_merge_commit_and_detected_when_present(self) -> None:
+        _skip_without_history(self)
         payload = corpus.load(LANE / "corpus" / "evaluation.json")
         task = payload["tasks"][0]
         with TemporaryDirectory() as root:
@@ -465,7 +481,11 @@ class ArmTests(unittest.TestCase):
         )
         self.assertEqual(argv[1:3], ["--oneshot", "TASK"])
         self.assertIn("--in", argv)
-        self.assertEqual(argv[argv.index("--in") + 1], "/tmp/ws")
+        # `str(Path(...))`, not the literal, because the argv carries whatever
+        # separator the platform spells a path with and Windows spells this one
+        # `\tmp\ws`. What the assertion is for is that `--in` names the
+        # workspace, and that survives the separator either way.
+        self.assertEqual(argv[argv.index("--in") + 1], str(Path("/tmp/ws")))
         self.assertIn("--usage-file", argv)
         self.assertEqual(argv[argv.index("--toolsets") + 1], "file,terminal")
 

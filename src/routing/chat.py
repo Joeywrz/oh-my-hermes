@@ -1458,7 +1458,7 @@ def route_chat_message(
     )
 
 
-def user_trigger_pack_route_hint(message: str, *, source: str = "generic") -> dict[str, str]:
+def user_trigger_pack_route_hint(message: str) -> dict[str, str]:
     """Return this router's own dispatch for a message only a user pack recognises.
 
     The hint rail has its own rule table, and that table knows shipped cue
@@ -1469,6 +1469,20 @@ def user_trigger_pack_route_hint(message: str, *, source: str = "generic") -> di
     the router for the decision it already made and reports that, so the hint
     and `route_decision` cannot disagree about whether a message routes.
 
+    `matched_phrase` is set only when the router's own selection is the skill
+    the pack named. A pack phrase can sit in a message the router hands to a
+    different owner -- the pack widened recognition without deciding anything --
+    and reporting that phrase as the matched cue would state a cause the
+    decision does not rest on.
+
+    There is deliberately no `source` parameter. Nothing under `src/routing/`
+    branches on the chat source, and neither `awareness_route_hint` nor
+    `llm_hooks.pre_llm_call` carries one to pass, so a parameter no caller can
+    fill would be a knob that silently answers for `generic` while the wrapper's
+    `route_decision` was computed for the real source. If the source ever
+    becomes decision-relevant, thread the real source through the rail rather
+    than restoring a defaulted parameter here.
+
     Empty when no user pack phrase is present, or when the router does not
     dispatch. With no user packs installed the first line is the whole cost and
     every shipped-language message keeps exactly today's hint.
@@ -1476,7 +1490,7 @@ def user_trigger_pack_route_hint(message: str, *, source: str = "generic") -> di
     skill, phrase = user_trigger_pack_phrase_match(message)
     if not skill:
         return {}
-    decision = route_chat_message(message, source=source, limit=1)["route_decision"]
+    decision = route_chat_message(message, limit=1)["route_decision"]
     if not isinstance(decision, dict) or str(decision.get("action") or "") != "dispatch":
         return {}
     selected = str(decision.get("selected_skill") or "")
@@ -1484,8 +1498,8 @@ def user_trigger_pack_route_hint(message: str, *, source: str = "generic") -> di
         return {}
     # The router's own selection, not the pack's skill: when a guard hands the
     # message to a different owner, the hint has to name the owner the user
-    # will actually be routed to.
-    return {"workflow": selected, "matched_phrase": phrase}
+    # will actually be routed to, and the pack phrase stops being the cue.
+    return {"workflow": selected, "matched_phrase": phrase if selected == skill else ""}
 
 
 def _route_has_strong_blocked_owner(

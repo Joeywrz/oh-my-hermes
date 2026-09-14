@@ -7174,16 +7174,33 @@ def _user_trigger_pack_route_hint(message: str) -> dict[str, object]:
         next_action = "dispatch_to_workflow"
         fallback_action = "open_picker_or_clarify"
         adjacent_workflows = []
-    # The matched cue is the phrase as the pack author wrote it, which is the
-    # same class of label a shipped cue is: a trigger table entry that happens
-    # to appear in the message, never a span lifted out of the prompt.
-    matched_cue = str(decision.get("matched_phrase") or "user_trigger_pack")
+    # The router sets `matched_phrase` only when its own selection is the skill
+    # the pack named. When it does, the cue is that phrase as the pack author
+    # wrote it -- the same class of label a shipped cue is, a trigger-table entry
+    # that happens to appear in the message, never a span lifted out of the
+    # prompt. When it does not, the pack widened recognition and something else
+    # in the message decided, so naming the phrase here would state a cause the
+    # decision does not rest on; the cue falls back to the rule id and the reason
+    # drops the causal claim with it.
+    matched_phrase = str(decision.get("matched_phrase") or "")
+    if matched_phrase:
+        matched_cue = matched_phrase
+        reason = (
+            "A trigger language pack installed in this OMH home names this phrase for this workflow, "
+            "and the router dispatches the message there."
+        )
+    else:
+        matched_cue = "user_trigger_pack"
+        reason = (
+            "A trigger language pack installed in this OMH home recognises part of this message; "
+            "the router weighed the whole message and dispatches it to this workflow."
+        )
     hint: dict[str, object] = {
         "id": "user_trigger_pack",
         "workflow": workflow,
         "lane": lane,
         "next_action": next_action,
-        "reason": "A trigger language pack installed in this OMH home recognises this message, and the router dispatches it to this workflow.",
+        "reason": reason,
         "fallback_action": fallback_action,
         "matched_cues": _bounded_matches([matched_cue]),
         "adjacent_workflows": adjacent_workflows,

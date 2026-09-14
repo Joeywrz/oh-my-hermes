@@ -2316,8 +2316,13 @@ def user_trigger_pack_phrase_match(query: str) -> tuple[str, str]:
     built from it, so this answers the one question no other surface can --
     whether the person's own pack is the only reason this message routes.
 
-    Normalization mirrors the scoring path, so a match here is never looser than
-    the match the router itself makes on the same phrase.
+    Normalization and command-phrase handling both mirror the scoring path, so a
+    match here is never looser than the match the router itself makes on the same
+    phrase. The command split is the part that is easy to leave out and wrong to:
+    `_prepare_definition` sorts a trigger like `/omh` into `command_trigger_phrases`
+    and matches it with a word-boundary pattern rather than plain containment, so
+    a gate using containment alone would fire on `abre /omh. ahora` for a skill
+    the router scores no pack trigger for.
     """
     phrases = _normalized_user_trigger_pack_phrases()
     # Ahead of normalization on purpose: with no user packs installed -- the
@@ -2332,7 +2337,12 @@ def user_trigger_pack_phrase_match(query: str) -> tuple[str, str]:
     if not normalized_query:
         return ("", "")
     for skill, phrase, normalized_trigger in phrases:
-        if _trigger_phrase_match(normalized_query, normalized_trigger):
+        matcher = (
+            _command_trigger_match
+            if normalized_trigger in _COMMAND_TRIGGER_PHRASES
+            else _trigger_phrase_match
+        )
+        if matcher(normalized_query, normalized_trigger):
             return (skill, phrase)
     return ("", "")
 

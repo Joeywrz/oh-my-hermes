@@ -1,0 +1,24 @@
+{
+  "schema_version": "omh_product_ab_benchmark/v1",
+  "benchmark_id": "product-ab/v1",
+  "question": "On this repository's own merged pull requests, graded by those pull requests' own tests, does the same model reach the same pass rate for less money, less wall clock, and fewer false completions when it is reached through OMH's coding delegation instead of Hermes alone?",
+  "control": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "effort": "medium",
+    "mixture_provider": "og"
+  },
+  "execution": {
+    "path": "hermes_current_session",
+    "toolsets": "file,terminal",
+    "attempts": 1,
+    "omh_repair_attempts": 1
+  },
+  "timeouts_seconds": {
+    "task": 1800,
+    "validator": 1200,
+    "verification": 900
+  },
+  "digest_final_tree": false,
+  "claim_boundary": "Results describe this pinned corpus of merged pull requests from this repository, this OMH version, this Hermes version, this model id and effort, and this machine's provider routes. They are not a statement about any model's general capability, and a prepared decision is never execution evidence: only a validator that ran counts as a pass."
+}

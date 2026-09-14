@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""Hermes alone versus Hermes through OMH, on this repository's merged PRs."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import sys
+
+BASE = Path(__file__).resolve().parent
+sys.path.insert(0, str(BASE / "lib"))
+
+import corpus as corpus_lib  # noqa: E402
+import lane  # noqa: E402
+from runner import doctor, execute_one, run_matrix  # noqa: E402
+
+DEFAULT_CORPUS = BASE / "corpus" / "evaluation.json"
+DEFAULT_MANIFEST = BASE / "manifest.json"
+
+
+def emit(value: object) -> None:
+    print(json.dumps(value, sort_keys=True, indent=2))
+
+
+def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--repository", type=Path, default=lane.REPO_ROOT)
+    parser.add_argument(
+        "--workspace-root",
+        type=Path,
+        help="Directory the candidate worktrees are created under "
+        "(default: a sibling of the repository).",
+    )
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--arm", action="append", choices=lane.ARMS)
+    parser.add_argument("--task", action="append", help="Run only these task ids.")
+    parser.add_argument("--task-limit", type=int)
+    parser.add_argument("--omh-executable", default="omh")
+    parser.add_argument("--hermes-executable", default="hermes")
+    parser.add_argument("--python-executable", default=sys.executable)
+    parser.add_argument(
+        "--allow-paid-live",
+        action="store_true",
+        help="Actually call the model. Without it the harness runs the whole "
+        "pipeline with no Hermes invocation at all.",
+    )
+    parser.add_argument("--max-paid-calls", type=int, default=0)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    doctor_parser = sub.add_parser("doctor", help="Readiness, before a paid token is spent.")
+    doctor_parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    doctor_parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    doctor_parser.add_argument("--repository", type=Path, default=lane.REPO_ROOT)
+    doctor_parser.add_argument("--omh-executable", default="omh")
+    doctor_parser.add_argument("--hermes-executable", default="hermes")
+
+    corpus_parser = sub.add_parser("corpus", help="Build or verify the pinned corpus.")
+    corpus_parser.add_argument("--repository", type=Path, default=lane.REPO_ROOT)
+    corpus_parser.add_argument("--repository-name", default="rlaope/oh-my-hermes")
+    corpus_parser.add_argument("--output", type=Path, default=DEFAULT_CORPUS)
+    corpus_parser.add_argument("--pull-request-limit", type=int, default=120)
+    corpus_parser.add_argument("--max-tasks", type=int)
+    corpus_parser.add_argument("--build", action="store_true", help="Read GitHub and rewrite the corpus.")
+    corpus_parser.add_argument("--verify", action="store_true", help="Re-derive every pinned digest.")
+    corpus_parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="Prove offline that every task is red at its merge base and its "
+        "regression set is green there; drop the ones that are not.",
+    )
+    corpus_parser.add_argument("--python-executable", default=sys.executable)
+    corpus_parser.add_argument("--workspace-root", type=Path)
+    corpus_parser.add_argument("--probe-timeout", type=int, default=1200)
+
+    for name in ("smoke", "run"):
+        command = sub.add_parser(name)
+        _add_run_arguments(command)
+
+    args = parser.parse_args(argv)
+
+    if args.command == "doctor":
+        result = doctor(
+            manifest=lane.load_object(args.manifest),
+            corpus_path=args.corpus,
+            repository=args.repository.resolve(),
+            omh_executable=args.omh_executable,
+            hermes_executable=args.hermes_executable,
+        )
+        emit(result)
+        return 0 if result["ok"] else 1
+
+    if args.command == "corpus":
+        if sum((args.build, args.verify, args.probe)) != 1:
+            parser.error("choose exactly one of --build, --probe, or --verify")
+        if args.probe:
+            payload = corpus_lib.probe(
+                repository=args.repository.resolve(),
+                payload=corpus_lib.load(args.output),
+                python_executable=args.python_executable,
+                workspace_root=(
+                    args.workspace_root
+                    or args.repository.resolve().parent / "product-ab-workspaces"
+                ),
+                timeout=args.probe_timeout,
+                maximum_tasks=args.max_tasks,
+            )
+            lane.write_json(args.output, payload)
+            emit(
+                {
+                    "schema_version": lane.CORPUS_SCHEMA,
+                    "ok": bool(payload["tasks"]),
+                    "tasks": len(payload["tasks"]),
+                    "corpus_digest": payload["corpus_digest"],
+                    "probe_rejected": payload["selection"]["probe_rejected"],
+                    "output": str(args.output.name),
+                }
+            )
+            return 0 if payload["tasks"] else 1
+        if args.build:
+            payload = corpus_lib.build(
+                repository=args.repository.resolve(),
+                repository_name=args.repository_name,
+                limit=args.pull_request_limit,
+                maximum_tasks=args.max_tasks,
+            )
+            lane.write_json(args.output, payload)
+            emit(
+                {
+                    "schema_version": lane.CORPUS_SCHEMA,
+                    "ok": bool(payload["tasks"]),
+                    "tasks": len(payload["tasks"]),
+                    "corpus_digest": payload["corpus_digest"],
+                    "excluded": payload["selection"]["excluded"],
+                    "output": str(args.output.name),
+                }
+            )
+            return 0 if payload["tasks"] else 1
+        payload = corpus_lib.load(args.output)
+        errors = corpus_lib.verify(args.repository.resolve(), payload)
+        emit(
+            {
+                "schema_version": lane.CORPUS_SCHEMA,
+                "ok": not errors,
+                "tasks": len(payload["tasks"]),
+                "corpus_digest": payload["corpus_digest"],
+                "errors": errors,
+            }
+        )
+        return 0 if not errors else 1
+
+    manifest = lane.load_object(args.manifest)
+    payload = corpus_lib.load(args.corpus)
+    selected = list(args.arm or lane.ARMS)
+    if args.task:
+        wanted = set(args.task)
+        payload = dict(payload)
+        payload["tasks"] = [
+            task for task in payload["tasks"] if str(task["task_id"]) in wanted
+        ]
+        if not payload["tasks"]:
+            parser.error("no corpus task matched --task")
+    live = bool(args.allow_paid_live)
+    if live and args.max_paid_calls < 1:
+        parser.error("--allow-paid-live requires --max-paid-calls")
+
+    output = args.output or BASE / "artifacts" / "runs.jsonl"
+    workspace_root = args.workspace_root or (
+        args.repository.resolve().parent / "product-ab-workspaces"
+    )
+
+    if args.command == "smoke":
+        task = payload["tasks"][0]
+        records = [
+            execute_one(
+                manifest=manifest,
+                task=task,
+                arm=arm,
+                corpus_digest=str(payload["corpus_digest"]),
+                repository=args.repository.resolve(),
+                workspace_root=workspace_root,
+                output=output,
+                omh_executable=args.omh_executable,
+                hermes_executable=args.hermes_executable,
+                python_executable=args.python_executable,
+                live=live,
+            )
+            for arm in selected
+        ]
+        result = {
+            "schema_version": lane.RECEIPT_SCHEMA,
+            "ok": all(not record["failure_receipt"] for record in records),
+            "task_id": str(task["task_id"]),
+            "arms": selected,
+            "graded": len(records),
+            "passed": sum(bool(record["grade"]["pass"]) for record in records),
+            "paid_calls_launched": sum(len(record["attempts"]) for record in records) if live else 0,
+            "output": output.name,
+        }
+        emit(result)
+        return 0 if result["ok"] else 1
+
+    result = run_matrix(
+        manifest=manifest,
+        payload=payload,
+        selected_arms=selected,
+        repository=args.repository.resolve(),
+        workspace_root=workspace_root,
+        output=output,
+        omh_executable=args.omh_executable,
+        hermes_executable=args.hermes_executable,
+        python_executable=args.python_executable,
+        live=live,
+        max_paid_calls=args.max_paid_calls,
+        task_limit=args.task_limit,
+    )
+    emit(result)
+    return 0 if result["ok"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

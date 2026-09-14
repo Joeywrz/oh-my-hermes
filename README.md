@@ -601,6 +601,18 @@ tools spell both "complete". Capability impact is reported across separate
 dimensions rather than collapsed into one marketing score. See
 [Capability Impact](docs/CAPABILITY_IMPACT.md).
 
+### Measured: Hermes alone vs Hermes through OMH
+
+`benchmarks/product-ab/v1` compares the two products on a pinned corpus of
+this repository's own merged pull requests, graded by those pull requests'
+own tests, and reports four numbers per arm: pass rate, cost per passed task,
+wall clock per goal, and false-completion rate.
+
+**No measured run has been published yet.** The lane, its corpus, and its
+offline pilot are in place; this section carries the table once a run exists
+whose records the repository can point at. Reproduction command and the full
+claim boundary: [`benchmarks/product-ab/v1/README.md`](benchmarks/product-ab/v1/README.md).
+
 <br>
 
 ## Documentation

@@ -1027,6 +1027,27 @@ gate requires a completed paired run on the intended execution surface.
   openrouter, nous, azure, bedrock, …) to the environment variables a
   dispatched child needs.
 
+## Measured: the product, not the prompt prefix
+
+Every calibration measurement above comes from
+`benchmarks/live-model-tools/v1`, which sends a synthetic task to
+`hermes --oneshot` with or without one calibration block in front. That
+measures a prompt prefix. It cannot measure routing, the verification gate, or
+a false completion, because none of them execute on that path.
+
+`benchmarks/product-ab/v1` is the second lane, with a different question: the
+same model, reached through OMH's coding delegation instead of through Hermes
+alone, on a pinned corpus of this repository's own merged pull requests,
+graded by those pull requests' own tests. It reports pass rate, cost per
+passed task, wall clock per goal, and false-completion rate, paired per task,
+with a bootstrap CI95 on each delta and an exact McNemar test on pass rate.
+
+**No measured run has been published yet.** The lane, its digest-locked
+corpus, and its offline pilot exist; the table lands in this section when a
+run exists whose records this document can point at. Until then this section
+is a pointer, not a result. What the lane measures, what it deliberately does
+not, and how to reproduce it: `benchmarks/product-ab/v1/README.md`.
+
 ## Coverage matrix and known gaps
 
 | Family | Recognized | Calibrated (both tables) | Status |

@@ -103,8 +103,14 @@ _EVENT_ATTACHMENT_LIST_PATHS = (
 _EVENT_ATTACHMENT_OBJECT_PATHS = (("document",), ("message", "document"))
 _ATTACHMENT_NAME_KEYS = ("name", "filename", "file_name")
 _ATTACHMENT_MEDIA_TYPE_KEYS = ("media_type", "content_type", "mimetype", "mime_type")
-_MAX_EVENT_ATTACHMENTS = 32
+# Per-row text is bounded; the row count is not.  The event is already parsed
+# in memory, so reading every row costs less than parsing it did, and a cap
+# would leave a media file behind a run of text attachments unseen -- the
+# one thing the declaration exists to prevent.  A bounded NAME keeps its
+# suffix: the suffix is what classifies a file whose platform sent no media
+# type, so cutting it off would turn a long-named PDF into text.
 _MAX_ATTACHMENT_TEXT = 160
+_MAX_ATTACHMENT_SUFFIX = 16
 
 
 def extract_message_text(event: dict[str, Any] | str) -> str:
@@ -136,8 +142,8 @@ def extract_event_attachments(event: dict[str, Any] | str) -> list[dict[str, str
     """Name and declared media type of every file the chat event carried.
 
     Metadata only: each row is `{"name", "media_type"}` with both values
-    bounded, and a row that names neither is dropped.  A string message has
-    no attachments.
+    bounded, and a row that names neither is dropped.  Every listed file is
+    returned, however many there are.  A string message has no attachments.
     """
     if not isinstance(event, dict):
         return []
@@ -151,11 +157,11 @@ def extract_event_attachments(event: dict[str, Any] | str) -> list[dict[str, str
         value = value_at_path(event, path)
         if isinstance(value, dict):
             candidates.append(value)
-    for candidate in candidates[:_MAX_EVENT_ATTACHMENTS]:
+    for candidate in candidates:
         if not isinstance(candidate, dict):
             continue
         row = {
-            "name": _bounded_attachment_text(candidate, _ATTACHMENT_NAME_KEYS),
+            "name": _bounded_attachment_name(_bounded_attachment_text(candidate, _ATTACHMENT_NAME_KEYS, bound=None)),
             "media_type": _bounded_attachment_text(candidate, _ATTACHMENT_MEDIA_TYPE_KEYS),
         }
         if row["name"] or row["media_type"]:
@@ -163,12 +169,28 @@ def extract_event_attachments(event: dict[str, Any] | str) -> list[dict[str, str
     return rows
 
 
-def _bounded_attachment_text(candidate: dict[str, Any], keys: tuple[str, ...]) -> str:
+def _bounded_attachment_text(
+    candidate: dict[str, Any],
+    keys: tuple[str, ...],
+    *,
+    bound: int | None = _MAX_ATTACHMENT_TEXT,
+) -> str:
     for key in keys:
         value = candidate.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()[:_MAX_ATTACHMENT_TEXT]
+            text = value.strip()
+            return text if bound is None else text[:bound]
     return ""
+
+
+def _bounded_attachment_name(name: str) -> str:
+    """Bound a file name to the row limit without losing its suffix."""
+    if len(name) <= _MAX_ATTACHMENT_TEXT:
+        return name
+    stem, separator, suffix = name.rpartition(".")
+    if not separator or not stem or not suffix or len(suffix) > _MAX_ATTACHMENT_SUFFIX or any(ch.isspace() for ch in suffix):
+        return name[:_MAX_ATTACHMENT_TEXT]
+    return stem[: _MAX_ATTACHMENT_TEXT - len(suffix) - 1] + "." + suffix
 
 
 def compact_source_metadata(metadata: Any) -> dict[str, str]:

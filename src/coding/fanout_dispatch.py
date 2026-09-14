@@ -46,6 +46,7 @@ from .action_gate import recheck_safety_profile_revision
 from .cause_recovery import attempt_conditions, limit_reset_text, plan_summary_line, recovery_plan
 from .coding_contracts import STRUCTURAL_SEARCH_GUIDANCE
 from .dispatch_failure_recovery import (
+    FAILURE_KIND_CAPABILITY_GATE,
     HERMES_LANE_CONSENT,
     dispatch_unit_via_hermes_child,
     hermes_routing_available,
@@ -80,7 +81,7 @@ from .executor_capability_snapshots import (
     validate_executor_capability_snapshot,
 )
 from .executor_capabilities import legacy_executor_capability_projection
-from .media_handoff_capabilities import build_executor_modality_decision
+from .media_handoff_capabilities import FAIL_CLOSED_VERDICTS, build_executor_modality_decision
 from .executor_progress import (
     ExecutorProgressError,
     build_progress_binding,
@@ -2051,14 +2052,7 @@ def dispatch_fanout(
                 continue
             owner, _snapshot, errors = capability_prechecks[unit_id]
             if errors:
-                results[unit_id] = {
-                    "unit_id": unit_id,
-                    "run_ref": str(unit.get("run_ref", unit_id)),
-                    "owner": owner,
-                    "status": _capability_refusal_status(errors),
-                    **_dispatch_status_ladder(),
-                    "reason": "; ".join(errors),
-                }
+                results[unit_id] = _capability_refusal_entry(unit, owner, errors)
             elif any(
                 _dependency_failed(results.get(str(dependency)))
                 for dependency in unit.get("depends_on", []) or []
@@ -2802,10 +2796,35 @@ def _report_recovery_options(
 
 
 def _capability_refusal_status(errors: Sequence[str]) -> str:
-    for status in ("modality_unknown", "modality_unsupported", "modality_transformation_unobserved"):
+    for status in FAIL_CLOSED_VERDICTS:
         if any(str(error).startswith(f"{status}:") for error in errors):
             return status
     return "capability_snapshot_invalid"
+
+
+def _capability_refusal_entry(
+    unit: Mapping[str, Any],
+    owner: str,
+    errors: Sequence[str],
+) -> dict[str, Any]:
+    """The unit row for a spawn the frozen capability evidence refused.
+
+    The refusal is a failed unit, not a skipped one: the work did not happen,
+    and a shell reading only the exit status must learn that. `failure_kind`
+    is the one signal `_fanout_dispatch_exit_code` reads, so the row carries
+    it -- the same way a workspace-blocked spawn does -- and the status keeps
+    naming which gate refused.
+    """
+    unit_id = str(unit.get("unit_id", ""))
+    return {
+        "unit_id": unit_id,
+        "run_ref": str(unit.get("run_ref", unit_id)),
+        "owner": owner,
+        "status": _capability_refusal_status(errors),
+        **_dispatch_status_ladder(),
+        "reason": "; ".join(errors),
+        "failure_kind": FAILURE_KIND_CAPABILITY_GATE,
+    }
 
 
 def _retarget_dispatch(
@@ -3695,14 +3714,7 @@ def _dispatch_unit(
             str(_worktree_path(repo_root, unit_id)), invocation_id, str(uuid4()))
         return _capacity_entry(paths, unit, binding, blocked, contract_digest=session_contract_digest)
     if capability_errors or capability_snapshot is None:
-        return {
-            "unit_id": unit_id,
-            "run_ref": run_ref,
-            "owner": owner,
-            "status": _capability_refusal_status(capability_errors),
-            **_dispatch_status_ladder(),
-            "reason": "; ".join(capability_errors),
-        }
+        return _capability_refusal_entry(unit, owner, capability_errors)
     model_route = handoff.get("model_route") if isinstance(handoff.get("model_route"), Mapping) else None
     routed_model = str(model_route.get("selected_model", "") or "") if model_route else ""
     routed_effort = str(model_route.get("selected_reasoning_effort", "") or "") if model_route else ""

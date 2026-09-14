@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ..coding_delegation import CODING_EXECUTOR_TARGETS, build_coding_delegation_payload, coding_delegation_record_payload
 from ..coding.media_handoff_capabilities import input_representations_from_attachments, merged_input_representation
+from ..coding.hermes_model_recommendation import resolved_hermes_model_recommendation
 from ..coding.diagnostic_execution import DiagnosticExecutionEngine
 from ..coding.fanout_failure_diagnostics import FailureDiagnostic, is_string_map, read_failure_diagnostic
 from ..coding.fanout_final_review_hook import FinalReviewWaveEngine
@@ -281,6 +282,10 @@ def cmd_coding_delegate(args: argparse.Namespace) -> int:
             model_chains=effective_mixture_category_chains(paths.omh_home, paths.hermes_home),
             requested_model=getattr(args, "model", None) or "",
             requested_effort=getattr(args, "effort", None) or "",
+            # The same resolved route the chat lane binds, so a media handoff
+            # prepared here scopes its evidence to a real provider and wire
+            # model rather than to an empty route no snapshot could match.
+            model_recommendation=resolved_hermes_model_recommendation(executor_target, paths),
             input_representation=input_representation,
             transformation=transformation,
         )

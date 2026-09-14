@@ -14,8 +14,7 @@ from ..coding.agentic_playbook import maybe_build_agentic_playbook
 from ..coding.agentic_playbook_contract import chat_response_with_agentic_playbook
 from ..coding.executor_local_workflow import validate_executor_local_workflow
 from ..coding.media_handoff_capabilities import input_representations_from_attachments, merged_input_representation
-from ..coding.model_discovery import discover_local_models
-from ..coding.model_routing import resolve_model_route
+from ..coding.hermes_model_recommendation import resolved_hermes_model_recommendation
 from ..coding.routing_observation import (
     render_routing_code_block_text,
     validate_routing_observation,
@@ -5078,29 +5077,8 @@ def _resolved_hermes_model_recommendation(
     executor_target: str,
     paths: OmhPaths | None,
 ) -> dict[str, object] | None:
-    if executor_target != "hermes" or paths is None:
-        return None
-    discovery = discover_local_models(paths.hermes_home.parent)
-    observations = discovery.get("observations", [])
-    active_models = [
-        {
-            **observation,
-            "model_alias": str(observation.get("model_id", "")).rsplit("/", 1)[-1],
-            "provider_family": str(observation.get("provider", "")),
-            "compatible_owners": ["hermes"],
-        }
-        for observation in observations
-        if isinstance(observation, dict)
-        and observation.get("status") == "confirmed_active"
-        and observation.get("model_id")
-    ] if isinstance(observations, list) else []
-    route = resolve_model_route(
-        "hermes",
-        role="implementation",
-        active_models=active_models,
-    )
-    recommendation = route.get("recommendation")
-    return dict(recommendation) if isinstance(recommendation, dict) else None
+    # Shared with `omh coding delegate` so both lanes bind the same route.
+    return resolved_hermes_model_recommendation(executor_target, paths)
 
 
 def _attach_executor_choice_context(delegation: dict[str, object], paths: OmhPaths | None) -> None:

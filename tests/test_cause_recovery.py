@@ -31,6 +31,7 @@ from omh.coding.cause_recovery import (  # noqa: E402
     ACTION_ANSWER_OR_CANCEL,
     ACTION_CHECK_ACCOUNT_THEN_SWITCH_IF_ALLOWED,
     ACTION_INSTALL_BINARY_THEN_REDISPATCH,
+    ACTION_RECORD_CAPABILITY_EVIDENCE_THEN_REDISPATCH,
     ACTION_REAUTHENTICATE_THEN_REDISPATCH,
     ACTION_REPAIR_PERMISSIONS_THEN_REPROBE,
     ACTION_REPORT_ONLY,
@@ -40,6 +41,7 @@ from omh.coding.cause_recovery import (  # noqa: E402
     ACTION_WAIT_FOR_LIVE_WORKER,
     CAUSE_ACCOUNT_LIMIT,
     CAUSE_AWAITING_INPUT,
+    CAUSE_CAPABILITY_GATE,
     CAUSE_CRASH,
     CAUSE_DATA_MISSING,
     CAUSE_LIVE_WORKER_PRESENT,
@@ -49,6 +51,7 @@ from omh.coding.cause_recovery import (  # noqa: E402
     CAUSE_UNKNOWN,
     RECOVERY_PLAN_SCHEMA_VERSION,
     REQUIRE_ACCOUNT_CHANGED_OR_RESET_ELAPSED,
+    REQUIRE_CAPABILITY_EVIDENCE_RECORDED,
     REQUIRE_CONDITIONS_CHANGED,
     REQUIRE_OBJECTS_PRESENT,
     REQUIRE_WORKSPACE_PREFLIGHT_OK,
@@ -355,6 +358,21 @@ class RowMappedThroughTests(unittest.TestCase):
         plan = recovery_plan({"unit_id": "core", "failure_kind": "binary_missing"})
         self.assertEqual(plan["action"], ACTION_INSTALL_BINARY_THEN_REDISPATCH)
         self.assertFalse(plan["allowed_rerun"])
+
+    def test_a_capability_gate_refusal_requires_recorded_evidence(self) -> None:
+        # The frozen capability evidence refused the spawn (no snapshot, no
+        # route, no fresh modality evidence, or an unobserved transformation).
+        # Re-running against the same evidence is the same refusal.
+        plan = recovery_plan({"unit_id": "media", "failure_kind": "capability_gate"})
+        self.assertEqual(plan["cause"], CAUSE_CAPABILITY_GATE)
+        self.assertEqual(plan["action"], ACTION_RECORD_CAPABILITY_EVIDENCE_THEN_REDISPATCH)
+        self.assertFalse(plan["allowed_rerun"])
+        self.assertEqual(plan["unmet"], [REQUIRE_CAPABILITY_EVIDENCE_RECORDED])
+        recorded = recovery_plan(
+            {"unit_id": "media", "failure_kind": "capability_gate", "capability_evidence_recorded": True}
+        )
+        self.assertTrue(recorded["allowed_rerun"])
+        self.assertEqual(recorded["unmet"], [])
 
     def test_nothing_recorded_claims_no_cause_specific_repair(self) -> None:
         plan = recovery_plan({"unit_id": "core"})

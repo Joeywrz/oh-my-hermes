@@ -1429,8 +1429,10 @@ class WrapperContractTests(unittest.TestCase):
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
             write_setup_profile(paths, default_executor="codex")
 
+            # The discovery call lives with the shared Hermes recommendation
+            # producer now, so the guard patches it where it runs.
             with mock.patch(
-                "omh.wrapper.contract.discover_local_models",
+                "omh.coding.hermes_model_recommendation.discover_local_models",
                 side_effect=AssertionError("external handoffs must not run Hermes discovery"),
             ):
                 payload = build_chat_interaction_payload(

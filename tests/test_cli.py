@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from _cli_harness import run_cli
+from omh.local_store import utc_now
 from _platform_support import requires_posix
 from omh.cli import OmhError, cmd_runtime_merge
 from omh.commands import setup as setup_commands
@@ -10185,7 +10186,13 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                     for handoff in handoffs:
                         decision = handoff["executor_modality_decision"]
                         self.assertEqual(handoff["input_representation"], payload["input_representation"])
-                        self.assertEqual(decision["verdict"], "modality_unknown")
+                        # No confirmed-active model on this machine, so no
+                        # route to scope evidence to: the gate says that,
+                        # never "record evidence" for an empty route.
+                        self.assertEqual(decision["verdict"], "route_unresolved")
+                        self.assertEqual(decision["route"]["provider"], "")
+                        self.assertNotIn("record fresh", decision["remaining_user_action"])
+                        self.assertIn("bind a confirmed-active model route", decision["remaining_user_action"])
                         self.assertEqual(decision["required_representations"][0]["capability"], "input_modality_document")
                         self.assertEqual(decision["alternative_representations"], ["extracted_text", "ocr_output"])
                         self.assertIn("read_file", decision["remaining_user_action"])
@@ -10223,7 +10230,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 ],
             )
             decision = payload["executor_handoff"]["executor_modality_decision"]
-            self.assertEqual(decision["verdict"], "modality_unknown")
+            self.assertEqual(decision["verdict"], "route_unresolved")
             self.assertEqual(decision["alternative_representations"], ["extracted_text", "ocr_output"])
 
             transformation = Path(tmp) / "ocr.json"
@@ -10270,10 +10277,92 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             delegation = payload["delegation"]
             self.assertEqual(delegation["input_representation"], [{"representation": "raw_media", "modality": "document"}])
             decision = delegation["executor_handoff"]["executor_modality_decision"]
-            self.assertEqual(decision["verdict"], "modality_unknown")
+            self.assertEqual(decision["verdict"], "route_unresolved")
             self.assertEqual(decision["alternative_representations"], ["extracted_text", "ocr_output"])
             self.assertNotIn("parser-spec", stdout)
             self.assertNotIn("files.slack", stdout)
+
+    def test_declared_document_without_a_selected_owner_is_labelled_not_gated(self) -> None:
+        """`chat interact --mode delegate` with the owner still to be chosen
+        carries the declaration and no handoff, so the payload says the gate
+        has not run rather than letting "declared" read as "cleared"."""
+        with TemporaryDirectory() as tmp:
+            base = ["--omh-home", str(Path(tmp) / ".omh"), "--hermes-home", str(Path(tmp) / ".hermes")]
+            event = Path(tmp) / "event.json"
+            event.write_text(
+                json.dumps({"id": "m12", "content": "implement the parser described in the attached spec with regression tests", "attachments": [{"filename": "parser-spec.pdf", "content_type": "application/pdf"}]}),
+                encoding="utf-8",
+            )
+
+            status, stdout, stderr = run_cli(base + ["chat", "interact", "--mode", "delegate", "--source", "discord", "--event-json", str(event), "--json"])
+            self.assertEqual(status, 0, stderr)
+            delegation = json.loads(stdout)["delegation"]
+            self.assertEqual(delegation["input_representation"], [{"representation": "raw_media", "modality": "document"}])
+            self.assertFalse(any(key in delegation for key in ("executor_handoff", "prompt_handoff", "runtime_handoff")))
+            self.assertEqual(delegation["input_representation_gate"]["status"], "declared_not_gated")
+            self.assertIn("not a cleared modality gate", delegation["input_representation_gate"]["claim_boundary"])
+
+            status, stdout, stderr = run_cli(base + ["chat", "interact", "--mode", "delegate", "--source", "discord", "--executor", "codex", "--event-json", str(event), "--json"])
+            self.assertEqual(status, 0, stderr)
+            delegation = json.loads(stdout)["delegation"]
+            self.assertNotIn("input_representation_gate", delegation)
+            self.assertIn("executor_modality_decision", delegation["executor_handoff"])
+
+    def test_coding_delegate_document_gate_clears_once_evidence_is_recorded_for_the_resolved_route(self) -> None:
+        """End to end: a PDF on a Hermes-owned handoff binds the machine's
+        confirmed-active model as the route, the operator records
+        `input_modality_document` evidence for exactly that route, and the
+        same delegate call then dispatches. The route is the one the chat
+        lane binds, so evidence recorded from either surface serves both."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+            omo = root / ".omo" / "omo.json"
+            omo.parent.mkdir(parents=True)
+            omo.write_text(json.dumps({"models": [{"provider": "anthropic", "model_id": "claude-opus-5"}]}), encoding="utf-8")
+            event = root / "event.json"
+            event.write_text(
+                json.dumps(
+                    {
+                        "id": "m11",
+                        "content": "implement the parser described in the attached spec with regression tests",
+                        "attachments": [{"filename": "parser-spec.pdf", "content_type": "application/pdf", "url": "https://cdn.example/parser-spec.pdf"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            delegate = base + ["coding", "delegate", "--executor", "hermes", "--source", "discord", "--event-json", str(event)]
+
+            status, stdout, stderr = run_cli(delegate)
+            self.assertEqual(status, 0, stderr)
+            before = json.loads(stdout)["runtime_handoff"]["executor_modality_decision"]
+            self.assertEqual(before["verdict"], "modality_unknown")
+            route = before["route"]
+            self.assertEqual(route["executor"], "hermes")
+            self.assertTrue(route["provider"] and route["wire_model"], route)
+            self.assertIn("record fresh route-scoped input_modality_document evidence", before["remaining_user_action"])
+            scope = {"provider": route["provider"], "wire_model": route["wire_model"], "endpoint_mode": route["endpoint_mode"]}
+            self.assertEqual(before["required_representations"][0], {"capability": "input_modality_document", "representation": "raw_media", "modality": "document", **scope})
+
+            stamp = utc_now()
+            capabilities = root / "capabilities.json"
+            capabilities.write_text(
+                json.dumps({"input_modality_document": {"status": "host_observed", "scope": scope, "evidence_ref": "operator:reader-probe", "observed_at": stamp}}),
+                encoding="utf-8",
+            )
+            status, stdout, stderr = run_cli(
+                base + ["coding", "capability-snapshot", "record", "--executor", "hermes", "--capabilities-json", str(capabilities), "--recorded-at", stamp]
+            )
+            self.assertEqual(status, 0, stderr)
+
+            status, stdout, stderr = run_cli(delegate)
+            self.assertEqual(status, 0, stderr)
+            after = json.loads(stdout)["runtime_handoff"]["executor_modality_decision"]
+            self.assertEqual(after["verdict"], "dispatch")
+            self.assertEqual(after["route"], route)
+            self.assertEqual(after["evidence_ref"], "operator:reader-probe")
+            self.assertEqual(after["remaining_user_action"], "")
+            self.assertNotIn("parser-spec", stdout)
 
     def test_coding_delegate_codex_executor_handoff_is_metadata_safe(self) -> None:
         hostile = "refactor api; rm -rf / # nope"

@@ -81,6 +81,15 @@ FAILURE_KIND_BINARY_MISSING = "binary_missing"
 # no process, no exit code and no output to classify -- the dispatcher assigns
 # this kind directly. See `coding/workspace_preflight.py`.
 FAILURE_KIND_WORKSPACE_BLOCKED = "workspace_blocked"
+# The other kind no exit code can produce. The frozen capability evidence --
+# a missing or mismatched snapshot, or the media gate (`route_unresolved`,
+# `modality_unknown`, `modality_unsupported`,
+# `modality_transformation_unobserved`) -- refused the spawn, so there is no
+# process to classify and the dispatcher assigns this kind directly. It is
+# what makes a batch the gate refused entirely exit non-zero: until it was
+# set, such a unit carried a status and a reason but no failure signal, and
+# `omh coding fanout dispatch` reported the batch as a success.
+FAILURE_KIND_CAPABILITY_GATE = "capability_gate"
 FAILURE_KIND_CRASH = "crash"
 
 FAILURE_KINDS: tuple[str, ...] = (
@@ -89,7 +98,13 @@ FAILURE_KINDS: tuple[str, ...] = (
     FAILURE_KIND_TIMEOUT,
     FAILURE_KIND_BINARY_MISSING,
     FAILURE_KIND_WORKSPACE_BLOCKED,
+    FAILURE_KIND_CAPABILITY_GATE,
     FAILURE_KIND_CRASH,
+)
+# Kinds the dispatcher assigns before any spawn. The classifier never answers
+# them, and no rerun under the same conditions clears them.
+DISPATCHER_ASSIGNED_FAILURE_KINDS: frozenset[str] = frozenset(
+    {FAILURE_KIND_WORKSPACE_BLOCKED, FAILURE_KIND_CAPABILITY_GATE}
 )
 
 # The two kinds a recovery choice is offered for: both describe the provider

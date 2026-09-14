@@ -4222,6 +4222,17 @@ selected_workflow=ultraprocess
         self.assertEqual(rows[0], {"name": "spec.pdf", "media_type": "application/pdf"})
         self.assertEqual(len(rows), 2)
         self.assertEqual(len(rows[1]["name"]), 160)
+        self.assertTrue(rows[1]["name"].endswith(".png"))
+        # A platform that sends no media type (Telegram's is optional) leaves
+        # the suffix as the only classifier, so bounding the name keeps it.
+        long_pdf = extract_event_attachments({"message": {"document": {"file_name": ("s" * 200) + ".pdf"}}})
+        self.assertEqual(len(long_pdf[0]["name"]), 160)
+        self.assertTrue(long_pdf[0]["name"].endswith(".pdf"))
+        self.assertEqual(long_pdf[0]["media_type"], "")
+        no_suffix = extract_event_attachments({"files": [{"name": "n" * 200}]})
+        self.assertEqual(len(no_suffix[0]["name"]), 160)
+        odd_suffix = extract_event_attachments({"files": [{"name": ("n" * 200) + "." + ("x" * 40)}]})
+        self.assertEqual(len(odd_suffix[0]["name"]), 160)
         self.assertNotIn("cdn.example", json.dumps(rows))
         self.assertNotIn("size", json.dumps(rows))
 
@@ -4234,7 +4245,12 @@ selected_workflow=ultraprocess
         )
         self.assertEqual(extract_event_attachments("implement the attached spec"), [])
         self.assertEqual(extract_event_attachments({"content": "no files"}), [])
-        self.assertEqual(len(extract_event_attachments({"files": [{"name": f"{index}.pdf"} for index in range(40)]})), 32)
+        # Every listed file comes back: a media file after a long run of text
+        # attachments is not left unseen.
+        crowded = {"files": [{"name": f"log-{index}.txt", "mimetype": "text/plain"} for index in range(39)] + [{"name": "parser-spec.pdf", "mimetype": "application/pdf"}]}
+        rows = extract_event_attachments(crowded)
+        self.assertEqual(len(rows), 40)
+        self.assertEqual(rows[-1], {"name": "parser-spec.pdf", "media_type": "application/pdf"})
 
     def test_routing_record_payload_does_not_store_raw_message(self) -> None:
         message = "risky refactor"

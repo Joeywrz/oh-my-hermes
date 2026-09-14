@@ -223,9 +223,26 @@ Expected behavior:
   that dispatches only on fresh route-scoped `input_modality_<modality>`
   evidence and otherwise fails closed with a `remaining_user_action` naming
   the alternative representations (for a document, `extracted_text` via
-  Hermes `read_file` or `ocr_output`). `omh chat interact` derives the same
-  declaration from the event it receives. Attachment names, URLs, and bytes
-  never enter the payload.
+  Hermes `read_file` or `ocr_output`). The route the evidence is scoped to is
+  the same resolved Hermes model recommendation `omh chat interact` binds
+  (confirmed-active local models, endpoint mode `default` unless the
+  recommendation names one); a handoff with no resolved provider and wire
+  model reports `route_unresolved` and asks for the route to be bound rather
+  than for evidence of an empty route. Surfaces that derive the declaration
+  from an event: `omh coding delegate --event-json` and `omh chat interact
+  --event-json`. Surfaces that do not: `omh chat session start` and `omh chat
+  session prepare` (they record the turn's text and derive nothing, so a
+  session-recorded PDF turn carries no `input_representation`), the plugin's
+  `omh_interact`, `omh_chat`, and `omh_delegate_route` tools (they receive
+  message text, not the platform event), and fanout units, which carry only
+  what their contract declares. Bounds: every
+  attachment row on the event is classified, however many there are; each
+  name and media type is bounded to 160 characters, and a bounded name keeps
+  its suffix so a long-named PDF still classifies. When a declaration reaches
+  a payload with no handoff to judge it (`--executor choose`, or a retained
+  request), the payload carries `input_representation_gate` with status
+  `declared_not_gated` so the declaration is never read as a cleared gate.
+  Attachment names, URLs, and bytes never enter the payload.
 - `omh coding delegate --executor hermes` returns a runtime handoff plus
   `hermes_coding_team_path/v1` with solo, durable-goal, team, and swarm start
   choices. The path stays prepared-only until matching runtime observations are

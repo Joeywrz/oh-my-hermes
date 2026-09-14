@@ -105,7 +105,18 @@ All notable changes will be documented here.
   `transcript`. Fanout dispatch refusals state that action beside the reason.
   `--transformation-json` supplies the observed-transformation record an
   `ocr_output` or `transcript` handoff needs. The demo decision set gains the
-  document path, and the action names no coding owner.
+  document path, and the action names no coding owner. Three gaps found in
+  review are closed in the same change: the route the evidence is scoped to
+  is now real (`omh coding delegate` binds the same resolved Hermes model
+  recommendation the chat lane binds, and a recommendation that names no
+  endpoint mode binds `default` instead of no route at all), a handoff with
+  no resolved provider and wire model reports `route_unresolved` rather than
+  asking for evidence of an empty route, a fanout unit any capability gate
+  refuses carries `failure_kind: capability_gate` so a batch refused
+  entirely exits non-zero (with a `record_capability_evidence_then_redispatch`
+  row in the cause-specific recovery table), and every attachment on a
+  message is classified, so a PDF listed after any number of text files is
+  still declared.
 - **Providers linked to Hermes are recognized on their own.** OMH now reads
   which providers Hermes is already linked to — a `hermes auth` login in
   `auth.json` (the pool rows Hermes itself counts, never a credential

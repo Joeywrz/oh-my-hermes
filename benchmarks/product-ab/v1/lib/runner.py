@@ -181,6 +181,7 @@ def doctor(
     )
 
     route_ok, route_detail = False, ""
+    calibration_ok, calibration_detail = False, "the control route did not resolve"
     if shutil.which(omh_executable):
         try:
             route = arms.resolve_route(
@@ -188,11 +189,35 @@ def doctor(
                 model=str(control.get("model") or ""),
                 effort=str(control.get("effort") or ""),
             )
-            route_ok = bool(route.get("selected_model"))
-            route_detail = f"{route.get('selected_model')} @ {route.get('selected_reasoning_effort')}"
+            family = str(route.get("model_family") or "").strip().casefold()
+            # `model-route` echoes an unrecognized model back with
+            # `model_family: unknown`, so a non-empty `selected_model` proves
+            # only that the flag parsed. Without the family check a control
+            # model this repository has never heard of passes every readiness
+            # check and is discovered by the first paid call.
+            route_ok = bool(route.get("selected_model")) and family not in {"", "unknown"}
+            route_detail = (
+                f"{route.get('selected_model')} @ "
+                f"{route.get('selected_reasoning_effort')} (family {family or 'blank'})"
+            )
+            calibration = arms.prompt_protocol().calibration_for_route(route)
+            # The lane's README and MODEL_OPTI.md both describe the OMH arm as
+            # carrying "the calibration that route selects".
+            # `calibration_for_route` returns "" outside the high effort tier,
+            # so a control effort of `medium` makes that sentence false on
+            # every task, while the mixture arm routed at `high` does get a
+            # block -- putting calibration only in the arm where the model
+            # also changed, which inverts the reason that arm is separate.
+            calibration_ok = bool(calibration)
+            calibration_detail = (
+                f"{len(calibration)} chars at effort "
+                f"{route.get('selected_reasoning_effort')!r}"
+            )
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
             route_detail = str(error)[:200]
+            calibration_detail = str(error)[:200]
     record("control_route_resolves", route_ok, route_detail)
+    record("control_route_carries_calibration", calibration_ok, calibration_detail)
 
     workspace_ok, workspace_detail = False, ""
     if tasks and repo_lib.git_ok(repository, "rev-parse", "--git-dir"):
@@ -202,7 +227,7 @@ def doctor(
                     repository, str(tasks[0]["merge_base"]), Path(root), "probe"
                 ) as workspace:
                     workspace_ok = (workspace / "src").is_dir()
-                    already = grading.validator_is_absent(workspace, tasks[0])
+                    already = grading.validator_paths_already_present(workspace, tasks[0])
                     if already:
                         workspace_ok = False
                         workspace_detail = f"validator already present: {already[:3]}"
@@ -320,12 +345,16 @@ def execute_one(
 
     attempts: list[arms.Attempt] = []
     verification: dict[str, Any] = {"ran": False, "status": "not_run", "checks": []}
+    # Every gate run, not just the last. A repair turn runs the gate a
+    # second time, and overwriting `verification` would drop the first
+    # run's minutes out of the wall clock entirely.
+    gate_seconds = 0.0
     with TemporaryDirectory(prefix="omh-product-ab-scratch-") as scratch_text:
         scratch = Path(scratch_text)
         with repo_lib.candidate_workspace(
             repository, str(task["merge_base"]), workspace_root, f"{task['task_id']}-{arm}"
         ) as workspace:
-            leaked = grading.validator_is_absent(workspace, task)
+            leaked = grading.validator_paths_already_present(workspace, task)
             if leaked:
                 raise ValueError(
                     f"{task['task_id']}: the validator is present in the candidate workspace: {leaked}"
@@ -352,6 +381,7 @@ def execute_one(
                         commands=list(task["verification_commands"]),
                         timeout=int(timeouts["verification"]),
                     )
+                    gate_seconds += float(verification.get("seconds") or 0.0)
                     repairs = int(manifest["execution"].get("omh_repair_attempts", 0))
                     if verification["status"] == "failed" and repairs:
                         attempts.append(
@@ -374,6 +404,7 @@ def execute_one(
                             commands=list(task["verification_commands"]),
                             timeout=int(timeouts["verification"]),
                         )
+                        gate_seconds += float(verification.get("seconds") or 0.0)
             claim = grading.completion_claim(workspace)
             if (
                 arm in {"omh", "omh_mixture"}
@@ -386,6 +417,7 @@ def execute_one(
                 # here to measure, so it is recorded, never silently applied.
                 claim = {"claim": "blocked", "reason": "withdrawn_by_verification_gate"}
             grading.materialize_validator(repository, task, workspace)
+            grading.restore_regression_modules(repository, task, workspace)
             target = grading.run_modules(
                 python_executable=python_executable,
                 workspace=workspace,
@@ -432,7 +464,14 @@ def execute_one(
             {"kind": attempt.kind, "seconds": attempt.seconds, "ok": attempt.ok}
             for attempt in attempts
         ],
-        "wall_clock_seconds": round(sum(attempt.seconds for attempt in attempts), 3),
+        # Model time plus gate time. The verification gate runs on the OMH arms
+        # only, so charging it to nobody would take minutes off one side of the
+        # comparison and hand them to the "faster" headline.
+        "wall_clock_seconds": round(
+            sum(attempt.seconds for attempt in attempts) + gate_seconds, 3
+        ),
+        "model_seconds": round(sum(attempt.seconds for attempt in attempts), 3),
+        "verification_gate_seconds": round(gate_seconds, 3),
         "usage": {
             "total_tokens": _usage_total(attempts, "total_tokens"),
             "input_tokens": _usage_total(attempts, "input_tokens"),

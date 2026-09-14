@@ -13,7 +13,12 @@ sys.path.insert(0, str(BASE / "lib"))
 
 import corpus as corpus_lib  # noqa: E402
 import lane  # noqa: E402
-from runner import doctor, execute_one, run_matrix  # noqa: E402
+from runner import (  # noqa: E402
+    doctor,
+    execute_one,
+    run_matrix,
+    worst_case_paid_calls,
+)
 
 DEFAULT_CORPUS = BASE / "corpus" / "evaluation.json"
 DEFAULT_MANIFEST = BASE / "manifest.json"
@@ -176,6 +181,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "smoke":
         task = payload["tasks"][0]
+        # The same budget `run` enforces. `smoke` calls `execute_one` directly
+        # instead of going through `run_matrix`, so without this the flag is
+        # accepted, echoed back, and ignored: one task over three arms spends
+        # three calls, and five once the repair turns fire, under
+        # `--max-paid-calls 1`.
+        worst_case = worst_case_paid_calls(manifest, 1, selected)
+        if live and worst_case > args.max_paid_calls:
+            parser.error(
+                f"paid calls in the worst case ({worst_case}) exceed the "
+                f"explicit budget ({args.max_paid_calls})"
+            )
         records = [
             execute_one(
                 manifest=manifest,

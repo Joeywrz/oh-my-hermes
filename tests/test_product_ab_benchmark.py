@@ -107,7 +107,17 @@ repo_lib = MODULES["repo"]
 runner = MODULES["runner"]
 
 
-def _record(arm: str, task_id: str, *, passed: bool, claim: str, cost: float, seconds: float, tokens: int) -> dict:
+def _record(
+    arm: str,
+    task_id: str,
+    *,
+    passed: bool,
+    claim: str,
+    cost: float | None,
+    seconds: float,
+    tokens: int,
+    model: str = "gpt-5.6-sol",
+) -> dict:
     return {
         "schema_version": lane.RUN_SCHEMA,
         "arm": arm,
@@ -115,6 +125,7 @@ def _record(arm: str, task_id: str, *, passed: bool, claim: str, cost: float, se
         "pull_request": int(task_id.split("-")[1]),
         "corpus_digest": "digest",
         "wall_clock_seconds": seconds,
+        "model": {"id": model, "provider": "openai-codex", "effort": "high"},
         "usage": {"total_tokens": tokens, "turns": 3, "tool_calls": 7},
         "cost": {"list_price_usd": cost, "reported_usd": None},
         "verification_gate": {"ran": arm != "hermes", "status": "passed" if passed else "failed"},
@@ -255,10 +266,164 @@ class CorpusSelectionTests(unittest.TestCase):
         self.assertGreater(len("/".join(corpus.SECOND_PASS_NESTING)), 40)
 
 
+class SolutionLeakTests(unittest.TestCase):
+    """The task must state the problem without prescribing the fix."""
+
+    #: This repository's own pull request template writes the implementation
+    #: heading with a qualifier. Pinned by name because an equality test
+    #: against `"Implementation"` kept the whole section, and this is the
+    #: heading it kept it for.
+    TEMPLATE_HEADING = "Implementation (boundary level)"
+
+    def test_a_heading_with_a_qualifier_still_matches(self) -> None:
+        self.assertTrue(corpus.heading_matches(self.TEMPLATE_HEADING, "Implementation"))
+        self.assertTrue(corpus.heading_matches("Root cause:", "Root cause"))
+        self.assertTrue(corpus.heading_matches("**Suggested fix**", "Suggested fix"))
+
+    def test_a_heading_that_merely_starts_with_the_word_does_not_match(self) -> None:
+        """The boundary has to be a non-word character, or `Fix` eats `Fixture`."""
+
+        self.assertFalse(corpus.heading_matches("Fixture notes", "Fix"))
+        self.assertFalse(
+            corpus.heading_matches("Implementations we rejected", "Implementation")
+        )
+
+    def test_the_repository_template_heading_cuts_the_solution_half(self) -> None:
+        body = (
+            "## Feature Report\n\n"
+            "### Why This Exists\n\n"
+            "The router drops a phrase when the token set is empty, so a caller "
+            "sees a clarify where a dispatch belongs.\n\n"
+            f"### {self.TEMPLATE_HEADING}\n\n"
+            "Add normalized_phrase() to src/routing/chat.py and call it from "
+            "recommend().\n"
+        )
+        text = corpus.task_text_from_pull_request_body(body)
+        self.assertIn("router drops a phrase", text)
+        self.assertNotIn("normalized_phrase", text)
+        self.assertNotIn("src/routing/chat.py", text)
+
+    def test_an_issue_prescribing_the_fix_is_cut_at_its_own_heading(self) -> None:
+        for heading in ("Suggested fix", "Proposed fix", "Root cause", "Solution"):
+            with self.subTest(heading=heading):
+                body = (
+                    "The counter never resets between runs.\n\n"
+                    f"## {heading}\n\n"
+                    "Call reset_counter() from the loop head.\n"
+                )
+                self.assertNotIn("reset_counter", corpus.strip_solution_sections(body))
+
+    def test_a_hash_inside_a_fenced_block_is_not_a_heading(self) -> None:
+        """A `#` in a shell block is a comment, not a section boundary."""
+
+        body = (
+            "## Problem\n\nThe run exits zero over a failed batch.\n\n"
+            "```sh\n# Validation\nomh coding fanout dispatch\n```\n\n"
+            "More of the problem statement, still the problem.\n"
+        )
+        text = corpus.task_text_from_pull_request_body(body)
+        self.assertIn("still the problem", text)
+
+    def test_the_names_a_diff_defines_are_read_off_its_added_lines(self) -> None:
+        diff = (
+            "+def recall_status(store):\n"
+            "+    return store.summary()\n"
+            "+LIVE_WINDOW_SECONDS = 900\n"
+        )
+        self.assertEqual(
+            corpus.defined_names(diff), ["LIVE_WINDOW_SECONDS", "recall_status"]
+        )
+
+    def test_a_task_text_naming_only_pre_existing_names_is_not_a_leak(self) -> None:
+        """The test is absence at the merge base, not mere mention.
+
+        `build` is defined by this diff and named in the text, but it already
+        exists under `src/`, so naming it hands the candidate nothing.
+        """
+
+        head = repo_lib.resolve(ROOT, "HEAD")
+        self.assertEqual(
+            corpus.introduced_names_in_task_text(
+                ROOT, head, "the build helper misbehaves", "+def build(x):\n"
+            ),
+            [],
+        )
+
+    def test_a_task_text_naming_an_introduced_name_is_a_leak(self) -> None:
+        head = repo_lib.resolve(ROOT, "HEAD")
+        name = "zz_definitely_not_in_this_repository_yet"
+        self.assertEqual(
+            corpus.introduced_names_in_task_text(
+                ROOT, head, f"it should call {name} instead", f"+def {name}(x):\n"
+            ),
+            [name],
+        )
+
+    def test_a_home_directory_from_a_public_issue_is_redacted(self) -> None:
+        """A home path is somebody's username, and the artifact rule misses it.
+
+        `artifact_is_safe` refuses a string that STARTS WITH a home path, so
+        one quoted mid-sentence rode into the committed corpus: a real
+        contributor's name, republished here as benchmark data.
+        """
+
+        for raw in (
+            "config at /Users/nashmbp/.hermes/config.yaml; see above",
+            "it lives in /home/someone/.config/omh",
+            "or C:\\Users\\someone\\AppData",
+        ):
+            with self.subTest(raw=raw):
+                redacted = corpus.redact_home_directories(raw)
+                self.assertIn("<home>", redacted)
+                for name in ("nashmbp", "someone"):
+                    self.assertNotIn(name, redacted)
+
+    def test_redaction_leaves_an_ordinary_repository_path_alone(self) -> None:
+        text = "src/routing/chat.py and tests/test_cli.py"
+        self.assertEqual(corpus.redact_home_directories(text), text)
+
+    def test_naming_a_changed_file_is_recorded_and_not_excluded(self) -> None:
+        """Pointing at the file that misbehaves is ordinary bug-report content."""
+
+        self.assertEqual(
+            corpus.source_paths_in_task_text(
+                "src/routing/chat.py returns the wrong tier",
+                ["src/routing/chat.py", "src/routing/recommend.py"],
+            ),
+            ["src/routing/chat.py"],
+        )
+
+
 class PinnedCorpusTests(unittest.TestCase):
     def setUp(self) -> None:
         self.payload = corpus.load(LANE / "corpus" / "evaluation.json")
         self.tasks = list(self.payload["tasks"])
+
+    def test_every_task_records_which_of_its_own_files_it_names(self) -> None:
+        """A weaker leak, recorded rather than excluded, so a reader can subset."""
+
+        for task in self.tasks:
+            with self.subTest(task=task["task_id"]):
+                named = task["task_text_names_source_paths"]
+                self.assertIsInstance(named, list)
+                self.assertTrue(set(named) <= set(task["source_paths"]))
+
+    def test_every_task_was_proven_green_with_its_own_fix(self) -> None:
+        """Red at the merge base is half the proof; this is the other half."""
+
+        for task in self.tasks:
+            with self.subTest(task=task["task_id"]):
+                probe = task["baseline_probe"]
+                self.assertEqual(
+                    probe["with_reference_fix"]["status"],
+                    "green",
+                    "a task whose validator stays red under the change that "
+                    "actually shipped is unsolvable here, and would cost a "
+                    "call on every arm to prove nothing",
+                )
+                self.assertEqual(
+                    probe["with_reference_fix_regression"]["status"], "green"
+                )
 
     def test_the_pinned_corpus_is_between_thirty_and_forty_tasks(self) -> None:
         self.assertGreaterEqual(len(self.tasks), 30)
@@ -400,16 +565,61 @@ class GradingTests(unittest.TestCase):
             (workspace / lane.COMPLETION_FILE).write_text("done!", encoding="utf-8")
             self.assertEqual(grading.completion_claim(workspace)["claim"], "unreadable")
 
+    def test_a_weakened_regression_module_is_restored_before_it_is_graded(self) -> None:
+        """The other half of the grade was gradeable from the candidate's own tree.
+
+        Regression modules are chosen to be modules the pull request did NOT
+        touch, so `materialize_validator` never restores them. The OMH arm's
+        prompt names those exact modules as a criterion while another
+        criterion permits edits under `tests/`, so a candidate that weakened
+        one passed that half undetected, and the bare Hermes arm, told none of
+        this, could not have done the same by accident.
+        """
+
+        _skip_without_history(self)
+        payload = corpus.load(LANE / "corpus" / "evaluation.json")
+        task = payload["tasks"][0]
+        module = str(task["regression_modules"][0])
+        with TemporaryDirectory() as root:
+            workspace = Path(root)
+            weakened = workspace / module
+            weakened.parent.mkdir(parents=True, exist_ok=True)
+            weakened.write_text("# every assertion deleted\n", encoding="utf-8")
+            restored = grading.restore_regression_modules(ROOT, task, workspace)
+            self.assertIn(module, restored)
+            self.assertNotEqual(
+                weakened.read_text(encoding="utf-8"), "# every assertion deleted\n"
+            )
+            self.assertEqual(
+                weakened.read_text(encoding="utf-8"),
+                repo_lib.file_at(ROOT, str(task["merge_base"]), module),
+                "restored from the merge base: the question is whether the "
+                "candidate broke what already worked",
+            )
+
+    def test_a_commit_this_checkout_cannot_read_says_so(self) -> None:
+        """"Vanished from the object store" sent a reader hunting for data loss.
+
+        A missing object here is almost always a checkout with no history for
+        that commit, so the message names the commit and whether the clone is
+        shallow.
+        """
+
+        task = {"merge_commit": "0" * 40, "solution_blobs": {"README.md": "abc"}}
+        with TemporaryDirectory() as root:
+            with self.assertRaisesRegex(ValueError, "shallow repository="):
+                grading.materialize_solution(ROOT, task, Path(root))
+
     def test_the_validator_is_written_from_the_merge_commit_and_detected_when_present(self) -> None:
         _skip_without_history(self)
         payload = corpus.load(LANE / "corpus" / "evaluation.json")
         task = payload["tasks"][0]
         with TemporaryDirectory() as root:
             workspace = Path(root)
-            self.assertEqual(grading.validator_is_absent(workspace, task), [])
+            self.assertEqual(grading.validator_paths_already_present(workspace, task), [])
             written = grading.materialize_validator(ROOT, task, workspace)
             self.assertTrue(written)
-            present = grading.validator_is_absent(workspace, task)
+            present = grading.validator_paths_already_present(workspace, task)
             self.assertEqual(
                 present,
                 sorted(path for path, blob in task["test_blobs"].items() if blob != "-"),
@@ -468,6 +678,61 @@ class ArmTests(unittest.TestCase):
         self.assertNotIn(protocol.UNIT_RESULT_RETURN_PROTOCOL, delegated)
         self.assertNotIn(protocol.UNIT_RESULT_RETURN_PROTOCOL, arms.base_prompt("Do the thing."))
 
+    def test_the_prompt_never_tells_the_model_both_to_commit_and_not_to(self) -> None:
+        """`completion_criteria_for_unit` appends the commit criterion always.
+
+        It is fanout transport: it exists so a dispatched worktree can be
+        collected, and this lane has no collector. Left in, it reached the
+        model in the same prompt as "do not commit", and it falsified the
+        profile name, which claims the exclusion this now performs.
+        """
+
+        transport = arms.fanout_transport_criteria()
+        self.assertTrue(transport, "the shipped protocol appends at least one")
+        route = {
+            "selected_model": "gpt-5.6-sol",
+            "selected_reasoning_effort": "high",
+            "model_family": "gpt",
+        }
+        unit = arms.benchmark_unit(
+            file_scope=["src/"], checks=["python -m compileall -q src"], route=route
+        )
+        delegated = arms.delegation_prompt("Do the thing.", unit)
+        for criterion in transport:
+            with self.subTest(criterion=criterion):
+                self.assertNotIn(criterion, delegated)
+        self.assertIn("Do not create a branch, do not commit", delegated)
+
+    def test_a_command_reaches_the_model_in_the_case_it_must_be_typed_in(self) -> None:
+        """The protocol capitalizes an integration check's first character.
+
+        A bare `python -m compileall -q src` arrived as `Python …`. The gate
+        lowercases the interpreter before running it, so the lane never
+        noticed; a model copying the line on a case-sensitive filesystem
+        would.
+        """
+
+        route = {
+            "selected_model": "gpt-5.6-sol",
+            "selected_reasoning_effort": "high",
+            "model_family": "gpt",
+        }
+        unit = arms.benchmark_unit(
+            file_scope=["src/"], checks=["python -m compileall -q src"], route=route
+        )
+        delegated = arms.delegation_prompt("Do the thing.", unit)
+        self.assertIn("python -m compileall -q src", delegated)
+        self.assertNotIn("Python -m compileall", delegated)
+
+    def test_the_transport_criterion_is_derived_not_transcribed(self) -> None:
+        """Derived from the protocol, so a rewording upstream stays filtered."""
+
+        protocol = arms.prompt_protocol()
+        empty = protocol.completion_criteria_for_unit(
+            {"boundary": {}, "integration_checks": []}
+        )
+        self.assertEqual(arms.fanout_transport_criteria(), tuple(list(empty)[1:]))
+
     def test_the_oneshot_argv_pins_the_workspace_and_passes_the_prompt_as_an_argument(self) -> None:
         argv = arms.oneshot_argv(
             hermes_executable="hermes",
@@ -488,6 +753,27 @@ class ArmTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("--in") + 1], str(Path("/tmp/ws")))
         self.assertIn("--usage-file", argv)
         self.assertEqual(argv[argv.index("--toolsets") + 1], "file,terminal")
+
+    def test_the_verification_gate_times_itself(self) -> None:
+        """The gate runs on the OMH arms only, so its minutes must be charged.
+
+        Left out of the wall clock, a compile pass and up to six unittest
+        modules came off exactly one side of the comparison and landed on the
+        "faster" headline.
+        """
+
+        with TemporaryDirectory() as root:
+            workspace = Path(root) / "ws"
+            workspace.mkdir()
+            result = arms.run_verification(
+                python_executable=sys.executable,
+                workspace=workspace,
+                scratch=Path(root) / "scratch",
+                commands=["python -c 'pass'"],
+                timeout=120,
+            )
+        self.assertIn("seconds", result)
+        self.assertGreater(result["seconds"], 0.0)
 
     def test_the_verification_gate_reports_a_failing_check_without_raising(self) -> None:
         with TemporaryDirectory() as root:
@@ -617,6 +903,106 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(summary["false_completions"], 1)
         self.assertAlmostEqual(summary["false_completion_rate"], 1 / 3)
 
+    def test_an_unpriced_run_is_unknown_and_never_zero(self) -> None:
+        """A model with no price-table entry must not render as a free arm.
+
+        Resolving the mixture routing over the shipped corpus dispatches
+        `glm-5.3-ultrafast`, which has no entry, so collapsing its price to
+        0.0 rendered a 100 percent cost saving with a tight interval, built
+        out of unknowns.
+        """
+
+        rows = {
+            "PR-1": _record(
+                "omh_mixture", "PR-1", passed=True, claim="complete",
+                cost=None, seconds=30, tokens=1000, model="glm-5.3-ultrafast",
+            ),
+            "PR-2": _record(
+                "omh_mixture", "PR-2", passed=False, claim="blocked",
+                cost=0.04, seconds=30, tokens=1000,
+            ),
+        }
+        summary = report.arm_summary(rows)
+        self.assertFalse(summary["cost_is_complete"])
+        self.assertIsNone(summary["cost_usd_total"])
+        self.assertIsNone(summary["cost_usd_per_pass"])
+        self.assertEqual(summary["runs_unpriced"], 1)
+        self.assertEqual(summary["unpriced_models"], ["glm-5.3-ultrafast"])
+
+    def test_an_unpriced_run_raises_rather_than_pricing_itself_at_zero(self) -> None:
+        unpriced = _record(
+            "omh", "PR-9", passed=True, claim="complete",
+            cost=None, seconds=1, tokens=1,
+        )
+        self.assertIsNone(report.priced(unpriced))
+        with self.assertRaisesRegex(ValueError, "not a free run"):
+            report._cost(unpriced)
+
+    def test_a_cost_delta_over_unpriced_pairs_is_refused_by_name(self) -> None:
+        before = [_record("hermes", "PR-1", passed=True, claim="complete", cost=0.10, seconds=10, tokens=10)]
+        after = [_record("omh", "PR-1", passed=True, claim="complete", cost=None, seconds=10, tokens=10)]
+        delta = report.paired_delta(before, after, "cost", 200, 1)
+        self.assertIsNone(delta["mean_delta"])
+        self.assertEqual(delta["reading"], report.UNPRICED_RUNS)
+        self.assertEqual(delta["unpriced_tasks"], ["PR-1"])
+
+    def test_the_table_says_unknown_and_names_the_unpriced_model(self) -> None:
+        rendered = report.render_table(
+            {
+                "arms": {
+                    "omh_mixture": report.arm_summary(
+                        {
+                            "PR-1": _record(
+                                "omh_mixture", "PR-1", passed=True, claim="complete",
+                                cost=None, seconds=30, tokens=1000,
+                                model="glm-5.3-ultrafast",
+                            )
+                        }
+                    )
+                }
+            }
+        )
+        self.assertIn("unknown", rendered)
+        self.assertNotIn("$0.0000", rendered)
+        self.assertIn("glm-5.3-ultrafast", rendered)
+        self.assertIn("Unpriced", rendered)
+        self.assertIn("could not be priced", rendered)
+
+    def test_a_provider_failure_is_counted_but_never_quietly_dropped(self) -> None:
+        """The OMH arms launch up to twice the calls, so they meet more limits.
+
+        Excluding those rows would flatter the arm that spends more; hiding
+        them would leave a pass rate the reader cannot interpret. Both numbers
+        are reported.
+        """
+
+        row = _record(
+            "omh", "PR-1", passed=False, claim="blocked",
+            cost=0.01, seconds=5, tokens=10,
+        )
+        row["failure_receipt"] = {"classification": "limit_reached", "kind": "primary"}
+        ok = _record(
+            "omh", "PR-2", passed=True, claim="complete",
+            cost=0.01, seconds=5, tokens=10,
+        )
+        summary = report.arm_summary({"PR-1": row, "PR-2": ok})
+        self.assertEqual(summary["runs_failed_for_provider_reasons"], 1)
+        self.assertAlmostEqual(summary["pass_rate"], 0.5)
+        self.assertAlmostEqual(summary["pass_rate_excluding_provider_failures"], 1.0)
+
+    def test_a_crash_is_not_counted_as_a_provider_failure(self) -> None:
+        row = _record(
+            "omh", "PR-1", passed=False, claim="blocked",
+            cost=0.01, seconds=5, tokens=10,
+        )
+        row["failure_receipt"] = {"classification": "process_crash", "kind": "primary"}
+        self.assertFalse(report.failed_for_provider_reasons(row))
+        self.assertTrue(
+            report.failed_for_provider_reasons(
+                {"failure_receipt": {"classification": "rate_limited"}}
+            )
+        )
+
     def test_the_report_pairs_every_arm_against_the_baseline(self) -> None:
         with TemporaryDirectory() as root:
             produced = report.analyze(
@@ -697,6 +1083,44 @@ class CommandLineTests(unittest.TestCase):
         completed = self._bench("run", "--allow-paid-live")
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("--max-paid-calls", completed.stderr)
+
+    def test_smoke_enforces_the_budget_that_run_enforces(self) -> None:
+        """The budget reached `run_matrix` only, and `smoke` does not use it.
+
+        One task over the three arms is three calls, and five once the repair
+        turns fire, so under `--max-paid-calls 1` the flag was accepted,
+        echoed back on the receipt, and ignored.
+        """
+
+        completed = self._bench(
+            "smoke",
+            "--arm", "hermes", "--arm", "omh", "--arm", "omh_mixture",
+            "--allow-paid-live", "--max-paid-calls", "1",
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("exceed the explicit budget", completed.stderr)
+
+    def test_the_control_effort_is_one_that_actually_carries_calibration(self) -> None:
+        """Both doc surfaces say the OMH arm carries the route's calibration.
+
+        `calibration_for_route` returns "" outside the high effort tier, so a
+        control effort of `medium` made that sentence false on every task
+        while the mixture arm, routed at high, did get a block: calibration
+        only where the model also changed.
+        """
+
+        manifest = lane.load_object(LANE / "manifest.json")
+        effort = str(manifest["control"]["effort"])
+        protocol = arms.prompt_protocol()
+        self.assertIn(effort, protocol.HIGH_EFFORT_TIER)
+        calibration = protocol.calibration_for_route(
+            {
+                "selected_model": str(manifest["control"]["model"]),
+                "selected_reasoning_effort": effort,
+                "model_family": "gpt",
+            }
+        )
+        self.assertTrue(calibration)
 
     def test_the_corpus_command_takes_exactly_one_mode(self) -> None:
         completed = self._bench("corpus")

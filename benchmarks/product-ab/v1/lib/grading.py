@@ -44,17 +44,110 @@ def materialize_validator(repository: Path, task: Mapping[str, Any], workspace: 
             target.unlink(missing_ok=True)
             written.append(str(path))
             continue
-        content = repo_lib.file_at(repository, str(task["merge_commit"]), str(path))
-        if content is None:
-            raise ValueError(f"validator path vanished from the object store: {path}")
+        content = _blob(repository, str(task["merge_commit"]), str(path))
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8", newline="")
         written.append(str(path))
     return sorted(written)
 
 
-def validator_is_absent(workspace: Path, task: Mapping[str, Any]) -> list[str]:
-    """Test paths whose candidate-tree content already equals the validator."""
+def materialize_solution(repository: Path, task: Mapping[str, Any], workspace: Path) -> list[str]:
+    """Write the pull request's own non-test change into the workspace.
+
+    This is the reference solution, and only the corpus probe ever calls it.
+    Proving each task red at its merge base closes one direction: a task that
+    is already green needs nothing built. It says nothing about the other
+    direction, and an unsolvable task -- one whose validator stays red even
+    with the fix that shipped, because it depends on something outside the
+    candidate's reach -- would enter the corpus silently, burn budget on every
+    arm, and deflate the published pass rate.
+
+    No arm sees any of this. It is the check that the task has a solution.
+    """
+
+    written: list[str] = []
+    for path, expected in dict(task.get("solution_blobs") or {}).items():
+        if not lane.safe_relative(str(path)):
+            raise ValueError(f"unsafe solution path: {path}")
+        target = workspace / str(path)
+        if expected == "-":
+            target.unlink(missing_ok=True)
+            written.append(str(path))
+            continue
+        content = _blob(repository, str(task["merge_commit"]), str(path))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8", newline="")
+        written.append(str(path))
+    return sorted(written)
+
+
+def restore_regression_modules(
+    repository: Path, task: Mapping[str, Any], workspace: Path
+) -> list[str]:
+    """Put the merge base's version of every regression module back.
+
+    The other half of the grade was forgeable without this. The regression
+    modules are chosen to be modules the pull request did *not* touch, so
+    `materialize_validator` never restores them, and they were run from
+    whatever the candidate left behind. The OMH arm's prompt then names those
+    exact modules as a completion criterion while another criterion permits
+    edits anywhere under `tests/`, so a candidate that weakened one passed that
+    half undetected -- and the bare Hermes arm, told none of this, could not
+    have done the same thing even by accident.
+
+    Restoring from the merge base rather than the merge commit is deliberate:
+    these modules are the pre-existing suite, and the question they answer is
+    whether the candidate's change broke what already worked.
+    """
+
+    restored: list[str] = []
+    for path in sorted({str(module) for module in task["regression_modules"]}):
+        if not lane.safe_relative(path):
+            raise ValueError(f"unsafe regression path: {path}")
+        content = _blob(repository, str(task["merge_base"]), path)
+        target = workspace / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8", newline="")
+        restored.append(path)
+    return restored
+
+
+def _blob(repository: Path, commit: str, path: str) -> str:
+    """One path's content at one commit, or a failure that names the cause.
+
+    A missing object here is almost never a missing file. It is a checkout
+    with no history for that commit -- a shallow clone, most often -- and
+    saying "vanished from the object store" sent one reader looking for data
+    loss that had not happened.
+    """
+
+    content = repo_lib.file_at(repository, commit, path)
+    if content is not None:
+        return content
+    has_commit = repo_lib.git_ok(repository, "cat-file", "-e", f"{commit}^{{commit}}")
+    try:
+        shallow = repo_lib.git(repository, "rev-parse", "--is-shallow-repository").strip()
+    except repo_lib.GitError:
+        shallow = "unknown"
+    raise ValueError(
+        f"this checkout cannot read {path} at {commit[:12]}: commit present="
+        f"{has_commit}, shallow repository={shallow}"
+    )
+
+
+def validator_paths_already_present(workspace: Path, task: Mapping[str, Any]) -> list[str]:
+    """Test paths whose candidate-tree content already equals the validator.
+
+    Named for what it returns. It used to be called `validator_is_absent` and
+    return the paths that were PRESENT, so every call site read as its own
+    negation.
+
+    Worth knowing what this can and cannot catch: it runs before the candidate
+    starts, on a freshly created worktree at the merge base, so a non-empty
+    result means the corpus is wrong -- a task whose "hidden" validator was
+    already in the tree it is graded against. It is not a check on the
+    candidate, which has not run yet.
+    """
 
     import hashlib  # noqa: PLC0415
 

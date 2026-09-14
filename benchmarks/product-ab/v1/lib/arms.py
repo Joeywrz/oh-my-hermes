@@ -99,6 +99,28 @@ def base_prompt(task_text: str) -> str:
     return f"{WORKSPACE_PREAMBLE}\n\nTASK:\n{task_text.strip()}\n\n{COMPLETION_CONTRACT}"
 
 
+def fanout_transport_criteria() -> tuple[str, ...]:
+    """The criteria the shipped protocol appends whatever the unit says.
+
+    Derived, not copied. `completion_criteria_for_unit` builds one line from
+    the unit's file scope, one per integration check, and then appends the
+    fanout-transport criterion unconditionally -- so asking it for the
+    criteria of an empty unit and dropping the leading file-scope line leaves
+    exactly the criteria the unit data cannot influence.
+
+    They have to be dropped here because they are transport: they exist so a
+    dispatched worktree can be collected and merged, and this lane has no
+    collector. Leaving the commit criterion in put a direct contradiction in
+    front of the model, which was told in the same prompt not to commit, and
+    falsified `PROMPT_PROFILE`. Deriving the text rather than matching it means
+    a rewording upstream stays filtered instead of silently reappearing.
+    """
+
+    protocol = prompt_protocol()
+    empty = protocol.completion_criteria_for_unit({"boundary": {}, "integration_checks": []})
+    return tuple(str(criterion) for criterion in list(empty)[1:])
+
+
 def delegation_prompt(task_text: str, unit: Mapping[str, Any]) -> str:
     """The OMH arm's prompt, composed from the shipped protocol constants."""
 
@@ -114,7 +136,13 @@ def delegation_prompt(task_text: str, unit: Mapping[str, Any]) -> str:
         "",
         "Done means, and only means:",
     ]
-    for index, criterion in enumerate(protocol.completion_criteria_for_unit(unit), 1):
+    transport = set(fanout_transport_criteria())
+    kept = [
+        criterion
+        for criterion in protocol.completion_criteria_for_unit(unit)
+        if str(criterion) not in transport
+    ]
+    for index, criterion in enumerate(kept, 1):
         lines.append(f"{index}. {criterion}")
     lines.append(protocol.TOOL_BATCHING_PROTOCOL)
     calibration = protocol.calibration_for_route(
@@ -124,6 +152,20 @@ def delegation_prompt(task_text: str, unit: Mapping[str, Any]) -> str:
         lines.append(calibration)
     lines.extend(["", COMPLETION_CONTRACT])
     return "\n".join(lines)
+
+
+def criterion_for_command(command: str) -> str:
+    """A shell command stated as a criterion the model can read literally.
+
+    `completion_criteria_for_unit` capitalizes the first character of each
+    integration check, so a bare `python -m compileall -q src` reaches the
+    model as `Python -m compileall -q src`. The lane's own gate lowercases the
+    interpreter before running it and never noticed; a model copying the line
+    verbatim on a case-sensitive filesystem would. Wrapping the command puts a
+    word in the position that gets capitalized and leaves the command alone.
+    """
+
+    return f"Run `{command.strip()}` and make it pass."
 
 
 def benchmark_unit(
@@ -136,7 +178,7 @@ def benchmark_unit(
         "title": "benchmark task",
         "role": "implementation",
         "boundary": {"file_scope": list(file_scope), "do_not_touch": []},
-        "integration_checks": list(checks),
+        "integration_checks": [criterion_for_command(check) for check in checks],
         "handoff": {"model_route": dict(route)},
     }
 
@@ -365,6 +407,7 @@ def run_verification(
 
     rows: list[dict[str, Any]] = []
     environment = lane.unittest_environment(workspace, scratch)
+    started = time.monotonic()
     for command in commands:
         try:
             argv = shlex.split(command)
@@ -402,4 +445,9 @@ def run_verification(
         "status": "failed" if failed else "passed",
         "checks": rows,
         "failed_count": len(failed),
+        # The gate runs a compile pass and up to six unittest modules, which
+        # costs minutes. It runs on the OMH arms only, so leaving it out of the
+        # wall clock would take time off exactly one side of the comparison and
+        # put it on the "faster" headline.
+        "seconds": round(time.monotonic() - started, 3),
     }

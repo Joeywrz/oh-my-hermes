@@ -41,13 +41,28 @@ neither break the validator nor weaken it.
 | Only `.github/`, packaging, or dependency files changed | maintenance without a behavioural validator |
 | Task text under 200 characters | not a brief |
 | Task text quoting the diff | see *Leak rules* below |
+| Task text naming a definition the fix introduces | see *Leak rules* below |
 | Validator already green at the merge base | nothing has to be built to pass it |
+| Validator still red with the fix that shipped | the task is unsolvable here; see *Both directions* below |
 | Regression set already red at the merge base | every arm would fail for a reason no arm caused |
 | Validator disagrees with itself between two checkout paths | see *Two-path probe* below |
 
 The 400-line cap counts the non-test, non-generated change, because that is
 the work a candidate has to produce. Test lines are the validator, and a
 thorough test file does not make a task harder.
+
+### Both directions
+
+Proving a task red at its merge base closes one direction only: nothing has to
+be built to pass it. It says nothing about whether anything *can* be. So the
+probe also applies the pull request's own non-test change -- the reference
+solution -- and requires the validator and the regression modules to come back
+green. A task that stays red under the change that actually shipped depends on
+something outside the candidate's reach; it would cost a call on every arm and
+pull the published pass rate down for a reason no arm caused.
+
+No arm ever sees the reference solution. It is pinned in the corpus under
+`solution_blobs` and read only by `corpus --probe`.
 
 ### Two-path probe
 
@@ -95,9 +110,26 @@ code rather than promised in prose:
    request's non-test diff that is at least 40 characters long is searched for,
    whitespace-normalized, in the task text. A hit excludes the pull request
    (`corpus.leaked_solution_lines`).
+1. **The task text may not name what the fix introduces.** A pull request body
+   is written after the change, by its author, and it paraphrases rather than
+   quotes -- so it can name the function to write without reproducing a line of
+   it, and the rule above never fires. A name counts as a leak when the pull
+   request defines it, the task text uses it, and `git grep` finds it nowhere
+   under `src/` at the merge base. That last condition is what separates
+   handing over the answer from naming something the candidate could have read
+   for itself (`corpus.introduced_names_in_task_text`).
+1. **The solution half of the body is cut at its heading.** Headings match by
+   prefix, not equality: this repository's own template writes `Implementation
+   (boundary level)`, and an equality test kept that entire section. A `#` line
+   inside a fenced code block is a comment, not a section boundary.
+1. **Naming one of the pull request's own changed files is recorded, not
+   excluded.** Pointing at the file that misbehaves is what an ordinary bug
+   report does and hands over no part of the fix. Every task carries
+   `task_text_names_source_paths` so a reader can subset the corpus rather than
+   trust a sentence about it.
 2. **The workspace may not contain the validator.** Before a candidate is
    started, every pinned test blob is compared against the workspace's copy; a
-   match aborts the run rather than grading it (`grading.validator_is_absent`).
+   match aborts the run rather than grading it (`grading.validator_paths_already_present`).
    The same check runs inside `doctor`.
 
 ## The arms
@@ -112,8 +144,12 @@ between the first two are the ones OMH owns.
 | `omh_mixture` | the model the complexity routing resolves from the category mixture | the same delegation prompt | yes |
 
 `omh_mixture` is labelled separately on purpose: it is the only arm where the
-model changes, so a cost difference stays attributable to routing rather than
-to calibration.
+routing is allowed to move, so a cost difference stays attributable to routing
+rather than to calibration. Read it as one bundled change, not as a model
+swap: the resolved route can carry a different provider (`og` rather than the
+control's) and a different effort per task as well as a different model, and
+all three move together. The `model` block on every record says exactly what
+that task got.
 
 Arm order rotates one position per task, so no arm is systematically first.
 One task runs at a time.
@@ -130,6 +166,19 @@ One task runs at a time.
   kind, structural search discipline, tool batching, the numbered completion
   criteria, and `calibration_for_route` — so a calibration this repository
   revises is the calibration the next run measures.
+* `calibration_for_route` returns nothing outside the high effort tier, so the
+  manifest pins the control effort at `high`. At `medium` the arm carried no
+  calibration on any task while the mixture arm, routed at `high`, did get a
+  block — which put calibration only where the model also changed, inverting
+  the reason that arm is labelled separately. `doctor` fails when the pinned
+  control effort resolves to an empty calibration, so the sentence above
+  cannot quietly become false again.
+* The fanout-transport criteria are filtered out of the composed prompt. The
+  shipped `completion_criteria_for_unit` always appends "the work is committed
+  on the unit branch", which exists so a dispatched worktree can be collected;
+  this lane has no collector, and left in it reached the model in the same
+  prompt as "do not commit". They are derived from the protocol rather than
+  matched by wording, so a rewording upstream stays filtered.
 * After the run, the arm executes the task's declared verification commands.
   When they fail, a completion claim is withdrawn, and the manifest's
   `omh_repair_attempts` decides whether the arm gets one more turn with the
@@ -140,6 +189,14 @@ The verification commands are a compile gate plus the pre-existing regression
 modules for the touched packages. The pull request's own tests are never among
 them: they are the hidden validator, and a gate that ran them would hand the
 candidate the answer.
+
+Before either half of the grade is run, the regression modules are restored
+from the merge base. They are chosen to be modules the pull request did *not*
+touch, so the validator never restores them, and they used to be graded from
+whatever the candidate left behind -- while the OMH arm's prompt named those
+exact modules and another criterion permitted edits under `tests/`. A candidate
+that weakened one passed that half undetected, and the bare Hermes arm, told
+none of this, could not have done the same even by accident.
 
 ## What this lane deliberately does not measure
 
@@ -171,8 +228,8 @@ candidate the answer.
 | Number | Definition |
 | --- | --- |
 | Pass rate | validator green, over the tasks in the corpus |
-| Cost per pass | total cost ÷ passes. The host's `estimated_cost_usd` is recorded when it reports one; the comparable column is OMH's own shipped list-price table applied to each run's input, output, and cache-read tokens, so a subscription route and a metered route are still on one scale |
-| Wall clock per goal | seconds from dispatch to the last attempt's exit, repair turns included; reported as a median and a total |
+| Cost per pass | total cost ÷ passes, reported only when every run in the arm carries a price. The host's `estimated_cost_usd` is recorded when it reports one; the comparable column is OMH's own shipped list-price table applied to each run's input, output, and cache-read tokens, so a subscription route and a metered route are still on one scale |
+| Wall clock per goal | seconds from dispatch to the last attempt's exit, repair turns **and the verification gate** included; reported as a median and a total, with `model_seconds` and `verification_gate_seconds` kept separately |
 | False completion | the run wrote a completion claim of `complete` and the validator is red |
 
 The false-completion column is not a neutral observation of two identical
@@ -185,9 +242,23 @@ recorded on the run, so the two readings can be separated afterwards.
 Tool calls and API turns ride along as secondary columns, read from the
 Hermes usage file.
 
-A run that nothing could price is not a free run. It stays out of the cost sum
-and is counted in the report's `runs_unpriced` field, so a cost-per-pass figure
-is never quietly built on a zero that means "unknown".
+A run that nothing could price is not a free run, and the arm it belongs to has
+no cost. An unpriced run used to collapse to `0.0`, sum into the arm total, and
+divide into cost per pass: resolving the mixture routing over this corpus
+dispatches an alias with no price-table entry, so the table rendered a 100%
+cost saving with a tight confidence interval, manufactured out of unknowns.
+
+Now an arm with any unpriced run reports `cost_usd_total: null`, the table
+prints `unknown` rather than a dollar figure, an `Unpriced` column shows the
+coverage, and a footnote names the models that have no entry. The paired cost
+delta is refused by name rather than computed over whichever pairs happened to
+be priced. `_cost()` raises rather than substitute a zero, so a future caller
+that forgets to check cannot reintroduce the same number.
+
+Wall clock counts the verification gate. The gate runs a compile pass and up to
+six unittest modules, on the OMH arms only, so charging it to nobody would take
+minutes off exactly one side of the comparison and hand them to the "faster"
+headline.
 
 Pairing is per task. `analyze.py` computes a paired bootstrap CI95 on each
 delta and an exact McNemar test on pass rate, using `percentile`,
@@ -208,7 +279,9 @@ into a direction it does not have.
   runs and can launch 200 calls, so a budget of 120 refuses that run rather
   than starting something it cannot pay for. Budgeting on the worst case can
   refuse a run that would have come in under the limit, which is the direction
-  a spending limit should err in.
+  a spending limit should err in. `smoke` enforces the identical check: it
+  calls into the runner directly rather than through the matrix, and for a
+  while accepted the flag, echoed it back on the receipt, and ignored it.
 * OMH core makes no LLM, API, or network call. This lane is benchmark tooling
   under `benchmarks/`, and it is allowed to run `gh`, `git`, and `hermes` as
   subprocesses. The only network reads are in `lib/github.py`, and they happen

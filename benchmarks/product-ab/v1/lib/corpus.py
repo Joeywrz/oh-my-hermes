@@ -68,6 +68,12 @@ PROBLEM_HEADINGS = ("Why This Exists", "Problem", "Motivation")
 
 #: Headings that describe the change. Everything from the first one onwards is
 #: dropped from a PR-body task text, because it names the solution.
+#:
+#: These match by prefix, not by equality, because a heading in the wild
+#: carries qualifiers. This repository's own pull request template writes
+#: `### Implementation (boundary level)`, which equals no string such a list
+#: would ever hold, so an equality test left the entire implementation section
+#: inside the task text.
 SOLUTION_HEADINGS = (
     "What Changed",
     "How It Works",
@@ -76,6 +82,14 @@ SOLUTION_HEADINGS = (
     "Validation",
     "Observed Evidence",
     "Proposal",
+    # An issue prescribes the fix under headings of its own, and those sections
+    # name the change to make just as directly as a pull request body does.
+    "Suggested fix",
+    "Proposed fix",
+    "Root cause",
+    "Verification",
+    "Solution",
+    "Approach",
 )
 
 MAX_CHANGED_LINES = 400
@@ -112,15 +126,75 @@ def _is_test_module(path: str) -> bool:
     return _is_test(path) and Path(path).name.startswith("test_") and path.endswith(".py")
 
 
+def heading_matches(title: str, heading: str) -> bool:
+    """Whether a markdown heading in the wild is the section ``heading`` names.
+
+    Prefix, not equality. A real heading carries qualifiers -- this
+    repository's pull request template writes `Implementation (boundary
+    level)` -- and an equality test silently keeps the section it was supposed
+    to cut. The boundary after the prefix has to be a non-word character so
+    `Fix` does not swallow `Fixture`, and a trailing colon is dropped because
+    `Root cause:` is the same heading as `Root cause`.
+    """
+
+    normalized = " ".join(title.strip().strip("*_`#").split()).rstrip(":").casefold()
+    wanted = " ".join(heading.split()).casefold()
+    if normalized == wanted:
+        return True
+    return normalized.startswith(wanted) and not normalized[len(wanted)].isalnum()
+
+
 def _section(body: str, headings: Sequence[str]) -> tuple[str, int] | None:
     """The first markdown section whose heading matches, with its offset."""
 
-    for match in re.finditer(r"^#{1,4}\s*(.+?)\s*$", body, re.MULTILINE):
-        title = match.group(1).strip().strip("*_`").casefold()
+    for match in _headings_outside_code(body):
+        title = match.group(1)
         for heading in headings:
-            if title == heading.casefold():
+            if heading_matches(title, heading):
                 return heading, match.start()
     return None
+
+
+def _headings_outside_code(body: str) -> list[re.Match[str]]:
+    """Heading matches that are not inside a fenced code block.
+
+    A `#` line inside a fence is a shell comment or a Python comment, not a
+    section, and treating one as a section cuts the task text at a place the
+    author never wrote a boundary.
+    """
+
+    fenced: list[tuple[int, int]] = []
+    opened: int | None = None
+    for fence in re.finditer(r"^\s*(?:```|~~~)", body, re.MULTILINE):
+        if opened is None:
+            opened = fence.start()
+        else:
+            fenced.append((opened, fence.end()))
+            opened = None
+    if opened is not None:
+        fenced.append((opened, len(body)))
+    return [
+        match
+        for match in re.finditer(r"^#{1,4}\s*(.+?)\s*$", body, re.MULTILINE)
+        if not any(start <= match.start() < end for start, end in fenced)
+    ]
+
+
+#: A home directory in a public issue body, which is somebody's username.
+#: The lane's artifact rule only refuses a string that *starts with* a home
+#: path, so one quoted mid-sentence rode into the committed corpus: a real
+#: contributor's name, from a public issue, republished in this repository as
+#: benchmark data. Redacted at build time, where it is cheap; the surrounding
+#: sentence still reads and the task still states the same problem.
+HOME_DIRECTORY = re.compile(
+    r"(?:/Users/|/home/|[A-Za-z]:\\\\?Users\\\\?)[A-Za-z0-9._-]+", re.IGNORECASE
+)
+
+
+def redact_home_directories(text: str) -> str:
+    """Replace any home directory path with a placeholder of the same shape."""
+
+    return HOME_DIRECTORY.sub("<home>", text)
 
 
 def task_text_from_pull_request_body(body: str) -> str:
@@ -166,6 +240,67 @@ def leaked_solution_lines(task_text: str, source_diff: str) -> list[str]:
         if " ".join(line.split()) in normalized:
             leaks.append(line)
     return leaks
+
+
+#: A name the pull request defines: a function, a class, or a module-level
+#: constant, read off its added source lines. The indentation is already gone
+#: by the time these lines are seen, so a nested definition reads as a
+#: top-level one; for a leak signal that over-counts in the safe direction.
+DEFINITION = re.compile(
+    r"^(?:async\s+)?def\s+(?P<function>[A-Za-z_]\w{3,})"
+    r"|^class\s+(?P<klass>[A-Za-z_]\w{3,})"
+    r"|^(?P<constant>[A-Z][A-Z0-9_]{4,})\s*(?::[^=]+)?="
+)
+
+
+def defined_names(source_diff: str) -> list[str]:
+    """Every function, class, or constant name the diff's added lines define."""
+
+    names: set[str] = set()
+    for line in _added_lines(source_diff):
+        match = DEFINITION.match(line)
+        if match is None:
+            continue
+        names.update(value for value in match.groupdict().values() if value)
+    return sorted(names)
+
+
+def introduced_names_in_task_text(
+    repository: Path, base: str, task_text: str, source_diff: str
+) -> list[str]:
+    """Names the task text hands over that did not exist before the fix.
+
+    The verbatim-line rule cannot catch this. A pull request body paraphrases
+    rather than quotes, so it names the function to write without ever
+    reproducing a line of it, and the task becomes transcription: the hidden
+    validator asserts on exactly that name.
+
+    A name counts only when the pull request defines it AND the task text uses
+    it AND `git grep` finds it nowhere under `src/` at the merge base. The last
+    condition is what separates handing over the answer from naming something
+    the candidate could have read for itself.
+    """
+
+    words = set(re.findall(r"[A-Za-z_]\w+", task_text))
+    candidates = [name for name in defined_names(source_diff) if name in words]
+    if not candidates:
+        return []
+    return sorted(
+        name
+        for name in candidates
+        if not repo_lib.grep_paths(repository, base, [name], SOURCE_PREFIX)
+    )
+
+
+def source_paths_in_task_text(task_text: str, source_paths: Sequence[str]) -> list[str]:
+    """The pull request's own changed source files that the task text names.
+
+    Weaker than a name leak and deliberately not an exclusion: pointing at the
+    file that misbehaves is what an ordinary bug report does, and it hands over
+    no part of the fix. It is recorded so a reader can subset the corpus.
+    """
+
+    return sorted(path for path in source_paths if path in task_text)
 
 
 def _touched_packages(source_paths: Iterable[str]) -> list[str]:
@@ -267,6 +402,8 @@ def _candidate(
     ]
     if not non_test_work:
         return None, "generated_artifacts_only"
+    # The complete non-test change, for the probe's reference solution.
+    solution_paths = [path for path in paths if not _is_test(path)]
 
     counts = repo_lib.numstat(repository, base, head)
     # The cap bounds the work a candidate has to produce, so it counts the
@@ -303,7 +440,7 @@ def _candidate(
     if not task_text:
         task_text = task_text_from_pull_request_body(str(pull_request.get("body") or ""))
         task_source = "pull_request_body"
-    task_text = task_text.strip()
+    task_text = redact_home_directories(task_text.strip())
     if len(task_text) < MIN_TASK_TEXT_CHARS:
         return None, "task_text_too_short"
     task_text = task_text[:MAX_TASK_TEXT_CHARS]
@@ -312,6 +449,13 @@ def _candidate(
     leaks = leaked_solution_lines(task_text, source_diff)
     if leaks:
         return None, "task_text_leaks_solution"
+    introduced = introduced_names_in_task_text(repository, base, task_text, source_diff)
+    if introduced:
+        # The task text names something the fix creates and the hidden
+        # validator asserts on. Both arms would be transcribing rather than
+        # solving, which inflates the pass rate and compresses the delta.
+        return None, "task_text_names_an_introduced_definition"
+    named_source_paths = source_paths_in_task_text(task_text, source_paths)
 
     packages = _touched_packages(source_paths)
     regression = _regression_modules(
@@ -332,6 +476,10 @@ def _candidate(
         "task_source": task_source,
         "task_text": task_text,
         "task_text_sha256": lane.text_digest(task_text),
+        # Recorded, not excluded: naming the file that misbehaves is what an
+        # ordinary bug report does. A reader who wants the stricter corpus
+        # subsets on this field rather than trusting a prose claim about it.
+        "task_text_names_source_paths": named_source_paths,
         "changed_lines": changed_lines,
         "test_lines": test_lines,
         "touched_packages": packages,
@@ -339,6 +487,22 @@ def _candidate(
         "test_paths": test_paths,
         "test_modules": test_modules,
         "test_blobs": {path: repo_lib.blob_digest(repository, head, path) for path in test_paths},
+        # The pull request's own non-test change: the reference solution. Only
+        # the probe reads it, to prove the task is solvable at all; no arm ever
+        # sees it and no run writes it into a candidate workspace.
+        #
+        # Every non-test path, generated artifacts included. They are left out
+        # of the line cap and the leak scan for good reasons -- a regeneration
+        # is not work the candidate has to produce by hand, and generated bytes
+        # are not a solution to quote -- but the reference solution has to be
+        # the whole change or the green direction measures the wrong thing:
+        # this repository's tests assert generated bytes, so a solution missing
+        # them stays red and the task is rejected as unsolvable when it is not.
+        "solution_paths": sorted(solution_paths),
+        "solution_blobs": {
+            path: repo_lib.blob_digest(repository, head, path)
+            for path in sorted(solution_paths)
+        },
         "test_diff_sha256": lane.text_digest(test_diff),
         "regression_modules": regression,
         "verification_commands": verification_commands(regression),
@@ -412,11 +576,17 @@ def probe(
 ) -> dict[str, Any]:
     """Prove every task is a task, offline, before any arm is ever run.
 
-    A task is only a task if the pull request's own tests are red at the merge
-    base and the regression modules chosen for it are green there. A candidate
-    task whose validator is already green is not a task at all — nothing has to
-    be built to pass it — and one whose regression set is already red would
-    fail every arm for a reason no arm caused.
+    A task is only a task if it is red before the fix and green after it. Both
+    directions are checked, because either one alone lets a bad task through:
+
+    * at the merge base the pull request's own tests must be RED and its
+      regression modules GREEN. A validator that is already green needs
+      nothing built, and a regression set that is already red fails every arm
+      for a reason no arm caused;
+    * with the pull request's own non-test change applied, the same validator
+      and the same regression modules must both be GREEN. Without this an
+      unsolvable task enters silently, costs a call on every arm, and deflates
+      the published pass rate.
 
     The validator runs twice, under two workspace roots that differ in depth
     and in length, and both runs have to report the same verdict: the same
@@ -447,7 +617,12 @@ def probe(
     # candidate after the corpus is already full buys nothing.
     candidates = sorted(payload["tasks"], key=lambda item: int(item["pull_request"]), reverse=True)
     def one_pass(
-        task: Mapping[str, Any], root: Path, name: str, *, with_regression: bool
+        task: Mapping[str, Any],
+        root: Path,
+        name: str,
+        *,
+        with_regression: bool,
+        with_solution: bool = False,
     ) -> tuple[dict, dict]:
         task_id = str(task["task_id"])
         with repo_lib.candidate_workspace(
@@ -456,7 +631,10 @@ def probe(
             scratch = root / f"scratch-{task_id}"
             scratch.mkdir(parents=True, exist_ok=True)
             try:
+                if with_solution:
+                    grading.materialize_solution(repository, task, workspace)
                 grading.materialize_validator(repository, task, workspace)
+                grading.restore_regression_modules(repository, task, workspace)
                 target = grading.run_modules(
                     python_executable=python_executable,
                     workspace=workspace,
@@ -509,11 +687,37 @@ def probe(
                 )
             if not probe_passes_agree(target, second):
                 verdict = "verdict_depends_on_workspace_path"
+        solved: dict[str, Any] = {}
+        solved_regression: dict[str, Any] = {}
+        if verdict == "included":
+            # The other direction. Red at the merge base proves nothing has to
+            # be built; it does not prove anything CAN be. A task whose
+            # validator stays red even with the change that actually shipped is
+            # unsolvable here -- it depends on something outside the
+            # candidate's reach -- and it would burn budget on every arm and
+            # pull the published pass rate down for a reason no arm caused.
+            with TemporaryDirectory(prefix="omh-product-ab-solution-") as solution_root:
+                solved, solved_regression = one_pass(
+                    task,
+                    Path(solution_root),
+                    f"{task_id}-solved",
+                    with_regression=True,
+                    with_solution=True,
+                )
+            if solved["status"] != "green" or solved_regression["status"] != "green":
+                verdict = "validator_not_green_with_the_reference_fix"
         if verdict != "included":
             rejected[verdict] = rejected.get(verdict, 0) + 1
             continue
         annotated = dict(task)
         annotated["baseline_probe"] = {
+            "with_reference_fix": {
+                key: solved[key] for key in ("status", "ran", "failures", "errors")
+            },
+            "with_reference_fix_regression": {
+                key: solved_regression[key]
+                for key in ("status", "ran", "failures", "errors")
+            },
             "target": {key: target[key] for key in ("status", "ran", "failures", "errors")},
             "target_second_path": {
                 key: second[key] for key in ("status", "ran", "failures", "errors")
@@ -547,6 +751,10 @@ def corpus_digest(tasks: Sequence[Mapping[str, Any]]) -> str:
                 sorted(task["test_modules"]),
                 sorted(task["regression_modules"]),
                 list(task["verification_commands"]),
+                # The reference solution the probe proves the task against. No
+                # arm reads it, but a run's meaning depends on the task having
+                # been proven solvable, so it belongs under the digest.
+                sorted((task.get("solution_blobs") or {}).items()),
             ]
             for task in sorted(tasks, key=lambda item: str(item["task_id"]))
         ]
@@ -588,6 +796,12 @@ def verify(repository: Path, payload: Mapping[str, Any]) -> list[str]:
         for path, expected in dict(task["test_blobs"]).items():
             if repo_lib.blob_digest(repository, head, str(path)) != expected:
                 errors.append(f"{task_id}: test file digest drifted for {path}")
+        # The reference solution is under the corpus digest, so it has to
+        # re-derive too: a task is only as proven-solvable as the change the
+        # probe actually applied.
+        for path, expected in dict(task.get("solution_blobs") or {}).items():
+            if repo_lib.blob_digest(repository, head, str(path)) != expected:
+                errors.append(f"{task_id}: solution file digest drifted for {path}")
         leaked = [
             path
             for path in task["test_paths"]

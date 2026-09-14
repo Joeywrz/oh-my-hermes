@@ -243,6 +243,14 @@ CHAT_CARD_COVERAGE_CASES: tuple[ChatCardCoverageCase, ...] = (
         "prepare_paper_learning",
     ),
     ChatCardCoverageCase(
+        "long-document-reading",
+        "Long document reading",
+        "summarize this 300-page vendor contract pdf and list every obligation with a deadline",
+        "long-document-reading",
+        "long_document_reading",
+        "prepare_long_document_reading",
+    ),
+    ChatCardCoverageCase(
         "source-finder",
         "Source finder",
         "find papers datasets github repos and public presentations about agent memory",

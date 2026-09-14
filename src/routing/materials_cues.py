@@ -2,7 +2,6 @@ from __future__ import annotations
 
 OFFICE_FILE_MATERIAL_PHRASES = (
     "summarize this word document",
-    "summarize this document",
     "word document",
     "word doc",
     "word file",

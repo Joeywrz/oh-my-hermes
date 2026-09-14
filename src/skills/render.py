@@ -2283,6 +2283,125 @@ The terminal state is `learning_brief_prepared`: the brief is prepared, not obse
     return SkillTemplate(template.name, template.content.replace(marker, protocol + marker, 1))
 
 
+LONG_DOCUMENT_LIMITS_REFERENCE_PATH = "references/hermes-pdf-limits.md"
+
+
+def long_document_reading_skill() -> SkillTemplate:
+    """Render the long-document workflow with the page-range recipe Hermes follows."""
+    from ..workflows.long_document import (
+        DEFAULT_CHARS_PER_PAGE,
+        DEFAULT_PAGES_PER_RANGE,
+        DELEGATION_RANGE_THRESHOLD,
+        HERMES_READ_FILE_CHAR_BUDGET,
+        PER_RANGE_BRIEF,
+    )
+
+    template = workflow_skill("long-document-reading")
+    brief = PER_RANGE_BRIEF.replace("{pages}", "<start>-<end>")
+    protocol = f"""## Long Document Reading Protocol
+
+Every command below runs through the `terminal` tool from Hermes' built-in `pdf` skill. On current Hermes main all four scripts sit in `skills/productivity/pdf/scripts/` (the `ocr-and-documents` skill was merged into it); on older Hermes trees `extract_pymupdf.py` and `extract_marker.py` live in `skills/productivity/ocr-and-documents/scripts/` instead. Locate the directory with `skills_list` or `search_files` before the first run. Outputs differ per script: `pdf_read.py`, `pdf_split.py`, and `pdf_page_image.py` print JSON; `extract_pymupdf.py` prints plain text with `--- Page N/M ---` separators (JSON only with `--metadata`); and `pdf_page_image.py` exits 0 with `{{"rendered": false, "missing": [...]}}` when no rasterizer is installed, so read `rendered` before trusting a render. Measured Hermes limits are in `{LONG_DOCUMENT_LIMITS_REFERENCE_PATH}`.
+
+1. **Scope.** Confirm the path and the reading goal (full summary, clauses or sections, obligations and dates, or one question). If the goal is one lookup, search the extracted text for it instead of reading every range.
+2. **Probe.** Run `python pdf_read.py <file> --meta` for the page count, encrypted flag, and scanned flag. Each script names its own missing dependency (`pdfplumber` here, `pypdf` for `pdf_split.py`, `pymupdf` for `extract_pymupdf.py`, `pypdfium2` or poppler `pdftoppm` for `pdf_page_image.py`); install the one named with `pip install` once, rerun, and say you installed it. For an encrypted file ask for the password (`--password`) or stop.
+3. **Plan.** At about {DEFAULT_CHARS_PER_PAGE:,} characters per page one `read_file` call ({HERMES_READ_FILE_CHAR_BUDGET:,} characters) holds about {DEFAULT_PAGES_PER_RANGE} pages, so split the page count into ranges of {DEFAULT_PAGES_PER_RANGE} pages. A document under {DEFAULT_PAGES_PER_RANGE} pages of prose is one read; answer directly. Record the plan as the chunk ledger: one row per range with `pages`, `offset`, `chars`, and `state` (`covered`, `next`, `missing`).
+4. **Extract with page anchors.** For each range run `python extract_pymupdf.py <file> --pages <start0>-<end0>` (0-indexed; plain text with a `--- Page N/M ---` line before each page, which is the page anchor to keep) or `python pdf_split.py <file> --pages <start>-<end> -o <range>.pdf` (1-based, JSON) followed by `read_file` on the split file. Never read the whole file with `read_file` and paginate by `offset`: every call re-converts the entire document, and the extraction has no page numbers. If a range read truncates, halve the range, record the observed characters per page, and re-plan the remaining rows.
+5. **Delegate above {DELEGATION_RANGE_THRESHOLD} ranges.** Send each range to a `delegate_task` child with this brief, unchanged except for the page numbers, then merge the notes in page order keeping every page anchor: `{brief}` A child that returns no missing-page list has not proven its range was readable.
+6. **Close every range.** After each range write covered / next / missing into the ledger before moving on, so a compacted or resumed session rereads the ledger and continues from `next` instead of page 1. Say done only when every row is covered and every scanned range is read or declined.
+7. **Scanned ranges.** The `read_file` coverage warning names page ranges that yielded no text. For the few pages the goal needs, run `python pdf_page_image.py <file> --pages <n> --out-dir <dir>` and `vision_analyze` one page per call; the script exits 0 either way, so a result with `"rendered": false` means no rasterizer (`pypdfium2` or poppler `pdftoppm`) is installed and nothing was rendered. Hosted OCR is not a knob to turn on: `read_file` uses it by itself when `FIRECRAWL_API_KEY` is set (`file_tools.hosted_ocr: false` turns it off), and its NEEDS OCR notice says whether it was attempted. For bulk OCR of a large range the coverage warning points at marker-pdf, `extract_marker.py` from the same skill, a multi-gigabyte install that needs its own approval. Decline ranges the goal does not need and record the decision: a 300-page scan at one vision call per page is a separate approved job, not a side effect of a summary.
+
+"""
+    marker = "## Runtime Evidence\n"
+    if marker not in template.content:
+        raise ValueError("long-document-reading skill runtime-evidence marker is missing")
+    return SkillTemplate(template.name, template.content.replace(marker, protocol + marker, 1))
+
+
+def long_document_reference_templates() -> list[SkillReferenceTemplate]:
+    return [
+        SkillReferenceTemplate(
+            "long-document-reading",
+            LONG_DOCUMENT_LIMITS_REFERENCE_PATH,
+            _long_document_limits_reference(),
+        )
+    ]
+
+
+def _long_document_limits_reference() -> str:
+    from ..workflows.long_document import (
+        DEFAULT_CHARS_PER_PAGE,
+        DEFAULT_PAGES_PER_RANGE,
+        DELEGATION_RANGE_THRESHOLD,
+        HERMES_DOCUMENT_BYTE_CAP,
+        HERMES_READ_FILE_CHAR_BUDGET,
+        HERMES_READ_FILE_LINE_LIMIT,
+        HERMES_TUI_ATTACH_PAGE_LIMIT,
+    )
+
+    return f"""# Hermes PDF Limits (measured 2026-09)
+
+What the installed Hermes Agent does with a large PDF, read off its source tree. Each row names the file the number comes from so a later Hermes release can be re-measured instead of trusted. None of these numbers is an OMH guarantee.
+
+## Budgets
+
+| Surface | Limit | Where |
+| --- | --- | --- |
+| `read_file` characters per call | {HERMES_READ_FILE_CHAR_BUDGET:,} (`file_read_max_chars`) | `tools/file_tools.py` |
+| `read_file` lines per call | {HERMES_READ_FILE_LINE_LIMIT:,} max (`limit`) | `tools/file_tools.py` |
+| Document size cap for extraction | {HERMES_DOCUMENT_BYTE_CAP // (1024 * 1024)} MB | `tools/read_extract.py` |
+| TUI `pdf.attach` rasterization | {HERMES_TUI_ATTACH_PAGE_LIMIT} pages per call | `_PDF_ATTACH_MAX_PAGES` in `tui_gateway/prompt_attachments.py` on current main; `tui_gateway/server.py` and `tui_gateway/methods_prompt.py` on older trees |
+| Scanned-page coverage scan | `pdftotext`, 20 s timeout; silently returns nothing when it times out | `tools/read_extract.py` |
+| Dense prose per page | about {DEFAULT_CHARS_PER_PAGE:,} characters, so about {DEFAULT_PAGES_PER_RANGE} pages per read | measured, not configured |
+
+A 300-page document is therefore about 500,000 characters, about 125,000 tokens: five reads whose text sits in the conversation with no page numbers. Hermes compresses at a ratio of the model window (`compression.threshold: 0.50` in `hermes_cli/config_defaults.py`, floored to 0.75 for windows under 512K in `agent/context_compressor.py`), so a 200K-window model compacts near 150K tokens and a 1M-window model near 500K: the five reads alone do not cross it, the sixth range or the reply on top of the rest of the session can, and the summary that replaces the early ranges carries no page anchor. The budget per call and the missing page numbers are the problem the ledger solves; compaction is what makes an unanchored read unrecoverable.
+
+## What `read_file` does not do
+
+- It converts `.pdf` to Markdown through the optional `firecrawl-anydoc` package and paginates the text by line `offset` / `limit`; every paginated call re-converts the whole document, and `anydoc.to_markdown` has no page selection.
+- Page numbers do not survive the conversion. The scanned-page warning speaks in page ranges, but nothing maps a page to an offset; the chunk ledger is that map.
+- `search_files` is ripgrep-backed (`tools/file_tools.py`) and a PDF is a binary to it (`is_pdf_path` in `tools/binary_extensions.py`), so there is no search inside a PDF until a range is extracted to text.
+- The coverage warning (`_pdf_coverage_note` in `tools/read_extract.py`) names an `ocr-and-documents` skill. On current Hermes main that skill's scripts and notes were folded into `pdf` (`skills/productivity/pdf/references/ocr-extraction.md`, `extract_pymupdf.py` and `extract_marker.py` in `pdf/scripts/`); on older trees it is a live separate skill with its own `SKILL.md` and `scripts/`, and the `pdf` skill routes scanned pages to it. The NEEDS OCR notice (`_needs_ocr_warning`, same file) names no skill and says to check `skills_list`.
+
+## What gives page control
+
+The built-in `pdf` skill: argparse CLIs run through `terminal`. None of their dependencies is in the shipped venv; each script names the one it is missing.
+
+| Hermes tree | `pdf_read.py`, `pdf_split.py`, `pdf_page_image.py` | `extract_pymupdf.py`, `extract_marker.py` |
+| --- | --- | --- |
+| current main (`ocr-and-documents` merged into `pdf`) | `skills/productivity/pdf/scripts/` | `skills/productivity/pdf/scripts/` |
+| older trees (2026-08 and before) | `skills/productivity/pdf/scripts/` | `skills/productivity/ocr-and-documents/scripts/` |
+
+Find the directory with `skills_list` or `search_files` before the first run instead of assuming one layout.
+
+| Script | Dependency (from its imports) | Output |
+| --- | --- | --- |
+| `pdf_read.py` | `pdfplumber` | JSON |
+| `pdf_split.py` | `pypdf` | JSON |
+| `pdf_page_image.py` | `pypdfium2`, or poppler `pdftoppm` on PATH | JSON; exits 0 with `"rendered": false` and a `missing` list when neither is installed |
+| `extract_pymupdf.py` | `pymupdf` (`pymupdf4llm` for `--markdown`) | plain text with `--- Page N/M ---` separators; JSON only for `--metadata` |
+| `extract_marker.py` | marker-pdf (multi-gigabyte, PyTorch) | files under `--output_dir` |
+
+| Script | Use |
+| --- | --- |
+| `pdf_read.py <file> --meta` | page count, page sizes, encrypted and scanned flags |
+| `pdf_read.py <file> --text` | per-page text as JSON (whole file; pipe into a file for large documents) |
+| `extract_pymupdf.py <file> --pages 0-59` | the only extractor with page selection (0-indexed) |
+| `pdf_split.py <file> --pages 1-60 -o part.pdf` | 1-based range into a new file for `read_file` |
+| `pdf_page_image.py <file> --pages 61-62 --out-dir imgs/` | PNG per page for `vision_analyze` |
+
+## Delegation
+
+`delegate_task` fans out subagents (`tools/delegate_tool.py`) but nothing splits a document into ranges; the parent plans the ranges and sends one fixed brief per child. Above {DELEGATION_RANGE_THRESHOLD} ranges, delegation keeps each child's context to one range; below it, sequential reads cost less. `delegation.max_concurrent_children` bounds the fan-out.
+
+## Config knobs
+
+- `file_read_max_chars` raises the per-call character budget; re-plan `pages_per_range` from it.
+- `FIRECRAWL_API_KEY` in the environment turns hosted OCR on inside `read_file` for scanned pages (`_hosted_ocr_config` in `tools/read_extract.py`); `file_tools.hosted_ocr: false` turns it off even with the key. There is no setting that turns it on without the key.
+- `web.extract_char_limit` bounds `web_extract` on a URL-hosted PDF.
+- `delegation.max_concurrent_children` bounds range fan-out.
+"""
+
+
 # Self-contained pointer section spliced into the two code-exploration skill
 # bodies. The trailing blank line separates it from `## Runtime Evidence`.
 _STRUCTURAL_SEARCH_SECTION = (

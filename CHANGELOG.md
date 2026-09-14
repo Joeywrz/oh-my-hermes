@@ -60,6 +60,20 @@ All notable changes will be documented here.
   hosts with the required and running versions. Missing or invalid declarations
   fail local conformance; release readiness also checks the tested-host matrix.
   Existing installs should run `omh update` to refresh the managed bundle.
+- **A very large PDF is read in page ranges, not truncated.** The new
+  `long-document-reading` skill owns "summarize this 300-page contract",
+  "read this manual", and the bare "summarize this document" (which used to
+  land in file packaging): it probes the page count and scanned flags with
+  Hermes' built-in `pdf` scripts, plans page ranges sized to the `read_file`
+  budget (about 60 pages per 100,000-character call), extracts each range
+  with page selection so every claim keeps a page anchor, delegates ranges
+  to `delegate_task` children above four, and closes each range with
+  covered / next / missing so a compacted or resumed session continues from
+  the ledger. `long_document_card/v1` is the metadata contract; page count,
+  extraction, scanned-page OCR, and delegation stay unobserved until a tool
+  result records them. Papers stay with `paper-learning`, produced files
+  with `materials-package`. `docs/LONG-DOCUMENT-READING.md` answers "how do I
+  process a very large PDF with Hermes?" in terms of Hermes' measured limits.
 - **Providers linked to Hermes are recognized on their own.** OMH now reads
   which providers Hermes is already linked to — a `hermes auth` login in
   `auth.json` (the pool rows Hermes itself counts, never a credential

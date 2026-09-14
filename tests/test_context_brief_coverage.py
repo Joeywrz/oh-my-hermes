@@ -14,9 +14,9 @@ class ContextBriefCoverageTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], "context_brief_coverage/v1")
         self.assertEqual(payload["source"], "discord")
         self.assertTrue(payload["summary"]["all_passing"])
-        self.assertEqual(payload["summary"]["case_count"], 11)
-        self.assertEqual(payload["summary"]["passing_count"], 11)
-        self.assertEqual(payload["summary"]["route_hint_count"], 10)
+        self.assertEqual(payload["summary"]["case_count"], 12)
+        self.assertEqual(payload["summary"]["passing_count"], 12)
+        self.assertEqual(payload["summary"]["route_hint_count"], 11)
         self.assertEqual(payload["summary"]["catalog_question_count"], 1)
         self.assertIn("metadata-only", payload["check_basis"][0])
         self.assertIn("does not prove live Hermes chat rendering", payload["claim_boundary"])
@@ -44,7 +44,7 @@ class ContextBriefCoverageTests(unittest.TestCase):
         self.assertEqual(status, 0, stderr)
         self.assertEqual(stderr, "")
         self.assertIn("OMH context brief coverage", stdout)
-        self.assertIn("11/11 context brief cases passing", stdout)
+        self.assertIn("12/12 context brief cases passing", stdout)
         self.assertIn("catalog picker hints: 1", stdout)
         self.assertIn(
             "Visual summary before generic image tools: ok; "

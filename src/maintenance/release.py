@@ -230,7 +230,11 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # 411570 -> 412999: the same two shared engine rules and the extended
 # interjection rule render into the capability sections of the executing
 # engines (the section carries each engine's quality bar); warranted growth.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 412999
+# 412999 -> 417015: `long-document-reading` is a new installable skill (the
+# page-anchored chunk ledger over a document too large for one read); one new
+# capability section for one new workflow, not per-section padding; warranted
+# growth.
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 417015
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -260,7 +264,9 @@ FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 110519 -> 111483: one standalone capability row for the new
 # `github-issue-intake` skill; warranted growth.
 # 111483 -> 112443: apple-design adds one standalone capability row.
-STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 116240
+# 116240 -> 117199: one standalone capability row for the new
+# `long-document-reading` skill; warranted growth.
+STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 117199
 STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # ULW fold context ceiling (issue #954, PR D). The limit is the pre-D measured
 # value of the full profile's `skill_body` chars on `main` @ acb9a060, in the
@@ -857,7 +863,18 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # the first window is spent, so it belongs in the always-loaded body;
 # warranted growth. Re-derived from the producer after this branch met the
 # #1513 entry above, never by adding the two deltas.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 936466
+# 936264 -> 950493: `long-document-reading` is one new installable skill body
+# (the page-count probe, page ranges sized to the read budget, the covered /
+# next / missing chunk ledger, the per-range delegation brief, and the
+# scanned-range decision rule), plus its lane name on the research_and_ops
+# skills' Workflow Lane lines; the measured Hermes limits live in its
+# references file, outside this body; re-derived from the full-profile
+# producer on the rebased tree, not from accumulated deltas; warranted growth.
+# Stacked on the document-plan branch: both bodies land together, so the
+# limit is re-derived once from the producer on the combined tree, never by
+# adding deltas (936466 with the document-plan note, plus the long-document
+# body and the review's verb-bearing trigger phrases -> 950695).
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 950695
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

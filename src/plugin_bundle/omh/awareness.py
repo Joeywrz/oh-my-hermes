@@ -255,7 +255,6 @@ try:
 except ImportError:
     _OFFICE_FILE_MATERIAL_PHRASES = (
         "summarize this word document",
-        "summarize this document",
         "word document",
         "word doc",
         "word file",
@@ -720,6 +719,7 @@ GENERIC_TOOL_CHECKPOINT_ROUTES = (
             "workspace-file-operator",
             "design-quality-gate",
             "paper-learning",
+            "long-document-reading",
             "deliverable-package",
             "report-package",
         ),
@@ -955,6 +955,7 @@ ROUTER_KEYWORD_SKILLS = (
     "research-department",
     "source-finder",
     "paper-learning",
+    "long-document-reading",
     "data-analysis",
     "command-operator",
     "connector-operator",
@@ -1016,6 +1017,7 @@ LANE_CROSS_LANE_EXAMPLES = {
         "source discovery -> source-finder -> candidate set -> downstream workflow",
         "supplied CSV/logs -> data-analysis -> scope, schema, method, and evidence-limited findings",
         "supplied paper -> paper-learning -> level choice -> coverage ledger -> section walkthrough",
+        "300-page contract -> long-document-reading -> page-count probe -> page ranges -> chunk ledger -> merged page-anchored notes",
         "present blocker -> jit-learn -> one confirmation -> confirmed learning target -> source-gated brief",
         "market topic -> research -> research-brief -> strategy-brief -> operating-rhythm",
     ],
@@ -1087,7 +1089,7 @@ WORKFLOW_CONTEXT_CARDS = (
         "label": "Research and ops",
         "user_signal": "customer signal, meeting notes, supplied data/logs, source candidates, market question, strategy request, immediate learning need, or operating record",
         "omh_pattern": "classify source acquisition versus supplied-data analysis, collect evidence, separate source notes from synthesis, then create a brief, decision, or status artifact",
-        "representative_workflows": ("source-finder", "research", "paper-learning", "jit-learn", "data-analysis", "research-department", "feedback-triage", "meeting-brief", "strategy-brief", "lifecycle-growth", "sales-pipeline-review"),
+        "representative_workflows": ("source-finder", "research", "paper-learning", "long-document-reading", "jit-learn", "data-analysis", "research-department", "feedback-triage", "meeting-brief", "strategy-brief", "lifecycle-growth", "sales-pipeline-review"),
         "user_examples": (
             "Find papers and datasets for this topic",
             "Payment failures keep coming up",
@@ -1225,6 +1227,7 @@ _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "research-department": "research_and_ops",
     "source-finder": "research_and_ops",
     "paper-learning": "research_and_ops",
+    "long-document-reading": "research_and_ops",
     "jit-learn": "research_and_ops",
     "data-analysis": "research_and_ops",
     "research-brief": "research_and_ops",
@@ -3431,6 +3434,50 @@ _ROUTE_HINT_RULES = (
         "adjacent_workflows": ("visual-qa", "toolbelt-readiness", "accessibility-audit"),
     },
     {
+        "id": "long_document_reading",
+        "workflow": "long-document-reading",
+        "lane": "research_and_ops",
+        "next_action": "prepare_long_document_reading",
+        "reason": "The user is asking Hermes to read, summarize, or process a document too large for one read, which needs page ranges and a covered / next / missing ledger.",
+        "fallback_action": "confirm_document_path_reading_goal_and_page_count",
+        "phrases": (
+            "long-document-reading",
+            "long document reading",
+            "chunk this pdf",
+            "pdf in chunks",
+            "pdf too big",
+            "pdf too large",
+            "summarize this pdf",
+            "read this pdf",
+            "process this pdf",
+            "go through this pdf",
+            "summarize this document",
+            "read this document",
+            "process this document",
+            "summarize this manual",
+            "read this manual",
+            "summarize this contract",
+            "read this contract",
+            "summarize this annual report",
+            "read this annual report",
+            "이 pdf 요약",
+            "이 pdf 읽어",
+            "이 문서 요약",
+            "이 문서 읽어",
+            "계약서 요약",
+            "매뉴얼 요약",
+            "연간 보고서 요약",
+            "このpdfを要約",
+            "この文書を要約",
+            "この契約書を要約",
+            "总结这个pdf",
+            "总结这份文档",
+            "总结这份合同",
+        ),
+        "tokens": (),
+        "adjacent_workflows": ("paper-learning", "materials-package", "media-input-operator", "source-finder"),
+    },
+    {
         "id": "workspace_file_operator",
         "workflow": "workspace-file-operator",
         "lane": "automation_and_status",
@@ -5385,6 +5432,7 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
             not named_coding_agent_delivery
             and _jit_learn_route_hint_applies(matching_message, routing_normalized)
         )
+        long_document_page_count_match = _long_document_request_signal(routing_normalized)
         for rule in _prioritized_route_hint_rules(jit_learn_match):
             if len(hints) >= hint_limit:
                 break
@@ -5404,6 +5452,8 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
             token_matches = [token for token in rule["tokens"] if token in tokens]
             if rule["id"] == "jit_learn" and jit_learn_match and not phrase_matches and not token_matches:
                 phrase_matches = ["guard:jit_learn"]
+            if rule["id"] == "long_document_reading" and not phrase_matches and long_document_page_count_match:
+                phrase_matches = ["guard:long_document_page_count"]
             if not phrase_matches and not token_matches:
                 continue
             workflow = str(rule["workflow"])
@@ -6007,6 +6057,7 @@ def awareness_primer_payload() -> dict[str, object]:
                 "feedback-triage",
                 "research-department",
                 "paper-learning",
+                "long-document-reading",
                 "jit-learn",
                 "data-analysis",
                 "meeting-brief",
@@ -6447,6 +6498,7 @@ _DIRECT_WORKFLOW_NEXT_ACTIONS = {
     "harness-session-inventory": "prepare_harness_session_inventory",
     "agent-debug": "prepare_agent_debug",
     "github-issue-intake": "prepare_github_issue_intake",
+    "long-document-reading": "prepare_long_document_reading",
     "failure-signal-audit": "prepare_failure_signal_audit",
     "instinct-ledger": "prepare_instinct_ledger",
     "frontend": "prepare_frontend_handoff",
@@ -6967,6 +7019,110 @@ def _rule_suppressed_by_omh_quality_intent(rule: dict[str, object], intent: obje
     return bool(getattr(intent, "applies", False)) and str(rule.get("id", "")) == "customer_signal"
 
 
+# Cues that hand a long-document phrase back to a sibling lane: a paper, a
+# produced file, an office conversion, or media extraction.
+_LONG_DOCUMENT_SIBLING_MARKERS = (
+    "paper",
+    "arxiv",
+    "논문",
+    "論文",
+    "论文",
+    "into a ppt",
+    "into slides",
+    "into a deck",
+    "slide deck",
+    "deck",
+    "into csv",
+    "to csv",
+    "action items",
+    "word document",
+    "compare",
+    "convert",
+    "export",
+    "screenshot",
+    "receipt",
+    "write",
+    "draft",
+    "translate",
+    "debug",
+    "upload",
+    "failing",
+    "crash",
+    "ocr",
+    "compliance",
+    "작성",
+    "번역",
+    "업로드",
+    "실패",
+    "검토",
+    "書いて",
+    "翻訳",
+    "アップロード",
+    "失敗",
+    "写一",
+    "翻译",
+    "上传",
+    "失败",
+)
+# Cues that make paper tutoring and file packaging stand down: a reading verb
+# on a document, never a bare size phrase (see `policy._LONG_DOCUMENT_EXPLICIT_PHRASES`).
+_LONG_DOCUMENT_HINT_MARKERS = (
+    "pdf too big",
+    "pdf too large",
+    "summarize this pdf",
+    "read this pdf",
+    "process this pdf",
+    "summarize this document",
+    "read this document",
+    "process this document",
+    "summarize this manual",
+    "read this manual",
+    "summarize this contract",
+    "read this contract",
+    "summarize this annual report",
+    "이 pdf 요약",
+    "이 문서 요약",
+    "계약서 요약",
+    "매뉴얼 요약",
+)
+
+
+# "300 pages", "300-page", "300페이지": a stated page count past one read is a
+# long-document cue even when no phrase above appears. The floor matches
+# `policy._LONG_DOCUMENT_PAGE_COUNT_FLOOR`. This regex is the standalone-host
+# fallback; when the router is importable the hint asks the routing guard
+# itself, so the hint and the route never disagree.
+_LONG_DOCUMENT_PAGE_COUNT_RE = re.compile(r"(\d{2,5})\s*-?\s*(?:pages?|페이지)")
+_LONG_DOCUMENT_PAGE_COUNT_FLOOR = 60
+
+try:
+    from ...routing.localization import normalized_phrase as _long_document_normalized_phrase
+    from ...routing.localization import routing_tokens as _long_document_routing_tokens
+    from ...routing.policy import _long_document_reading_guard_applies as _long_document_guard_applies
+except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
+    _long_document_guard_applies = None
+
+
+def _long_document_request_signal(text: str) -> bool:
+    """True when the routing guard would send this text to long-document reading."""
+    if _long_document_guard_applies is None:
+        return _long_document_page_count_signal(text)
+    normalized = _long_document_normalized_phrase(text)
+    return _long_document_guard_applies(normalized, _long_document_routing_tokens(normalized))
+
+
+def _long_document_page_count_signal(text: str) -> bool:
+    normalized = unicodedata.normalize("NFC", text)
+    if any(marker in normalized for marker in _LONG_DOCUMENT_SIBLING_MARKERS):
+        return False
+    document_named = any(noun in normalized for noun in ("pdf", "document", "manual", "contract", "report", "문서", "계약서", "매뉴얼"))
+    if not document_named:
+        return False
+    return any(
+        int(match.group(1)) >= _LONG_DOCUMENT_PAGE_COUNT_FLOOR for match in _LONG_DOCUMENT_PAGE_COUNT_RE.finditer(normalized)
+    )
+
+
 def _rule_suppressed_by_context(rule: dict[str, object], text: str) -> bool:
     rule_id = str(rule.get("id", ""))
     visual_markers = (
@@ -7128,6 +7284,19 @@ def _rule_suppressed_by_context(rule: dict[str, object], text: str) -> bool:
     if rule_id == "paper_learning" and material_generation_requested:
         return True
     if rule_id in {"workspace_file_operator", "paper_learning"} and office_material_requested:
+        return True
+    long_document_sibling_requested = (
+        material_generation_requested
+        or office_material_requested
+        or media_extraction_requested
+        or any(phrase in text for phrase in _LONG_DOCUMENT_SIBLING_MARKERS)
+    )
+    if rule_id == "long_document_reading" and long_document_sibling_requested:
+        return True
+    long_document_requested = not long_document_sibling_requested and (
+        any(phrase in text for phrase in _LONG_DOCUMENT_HINT_MARKERS) or _long_document_request_signal(text)
+    )
+    if rule_id in {"paper_learning", "materials_package", "workspace_file_operator"} and long_document_requested:
         return True
     if visual_generation_requested and not any(phrase in text for phrase in strong_media_extraction_markers):
         media_extraction_requested = False

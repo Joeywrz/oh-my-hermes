@@ -44,7 +44,7 @@ _FAMILY_DEFINITIONS = (
         "owner_role": "researcher",
         "source_lanes": ("research_and_ops",),
         "use_for": "Source finding, web research, papers, customer signals, and briefings.",
-        "primary_workflows": ("source-finder", "research", "paper-learning", "data-analysis", "research-department", "feedback-triage"),
+        "primary_workflows": ("source-finder", "research", "paper-learning", "long-document-reading", "data-analysis", "research-department", "feedback-triage"),
         "next_action": "gather_source_backed_evidence",
         "example_prompt": "Find papers, datasets, and repos for this topic.",
         "not_evidence_until_observed": ("source retrieval", "source verification", "decision approval"),

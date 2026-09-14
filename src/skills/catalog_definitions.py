@@ -21,6 +21,14 @@ from ..plugin_bundle.omh.domain_signals import SPECIALIST_DOMAIN_TRIGGERS
 from ..routing.materials_cues import (
     OFFICE_FILE_MATERIAL_CATALOG_TRIGGERS,
 )
+from ..workflows.long_document import (
+    DEFAULT_PAGES_PER_RANGE,
+    DELEGATION_RANGE_THRESHOLD,
+    HERMES_READ_FILE_CHAR_BUDGET,
+    LONG_DOCUMENT_CARD_SCHEMA_VERSION,
+    LONG_DOCUMENT_NOT_OBSERVED,
+    LONG_DOCUMENT_SOURCE_STATES,
+)
 from ..source_finder import (
     SOURCE_ACQUISITION_STATUS_SCHEMA_VERSION,
     SOURCE_CANDIDATE_SCHEMA_VERSION,
@@ -7492,6 +7500,134 @@ _DEFINITIONS.append(
             prompt="github-issue-intake prove the issue was filed and labelled.",
             expected="Report that creation, labeling, and any GitHub mutation stay unobserved until an authorized connector returns read-back evidence.",
             why="A prepared package is not issue creation, label application, or any GitHub mutation evidence.",
+        ),
+    )
+)
+
+
+_DEFINITIONS.append(
+    SkillDefinition(
+        "long-document-reading",
+        "Long document reading workflow: read a very large PDF, contract, manual, or report through Hermes in page-anchored ranges with a coverage ledger.",
+        (
+            "long-document-reading",
+            "long document reading",
+            "summarize this pdf",
+            "read this pdf",
+            "process this pdf",
+            "go through this pdf",
+            "summarize this document",
+            "read this document",
+            "process this document",
+            "read this whole document",
+            "summarize this manual",
+            "read this manual",
+            "summarize this contract",
+            "read this contract",
+            "summarize this annual report",
+            "read this annual report",
+            "read the whole pdf",
+            "chunk this pdf",
+            "pdf in chunks",
+            "pdf too big",
+            "pdf too large",
+        ),
+        (
+            "Use when Hermes must read a supplied document that does not fit one read: a contract, manual, annual report, "
+            "specification, or any PDF past about 60 pages. The skill plans page ranges sized to the `read_file` budget, "
+            "keeps a page-anchored chunk ledger with covered / next / missing state, and delegates ranges when there are "
+            "more than " + str(DELEGATION_RANGE_THRESHOLD) + ", so a compacted or resumed session continues instead of restarting."
+        ),
+        category="research",
+        phase="long-document-reading",
+        hermes_role="retained-cognition",
+        delegation_boundary="retained-catalog-intent",
+        handoff_policy=(
+            "Keep document reading in Hermes: `read_file`, the built-in `pdf` skill scripts, `delegate_task` range children, and "
+            "`vision_analyze` for scanned pages. Route file export to `materials-package`, paper tutoring to `paper-learning`, "
+            "and source acquisition to `source-finder`."
+        ),
+        required_inputs=(
+            "document path or attachment reference",
+            "reading goal: full summary, clause or section lookup, obligations, or a question to answer",
+            "page count and scanned-page flags when observed",
+            "read budget when the host differs from the " + f"{HERMES_READ_FILE_CHAR_BUDGET:,}" + "-character default",
+            "output language when different from the source",
+        ),
+        expert_questions=(
+            ExpertQuestion(
+                "reading goal: full summary, clause or section lookup, obligations, or a question to answer",
+                "What should the reading produce: a full summary, specific clauses or sections, obligations and dates, or an answer to one question?",
+                "이 문서를 읽어서 무엇을 만들어야 하나요: 전체 요약, 특정 조항이나 섹션, 의무와 기한 목록, 아니면 한 가지 질문의 답인가요?",
+            ),
+            ExpertQuestion(
+                "page count and scanned-page flags when observed",
+                "How many pages does the document have, and did the page scan report scanned or image-only pages?",
+                "문서는 몇 페이지이고, 페이지 검사에서 스캔본이나 이미지 전용 페이지가 보고되었나요?",
+            ),
+        ),
+        expected_outputs=(
+            LONG_DOCUMENT_CARD_SCHEMA_VERSION,
+            "page count and source_state boundary",
+            "page-range plan sized to the read budget",
+            "chunk ledger with covered / next / missing page anchors",
+            "per-range notes merged in page order",
+            "scanned-range decisions and not-observed list",
+        ),
+        artifact_expectations=("long_document_card/v1 metadata-only wrapper card when recorded",),
+        safety_rules=(
+            "Do not claim the whole document was read: only ranges the ledger marks covered are read, and a compacted context drops what the ledger did not anchor to a page.",
+            "Do not read a document past the budget in one call and summarize the truncation; a truncated `read_file` result is one range, not the document.",
+            "Scanned or image-only ranges are missing until a per-page `vision_analyze` pass or hosted OCR is observed; declining an unneeded scanned range is a recorded decision, not silent loss.",
+            "Delegated range children read and note; the parent merges and answers. A child's note is not proof its range was fully readable until its own missing-page list is empty.",
+            "Page anchors come from `pdf_read.py` or `extract_pymupdf.py --pages`, never from guessing a page off a `read_file` line offset; the ledger records the estimate as an estimate.",
+            "Never export, convert, or package the document as a side effect of reading it; that is `materials-package` work the user asks for separately.",
+        ),
+        quality_tier="long-document-gated",
+        quality_bar=(
+            "Get the page count and scanned flags first with `pdf_read.py --meta`; each script names its own missing dependency (`pdfplumber` for `pdf_read.py`, `pypdf` for `pdf_split.py`, `pymupdf` for `extract_pymupdf.py`, `pypdfium2` or poppler `pdftoppm` for `pdf_page_image.py`); install it once, and say so.",
+            "Size ranges to the read budget: about " + str(DEFAULT_PAGES_PER_RANGE) + " pages per " + f"{HERMES_READ_FILE_CHAR_BUDGET:,}" + "-character call at typical density; halve the range when a probe read truncates.",
+            "Extract each range with page selection (`extract_pymupdf.py --pages` or `read_file` on a `pdf_split.py` output) so every note carries a page anchor.",
+            "Delegate ranges to `delegate_task` children with the fixed per-range brief when the plan has more than " + str(DELEGATION_RANGE_THRESHOLD) + " ranges; read sequentially otherwise.",
+            "Close every range with covered / next / missing so a resumed session starts at the ledger's `next` range.",
+            "Record source_state as one of: " + ", ".join(LONG_DOCUMENT_SOURCE_STATES) + ".",
+        ),
+        why_this_exists=(
+            "`long-document-reading` exists because a 300-page PDF is about 500,000 characters and Hermes' `read_file` returns "
+            "100,000 per call with no page numbers, re-converting the whole file each time; five unanchored reads then sit in "
+            "the conversation until the ratio-based compressor summarizes them without a page number, so without a ledger the "
+            "session either truncates, loses the early ranges to compaction, or claims a summary of pages it never read."
+        ),
+        do_not_use_when=(
+            "The document is a research paper and the user wants it explained by level; use `paper-learning`.",
+            "The request asks to convert, export, split into a new file, compare two PDFs, or extract tables into CSV; use `materials-package`.",
+            "The input is an image, screenshot, receipt, audio, or video rather than a document; use `media-input-operator`.",
+            "The user is still looking for the document or its download link; use `source-finder`.",
+            "The document fits one read (under about " + str(DEFAULT_PAGES_PER_RANGE) + " pages of prose); read it directly and answer.",
+        ),
+        good_example=SkillExample(
+            prompt="summarize this 300-page vendor contract pdf and list every obligation with a deadline",
+            expected="Prepare long_document_card/v1: record the page count and scanned flags, plan five 60-page ranges, delegate them with the per-range brief, merge obligations with page anchors, and close with covered / next / missing.",
+            why="The document is far past one read budget and the goal needs page-anchored claims from every range.",
+        ),
+        bad_example=SkillExample(
+            prompt="turn this 300-page pdf into a slide deck",
+            expected="Route to `materials-package`: the user wants a produced file, not a page-anchored reading of the document; the page count alone does not make it a reading request.",
+            why="Reading and producing are different lanes; a deck request is file output work.",
+        ),
+        final_checklist=(
+            "The page count is observed or the card says it is not.",
+            "Every ledger range is covered, or the missing ranges are listed with a reason.",
+            "Every claim in the merged answer carries a page anchor.",
+            "Scanned ranges are read, declined with a reason, or listed as missing.",
+            "Not-observed boundaries remain visible: " + ", ".join(LONG_DOCUMENT_NOT_OBSERVED) + ".",
+        ),
+        recovery_notes=(
+            "If a script reports a missing dependency, install the one it names once with `pip install` (`pdfplumber`, `pypdf`, `pymupdf`, or `pypdfium2`; poppler `pdftoppm` is the system alternative for rendering), rerun, and record the install.",
+            "If a range read truncates, halve the range, record the observed characters per page, and re-plan the remaining ranges from that measurement.",
+            "If the context was compacted or the session resumed, reread the ledger and continue from the `next` range; do not restart from page 1.",
+            "If the document is encrypted, ask for the password or stop; `pdf_read.py` and `pdf_split.py` accept `--password`.",
+            "If most pages are scanned and the goal needs them all, stop and get approval for the per-page OCR job before spending one vision call per page.",
         ),
     )
 )

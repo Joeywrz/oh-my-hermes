@@ -209,7 +209,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="chat_card_case_count",
             describe="Chat card coverage cases",
             live=_chat_card_case_count,
-            expected=88,
+            expected=89,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -220,7 +220,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="route_hint_case_count",
             describe="Route hint alignment cases",
             live=_route_hint_case_count,
-            expected=208,
+            expected=209,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -242,7 +242,12 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # billing receipt.
             # Protected-reference controls remain alongside the upstream corpus;
             # merged totals are re-derived from build_routing_precision_demo().
-            expected=204,
+            # The long-document lane adds negatives that use its own words
+            # in another sense (eleven): writing documentation, reading a repo file,
+            # processing a refund, reading the room, writing a long document
+            # (en/ko/ja/zh), translating a whole document, and a site walked
+            # page by page, and a page number beside a port number.
+            expected=215,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -261,7 +266,14 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # receipt, turn integrity with barge-in, and the Korean phrasing.
             # Direct and mixed-reference interventions remain alongside the
             # upstream corpus; the merged producer determines the exact total.
-            expected=347,
+            # The long-document lane adds twenty: six reading requests across
+            # English, Korean, Japanese, and Chinese, plus thirteen requests that
+            # share its words and stay with their owners (slides, Word action
+            # items, a paper by level, contract compliance review in two
+            # languages, a large-PDF upload failure in four, a viewer crash, an
+            # OCR pipeline, a section added to a long style guide, and a spec
+            # page dated by a year).
+            expected=367,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -274,7 +286,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             describe="Installable workflow skills quoted in reference surfaces",
             live=_installable_skill_count,
             # The current workflow additions are part of the installable catalog.
-            expected=123,
+            expected=124,
             sites=(
                 "docs/README.md",
             ),

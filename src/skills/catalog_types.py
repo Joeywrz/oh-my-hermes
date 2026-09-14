@@ -1174,6 +1174,7 @@ _CODING_INTENT_BY_SKILL = {
     "visual-qa": "planning",
     "failure-signal-audit": "planning",
     "paper-learning": "planning",
+    "long-document-reading": "planning",
     "source-finder": "planning",
     "workspace-audit": "planning",
     "production-audit": "planning",

@@ -87,6 +87,13 @@ CONTEXT_BRIEF_COVERAGE_CASES: tuple[ContextBriefCoverageCase, ...] = (
         "prepare_paper_learning",
     ),
     ContextBriefCoverageCase(
+        "long-document-reading",
+        "Long document reading",
+        "summarize this 300-page vendor contract pdf and list every obligation with a deadline",
+        "long-document-reading",
+        "prepare_long_document_reading",
+    ),
+    ContextBriefCoverageCase(
         "source-finder",
         "Source finder",
         "find papers datasets github repos and public presentations about agent memory",

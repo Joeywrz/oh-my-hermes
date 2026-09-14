@@ -288,7 +288,10 @@ class RouterContentTests(unittest.TestCase):
         # line per new skill, ~2.7% headroom kept.
         # 22,000 -> 22,700: `apple-design` adds one platform-design index
         # line (22,038 measured); this retains ~3% headroom.
-        self.assertLess(len(rendered.encode("utf-8")), 23_000)
+        # 23,000 -> 23,800: `long-document-reading` adds one name-and-hook
+        # index line (23,079 measured); one line per new skill, ~3% headroom
+        # kept.
+        self.assertLess(len(rendered.encode("utf-8")), 23_800)
         for line in rendered.splitlines():
             self.assertLess(len(line.encode("utf-8")), 400, line)
 
@@ -1552,6 +1555,7 @@ class RouterContentTests(unittest.TestCase):
                 "research",
                 "research-department",
                 "paper-learning",
+                "long-document-reading",
                 "source-finder",
                 "business-research",
                 "strategy-synthesis",
@@ -4002,7 +4006,7 @@ class RouterContentTests(unittest.TestCase):
         # Retired engines must not be presented as current planning skills.
         self.assertNotIn("`ultragoal`", docs_readme)
         # omh-docs and github-issue-intake raise the measured catalog to 119.
-        self.assertIn("**123 installable skills**", docs_readme)
+        self.assertIn("**124 installable skills**", docs_readme)
         self.assertIn("**Retain knowledge**", docs_readme)
         # The unit suite runs through the deterministic sharding tools (issue
         # #1294): plan once, run per shard plus the serial quarantine, then

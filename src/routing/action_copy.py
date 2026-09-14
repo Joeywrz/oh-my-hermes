@@ -84,6 +84,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "prepare_gateway_intent_card": "preparing a gateway intent card",
     "prepare_github_event_ops_card": "preparing a GitHub event operations card",
     "prepare_github_issue_intake": "preparing a GitHub issue intake card",
+    "prepare_long_document_reading": "preparing a long document reading ledger",
     "prepare_harness_session_inventory": "preparing a harness session inventory",
     "prepare_instinct_ledger": "preparing an instinct ledger",
     "prepare_material_package": "preparing a materials package",

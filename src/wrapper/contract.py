@@ -452,6 +452,9 @@ VISIBLE_ACTIONS = (
     "show_direction_check",
     "confirm_issue_creation",
     "record_read_back",
+    "prepare_long_document_reading",
+    "show_chunk_ledger",
+    "continue_next_range",
     "prepare_agent_board_card",
     "prepare_executor_runtime_readiness",
     "prepare_memory_new",
@@ -888,6 +891,11 @@ _HUMAN_ACK_BODY_BY_SKILL = {
         "a direction check. Issue creation stays disabled until you confirm, and only an authorized connector's "
         "read-back counts as observed evidence."
     ),
+    "long-document-reading": (
+        "I will read this document in page ranges sized to the read budget, keeping a covered / next / missing "
+        "ledger with page anchors instead of one truncated read. Page count, extraction, and scanned-page OCR stay "
+        "unobserved until the tool results record them."
+    ),
     "memory-sync": (
         "I will review existing claims in English, with concise Korean help labels when useful, and prepare a native "
         "write diff. No OMH surface invokes, applies, or observes a MEMORY.md or USER.md write — an approved diff is "
@@ -1051,6 +1059,9 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "prepare_deliverable_package": ("prepare_deliverable_package", "Prepare deliverable"),
     "prepare_github_event_ops_card": ("prepare_github_event_ops_card", "Open event card"),
     "prepare_github_issue_intake": ("prepare_github_issue_intake", "Open intake card"),
+    "prepare_long_document_reading": ("prepare_long_document_reading", "Plan page ranges"),
+    "show_chunk_ledger": ("show_chunk_ledger", "Show chunk ledger"),
+    "continue_next_range": ("continue_next_range", "Read next range"),
     "show_direction_check": ("show_direction_check", "Show direction check"),
     "confirm_issue_creation": ("confirm_issue_creation", "Confirm issue creation"),
     "record_read_back": ("record_read_back", "Record read-back"),
@@ -3374,6 +3385,43 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS: dict[str, dict[str, object]] = {
             "CI",
             "docs sync",
             "merge",
+        ],
+    },
+    "long-document-reading": {
+        "kind": "long_document_reading",
+        "headline": "I can read this document in page ranges without claiming pages I never read.",
+        "body": (
+            "I will prepare the long document card: the page count and scanned-page flags from a probe, page ranges "
+            "sized to the read budget (about 60 pages per call), a chunk ledger with covered / next / missing page "
+            "anchors, and a fixed per-range brief for delegated ranges above four. Every merged claim keeps its page "
+            "anchor, and a resumed or compacted session continues from the ledger's next range."
+        ),
+        "phase": "long_document_reading_prepared",
+        "next_action": "prepare_long_document_reading",
+        "artifact_schema": "long_document_card/v1",
+        "claim_boundary_suffix": "It is not page-count, extraction, scanned-page OCR, range delegation, or whole-document coverage evidence.",
+        "actions": [
+            {"id": "prepare_long_document_reading", "label": "Plan page ranges", "style": "primary"},
+            {"id": "show_chunk_ledger", "label": "Show chunk ledger", "style": "secondary"},
+            {"id": "continue_next_range", "label": "Read next range", "style": "secondary"},
+            {"id": "show_status", "label": "Show status", "style": "secondary"},
+        ],
+        "recommended_flow": [
+            "confirm_reading_goal",
+            "probe_page_count_and_scanned_flags",
+            "plan_page_ranges_to_read_budget",
+            "extract_each_range_with_page_anchors",
+            "delegate_ranges_above_threshold",
+            "close_each_range_covered_next_missing",
+            "merge_notes_in_page_order",
+        ],
+        "evidence_not_observed": [
+            "page count",
+            "text extraction",
+            "scanned-page OCR",
+            "range delegation",
+            "hosted OCR",
+            "whole-document coverage",
         ],
     },
     "github-issue-intake": {

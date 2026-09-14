@@ -35,6 +35,8 @@ from .render import (
     idea_to_deploy_reference_templates,
     jit_learn_skill,
     llm_app_dev_reference_templates,
+    long_document_reading_skill,
+    long_document_reference_templates,
     loop_reference_templates,
     loop_skill,
     maestro_reference_templates,
@@ -67,6 +69,7 @@ def builtin_skill_reference_templates() -> list[SkillReferenceTemplate]:
         *context_budget_reference_templates(),
         *buzz_reference_templates(),
         *loop_reference_templates(),
+        *long_document_reference_templates(),
         *maestro_reference_templates(),
         *adversarial_consensus_reference_templates(),
         *ultrawork_reference_templates(),
@@ -120,6 +123,8 @@ def _skill_template_for(name: str) -> SkillTemplate:
         return jit_learn_skill()
     if name == "loop":
         return loop_skill()
+    if name == "long-document-reading":
+        return long_document_reading_skill()
     if name == "memory-new":
         return memory_new_skill()
     if name == "memory-sync":

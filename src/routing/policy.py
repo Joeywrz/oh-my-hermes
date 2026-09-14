@@ -5226,6 +5226,15 @@ RESEARCH_DEPARTMENT_GUARD = RoutingGuardRule(
     why="Matched guard/trigger metadata; recurring research operations should prepare a Scout/Analyst/Briefer research department plan.",
     activation_status="active",
 )
+LONG_DOCUMENT_READING_GUARD = RoutingGuardRule(
+    id="long_document_reading_before_paper_or_materials",
+    rule="Requests to read, summarize, or process a document past one read budget should route to long-document-reading before paper tutoring or file packaging.",
+    matched_label="guard:long_document_reading",
+    preferred_skills=("long-document-reading",),
+    score_boost=44,
+    why="Matched a long-document reading cue; the document needs a page-count probe, page ranges sized to the read budget, and a covered / next / missing ledger before any coverage claim.",
+    activation_status="active",
+)
 PAPER_LEARNING_GUARD = RoutingGuardRule(
     id="paper_learning_before_materials_or_research_ops",
     rule="One-off paper or paper-PDF explanation requests should route to paper-learning before generic file packaging or research ops.",
@@ -5638,9 +5647,17 @@ def _active_routing_guard_rules_cached(
         query_tokens,
         visual_summary_applies=visual_summary_applies,
     )
+    long_document_reading_applies = (
+        not delivery_cycle_applies
+        and not workflow_learning_applies
+        and _long_document_reading_guard_applies(normalized_query, query_tokens)
+    )
+    if long_document_reading_applies:
+        rules.append(LONG_DOCUMENT_READING_GUARD)
     paper_learning_applies = (
         not delivery_cycle_applies
         and not workflow_learning_applies
+        and not long_document_reading_applies
         and _paper_learning_guard_applies(
             normalized_query,
             query_tokens,
@@ -5716,6 +5733,7 @@ def _active_routing_guard_rules_cached(
         workspace_file_operator_applies
         and not feedback_before_coding_applies
         and not paper_learning_applies
+        and not long_document_reading_applies
         and not deliverable_package_applies
     ):
         rules.append(WORKSPACE_FILE_OPERATOR_GUARD)
@@ -5727,6 +5745,7 @@ def _active_routing_guard_rules_cached(
         )
         and not workspace_file_operator_applies
         and not paper_learning_applies
+        and not long_document_reading_applies
         and not deliverable_package_applies
     ):
         rules.append(MATERIALS_PACKAGE_GUARD)
@@ -6674,6 +6693,256 @@ def _paper_learning_guard_applies(
     if capability_question and paper_context and not search_only:
         return True
     return (paper_context or supplied_pdf_context) and explanation_context and not search_only
+
+
+# Complete phrases that name READING a document: every entry carries a reading
+# verb (or the skill's own name) and a document noun, so none fires on writing,
+# translating, uploading, debugging, or reviewing one. Bare size phrases
+# ("long document", "large pdf", "whole document", "page by page") are size
+# cues below, never explicit triggers -- measured against origin/main they
+# claimed "write a long document explaining the migration", "large pdf upload
+# keeps failing in production", and "walk me through the site page by page".
+# The generic words inside them are held back from bare-token scoring in
+# `recommend._WHOLE_PHRASE_ONLY_TRIGGER_TOKENS`.
+_LONG_DOCUMENT_EXPLICIT_PHRASES = (
+    "long-document-reading",
+    "long document reading",
+    "chunk this pdf",
+    "pdf in chunks",
+    "pdf too big",
+    "pdf too large",
+    "read this pdf",
+    "summarize this pdf",
+    "process this pdf",
+    "go through this pdf",
+    "read this document",
+    "summarize this document",
+    "process this document",
+    "read this manual",
+    "summarize this manual",
+    "read this contract",
+    "summarize this contract",
+    "read this annual report",
+    "summarize this annual report",
+    "read the whole pdf",
+    "read the entire pdf",
+    "read the whole document",
+    "read the entire document",
+    "read this whole document",
+    "이 pdf 요약",
+    "이 pdf 읽어",
+    "이 문서 요약",
+    "이 문서 읽어",
+    "매뉴얼 요약",
+    "계약서 요약",
+    "계약서 읽어",
+    "연간 보고서 요약",
+    "pdf 전체 읽어",
+    "문서 전체 읽어",
+    "このpdfを要約",
+    "この文書を要約",
+    "この契約書を要約",
+    "マニュアルを要約",
+    "总结这个pdf",
+    "总结这份文档",
+    "总结这份合同",
+    "总结这本手册",
+)
+# Anything here is a sibling's job or not a reading at all: paper tutoring,
+# file production, office conversion, media extraction, legal review, writing,
+# translating, uploading, or debugging a document. Single words are matched as
+# tokens so "paper" does not fire on "newspaper"; the phrases cover the
+# scripts that do not tokenize on whitespace.
+_LONG_DOCUMENT_BLOCKER_PHRASES = (
+    "into a ppt",
+    "into slides",
+    "into a deck",
+    "slide deck",
+    "into csv",
+    "to csv",
+    "action items",
+    "word document",
+    "compare these",
+    "compare two",
+    "create a pdf",
+    "make a pdf",
+    "generate a pdf",
+    "pdf report",
+    "arxiv",
+    "논문",
+    "論文",
+    "论文",
+    "ppt로",
+    "발표자료",
+    "액션아이템",
+    "작성",
+    "번역",
+    "업로드",
+    "실패",
+    "검토",
+    "書いて",
+    "作成",
+    "翻訳",
+    "アップロード",
+    "失敗",
+    "写一",
+    "编写",
+    "翻译",
+    "上传",
+    "失败",
+)
+_LONG_DOCUMENT_BLOCKER_TOKENS = _normalized_token_set(
+    {
+        "paper",
+        "papers",
+        "ppt",
+        "pptx",
+        "deck",
+        "slides",
+        "csv",
+        "xlsx",
+        "spreadsheet",
+        "convert",
+        "export",
+        "merge",
+        "screenshot",
+        "receipt",
+        "image",
+        "audio",
+        "video",
+        "youtube",
+        "write",
+        "writing",
+        "wrote",
+        "author",
+        "draft",
+        "drafting",
+        "compose",
+        "create",
+        "generate",
+        "edit",
+        "editing",
+        "translate",
+        "translation",
+        "translating",
+        "debug",
+        "debugging",
+        "upload",
+        "uploads",
+        "uploading",
+        "failing",
+        "fails",
+        "failed",
+        "failure",
+        "crash",
+        "crashed",
+        "crashes",
+        "ocr",
+        "compliance",
+        "legal",
+    }
+)
+_LONG_DOCUMENT_NOUN_TOKENS = _normalized_token_set(
+    {"pdf", "document", "manual", "contract", "handbook", "specification", "spec", "thesis", "문서", "계약서", "매뉴얼"}
+)
+_LONG_DOCUMENT_NOUN_PHRASES = ("pdf", "文書", "契約書", "マニュアル", "文档", "合同", "手册")
+_LONG_DOCUMENT_SIZE_TOKENS = _normalized_token_set(
+    {"large", "huge", "long", "massive", "giant", "enormous", "big", "lengthy", "whole", "entire", "긴", "대용량", "전체"}
+)
+_LONG_DOCUMENT_SIZE_PHRASES = (
+    "very large",
+    "very long",
+    "hundreds of pages",
+    "too big",
+    "too large",
+    "page by page",
+    "長い",
+    "大きな",
+    "全体",
+    "很长",
+    "大pdf",
+    "整个",
+    "全文",
+)
+_LONG_DOCUMENT_READ_TOKENS = _normalized_token_set(
+    {"read", "reading", "summarize", "summarise", "summarizing", "summary", "process", "digest", "explain", "요약", "정리", "읽어"}
+)
+_LONG_DOCUMENT_READ_PHRASES = ("go through", "要約", "読んで", "読む", "总结", "阅读", "读完", "读一下")
+# A page count that cannot fit one read at typical prose density; below it
+# the document is one `read_file` call and no ledger is needed.
+_LONG_DOCUMENT_PAGE_COUNT_FLOOR = 60
+# Query tokens arrive NFKD-folded, so a Hangul literal only compares after the
+# same fold; `normalized_phrase` is that fold.
+_LONG_DOCUMENT_PAGE_WORDS = ("page", "pages") + tuple(normalized_phrase(word) for word in ("페이지", "ページ", "页"))
+_LONG_DOCUMENT_READ_PREFIXES_KO = tuple(normalized_phrase(word) for word in ("요약", "읽어", "정리"))
+_LONG_DOCUMENT_WORD_PUNCTUATION = ",.;:!?()[]\"'"
+
+
+def _long_document_page_number(word: str) -> int | None:
+    """The page count a word states: `300`, or the upper end of `1-300`."""
+    text = word.strip(_LONG_DOCUMENT_WORD_PUNCTUATION)
+    if text.isdigit():
+        return int(text)
+    start, dash, end = text.partition("-")
+    if dash and start.isdigit() and end.isdigit():
+        return int(end)
+    return None
+
+
+def _long_document_page_count_cue(normalized_query: str) -> bool:
+    """True only when a number of at least the floor sits NEXT TO a page word.
+
+    `300 pages`, `300-page`, `300페이지`, and `pages 1-300` count; a year, a
+    port, or a ticket number elsewhere in the sentence does not ("read the
+    spec, page 12, port 8080" names page 12 and nothing else).
+    """
+    words = [word.strip(_LONG_DOCUMENT_WORD_PUNCTUATION) for word in normalized_query.split()]
+    for index, word in enumerate(words):
+        for page_word in _LONG_DOCUMENT_PAGE_WORDS:
+            # `300-page`, `300페이지`: one word carrying number and page word.
+            if word.endswith(page_word):
+                number = _long_document_page_number(word.removesuffix(page_word).rstrip("-"))
+                if number is not None and number >= _LONG_DOCUMENT_PAGE_COUNT_FLOOR:
+                    return True
+        if word not in _LONG_DOCUMENT_PAGE_WORDS:
+            continue
+        neighbours = [words[index - 1]] if index > 0 else []
+        if index + 1 < len(words):
+            neighbours.append(words[index + 1])
+        for neighbour in neighbours:
+            number = _long_document_page_number(neighbour)
+            if number is not None and number >= _LONG_DOCUMENT_PAGE_COUNT_FLOOR:
+                return True
+    return False
+
+
+def _long_document_reading_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:
+    """Reading a document past one read: a reading verb AND a document noun AND a size or page-count cue.
+
+    An explicit phrase already carries the verb and the noun. Nothing here fires
+    without a reading verb, so writing, translating, uploading, debugging, or
+    reviewing a document for compliance stays with its owner.
+    """
+    if _contains_phrase(normalized_query, _LONG_DOCUMENT_BLOCKER_PHRASES):
+        return False
+    if _LONG_DOCUMENT_BLOCKER_TOKENS & query_tokens:
+        return False
+    if _contains_phrase(normalized_query, _LONG_DOCUMENT_EXPLICIT_PHRASES):
+        return True
+    document_noun = bool(_LONG_DOCUMENT_NOUN_TOKENS & query_tokens) or _contains_phrase(
+        normalized_query, _LONG_DOCUMENT_NOUN_PHRASES
+    )
+    size_cue = (
+        bool(_LONG_DOCUMENT_SIZE_TOKENS & query_tokens)
+        or _contains_phrase(normalized_query, _LONG_DOCUMENT_SIZE_PHRASES)
+        or _long_document_page_count_cue(normalized_query)
+    )
+    reading_verb = (
+        bool(_LONG_DOCUMENT_READ_TOKENS & query_tokens)
+        or _contains_phrase(normalized_query, _LONG_DOCUMENT_READ_PHRASES)
+        or any(token.startswith(_LONG_DOCUMENT_READ_PREFIXES_KO) for token in query_tokens)
+    )
+    return document_noun and size_cue and reading_verb
 
 
 def _paper_validation_or_citation_requested(normalized_query: str, query_tokens: set[str]) -> bool:

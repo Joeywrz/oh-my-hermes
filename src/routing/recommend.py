@@ -98,6 +98,10 @@ _GUARDRAIL_CANDIDATE_INJECTION_IDS = frozenset(
         "jit_learn_before_generic_research_or_review",
         "github_event_ops_before_generic_planning",
         "github_issue_intake_before_event_ops_or_feedback",
+        # "summarize this 300-page contract pdf" scores on paper-learning's
+        # `pdf` and `summarize` tokens and on nothing of its own once the
+        # generic words are held back below, so the guard needs a candidate.
+        "long_document_reading_before_paper_or_materials",
         "live_info_operator_before_generic_current_facts",
         "research_brief_before_wiki",
         "loop_goal_before_generic_clarification",
@@ -946,6 +950,18 @@ _SKILL_POLICIES = {
         wrapper_guidance=(
             "Prepare research_department_plan/v1 with Scout, Analyst, and Briefer lanes, source_inbox/v1 buckets, "
             "briefing_status/v1 counts, knowledge-store and synthesis-tool preferences, and observed-only evidence requirements."
+        ),
+    ),
+    "long-document-reading": RecommendationPolicy(
+        next_action="prepare_long_document_reading",
+        evidence_boundary=(
+            "A long document card is not page-count, text extraction, scanned-page OCR, range delegation, hosted OCR, "
+            "or whole-document coverage evidence; only ranges the chunk ledger marks covered from observed reads are read."
+        ),
+        wrapper_guidance=(
+            "Prepare long_document_card/v1: probe the page count and scanned flags, plan page ranges sized to the read "
+            "budget, extract each range with page anchors, delegate above the range threshold, and close every range "
+            "with covered / next / missing before claiming coverage."
         ),
     ),
     "paper-learning": RecommendationPolicy(
@@ -1936,6 +1952,46 @@ _SIBLING_POINTER_METADATA_TOKENS = {
 # `models` and `work` look like observed-work inventory requests.
 _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS = {
     "running-work-board": frozenset({"board", "models", "running", "units", "what", "which", "work"}),
+    # `long-document-reading` names its work with the most ordinary words in
+    # the catalog -- "read", "document", "pdf", "report", "contract", "page",
+    # "large", "long", "process". Credited as bare tokens they claimed "read
+    # the README", "document the API", "process this refund", and every
+    # bug-report sentence. The intent lives in the complete phrases and in the
+    # routing guard (`long_document_reading_before_paper_or_materials`), which
+    # requires a document noun, a size or page-count cue, and a reading verb
+    # together.
+    "long-document-reading": frozenset(
+        {
+            "300",
+            "annual",
+            "big",
+            "chunk",
+            "chunks",
+            "contract",
+            "document",
+            "entire",
+            "hundreds",
+            "huge",
+            "large",
+            "long",
+            "manual",
+            "page",
+            "pages",
+            "pdf",
+            "process",
+            "read",
+            "reading",
+            "report",
+            "review",
+            "summarize",
+            "the",
+            "this",
+            "through",
+            "too",
+            "very",
+            "whole",
+        }
+    ),
     # `model-optimization` names the onboarding process with ordinary ML and
     # tuning words. Credited as bare tokens they made "which model is cheapest
     # right now", "optimize database indexes", and "calibrate the load

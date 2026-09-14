@@ -103,10 +103,29 @@ def _mutate_record(paths, record_id: str, **fields) -> dict:
     return stored
 
 
-def _open_record(paths, summary: str, *, days_open: int = 34, past_deadline: bool = True, ceiling_days: int = 365, **capture) -> dict:
-    """An approved open record whose question has been open for ``days_open`` days."""
+def _open_record(
+    paths,
+    summary: str,
+    *,
+    days_open: int = 34,
+    past_deadline: bool = True,
+    ceiling_days: int = 365,
+    now: datetime | None = None,
+    **capture,
+) -> dict:
+    """An approved open record whose question has been open for ``days_open`` days.
+
+    ``now`` is the instant the caller measures from, and a test that captures
+    its own ``now`` before building the record must pass it. The helper's own
+    clock read happens after ``_approved`` has done real file I/O, so an
+    earlier ``now`` sits closer to ``open_since`` than the caller intended and
+    ``open_days`` floors one day short. ``_stamp`` truncates the microseconds,
+    which buys back under a second of that gap; approval on a loaded runner
+    spends more. It is a race against approval, not a date boundary, so it
+    reproduces at any hour and only on a slow enough machine.
+    """
     record = _approved(paths, summary, unresolved=True, **capture)
-    since = datetime.now(timezone.utc) - timedelta(days=days_open)
+    since = (now if now is not None else datetime.now(timezone.utc)) - timedelta(days=days_open)
     staleness = {
         **record["staleness"],
         "resolution": "open",
@@ -248,11 +267,11 @@ class OpenVerdictTests(unittest.TestCase):
             paths = resolve_paths(root / ".omh", root / ".hermes")
             now = datetime.now(timezone.utc)
 
-            ttl = _open_record(paths, "open with a ttl", ttl_days=1)
+            ttl = _open_record(paths, "open with a ttl", ttl_days=1, now=now)
             ttl = _mutate_record(paths, ttl["record_id"], ttl={"ttl_days": 1, "expires_at": PAST})
             self.assertEqual(memory_workflow._record_staleness(ttl, now=now)["reason"], "retention_expired")
 
-            ceiling = _open_record(paths, "open past the ceiling", days_open=400, ceiling_days=365)
+            ceiling = _open_record(paths, "open past the ceiling", days_open=400, ceiling_days=365, now=now)
             verdict = memory_workflow._record_staleness(ceiling, now=now)
             self.assertEqual((verdict["state"], verdict["reason"], verdict["open_days"]), ("expired", "unresolved_expired", 400))
             self.assertEqual(
@@ -263,7 +282,7 @@ class OpenVerdictTests(unittest.TestCase):
 
             source = root / "cited.md"
             atomic_write_text(source, "the original claim\n")
-            cited = _open_record(paths, "open with a cited source", source_ref=str(source))
+            cited = _open_record(paths, "open with a cited source", source_ref=str(source), now=now)
             atomic_write_text(source, "the claim, edited\n")
             self.assertEqual(memory_workflow._record_staleness(cited, now=now)["reason"], "source_changed")
             source.unlink()

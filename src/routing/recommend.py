@@ -895,6 +895,19 @@ _SKILL_POLICIES = {
             "budget_risk_register/v1, and overflow_recovery_route/v1 while preserving the full objective."
         ),
     ),
+    "application-threat-model": RecommendationPolicy(
+        next_action="prepare_application_threat_model",
+        evidence_boundary=(
+            "An application threat model is not a scan, a penetration test, a compliance attestation, or proof that a control "
+            "is deployed. A control stays unverified until observed configuration or a passing security test says otherwise, "
+            "and the model never covers the agent's own prompt, tool, or credential surface."
+        ),
+        wrapper_guidance=(
+            "Prepare application_threat_model/v1: asset register with data class and loss, trust boundaries with what crosses "
+            "and what authenticates the crossing, attack scenarios derived per boundary, one control decision per scenario "
+            "with an owner, and a security test per mitigating control naming the observable that fails without it."
+        ),
+    ),
     "security-safety-review": RecommendationPolicy(
         next_action="prepare_security_safety_review",
         evidence_boundary=(
@@ -1968,6 +1981,57 @@ _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS = {
     # "watch out for the race condition in this handler". Those three score only
     # inside a complete phrase.
     "automation-blueprint": frozenset({"keep", "monitor", "watch"}),
+    # `application-threat-model` is built from words that mean something else
+    # almost everywhere else in the catalog: "model" is model-setup and
+    # model-optimization, "review" is code-review, "security" is
+    # security-safety-review, "design" and "architecture" are the frontend and
+    # planning lanes, and "threat", "attack", "case", "trust", "analysis" and
+    # "stride" are ordinary English. Credited as bare tokens they moved "which
+    # model is cheapest right now" and "what is a tui and how is it different
+    # from a gui?" out of clarify and into this workflow. The intent lives in
+    # the complete phrases ("threat model", "trust boundary", "attack
+    # scenarios", ...). Two tokens stay creditable because no other lane owns
+    # them: `application-threat`, which appears only when someone writes the
+    # skill name, and `attacker`, which names the actor this workflow exists
+    # to reason about.
+    "application-threat-model": frozenset(
+        {
+            "a",
+            "abuse",
+            "an",
+            "analysis",
+            "application",
+            "architecture",
+            "attack",
+            "boundaries",
+            "boundary",
+            "build",
+            "case",
+            "cases",
+            "could",
+            "design",
+            "do",
+            "how",
+            "model",
+            "modeling",
+            "modelling",
+            "review",
+            "scenario",
+            "scenarios",
+            "security",
+            "session",
+            "stride",
+            "the",
+            "threat",
+            "threats",
+            "tree",
+            "trees",
+            "trust",
+            "what",
+            "workshop",
+            "would",
+        }
+    ),
     # `long-document-reading` names its work with the most ordinary words in
     # the catalog -- "read", "document", "pdf", "report", "contract", "page",
     # "large", "long", "process". Credited as bare tokens they claimed "read

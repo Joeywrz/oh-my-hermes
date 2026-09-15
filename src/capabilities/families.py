@@ -104,6 +104,7 @@ _FAMILY_DEFINITIONS = (
             "build-failure-triage",
             "verification-gate",
             "security-safety-review",
+            "application-threat-model",
             "ultrawork",
             "ultraqa",
         ),

@@ -190,6 +190,7 @@
    "build-failure-triage",
    "verification-gate",
    "security-safety-review",
+   "application-threat-model",
    "ultrawork",
    "ultraqa",
    "llm-app-dev",
@@ -211,7 +212,7 @@
    "accepted plan -> ultrawork delivery cycle -> coding handoff -> review and CI evidence",
    "failed checks -> build-failure-triage -> minimal fix handoff -> verification-gate",
    "agentic action risk -> security-safety-review -> safe action policy -> remediation handoff",
-   "risky change -> ralplan -> executor selection -> observed coding-agent status"
+   "application architecture -> application-threat-model -> assets and trust boundaries -> attack scenarios -> controls with per-control tests"
   ],
   "source_lanes": [
    "coding_handoff"

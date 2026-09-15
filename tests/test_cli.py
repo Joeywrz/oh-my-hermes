@@ -4750,12 +4750,12 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(gates["chat_card_coverage"]["status"], "passed")
             self.assertIn("generic ack 0", gates["chat_card_coverage"]["summary"])
             self.assertEqual(gates["route_hint_alignment"]["status"], "passed")
-            self.assertIn("209/209 route hints aligned", gates["route_hint_alignment"]["summary"])
+            self.assertIn("210/210 route hints aligned", gates["route_hint_alignment"]["summary"])
             self.assertEqual(gates["context_brief_coverage"]["status"], "passed")
             self.assertIn("12/12 context brief cases passing", gates["context_brief_coverage"]["summary"])
             self.assertEqual(gates["routing_precision"]["status"], "passed")
-            self.assertIn("222/222 negative-control cases", gates["routing_precision"]["summary"])
-            self.assertIn("375/375 interventions", gates["routing_precision"]["summary"])
+            self.assertIn("228/228 negative-control cases", gates["routing_precision"]["summary"])
+            self.assertIn("380/380 interventions", gates["routing_precision"]["summary"])
             self.assertIn("overroutes 0", gates["routing_precision"]["summary"])
             self.assertIn("missed interventions 0", gates["routing_precision"]["summary"])
             self.assertEqual(gates["localized_chat_copy"]["status"], "passed")
@@ -4809,10 +4809,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("Status: ready", stdout)
             self.assertIn("Written: no", stdout)
             self.assertIn("Grounded score: 50/50 (avg 10.0)", stdout)
-            self.assertIn("Chat card coverage: 89/89 (generic ack 0)", stdout)
+            self.assertIn("Chat card coverage: 90/90 (generic ack 0)", stdout)
             self.assertIn("Context brief coverage: 12/12 (route hints 11, catalog hints 1)", stdout)
             self.assertIn(
-                "Routing precision: 222/222 negative controls, 375/375 interventions "
+                "Routing precision: 228/228 negative controls, 380/380 interventions "
                 "(overroutes 0, catalog pickers 0, generic ack 0, missed interventions 0)",
                 stdout,
             )
@@ -4855,18 +4855,18 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(payload["summary"]["product_readiness_status"], "ready")
             self.assertEqual(payload["summary"]["grounded_score_perfect"], 50)
             self.assertEqual(payload["summary"]["grounded_score_average"], 10.0)
-            self.assertEqual(payload["summary"]["chat_card_coverage_passing"], 89)
+            self.assertEqual(payload["summary"]["chat_card_coverage_passing"], 90)
             self.assertEqual(payload["summary"]["chat_card_generic_ack_count"], 0)
-            self.assertEqual(payload["summary"]["route_hint_alignment_aligned"], 209)
+            self.assertEqual(payload["summary"]["route_hint_alignment_aligned"], 210)
             self.assertEqual(payload["summary"]["route_hint_mismatch_count"], 0)
             self.assertEqual(payload["summary"]["context_brief_coverage_passing"], 12)
             self.assertEqual(payload["summary"]["context_brief_coverage_total"], 12)
             # Includes the measured omh-docs and github-issue-intake cases.
-            self.assertEqual(payload["summary"]["routing_precision_passing"], 222)
-            self.assertEqual(payload["summary"]["routing_precision_total"], 222)
+            self.assertEqual(payload["summary"]["routing_precision_passing"], 228)
+            self.assertEqual(payload["summary"]["routing_precision_total"], 228)
             self.assertEqual(payload["summary"]["routing_precision_overroute_count"], 0)
-            self.assertEqual(payload["summary"]["routing_precision_intervention_passing"], 375)
-            self.assertEqual(payload["summary"]["routing_precision_intervention_total"], 375)
+            self.assertEqual(payload["summary"]["routing_precision_intervention_passing"], 380)
+            self.assertEqual(payload["summary"]["routing_precision_intervention_total"], 380)
             self.assertEqual(payload["summary"]["routing_precision_missed_intervention_count"], 0)
             self.assertEqual(payload["summary"]["localized_chat_copy_passing"], 8)
             self.assertEqual(payload["summary"]["localized_chat_copy_total"], 8)
@@ -9994,8 +9994,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(status, 0)
         payload = json.loads(stdout)
         self.assertEqual(payload["schema_version"], "chat_card_coverage/v1")
-        self.assertEqual(payload["summary"]["case_count"], 89)
-        self.assertEqual(payload["summary"]["passing_count"], 89)
+        self.assertEqual(payload["summary"]["case_count"], 90)
+        self.assertEqual(payload["summary"]["passing_count"], 90)
         self.assertEqual(payload["summary"]["generic_ack_count"], 0)
         self.assertTrue(payload["summary"]["all_passing"])
         self.assertIn("not live Hermes chat", payload["claim_boundary"])
@@ -10019,7 +10019,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         with self.assertRaises(json.JSONDecodeError):
             json.loads(stdout)
         self.assertIn("OMH chat card coverage", stdout)
-        self.assertIn("Result: 89/89 workflow cards dedicated (all passing)", stdout)
+        self.assertIn("Result: 90/90 workflow cards dedicated (all passing)", stdout)
         self.assertIn("Generic ack responses: 0", stdout)
         self.assertIn(
             "Scheduled ops blueprint: ok; "
@@ -10038,9 +10038,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(status, 0)
         payload = json.loads(stdout)
         self.assertEqual(payload["schema_version"], "route_hint_alignment/v1")
-        self.assertEqual(payload["summary"]["case_count"], 209)
-        self.assertEqual(payload["summary"]["hinted_count"], 209)
-        self.assertEqual(payload["summary"]["aligned_count"], 209)
+        self.assertEqual(payload["summary"]["case_count"], 210)
+        self.assertEqual(payload["summary"]["hinted_count"], 210)
+        self.assertEqual(payload["summary"]["aligned_count"], 210)
         self.assertEqual(payload["summary"]["missing_hint_count"], 0)
         self.assertEqual(payload["summary"]["mismatch_count"], 0)
         self.assertTrue(payload["summary"]["all_aligned"])
@@ -10071,7 +10071,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(status, 0)
         explicit_payload = json.loads(stdout)
         self.assertEqual(explicit_payload["schema_version"], "route_hint_alignment/v1")
-        self.assertEqual(explicit_payload["summary"]["case_count"], 209)
+        self.assertEqual(explicit_payload["summary"]["case_count"], 210)
 
     def test_demo_route_hint_alignment_summary_is_human_readable(self) -> None:
         status, stdout, stderr = run_cli(["demo", "route-hint-alignment", "--summary"])
@@ -10081,8 +10081,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         with self.assertRaises(json.JSONDecodeError):
             json.loads(stdout)
         self.assertIn("OMH route hint alignment", stdout)
-        self.assertIn("Result: 209/209 route hints aligned (all passing)", stdout)
-        self.assertIn("Hints present: 209/209; missing hints: 0; mismatches: 0", stdout)
+        self.assertIn("Result: 210/210 route hints aligned (all passing)", stdout)
+        self.assertIn("Hints present: 210/210; missing hints: 0; mismatches: 0", stdout)
         self.assertIn(
             # The route keeps the catalog key, the hint emits the installed
             # skill's identifier; the rollup shows both vocabularies (#1249).

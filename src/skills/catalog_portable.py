@@ -129,6 +129,8 @@ _PORTABILITY: dict[str, str] = {
     'omh-context-budget-review': PORTABILITY_REQUIRES_OMH_CLI,
     # required_inputs: target workflow, code change, prompt, tool, dependency, or release surface; expected_outputs: security_safety_review_plan/v1; final_checklist requires evidence/approval, not a native runtime.
     'omh-security-safety-review': PORTABILITY_PORTABLE,
+    # required_inputs: components, data flows, known trust boundaries, deployed controls, threat actors in scope; expected_outputs: application_threat_model/v1; the whole workflow is analysis over supplied architecture with no OMH CLI call and no Hermes-only tool.
+    'omh-application-threat-model': PORTABILITY_PORTABLE,
     # expected_outputs require hermes_ops_blueprint and hermes_recurring_intent lifecycle records.
     'omh-automation-blueprint': PORTABILITY_HERMES_ONLY,
     # required_inputs: service or incident scope; expected_outputs: reliability review; final_checklist requires evidence/approval, not a native runtime.
@@ -880,4 +882,5 @@ PORTABLE_REFERENCE_PATHS = frozenset({
     'rust/references/rust-discipline.md',
     'rust/references/ub-escalation.md',
     'native-debugging/references/native-debug-loop.md',
+    'application-threat-model/references/threat-model-method.md',
 })

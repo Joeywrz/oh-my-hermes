@@ -1186,6 +1186,7 @@ _CODING_INTENT_BY_SKILL = {
     "codegraph-refresh": "planning",
     "context-budget-review": "planning",
     "security-safety-review": "planning",
+    "application-threat-model": "planning",
     "automation-blueprint": "planning",
     "reliability-review": "planning",
     "idea-to-deploy": "planning",

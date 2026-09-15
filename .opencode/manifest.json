@@ -18,6 +18,8 @@
     "omh-apple-design/references/product-visual-production.md": "835383a0c276a0e5150a9a7ba633bcb798d265eb5fcd96ab082dc5c513ccf5cd",
     "omh-apple-design/references/review-playbook.md": "c021e7c05152b68d746dcea05942fd0215630551a2a419fb9fa6a809f0b6f604",
     "omh-apple-design/references/web-production-libraries.md": "81ac6fd49dc78ea629cc949d9d0aed99eea969629d3606866882988f5ec5e99e",
+    "omh-application-threat-model/SKILL.md": "705162d7ce2808865024c7deaa6e7ded1fa458c245f6d655ec30ef5e25f17ea4",
+    "omh-application-threat-model/references/threat-model-method.md": "ed3819fecf9c8d7208a49fbbebc5863dcc9df009a663e0d012431bc3296e5e8e",
     "omh-apps/SKILL.md": "e1c016d1e8a128373bee50b88a68b0faa379e307afa2715c546d726011531651",
     "omh-ask/SKILL.md": "5cec8b3013111ffde4200553cd749aa409a24d5a80f20c117045a71224575563",
     "omh-autoresearch-goal/SKILL.md": "e9dc10276de33401c2d4217523245f4617f0d55da8e6163d50c2e8e79b0f7b71",
@@ -127,7 +129,7 @@
     "omh-sales-development/references/procedure.md": "0ed747dc7a21bee8931023e4f7d78f65a7a9845ccf40cd6b754eeecc2a6aea70",
     "omh-sales-pipeline-review/SKILL.md": "de2e6755a1eb3acd20732e2ea61586bbd1511850daa8a2fe12a25f4ced353096",
     "omh-sales-pipeline-review/references/procedure.md": "ae092ea4d9363da82d23620f33a2f83e8a3dd42f4a8d69fd08b92cb2989fa138",
-    "omh-security-safety-review/SKILL.md": "7798a80be2fc7bdfa35a16df0f36738bbb0a0a5b1bc23bc1d00cb199e4d62fb1",
+    "omh-security-safety-review/SKILL.md": "25b62718c285226d010488481543297671857c7646cc09a99210cce3e3eb688c",
     "omh-skill-health/SKILL.md": "227476bbc5de7375fec53846883a55cbe5465ce49a47db562eda18984475c1de",
     "omh-skill-scout/SKILL.md": "9ea99eb5bed0256800e44041b216c605f073f6c4d7b221ae896d8bc9f6efe154",
     "omh-source-finder/SKILL.md": "dee9bc54b388d99d2bab6f1da1c9528541d702f22ad31e9aad21b16b22825f19",
@@ -170,6 +172,7 @@
     "omh-agent-ops-review",
     "omh-ai-slop-cleaner",
     "omh-apple-design",
+    "omh-application-threat-model",
     "omh-apps",
     "omh-ask",
     "omh-autoresearch-goal",
@@ -266,7 +269,7 @@
     "ulw-work"
   ],
   "source": "agent-skills",
-  "source_digest": "010a1541b5255863328cd4038802aca4789c9dc2028c4994252e9f2e23c086b1",
+  "source_digest": "e745145ac23f11f8bf95af87d94860c2c557ffa8d8dd6781ecbfaa1a9fdeb427",
   "targets": {
     "repo": ".agents/skills",
     "user": ".agents/skills"

@@ -1762,7 +1762,7 @@ _FEATURE_SURFACE_SKILLS = (
         bad_prompt="workflow-learning silently patch the skill and claim future behavior is fixed.",
         artifact_expectations=(
             "workflow-learning/v1 metadata-only runtime or wrapper card when recorded",
-            "browser_skill_promotion_approval_receipt/v1 only through `omh web-qa promotion diff` then `approve --reviewed-diff-digest --reviewer` on an approved, replay-passing `omh web-qa trace`; every operation needs its own reviewed exact diff",
+            "browser_skill_promotion_approval_receipt/v1 per operation: `promotion diff` then `approve --reviewed-diff-digest --reviewer`; source `learning promotion --source-id sd-<id>` (reviewed draft) or `web-qa promotion --trace-id bwt-<id>`",
         ),
         recovery_notes=(
             *_GENERAL_RECOVERY_NOTES,

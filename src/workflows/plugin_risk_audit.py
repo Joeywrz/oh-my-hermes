@@ -126,6 +126,18 @@ def audit_plugin_risk(plugin_root: Path) -> JsonObject:
     }
 
 
+def scanned_text_risk_categories(name: str, text: str) -> tuple[RiskCategory, ...]:
+    """The static risk categories one named text body matches, sorted.
+
+    Public so a caller scanning bytes it is about to write -- skill promotion
+    reads a reviewed draft's own instruction text this way -- reuses these
+    detectors instead of growing a second copy that then drifts from them. The
+    claim is the audit's own weak one: a text match says a pattern occurs in
+    this text, never that anything ran.
+    """
+    return tuple(sorted(_risk_categories(name, text)))
+
+
 def _audit_static_source(source: PluginAuditSource) -> _StaticSource:
     text = source.content.decode("utf-8", errors="replace")
     return _StaticSource(

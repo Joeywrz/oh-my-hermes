@@ -126,7 +126,7 @@ Use [Capabilities](CAPABILITIES.md) for the manifest contract and
 | Memory/context review and handoff packs | [Memory Context Review](MEMORY_CONTEXT.md) |
 | Import, inspect, and compare host-collected web QA runs, including the native agent-browser collector boundary | [Web QA Observations](WEB-QA-OBSERVATIONS.md) |
 | Record, approve, and replay offline browser workflow traces | [Browser Workflow Traces](BROWSER-WORKFLOW-TRACES.md) |
-| Promote an approved browser trace into a project-local skill with exact-diff approval | [Browser Skill Promotion](BROWSER-SKILL-PROMOTION.md) |
+| Promote an approved browser trace or a reviewed skill draft into a project-local skill with exact-diff approval | [Skill Promotion](BROWSER-SKILL-PROMOTION.md) |
 | Host-supplied session activity receipts for cross-workflow learning | [Session Activity Receipts](SESSION-ACTIVITY-RECEIPTS.md) |
 | Separate what an operator reported from what one run was observed to complete | [Runtime Learning Recap](RUNTIME-LEARNING-RECAP.md) |
 | Bind an image result to the route a producer attested, apart from the route requested | [Visual Generation Receipts](VISUAL-GENERATION-RECEIPTS.md) |

@@ -1,8 +1,18 @@
-"""Crash-safe lifecycle for approved project-local browser skills.
+"""Crash-safe lifecycle for approved project-local skills.
 
 `SKILL.md` is the only visibility commit.  Everything else is immutable
 history or private pre-entry staging; status derives truth from bytes, never a
 mutable active-state record.
+
+Since #1571 the same lifecycle carries either promotion source -- an approved,
+replay-passing browser workflow trace, or a reviewed and activated
+`skill_draft/v1`.  Nothing here was duplicated for the second kind: locking,
+staging, the activation index, receipt validation, rollback, retry and status
+are one implementation, and the three things that genuinely differ by kind --
+which record the source lock names, how an entry's metadata is spelled, and what
+"the source drifted" means -- go through `skill_promotion_source`.  The module,
+its function names and its `browser_skill_*` schema strings keep their shipped
+spelling so no digest, receipt or installed entry moves.
 """
 from __future__ import annotations
 
@@ -24,10 +34,19 @@ from .browser_skill_promotion_approval import (
 from .browser_skill_promotion_plan import read_browser_skill_package
 from .browser_workflow_learning import BrowserTraceError
 from .browser_workflow_learning_store import _root as observed_git_root, read_browser_workflow_trace, resolved_browser_workflow_promotion_reference
+from .skill_promotion_source import (
+    SKILL_DRAFT_SOURCE, SkillPromotionSourceError, entry_source_binding,
+    parse_promotion_entry_metadata, promotion_manifest_file_sets, promotion_source_lock_parts,
+    read_project_skill_draft, receipt_source_binding, skill_draft_digest,
+)
 
 _DIGEST = re.compile(r"^[a-f0-9]{64}$")
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{2,48}$")
 _MAX_FILE_BYTES = 262144
+# The receipt fields that name the promotion source. Compared as a block so a
+# draft entry, which spells them differently in its own metadata, is checked
+# against the same four values the receipt bound.
+_SOURCE_BINDING_KEYS = ("trace_id", "trace_revision", "trace_digest", "fixture_digests")
 
 
 class BrowserSkillPromotionError(ValueError):
@@ -35,7 +54,7 @@ class BrowserSkillPromotionError(ValueError):
 
 
 def review_browser_skill_lifecycle(
-    project_root: str | Path, trace_id: str, skill_name: str, *,
+    project_root: str | Path, source_id: str, skill_name: str, *,
     operation: Literal["install", "update"] = "install", host: PromotionNativeHost | None = None,
 ) -> dict[str, object]:
     root = observed_git_root(project_root)
@@ -43,13 +62,13 @@ def review_browser_skill_lifecycle(
     inventory = _managed_inventory(root, skill_name)
     if active is not None:
         _require_current_source(root, active)
-        if _same_identity(active, trace_id):
+        if _same_identity(active, source_id):
             return _unchanged_review(root, skill_name, active)
         operation = "update"
     elif operation == "update":
         raise BrowserSkillPromotionError("update requires a verified active managed SKILL.md")
     return review_browser_skill_promotion(
-        root, trace_id, skill_name, operation=operation,
+        root, source_id, skill_name, operation=operation,
         previous_generation=str(active["generation"]) if active else None,
         base_entry_digest=str(active["entry_digest"]) if active else "absent",
         existing_files=inventory, host=host or HermesPromotionNativeHost(),
@@ -57,7 +76,7 @@ def review_browser_skill_lifecycle(
 
 
 def approve_browser_skill_lifecycle(
-    project_root: str | Path, trace_id: str, skill_name: str, *, reviewed_diff_digest: str,
+    project_root: str | Path, source_id: str, skill_name: str, *, reviewed_diff_digest: str,
     reviewer_identity: str, operation: Literal["install", "update"] = "install",
     host: PromotionNativeHost | None = None,
 ) -> dict[str, object]:
@@ -66,7 +85,7 @@ def approve_browser_skill_lifecycle(
     inventory = _managed_inventory(root, skill_name)
     if active is not None:
         _require_current_source(root, active)
-        if _same_identity(active, trace_id):
+        if _same_identity(active, source_id):
             if reviewed_diff_digest != _digest(b""):
                 raise BrowserSkillPromotionError("unchanged promotion requires the empty exact diff digest")
             return _mapping(active, "receipt")
@@ -74,7 +93,7 @@ def approve_browser_skill_lifecycle(
     elif operation == "update":
         raise BrowserSkillPromotionError("update requires a verified active managed SKILL.md")
     return approve_browser_skill_promotion(
-        root, trace_id, skill_name, reviewed_diff_digest=reviewed_diff_digest, reviewer_identity=reviewer_identity,
+        root, source_id, skill_name, reviewed_diff_digest=reviewed_diff_digest, reviewer_identity=reviewer_identity,
         operation=operation, previous_generation=str(active["generation"]) if active else None,
         base_entry_digest=str(active["entry_digest"]) if active else "absent", existing_files=inventory,
         host=host or HermesPromotionNativeHost(),
@@ -88,7 +107,7 @@ def review_browser_skill_rollback(project_root: str | Path, skill_name: str, gen
     _require_current_source(root, historical)
     inventory = _managed_inventory(root, skill_name)
     return review_browser_skill_promotion(
-        root, str(historical["trace_id"]), skill_name, operation="rollback", previous_generation=str(active["generation"]),
+        root, _source_id(historical), skill_name, operation="rollback", previous_generation=str(active["generation"]),
         base_entry_digest=str(active["entry_digest"]), rollback_of=generation, existing_files=inventory,
         host=host or HermesPromotionNativeHost(),
     )
@@ -100,7 +119,7 @@ def approve_browser_skill_rollback(project_root: str | Path, skill_name: str, ge
     historical = _historical_entry(root, skill_name, generation)
     _require_current_source(root, historical)
     return approve_browser_skill_promotion(
-        root, str(historical["trace_id"]), skill_name, reviewed_diff_digest=reviewed_diff_digest, reviewer_identity=reviewer_identity,
+        root, _source_id(historical), skill_name, reviewed_diff_digest=reviewed_diff_digest, reviewer_identity=reviewer_identity,
         operation="rollback", previous_generation=str(active["generation"]), base_entry_digest=str(active["entry_digest"]),
         rollback_of=generation, existing_files=_managed_inventory(root, skill_name), host=host or HermesPromotionNativeHost(),
     )
@@ -115,7 +134,7 @@ def review_browser_skill_removal(project_root: str | Path, skill_name: str, *, h
             return {**previous, "status": "already_deactivated", "reused": True}
         raise BrowserSkillPromotionError("a verified managed SKILL.md is required")
     _require_current_source(root, active)
-    return review_browser_skill_promotion(root, str(active["trace_id"]), skill_name, operation="remove", previous_generation=str(active["generation"]), base_entry_digest=str(active["entry_digest"]), existing_files=_managed_inventory(root, skill_name), host=host or HermesPromotionNativeHost())
+    return review_browser_skill_promotion(root, _source_id(active), skill_name, operation="remove", previous_generation=str(active["generation"]), base_entry_digest=str(active["entry_digest"]), existing_files=_managed_inventory(root, skill_name), host=host or HermesPromotionNativeHost())
 
 
 def approve_browser_skill_removal(project_root: str | Path, skill_name: str, *, reviewed_diff_digest: str, reviewer_identity: str, host: PromotionNativeHost | None = None) -> dict[str, object]:
@@ -127,7 +146,7 @@ def approve_browser_skill_removal(project_root: str | Path, skill_name: str, *, 
             return {**previous, "status": "already_deactivated", "reused": True}
         raise BrowserSkillPromotionError("a verified managed SKILL.md is required")
     _require_current_source(root, active)
-    return approve_browser_skill_promotion(root, str(active["trace_id"]), skill_name, reviewed_diff_digest=reviewed_diff_digest, reviewer_identity=reviewer_identity, operation="remove", previous_generation=str(active["generation"]), base_entry_digest=str(active["entry_digest"]), existing_files=_managed_inventory(root, skill_name), host=host or HermesPromotionNativeHost())
+    return approve_browser_skill_promotion(root, _source_id(active), skill_name, reviewed_diff_digest=reviewed_diff_digest, reviewer_identity=reviewer_identity, operation="remove", previous_generation=str(active["generation"]), base_entry_digest=str(active["entry_digest"]), existing_files=_managed_inventory(root, skill_name), host=host or HermesPromotionNativeHost())
 
 
 def promote_approved_browser_skill(project_root: str | Path, receipt_id: str, *, host: PromotionNativeHost | None = None) -> dict[str, object]:
@@ -140,7 +159,7 @@ def promote_approved_browser_skill(project_root: str | Path, receipt_id: str, *,
     active = _active(root, skill_name)
     if active is not None and active.get("receipt_id") == receipt_id:
         return _reuse_or_deactivate(root, skill_name, active)
-    with file_lock(_trace_lock_path(root, str(receipt["trace_id"])), private=True):
+    with file_lock(_source_lock_path(root, str(receipt["trace_id"])), private=True):
         with file_lock(_lock_path(root, skill_name), private=True):
             active = _active(root, skill_name)
             if active is not None and active.get("receipt_id") == receipt_id:
@@ -189,7 +208,7 @@ def retry_browser_skill_promotion(project_root: str | Path, receipt_id: str, *, 
 
 
 def _remove_approved(root: Path, skill_name: str, receipt: Mapping[str, object], host: PromotionNativeHost) -> dict[str, object]:
-    with file_lock(_trace_lock_path(root, str(receipt["trace_id"])), private=True):
+    with file_lock(_source_lock_path(root, str(receipt["trace_id"])), private=True):
         with file_lock(_lock_path(root, skill_name), private=True):
             active = _active(root, skill_name)
             if active is None:
@@ -209,6 +228,8 @@ def _remove_approved(root: Path, skill_name: str, receipt: Mapping[str, object],
 
 def _receipt_plan(root: Path, receipt: Mapping[str, object], inventory: Mapping[str, str], host: PromotionNativeHost) -> dict[str, object]:
     plan_review = review_browser_skill_promotion(
+        # The receipt's `trace_id` is its shipped `/v1` name for the promotion
+        # source id; for a draft receipt it holds that draft's id.
         root, str(receipt["trace_id"]), Path(str(receipt["target_path"])).name,
         operation=str(receipt["operation"]), previous_generation=_nullable(receipt.get("previous_generation"), receipt.get("operation")),
         base_entry_digest=str(receipt["base_entry_digest"]), rollback_of=_nullable(receipt.get("rollback_of"), "rollback"),
@@ -219,7 +240,7 @@ def _receipt_plan(root: Path, receipt: Mapping[str, object], inventory: Mapping[
     keys = ("operation", "activation_id", "payload_digest", "rollback_of", "base_digest", "base_entry_digest", "previous_generation", "project_root", "project_identity", "target_path", "trace_id", "trace_revision", "trace_digest", "fixture_digests", "generic_draft_digest", "generation", "package_digest", "entry_digest", "manifest_digest", "reviewed_diff_digest", "policy_revision")
     preflight = _mapping(plan_review, "native_preflight")
     policy = _mapping(preflight, "policy")
-    expected: dict[str, object] = {**plan, **source}
+    expected: dict[str, object] = {**plan, **source, **receipt_source_binding(source)}
     expected["previous_generation"] = source.get("previous_generation")
     expected["reviewed_diff_digest"] = plan.get("diff_digest")
     expected["policy_revision"] = policy.get("revision")
@@ -277,9 +298,9 @@ def _validated_generation(root: Path, skill_name: str, generation: str) -> dict[
         or receipt.get("entry_digest") != entry_digest or receipt.get("generation") != generation
         or receipt.get("manifest_digest") != _digest(manifest_bytes) or receipt.get("package_digest") != _package_digest(package)
         or receipt.get("activation_id") != metadata.get("activation_id") or receipt.get("target_path") != str(target)
-        or receipt.get("project_identity") != _project_identity(root) or receipt.get("trace_id") != metadata.get("trace_id")
-        or receipt.get("trace_digest") != metadata.get("trace_digest") or receipt.get("trace_revision") != metadata.get("trace_revision")
-        or receipt.get("fixture_digests") != metadata.get("fixture_digests") or receipt.get("generic_draft_digest") != metadata.get("generic_draft_digest")
+        or receipt.get("project_identity") != _project_identity(root)
+        or {key: receipt.get(key) for key in _SOURCE_BINDING_KEYS} != entry_source_binding(metadata)
+        or receipt.get("generic_draft_digest") != metadata.get("generic_draft_digest")
     ):
         raise BrowserSkillPromotionError("approval receipt does not bind immutable generation bytes")
     return {**metadata, "entry": entry, "entry_digest": entry_digest, "receipt_id": receipt["receipt_id"], "receipt": receipt, "manifest": manifest}
@@ -293,6 +314,9 @@ def _require_active(root: Path, skill_name: str) -> dict[str, object]:
 
 
 def _require_current_source(root: Path, active: Mapping[str, object]) -> None:
+    if active.get("source_kind") == SKILL_DRAFT_SOURCE:
+        _require_current_draft(root, active)
+        return
     try:
         reference = resolved_browser_workflow_promotion_reference(root, str(active["trace_id"]))
     except BrowserTraceError as exc:
@@ -303,6 +327,25 @@ def _require_current_source(root: Path, active: Mapping[str, object]) -> None:
             raise BrowserSkillPromotionError("approved browser trace has drifted")
 
 
+def _require_current_draft(root: Path, active: Mapping[str, object]) -> None:
+    """A draft source drifts when its record stops resolving as the reviewed one.
+
+    A draft id is a content hash of the proposed name, the selected runs and the
+    instruction sections, so editing any of those produces a different draft
+    rather than a changed one. `draft_digest` covers the rest of the record,
+    which is where a later review that withdrew the approval shows up -- so an
+    approval revoked after promotion deactivates the entry on the next status.
+    """
+    try:
+        draft = read_project_skill_draft(root, str(active["draft_id"]))
+    except (SkillPromotionSourceError, KeyError) as exc:
+        raise BrowserSkillPromotionError(
+            "approved skill draft is unavailable or no longer an active proposal"
+        ) from exc
+    if skill_draft_digest(draft) != active.get("draft_digest"):
+        raise BrowserSkillPromotionError("approved skill draft has drifted")
+
+
 def _skill_from_receipt(root: Path, receipt: Mapping[str, object]) -> str:
     target = Path(str(receipt.get("target_path", "")))
     skill_name = target.name
@@ -311,8 +354,13 @@ def _skill_from_receipt(root: Path, receipt: Mapping[str, object]) -> str:
     return skill_name
 
 
-def _same_identity(active: Mapping[str, object], trace_id: str) -> bool:
-    return str(active.get("trace_id", "")) == trace_id
+def _same_identity(active: Mapping[str, object], source_id: str) -> bool:
+    return _source_id(active) == source_id
+
+
+def _source_id(active: Mapping[str, object]) -> str:
+    """The promotion source id an installed entry names, whichever kind wrote it."""
+    return str(entry_source_binding(active)["trace_id"])
 
 
 def _unchanged_review(root: Path, skill_name: str, active: Mapping[str, object]) -> dict[str, object]:
@@ -327,7 +375,7 @@ def _reuse_or_deactivate(root: Path, skill_name: str, active: Mapping[str, objec
     try:
         _require_current_source(root, active)
     except BrowserSkillPromotionError as exc:
-        with file_lock(_trace_lock_path(root, str(active["trace_id"])), private=True):
+        with file_lock(_source_lock_path(root, _source_id(active)), private=True):
             with file_lock(_lock_path(root, skill_name), private=True):
                 again = _active(root, skill_name)
                 if again is not None and again.get("entry_digest") == active.get("entry_digest"):
@@ -337,6 +385,10 @@ def _reuse_or_deactivate(root: Path, skill_name: str, active: Mapping[str, objec
 
 
 def _source_failure_status(root: Path, active: Mapping[str, object]) -> str:
+    # Only a browser trace has a quarantine lifecycle; a draft that no longer
+    # resolves as an approved proposal is stale, which is the honest word for it.
+    if active.get("source_kind") == SKILL_DRAFT_SOURCE:
+        return "stale"
     try:
         trace = read_browser_workflow_trace(root, str(active["trace_id"]))
         lifecycle = trace.get("lifecycle")
@@ -358,7 +410,9 @@ def _observe(root: Path, skill_name: str, status: str, active: Mapping[str, obje
         "receipt_id": receipt.get("receipt_id", ""), "promoter": receipt.get("reviewer_identity", ""),
         "promoted_at": prior.get("promoted_at", "") if same_receipt else (utc_now() if status in {"active", "rolled_back"} and not reused else ""),
         "observed_at": prior.get("observed_at", "") if same_receipt else utc_now(),
-        "lineage": {"previous_generation": active.get("previous_generation", "") if active else "", "rollback_of": active.get("rollback_of", "") if active else "", "trace_id": active.get("trace_id", "") if active else ""},
+        # `trace_id` keeps its shipped payload name and carries the promotion
+        # source id, which for a draft-sourced skill is that draft's id.
+        "lineage": {"previous_generation": active.get("previous_generation", "") if active else "", "rollback_of": active.get("rollback_of", "") if active else "", "trace_id": _source_id(active) if active else ""},
         "reused": reused, "reason": reason, "deactivated": deactivated,
     }
     # Read/reuse paths are projections only. Persist a terminal transition or
@@ -491,19 +545,11 @@ def _drop_generation(inventory: Mapping[str, str], generation: str) -> dict[str,
 
 
 def _entry_metadata(entry: str) -> dict[str, object]:
-    line = next((line for line in entry.splitlines() if line.startswith("omh_browser_promotion: ")), "")
+    """Read a managed entry's promotion metadata, whichever kind wrote it."""
     try:
-        value = json.loads(line.removeprefix("omh_browser_promotion: "))
-    except json.JSONDecodeError as exc:
-        raise BrowserSkillPromotionError("SKILL.md has invalid browser promotion metadata") from exc
-    required = {"schema_version", "activation_id", "generation", "previous_generation", "rollback_of", "trace_id", "trace_digest", "trace_revision", "origins", "fixture_digests", "generic_draft_digest", "output_schema_digest", "replay_digest", "resources"}
-    if not isinstance(value, dict) or set(value) != required or value.get("schema_version") != "browser_skill_entry/v1":
-        raise BrowserSkillPromotionError("SKILL.md is not a browser promotion entry")
-    for key in ("activation_id", "generation", "trace_digest", "generic_draft_digest", "output_schema_digest", "replay_digest"):
-        _digest_value(value.get(key), key)
-    if type(value.get("trace_revision")) is not int or not isinstance(value.get("fixture_digests"), dict):
-        raise BrowserSkillPromotionError("SKILL.md has malformed source metadata")
-    return value
+        return parse_promotion_entry_metadata(entry)
+    except SkillPromotionSourceError as exc:
+        raise BrowserSkillPromotionError(str(exc)) from exc
 
 
 def _manifest(path: Path, generation: str) -> dict[str, object]:
@@ -511,7 +557,7 @@ def _manifest(path: Path, generation: str) -> dict[str, object]:
     if value.get("schema_version") != "browser_skill_resource_manifest/v1" or value.get("generation") != generation:
         raise BrowserSkillPromotionError("resource manifest is invalid")
     files = _mapping(value, "files")
-    if set(files) != {f"resources/{generation}/entry.md", f"resources/{generation}/procedure.md", f"resources/{generation}/trace.json"} or not all(_DIGEST.fullmatch(str(digest)) for digest in files.values()):
+    if set(files) not in promotion_manifest_file_sets(generation) or not all(_DIGEST.fullmatch(str(digest)) for digest in files.values()):
         raise BrowserSkillPromotionError("resource manifest has invalid file bindings")
     return value
 
@@ -549,10 +595,13 @@ def _validate_skill_name(skill_name: str) -> None:
 
 
 def _lock_path(root: Path, skill_name: str) -> Path: return _state_root(root, skill_name) / ".lock"
-def _trace_lock_path(root: Path, trace_id: str) -> Path:
-    if not trace_id.startswith("bwt-") or len(trace_id) != 28 or any(char not in "0123456789abcdef" for char in trace_id[4:]):
-        raise BrowserSkillPromotionError("trace id is invalid")
-    return _safe_under(root, (".omh", "web-visual-qa", "traces", f"{trace_id}.json"), "browser trace")
+def _source_lock_path(root: Path, source_id: str) -> Path:
+    """The source record a promotion holds open while it commits, per kind."""
+    try:
+        parts = promotion_source_lock_parts(source_id)
+    except SkillPromotionSourceError as exc:
+        raise BrowserSkillPromotionError("promotion source id is invalid") from exc
+    return _safe_under(root, parts, "promotion source")
 def _activation_path(root: Path, skill_name: str, entry_digest: str) -> Path: return _state_root(root, skill_name) / "activation-by-entry" / f"{_digest_value(entry_digest, 'entry digest')}.json"
 def _digest_value(value: object, label: str) -> str:
     if not isinstance(value, str) or _DIGEST.fullmatch(value) is None: raise BrowserSkillPromotionError(f"{label} is invalid")

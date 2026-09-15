@@ -22,10 +22,11 @@ from ..install.plugin_loader_observation import _find_hermes_python
 
 from ..system.local_store import file_lock
 from .browser_skill_promotion_plan import (
-    build_browser_skill_promotion_plan,
+    build_skill_promotion_plan,
     read_browser_skill_package,
 )
 from .browser_workflow_learning_store import _root as observed_git_root
+from .skill_promotion_source import receipt_source_binding
 
 
 PROMOTION_APPROVAL_RECEIPT_SCHEMA_VERSION = "browser_skill_promotion_approval_receipt/v1"
@@ -188,7 +189,7 @@ def _decode_native_preflight(raw: bytes) -> NativePromotionPreflight:
 
 def review_browser_skill_promotion(
     project_root: str | Path,
-    trace_id: str,
+    source_id: str,
     skill_name: str,
     *,
     operation: str = "install",
@@ -200,13 +201,13 @@ def review_browser_skill_promotion(
 ) -> dict[str, object]:
     """Render and inspect the exact package an operator must review."""
     root = observed_git_root(project_root)
-    plan, preflight = _current_review(root, trace_id, skill_name, host or HermesPromotionNativeHost(), operation=operation, previous_generation=previous_generation, base_entry_digest=base_entry_digest, rollback_of=rollback_of, existing_files=existing_files)
+    plan, preflight = _current_review(root, source_id, skill_name, host or HermesPromotionNativeHost(), operation=operation, previous_generation=previous_generation, base_entry_digest=base_entry_digest, rollback_of=rollback_of, existing_files=existing_files)
     return {"plan": plan, "native_preflight": _preflight_payload(preflight), "native_preflight_digest": _preflight_digest(preflight)}
 
 
 def approve_browser_skill_promotion(
     project_root: str | Path,
-    trace_id: str,
+    source_id: str,
     skill_name: str,
     *,
     reviewed_diff_digest: str,
@@ -229,7 +230,7 @@ def approve_browser_skill_promotion(
 
     # Do not create a receipt directory or lock sidecar until a complete,
     # read-only review succeeded.
-    plan, preflight = _current_review(root, trace_id, skill_name, collaborator, operation=operation, previous_generation=previous_generation, base_entry_digest=base_entry_digest, rollback_of=rollback_of, existing_files=existing_files)
+    plan, preflight = _current_review(root, source_id, skill_name, collaborator, operation=operation, previous_generation=previous_generation, base_entry_digest=base_entry_digest, rollback_of=rollback_of, existing_files=existing_files)
     if reviewed_diff_digest != plan["diff_digest"]:
         raise BrowserSkillPromotionApprovalError("reviewed diff digest is not the current exact diff")
 
@@ -240,7 +241,7 @@ def approve_browser_skill_promotion(
         # and native policy are all re-resolved after acquiring the receipt
         # lock.  A stale review cannot become a persisted approval.
         current_plan, current_preflight = _current_review(
-            root, trace_id, skill_name, collaborator, operation=operation,
+            root, source_id, skill_name, collaborator, operation=operation,
             previous_generation=previous_generation, base_entry_digest=base_entry_digest,
             rollback_of=rollback_of, existing_files=existing_files,
         )
@@ -317,15 +318,15 @@ def read_browser_skill_promotion_approval_receipt(
 
 
 def _current_review(
-    root: Path, trace_id: str, skill_name: str, host: PromotionNativeHost, *,
+    root: Path, source_id: str, skill_name: str, host: PromotionNativeHost, *,
     operation: str, previous_generation: str | None, base_entry_digest: str,
     rollback_of: str | None, existing_files: Mapping[str, str] | None,
 ) -> tuple[dict[str, object], NativePromotionPreflight]:
     # Lifecycle callers pass a verified managed inventory.  The public review
     # path retains a read-only fallback for initial adoption checks.
-    initial = build_browser_skill_promotion_plan(root, trace_id, skill_name, operation=operation, previous_generation=previous_generation, base_entry_digest=base_entry_digest, rollback_of=rollback_of, existing_files=existing_files)
+    initial = build_skill_promotion_plan(root, source_id, skill_name, operation=operation, previous_generation=previous_generation, base_entry_digest=base_entry_digest, rollback_of=rollback_of, existing_files=existing_files)
     existing = dict(existing_files) if existing_files is not None else read_browser_skill_package(Path(str(initial["target_path"])))
-    plan = build_browser_skill_promotion_plan(root, trace_id, skill_name, operation=operation, previous_generation=previous_generation, base_entry_digest=base_entry_digest, rollback_of=rollback_of, existing_files=existing)
+    plan = build_skill_promotion_plan(root, source_id, skill_name, operation=operation, previous_generation=previous_generation, base_entry_digest=base_entry_digest, rollback_of=rollback_of, existing_files=existing)
     package = _string_map(plan, "package")
     preflight = host.inspect(root, package)
     _validate_preflight(root, package, preflight)
@@ -377,6 +378,11 @@ def _receipt(
     reviewer_identity: str,
 ) -> dict[str, object]:
     source = _mapping(plan, "source")
+    # `trace_id`, `trace_revision`, `trace_digest` and `fixture_digests` are the
+    # shipped `/v1` names of the receipt's source binding and stay frozen, so a
+    # receipt written before #1571 still reads. `receipt_source_binding` is the
+    # one place a draft source fills them with its own id and content digest.
+    source_binding = receipt_source_binding(source)
     binding = {
         "schema_version": PROMOTION_APPROVAL_RECEIPT_SCHEMA_VERSION,
         "operation": plan["operation"],
@@ -391,10 +397,10 @@ def _receipt(
         "project_root": plan["project_root"],
         "project_identity": plan["project_identity"],
         "target_path": plan["target_path"],
-        "trace_id": source["trace_id"],
-        "trace_revision": source["trace_revision"],
-        "trace_digest": source["trace_digest"],
-        "fixture_digests": source["fixture_digests"],
+        "trace_id": source_binding["trace_id"],
+        "trace_revision": source_binding["trace_revision"],
+        "trace_digest": source_binding["trace_digest"],
+        "fixture_digests": source_binding["fixture_digests"],
         "generic_draft_digest": plan["generic_draft_digest"],
         "generation": plan["generation"],
         "package_digest": plan["package_digest"],

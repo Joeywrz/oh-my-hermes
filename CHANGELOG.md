@@ -398,6 +398,30 @@ All notable changes will be documented here.
   asset/loss table and the per-control test shapes live in
   `references/threat-model-method.md`, measured outside the always-loaded body
   budget.
+- **A reviewed skill draft can be installed, through the promotion lifecycle
+  that already shipped.** `omh learning skill-draft` produced a draft a person
+  could approve and then do nothing with: the boundary said an approved draft
+  is "a proposal a person or Hermes Agent `/learn` acts on - never an install".
+  One lane over, `omh web-qa promotion` already did exact-byte diff review,
+  reviewer-bound approval receipts, a single visibility commit, retained
+  generations, rollback, removal and crash-safe retry -- and reached exactly one
+  kind of source, because every entry point took a browser `trace_id`. The
+  parameter is now a promotion source id and the same seven subcommands are
+  mounted a second time as `omh learning promotion ... --source-id sd-<id>`,
+  calling the same functions: nothing about the lifecycle was reimplemented, and
+  a browser-derived promotion still renders byte-identically, which is why the
+  `browser_*` schema names and the receipt's `trace_*` field names were kept
+  rather than widened. A draft installs only after `skill-draft review
+  --decision approve`, only from this project's own draft store, and only past a
+  pattern risk scan of its instruction text that reuses the `plugin-risk-audit`
+  detectors and refuses naming the category it matched. A review later changed
+  to `revise` or `reject` deactivates the entry it approved on the next
+  `status`. `skill_pattern_risk_review/v1`, whose own docstring said its only
+  caller was its test file, is now reachable as `omh ops
+  skill-pattern-risk-review`; it cites the scan and decides nothing, because a
+  clean scan is not an approval. A promotion status meaning the entry is not
+  live -- `stale`, `quarantined`, `unverified_managed_state` -- no longer exits
+  `0`.
 
 ## 2.0.3 - 2026-09-12
 

@@ -8944,7 +8944,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - prepared-vs-observed boundary
 - Artifact expectations:
   - workflow-learning/v1 metadata-only runtime or wrapper card when recorded
-  - browser_skill_promotion_approval_receipt/v1 only through `omh web-qa promotion diff` then `approve --reviewed-diff-digest --reviewer` on an approved, replay-passing `omh web-qa trace`; every operation needs its own reviewed exact diff
+  - browser_skill_promotion_approval_receipt/v1 per operation: `promotion diff` then `approve --reviewed-diff-digest --reviewer`; source `learning promotion --source-id sd-<id>` (reviewed draft) or `web-qa promotion --trace-id bwt-<id>`
 - Safety rules:
   - A workflow learning trace, self-improvement store route, patch proposal, or export is process evidence for review. It is not automatic model training, memory mutation, skill mutation, wiki write, automation creation, execution, verification, CI, or merge evidence.
   - Do not claim connector, gateway, runtime, file generation, memory mutation, or host automation evidence from prepared guidance.

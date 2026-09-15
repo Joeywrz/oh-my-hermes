@@ -96,6 +96,15 @@ contract shaped like this:
   why a workflow was chosen, what was prepared, what was observed, which
   deterministic checks passed, and what improvement candidate still needs human
   approval.
+- `omh learning recap build|list|show` projects one stored runtime run into
+  `runtime_learning_recap/v1`: seven separate delivery, verification, review,
+  pull-request, CI, merge-readiness and merge cells, each naming `observed`,
+  `failed`, or `unavailable` with its supporting observation type and bounded
+  opaque evidence references. `omh learning record --from-runtime-run` writes
+  the trace and the recap together. The operator `--outcome` is labelled
+  supplied assessment and never sets or upgrades an evidence cell, so a run
+  recorded as `useful` with no eligible terminal observation stays `unknown`.
+  See [Runtime Learning Recap](RUNTIME-LEARNING-RECAP.md).
 - `omh learning missed-route` is the wrapper-friendly shortcut for "Hermes did
   not use the expected OMH workflow." It records a metadata-only trace, eval,
   regression placeholder, and review candidate in one step. A provided

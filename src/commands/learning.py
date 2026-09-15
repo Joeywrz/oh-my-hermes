@@ -22,8 +22,8 @@ from ..workflow_learning import (
     build_routing_quality_metrics,
     build_learning_export_bundle,
     build_regression_case_from_trace,
+    build_runtime_run_learning_record,
     build_trace_from_chat_interaction,
-    build_trace_from_runtime_run,
     build_workflow_eval_result,
     check_learning_index,
     learning_export_ref,
@@ -47,6 +47,13 @@ from ..workflow_learning import (
     write_regression_case,
     write_self_improvement_store_route,
     write_workflow_eval,
+)
+from ..workflows.runtime_learning_recap import (
+    build_runtime_learning_recap,
+    list_runtime_learning_recaps,
+    runtime_learning_recap_ref,
+    show_runtime_learning_recap,
+    write_runtime_learning_recap,
 )
 from ..workflows.skill_draft import (
     build_skill_draft,
@@ -105,19 +112,27 @@ def cmd_learning_record(args: argparse.Namespace) -> int:
     try:
         paths = _paths(args)
         if args.from_runtime_run:
-            trace = build_trace_from_runtime_run(
+            record = build_runtime_run_learning_record(
                 paths,
                 args.from_runtime_run,
                 outcome=args.outcome,
                 feedback_summary=args.feedback_summary or "",
             )
+            trace = record["trace"]
+            recap = record["recap"]
             write_learning_trace(paths, trace)
+            write_runtime_learning_recap(paths, recap)
             payload: dict[str, object] = {
                 "schema_version": "learning_record_result/v1",
                 "source_kind": "runtime_run",
                 "learning_trace_ref": learning_trace_ref(str(trace["trace_id"])),
+                "runtime_learning_recap_ref": runtime_learning_recap_ref(str(recap["recap_id"])),
                 "trace": trace,
-                "claim_boundary": "The trace records existing runtime metadata only; it does not add execution evidence.",
+                "runtime_learning_recap": recap,
+                "claim_boundary": (
+                    "The trace records existing runtime metadata only; it does not add execution evidence. "
+                    "The recap separates the supplied operator outcome from observed completion evidence."
+                ),
             }
         else:
             event_or_message, source_metadata = _chat_input_and_metadata(args)
@@ -149,6 +164,65 @@ def cmd_learning_record(args: argparse.Namespace) -> int:
     except (OSError, json.JSONDecodeError, ValueError, WorkflowLearningError) as exc:
         raise OmhError(str(exc)) from exc
     _print_json(payload)
+    return 0
+
+
+def cmd_learning_recap_build(args: argparse.Namespace) -> int:
+    try:
+        paths = _paths(args)
+        recap = build_runtime_learning_recap(
+            paths,
+            args.run_id,
+            operator_outcome=args.outcome,
+            operator_feedback_summary=args.feedback_summary or "",
+        )
+        if not args.dry_run:
+            write_runtime_learning_recap(paths, recap)
+    except FileNotFoundError as exc:
+        raise OmhError(f"runtime run not found: {args.run_id}") from exc
+    except (OSError, json.JSONDecodeError, ValueError, WorkflowLearningError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(
+        {
+            "schema_version": "learning_recap_result/v1",
+            "recorded": not args.dry_run,
+            "runtime_learning_recap_ref": runtime_learning_recap_ref(str(recap["recap_id"])),
+            "runtime_learning_recap": recap,
+            "claim_boundary": (
+                "Building a recap reads stored runtime observations only. It runs nothing, "
+                "patches no skill, writes no memory, and approves no candidate."
+            ),
+        }
+    )
+    return 0
+
+
+def cmd_learning_recap_list(args: argparse.Namespace) -> int:
+    try:
+        recaps = list_runtime_learning_recaps(_paths(args), run_id=args.run_id or "", limit=args.limit)
+    except (OSError, json.JSONDecodeError, ValueError, WorkflowLearningError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(
+        {
+            "schema_version": "runtime_learning_recap_list/v1",
+            "recaps": recaps,
+            "claim_boundary": (
+                "Each row lists one stored revision. Operator outcome and observed completion "
+                "are separate columns and neither one sets the other."
+            ),
+        }
+    )
+    return 0
+
+
+def cmd_learning_recap_show(args: argparse.Namespace) -> int:
+    try:
+        recap = show_runtime_learning_recap(_paths(args), args.recap_id)
+    except FileNotFoundError as exc:
+        raise OmhError(f"runtime learning recap not found: {args.recap_id}") from exc
+    except (OSError, json.JSONDecodeError, ValueError, WorkflowLearningError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(recap)
     return 0
 
 
@@ -711,6 +785,36 @@ def _add_learning_commands(sub) -> None:
     record.add_argument("--outcome", choices=("unknown", "useful", "not_useful", "blocked", "failed"), default="unknown")
     record.add_argument("--feedback-summary", default="")
     record.set_defaults(func=cmd_learning_record)
+
+    recap = learning_sub.add_parser(
+        "recap",
+        help="Build, list, or show the bounded completion recap for one stored runtime run.",
+    )
+    recap_sub = recap.add_subparsers(dest="recap_command", required=True)
+
+    recap_build = recap_sub.add_parser(
+        "build",
+        help="Project one stored runtime run into runtime_learning_recap/v1 for its current revision.",
+    )
+    recap_build.add_argument("run_id")
+    recap_build.add_argument(
+        "--outcome",
+        choices=("unknown", "useful", "not_useful", "blocked", "failed"),
+        default="unknown",
+        help="Operator assessment. Recorded as supplied assessment; it never sets an evidence cell.",
+    )
+    recap_build.add_argument("--feedback-summary", default="")
+    recap_build.add_argument("--dry-run", action="store_true")
+    recap_build.set_defaults(func=cmd_learning_recap_build)
+
+    recap_list = recap_sub.add_parser("list", help="List stored runtime learning recap revisions.")
+    recap_list.add_argument("--run-id", default="")
+    recap_list.add_argument("--limit", type=int, default=None)
+    recap_list.set_defaults(func=cmd_learning_recap_list)
+
+    recap_show = recap_sub.add_parser("show", help="Show one stored runtime learning recap revision.")
+    recap_show.add_argument("recap_id")
+    recap_show.set_defaults(func=cmd_learning_recap_show)
 
     missed_route = learning_sub.add_parser(
         "missed-route",

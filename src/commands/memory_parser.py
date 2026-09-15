@@ -290,6 +290,26 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     attention.add_argument("--apply", action="store_true", help="Write the tier change (default is report-only).")
     attention.set_defaults(func=memory.cmd_memory_attention)
 
+    sources = memory_sub.add_parser(
+        "sources",
+        help=(
+            "Index reviewed records by the source they were admitted from; with --source, enumerate that "
+            "source's blast radius. Read-only: it quarantines and deletes nothing."
+        ),
+    )
+    sources.add_argument(
+        "--source",
+        default="",
+        help="Enumerate every record admitted from this source value, matched on each source axis it appears on.",
+    )
+    sources.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum selected record cards to return; the reported count stays the full match.",
+    )
+    sources.set_defaults(func=memory.cmd_memory_sources)
+
     lineage = memory_sub.add_parser("lineage", help="Trace derived-from provenance links for one reviewed memory record.")
     lineage.add_argument("record_id")
     lineage.add_argument("--depth", type=int, default=3, help="Maximum ancestor/descendant hops to traverse (clamped to 1-10).")

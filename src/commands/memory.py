@@ -83,6 +83,7 @@ from ..workflows.memory_lifecycle import (
     build_memory_restore,
 )
 from ..workflows.memory_lifecycle_executor import execute_memory_lifecycle
+from ..workflows.memory_sources import build_memory_source_index
 from ..workflows.memory_principal_migration import (
     apply_principal_migration,
     build_principal_migration_report,
@@ -470,6 +471,27 @@ def cmd_memory_attention(args: argparse.Namespace) -> int:
 def cmd_memory_perspectives(args: argparse.Namespace) -> int:
     try:
         payload = build_memory_perspectives(_paths(args))
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(payload)
+    return 0
+
+
+def cmd_memory_sources(args: argparse.Namespace) -> int:
+    """Index the store by source, or enumerate one source's records.
+
+    Always 0 on a completed read. There is no work here that can fail to
+    happen: an empty selection is an answer, and which answer it is -- an
+    empty store, a store that never recorded a source, or a source this store
+    never saw -- is in `selected.outcome`, alongside the indeterminate records
+    this selector cannot exclude. A shell must read those, not the status.
+    """
+    try:
+        payload = build_memory_source_index(
+            _paths(args),
+            source=args.source,
+            limit=_optional_positive_int(args.limit, "--limit"),
+        )
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     _print_json(payload)

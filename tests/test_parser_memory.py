@@ -49,6 +49,9 @@ class MemoryParserTests(unittest.TestCase):
             (["memory", "keep-open", "record-one"], "cmd_memory_keep_open"),
             (["memory", "retire", "record-one"], "cmd_memory_retire"),
             (["memory", "retire", "record-one", "--apply"], "cmd_memory_retire"),
+            (["memory", "sources"], "cmd_memory_sources"),
+            (["memory", "sources", "--source", "wiki-scrape"], "cmd_memory_sources"),
+            (["memory", "sources", "--source", "wiki-scrape", "--limit", "5"], "cmd_memory_sources"),
         )
 
         for argv, handler_name in cases:

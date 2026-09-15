@@ -67,6 +67,40 @@ MAX_TODO_PHASE_CHARS = 60
 # 승인 대기" and "waiting on the owner's review" did not. A reader that
 # decides whether work stops must read a record, not a substring.
 MAX_TODO_BLOCKED_REASON_CHARS = 200
+# Optional PLAN-LEVEL reason the person steered the session elsewhere. It is
+# not a second `blocked_reason`, and what makes it a different field is the
+# digest stored beside it rather than the wording: blocked is "this item
+# cannot proceed" and is cleared by hand, this is "the person asked for
+# something else first" and LAPSES ON ITS OWN.
+#
+# The reason is written together with a digest of the item list as it stood at
+# the moment of deferral, and a reader honours the deferral only while that
+# digest still matches the items it is reading. Marking an item done, moving
+# which one is active, or re-scoping the list all change the digest, so a
+# deferral cannot outlive the plan it was written against. That is the whole
+# reason this is a field and not a hand-cleared flag: a flag someone must
+# remember to clear is the same forgetting this surface exists to prevent,
+# moved one step later. The state is derived from the items rather than
+# asserted beside them, so it cannot drift from what the plan is.
+#
+# One consequence, stated rather than left to be discovered. A writer that
+# sends the reason AGAIN alongside a changed item list gets a digest over the
+# new list, so that is a new deferral for that list and not the old one
+# surviving. Deliberate: the record is the declaration and the writer owns it,
+# exactly as with `blocked_reason`. Every writer that does not re-send the
+# field -- the CLI, which has none; a hand edit; a generation predating the
+# field; and the tool, whose description says to omit it -- lapses the
+# deferral by default, which is what makes resuming cost nobody a clearing
+# step.
+MAX_TODO_DEFERRED_REASON_CHARS = 200
+# The digest is only ever compared for equality, never inverted, so the bound
+# is about how much record a deferral costs, not about collision resistance;
+# 128 bits is far past what "is this the same item list" needs.
+TODO_DEFERRED_DIGEST_CHARS = 32
+# The item fields the digest covers: every field an item declares. Any edit to
+# any of them is the plan moving, `blocked_reason` included -- writing down
+# that an item is stuck is a plan advancing, not a plan standing still.
+_DIGESTED_ITEM_KEYS = ("text", "state", "phase", "depth", "blocked_reason")
 # Optional nesting depth per item: 0 is a top-level task, 1..3 are subtask
 # levels rendered indented beneath it (e.g. "검증작업하기" with usability /
 # UI / load-verification children). Three levels is the owner's declared
@@ -135,8 +169,42 @@ def validate_todo_items(items: object) -> list[dict[str, Any]]:
     return validated
 
 
+def todo_items_digest(items: object) -> str:
+    """A digest of an item list, over every field an item declares.
+
+    The same function answers for a writer's validated items and for the
+    reader's projection of them, and the two are byte-equal for any record
+    this module wrote: both build each entry from the same fields, in the same
+    order, under the same bounds (the writer rejects an over-length field, the
+    reader truncates at the identical cap). So a deferral written here is
+    recognised by the reader until an item actually changes.
+
+    Never raises, because every caller sits under a host that swallows
+    exceptions. A malformed item list yields a digest that simply will not
+    match the recorded one, and a deferral that fails to match lapses -- which
+    is the safe direction: corruption makes the plan keep going, never stop.
+    """
+    if not isinstance(items, list):
+        return ""
+    canonical = [
+        {key: entry[key] for key in _DIGESTED_ITEM_KEYS if key in entry}
+        for entry in items
+        if isinstance(entry, dict)
+    ]
+    # `default=str` is the last guard rather than a convenience: a hand-written
+    # record can carry a value json cannot serialize, and raising here would
+    # end the turn silently.
+    serialized = json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:TODO_DEFERRED_DIGEST_CHARS]
+
+
 def build_todo_record(
-    title: object, items: object, *, source: str, session_ref: object = ""
+    title: object,
+    items: object,
+    *,
+    source: str,
+    session_ref: object = "",
+    deferred_reason: object = "",
 ) -> dict[str, Any]:
     """Build the on-disk todo record.
 
@@ -145,23 +213,61 @@ def build_todo_record(
     written only when non-empty, so a CLI write is byte-identical to what it
     was before the field existed, and a reader that predates it still reads
     every field it knew.
+
+    ``deferred_reason`` is additive-optional on the same terms, and carries a
+    second key with it: ``deferred_items_digest``, the digest of the items this
+    record is being written with. The two are always written together and
+    never separately -- a reason without a digest would be a deferral nothing
+    can lapse, which is the hand-cleared flag this field exists instead of.
     """
     safe_title = strip_control_characters(title)
     if len(safe_title) > MAX_TODO_TITLE_CHARS:
         raise TodoValidationError(f"todo title is capped at {MAX_TODO_TITLE_CHARS} characters")
     safe_source = strip_control_characters(source)[:MAX_TODO_SOURCE_CHARS]
     safe_session_ref = strip_control_characters(session_ref)[:MAX_TODO_SESSION_REF_CHARS]
+    safe_deferred_reason = _validated_deferred_reason(deferred_reason)
+    validated_items = validate_todo_items(items)
     record: dict[str, Any] = {
         "schema_version": TODO_SCHEMA_VERSION,
         "title": safe_title,
         "source": safe_source,
         "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "items": validate_todo_items(items),
+        "items": validated_items,
         "claim_boundary": TODO_CLAIM_BOUNDARY,
     }
     if safe_session_ref:
         record["session_ref"] = safe_session_ref
+    if safe_deferred_reason:
+        record["deferred_reason"] = safe_deferred_reason
+        record["deferred_items_digest"] = todo_items_digest(validated_items)
     return record
+
+
+def _validated_deferred_reason(deferred_reason: object) -> str:
+    """The plan-level deferral reason as it will be stored, or ``""``.
+
+    A non-string is rejected rather than coerced. ``strip_control_characters``
+    would turn ``7`` into the truthy string ``"7"``, and a number is not a
+    declaration in any language -- the same call the item-level reason makes on
+    the way back out. Whitespace is not a declaration either: it strips to
+    empty and the record is written without the field, so a blank reason is
+    absence rather than a deferral nobody can read.
+
+    Over-length raises instead of truncating, matching ``blocked_reason``: the
+    reasons are the same shape of free text, and a reason silently cut at its
+    cap can read as something the writer did not say. The tool surfaces the
+    error so the writer can shorten it.
+    """
+    if deferred_reason is None or deferred_reason == "":
+        return ""
+    if not isinstance(deferred_reason, str):
+        raise TodoValidationError("todo deferred_reason must be a string")
+    safe = strip_control_characters(deferred_reason)
+    if len(safe) > MAX_TODO_DEFERRED_REASON_CHARS:
+        raise TodoValidationError(
+            f"todo deferred_reason is capped at {MAX_TODO_DEFERRED_REASON_CHARS} characters"
+        )
+    return safe
 
 
 def todo_session_key(session_ref: object) -> str:

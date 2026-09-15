@@ -47,6 +47,28 @@ OMH_TODO_SCHEMA = {
                 "type": "string",
                 "description": "Optional short plan title shown in the todo panel header.",
             },
+            "deferred_reason": {
+                "type": "string",
+                "description": (
+                    "Omit this field. Send it with action=set only when the PERSON "
+                    "redirected this session away from the plan ('do Y first', "
+                    "'forget that for now'), naming what they asked for instead. "
+                    "While it holds, the plan stops asking you to advance the next "
+                    "item, so the session serves the person without the checklist "
+                    "arguing. It CLEARS ITSELF: it is stored with a digest of the "
+                    "item list you send it with, and a reader honours it only while "
+                    "that digest still matches. So resuming the plan costs no clearing "
+                    "step -- just omit this field on your next action=set, which is the "
+                    "default, and any item change that does not re-send it ends the "
+                    "deferral too. Sending it again alongside a CHANGED item list "
+                    "declares a new deferral for that list, so send it again only if "
+                    "the person is still steering. Do not reach for an item's "
+                    "blocked_reason instead: blocked means an item CANNOT PROCEED, is "
+                    "per-item, and has to be removed by hand. An item that genuinely "
+                    "cannot proceed still carries blocked_reason, and that reading "
+                    "wins over this one."
+                ),
+            },
             "items": {
                 "type": "array",
                 "description": "Todo items for action=set, in display order.",
@@ -140,6 +162,7 @@ def omh_todo_handler(args: dict[str, Any], **kwargs) -> str:
                 args.get("items"),
                 source="omh_todo",
                 session_ref=session_ref,
+                deferred_reason=args.get("deferred_reason", ""),
             )
             write_todo(default_omh_home(), record)
             payload["status"] = "written"

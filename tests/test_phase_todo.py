@@ -12,6 +12,7 @@ from pathlib import Path
 
 from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
 from omh.plugin_bundle.omh.todo_store import (
+    MAX_TODO_BLOCKED_REASON_CHARS,
     MAX_TODO_PHASE_CHARS,
     TodoValidationError,
     build_todo_record,
@@ -49,6 +50,50 @@ class PhaseFieldStoreTest(unittest.TestCase):
     def test_an_oversized_phase_is_refused(self):
         with self.assertRaises(TodoValidationError):
             validate_todo_items([{"text": "task", "phase": "x" * (MAX_TODO_PHASE_CHARS + 1)}])
+
+
+class BlockedReasonFieldStoreTest(unittest.TestCase):
+    """The plan's stop criterion, recorded rather than inferred.
+
+    `TODO_CONTINUATION_RULE` ends a plan when "an item is recorded blocked
+    with its reason". Before this field the reason had to be read out of the
+    item's text, which was wrong in both directions on ordinary input: an item
+    saying work is *not* blocked read as blocked, and a Korean or plainly
+    worded block did not read as blocked at all. The field keeps the state out
+    of prose, and the item keeps its three-valued state so nothing in the
+    counts or the HUD projection has to learn a fourth.
+    """
+
+    def test_the_blocked_reason_is_optional_and_absent_when_empty(self):
+        validated = validate_todo_items([{"text": "task", "blocked_reason": ""}])
+        self.assertEqual(validated, [{"text": "task", "state": "pending"}])
+
+    def test_a_blocked_reason_is_kept_control_stripped(self):
+        validated = validate_todo_items([{"text": "task", "blocked_reason": "owner\x1b review"}])
+        self.assertEqual(validated[0]["blocked_reason"], "owner review")
+
+    def test_an_oversized_blocked_reason_is_refused(self):
+        with self.assertRaises(TodoValidationError):
+            validate_todo_items(
+                [{"text": "task", "blocked_reason": "x" * (MAX_TODO_BLOCKED_REASON_CHARS + 1)}]
+            )
+
+    def test_a_blocked_item_keeps_its_state_and_its_place_in_the_counts(self):
+        # The reason is a field, not a fourth state: an item carrying one is
+        # still active, still counted, still rendered. That is the whole
+        # reason this shape was chosen over a `blocked` item state.
+        projected = _projected_todo(
+            [
+                {"text": "land the fix", "state": "done"},
+                {"text": "open the PR", "state": "active", "blocked_reason": "소유자 승인 대기"},
+            ]
+        )
+
+        self.assertEqual(
+            projected["counts"],
+            {"total": 2, "done": 1, "active": 1, "pending": 0, "phases": 0},
+        )
+        self.assertEqual(projected["items"][1]["blocked_reason"], "소유자 승인 대기")
 
 
 class DepthFieldStoreTest(unittest.TestCase):

@@ -80,8 +80,8 @@ TODO_UNCHANGED_RULE = (
 TODO_CONTINUATION_RULE = (
     "Open items mean this plan is not finished. Unless something is blocking "
     "it, advance the next item in this turn rather than ending on a status "
-    "report. This stops when every item is done or an item is recorded blocked "
-    "with its reason -- not when a turn has produced an answer."
+    "report. This stops when every item is done or an item carries an "
+    "omh_todo blocked_reason -- not when a turn has produced an answer."
 )
 
 # What the turn-end directive adds to the rule above. The message arrives as a
@@ -90,18 +90,6 @@ TODO_CONTINUATION_RULE = (
 PLAN_CONTINUATION_BOUNDARY = (
     "This directive reports what the plan record says; it is not evidence that "
     "any item ran, passed, or was verified."
-)
-
-# How an item records a block. Multi-word on purpose: the token "blocked" alone
-# also appears in ordinary item text ("unblock the release"), and a marker that
-# matched it would let one sentence stop the plan's own continuation.
-_BLOCKED_MARKERS = (
-    "blocked:",
-    "blocked -",
-    "blocked by",
-    "blocked on",
-    "blocked until",
-    "blocked because",
 )
 
 TODO_RECONCILIATION_RULE = (
@@ -191,41 +179,52 @@ def open_plan_position(todo: dict[str, Any]) -> tuple[int, int] | None:
     return done, total
 
 
-def next_open_item(todo: dict[str, Any]) -> str:
-    """The item a continuation would advance: the active one, else the first pending."""
+def next_open_item(todo: dict[str, Any]) -> dict[str, Any]:
+    """The item record a continuation would advance: the active one, else the first pending.
+
+    The record, not its text: the stop criterion below reads a field, and
+    text is only ever needed for rendering.
+    """
     items = todo.get("items") if isinstance(todo.get("items"), list) else []
-    return _first_item_text(items, "active") or _first_item_text(items, "pending")
+    return _first_item(items, "active") or _first_item(items, "pending") or {}
 
 
-def _first_item_text(items: list[Any], state: str) -> str:
+def _first_item(items: list[Any], state: str) -> dict[str, Any] | None:
     return next(
-        (
-            str(item.get("text", ""))[:_MAX_ACTIVE_TEXT_CHARS]
-            for item in items
-            if isinstance(item, dict) and item.get("state") == state
-        ),
-        "",
+        (item for item in items if isinstance(item, dict) and item.get("state") == state),
+        None,
     )
 
 
-def records_blocked_reason(text: str) -> bool:
-    """Whether an item records that it is blocked AND says by what.
+def item_display_text(item: dict[str, Any] | None) -> str:
+    """One item's text, truncated for display.
 
-    The plan schema has three item states (pending/active/done) and no blocked
-    one, so an item records a block in its own text -- which is what
-    ``TODO_CONTINUATION_RULE`` asks for: "an item is recorded blocked with its
-    reason". The reason is what makes it a stop criterion, so a bare "blocked"
-    with nothing after it does not qualify; the marker set is deliberately
-    multi-word so ordinary prose about unblocking work does not match.
+    Truncation belongs here and nowhere else. It used to happen on the way
+    OUT of the item lookup, which put a display bound in front of a decision:
+    the blocked check saw the first 80 characters of a field capped at 200,
+    so a genuinely blocked item whose reason sat past the window read as
+    open, and an item truncated mid-phrase could read as blocked.
     """
-    folded = str(text or "").casefold()
-    for marker in _BLOCKED_MARKERS:
-        index = folded.find(marker)
-        if index < 0:
-            continue
-        if folded[index + len(marker) :].strip(" -:.·"):
-            return True
-    return False
+    if not isinstance(item, dict):
+        return ""
+    return str(item.get("text", "") or "")[:_MAX_ACTIVE_TEXT_CHARS]
+
+
+def recorded_blocked_reason(item: dict[str, Any] | None) -> str:
+    """The reason an item records for not proceeding, or ``""``.
+
+    ``TODO_CONTINUATION_RULE`` says the plan stops when an item is *recorded*
+    blocked with its reason, and a record is not a substring. An earlier form
+    of this inferred the state from the item text and was wrong in both
+    directions on ordinary input: "verify the retry is not blocked on the
+    session limit" read as blocked, while "차단됨: 소유자 승인 대기" and
+    "waiting on the owner's review" did not. Every marker that would fix the
+    second widens the first, so the plan schema owns the state instead
+    (``blocked_reason`` in `todo_store`) and this only reads it.
+    """
+    if not isinstance(item, dict):
+        return ""
+    return str(item.get("blocked_reason", "") or "").strip()
 
 
 def plan_continuation_directive(
@@ -255,15 +254,18 @@ def plan_continuation_directive(
     if not isinstance(todo, dict):
         return ""
     position = open_plan_position(todo)
-    item = next_open_item(todo) if position is not None else ""
-    if item and records_blocked_reason(item):
-        return ""
+    item = next_open_item(todo) if position is not None else {}
     lines: list[str] = []
-    if position is not None:
+    # The blocked item stops the PLAN line and nothing else. A finished
+    # dispatch nobody wrote down is a separate obligation -- it is frequently
+    # the thing that unblocks the item -- so gating both on one item's state
+    # would bury the event that ends the wait.
+    if position is not None and not recorded_blocked_reason(item):
         done, total = position
         head = f"[OMH plan todo] {done}/{total} done"
-        if item:
-            head = f"{head} · next: {item}"
+        text = item_display_text(item)
+        if text:
+            head = f"{head} · next: {text}"
         lines.append(f"{head}. {TODO_CONTINUATION_RULE}")
     lines.extend(_dispatch_outcome_lines(unacknowledged_outcomes(omh_home, hermes_home, session_ref)))
     if not lines:
@@ -279,7 +281,11 @@ def _open_plan_line(*, omh_home: str, hermes_home: str, session_ref: str) -> str
         return ""
     done, total = position
     items = todo.get("items") if isinstance(todo.get("items"), list) else []
-    active = _first_item_text(items, "active")
+    # The context line names the ACTIVE item and stops there; the directive
+    # falls back to the first pending one, because it has to say what to
+    # advance and a plan between items has no active entry. Deliberate, and
+    # pinned as such.
+    active = item_display_text(_first_item(items, "active"))
     head = f"[OMH plan todo] {done}/{total} done"
     if active:
         head = f"{head} · active: {active}"

@@ -61,10 +61,13 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
         self.hermes.mkdir(parents=True, exist_ok=True)
 
     def _write_plan(self, items, session_ref=SESSION):
-        """`items` is a list of (text, state) pairs, written as this session's plan."""
+        """`items` is a list of `(text, state)` pairs, or `(text, state, blocked_reason)`."""
         record = build_todo_record(
             "plan",
-            [{"text": text, "state": state} for text, state in items],
+            [
+                {"text": item[0], "state": item[1], "blocked_reason": item[2] if len(item) > 2 else ""}
+                for item in items
+            ],
             source="test",
             session_ref=session_ref,
         )
@@ -134,27 +137,78 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
     def test_a_next_item_recorded_blocked_with_its_reason_stops_the_nudge(self):
         # The plan's own stop criterion. Nudging here would argue with a
         # blocked item once per turn until `max_verify_nudges` ran out.
+        # Phrasing is irrelevant: the reason is a field, so a Korean reason and
+        # an English one stop the plan identically.
+        reasons = (
+            "the owner's review",
+            "소유자 승인 대기",
+            "waiting on the API key",
+            "차단됨: 상위 태스크 미완료",
+        )
+
+        for reason in reasons:
+            with self.subTest(reason=reason):
+                self._write_plan(
+                    [
+                        ("land the fix", "done"),
+                        ("open the PR", "active", reason),
+                        ("release", "pending"),
+                    ]
+                )
+
+                self.assertIsNone(self._fire())
+
+    def test_item_text_about_a_block_is_not_a_block(self):
+        # The regression that made the field necessary. Every item below is
+        # ordinary descriptive text with no recorded reason, and each one used
+        # to stop the run silently -- the exact defect this directive exists to
+        # fix, reintroduced by the mechanism meant to bound it. Note the
+        # negations: "not blocked" contains "blocked on".
+        descriptive_texts = (
+            "Verify the retry is not blocked on the session limit",
+            "Make sure nothing is blocked by the lock",
+            "Test that a task blocked by its parent is skipped",
+            "Investigate why the queue is blocked on shard 3",
+            "Add a `blocked:` reason field to the todo schema",
+            "unblock the release queue",
+            "blocked",
+        )
+
+        for text in descriptive_texts:
+            with self.subTest(text=text):
+                self._write_plan([("land the fix", "done"), (text, "active")])
+
+                result = self._fire()
+
+                self.assertIsNotNone(result, "descriptive text must not stop the run")
+                self.assertIn(TODO_CONTINUATION_RULE, result["message"])
+
+    def test_a_recorded_reason_is_read_whole_however_long_the_item_is(self):
+        # Truncation is a display bound, not a decision bound. The item text is
+        # longer than the 80-character display window and the reason is longer
+        # than it too; neither may reach the stop criterion.
+        long_text = (
+            "Verify the retry path end to end across every shard and record what each one observed"
+        )
         self._write_plan(
             [
                 ("land the fix", "done"),
-                ("open the PR: blocked by the owner's review", "active"),
-                ("release", "pending"),
+                (f"{long_text} and then some more", "active", "x" * 150),
             ]
         )
 
         self.assertIsNone(self._fire())
 
-    def test_blocked_with_no_reason_is_not_a_stop_criterion(self):
-        # "blocked" alone names nothing to wait for, and the rule the directive
-        # carries asks for the reason. Without one the run still owes an answer.
-        self._write_plan([("land the fix", "done"), ("blocked", "active")])
+    def test_a_long_item_still_renders_truncated_when_it_is_not_blocked(self):
+        long_text = (
+            "Verify the retry path end to end across every shard and record what each one observed"
+        )
+        self._write_plan([("land the fix", "done"), (long_text, "active")])
 
-        self.assertIn(TODO_CONTINUATION_RULE, self._fire()["message"])
+        message = self._fire()["message"]
 
-    def test_ordinary_prose_about_unblocking_is_not_a_block(self):
-        self._write_plan([("land the fix", "done"), ("unblock the release queue", "active")])
-
-        self.assertIn("next: unblock the release queue", self._fire()["message"])
+        self.assertIn(f"next: {long_text[:80]}", message)
+        self.assertNotIn(long_text, message)
 
     def test_a_second_attempt_inside_one_turn_does_not_nudge_again(self):
         self._write_plan([("land the fix", "done"), ("open the PR", "active")])
@@ -186,6 +240,27 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
         self.assertIn(DISPATCH_COMPLETION_RULE, result["message"])
         # A finished plan says nothing about its position; the unacknowledged
         # outcome is the whole reason this turn is being kept open.
+        self.assertNotIn("[OMH plan todo]", result["message"])
+
+    def test_a_blocked_item_does_not_suppress_an_unacknowledged_dispatch(self):
+        # Two obligations, not one. A finished dispatch nobody wrote down still
+        # owes a verify-and-record, and it is frequently the very thing that
+        # ends the block -- so gating it on another item's state would bury the
+        # event that clears the wait.
+        plan_updated_at = self._write_plan(
+            [
+                ("land the fix", "done"),
+                ("release", "active", "the owner's review"),
+            ]
+        )
+        self._write_finished_unit("unit-a", plan_updated_at + timedelta(seconds=30))
+
+        result = self._fire()
+
+        self.assertEqual(result["action"], "continue")
+        self.assertIn(f"dispatch {FANOUT_ID}-unit-a/unit-a ended completed", result["message"])
+        self.assertIn(DISPATCH_COMPLETION_RULE, result["message"])
+        # The blocked item stops the plan line and only the plan line.
         self.assertNotIn("[OMH plan todo]", result["message"])
 
     def test_the_served_surface_check_and_the_plan_directive_ride_one_turn(self):
@@ -258,30 +333,56 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
 
         self.assertIn("[OMH plan todo] 1/2 done", result["message"])
 
-    def test_the_context_line_and_the_directive_share_one_gate(self):
-        # Both surfaces are the same policy at two moments. If one grew its own
-        # copy of "does this plan have open work", this is what would catch it.
+    def test_both_surfaces_route_their_gate_through_the_one_helper(self):
+        # The structural property, tested structurally. An earlier version of
+        # this compared the two surfaces' output across four well-formed plans,
+        # which proved nothing: an inline copy of the condition that dropped
+        # `done >= total`, or dropped `status == "established"`, agreed with the
+        # original on every plan in the matrix and the test still passed. A
+        # guard that agrees with itself proves nothing -- so patch the helper
+        # and require both surfaces to come through it.
+        self._write_plan([("land the fix", "done"), ("open the PR", "active")])
+        homes = {"omh_home": str(self.home), "hermes_home": str(self.hermes), "session_ref": SESSION}
+
+        for surface in (open_todo_reminder, plan_continuation_directive):
+            with self.subTest(surface=surface.__name__):
+                with patch.object(
+                    todo_reconciliation, "open_plan_position", return_value=None
+                ) as gate:
+                    rendered = surface(**homes)
+
+                self.assertTrue(gate.called, "the surface decided open work without the helper")
+                self.assertNotIn("[OMH plan todo]", rendered)
+
+    def test_the_two_surfaces_name_different_items_on_purpose(self):
+        # The context line names what is running; the directive names what to
+        # start, and a plan between items has no active entry to name. Pinned
+        # because the asymmetry is deliberate and would otherwise read as a bug
+        # to the next person who compares the two strings.
+        self._write_plan([("land the fix", "done"), ("open the PR", "pending")])
+        homes = {"omh_home": str(self.home), "hermes_home": str(self.hermes), "session_ref": SESSION}
+
+        reminder = open_todo_reminder(**homes)
+        directive = plan_continuation_directive(**homes)
+
+        self.assertIn("[OMH plan todo] 1/2 done.", reminder)
+        self.assertNotIn("open the PR", reminder)
+        self.assertIn("next: open the PR", directive)
+
+    def test_the_gate_itself_still_answers_for_each_plan_state(self):
         matrices = (
-            [("a", "active")],
-            [("a", "done"), ("b", "active")],
-            [("a", "done"), ("b", "done")],
-            [("a", "done"), ("b", "pending")],
+            ([("a", "active")], True),
+            ([("a", "done"), ("b", "active")], True),
+            ([("a", "done"), ("b", "done")], False),
+            ([("a", "done"), ("b", "pending")], True),
         )
 
-        for items in matrices:
+        for items, open_work in matrices:
             with self.subTest(items=items):
                 self._write_plan(items)
                 todo = read_omh_todo(str(self.home), str(self.hermes), session_ref=SESSION)
-                open_work = open_plan_position(todo) is not None
-                reminder = open_todo_reminder(
-                    omh_home=str(self.home), hermes_home=str(self.hermes), session_ref=SESSION
-                )
-                directive = plan_continuation_directive(
-                    omh_home=str(self.home), hermes_home=str(self.hermes), session_ref=SESSION
-                )
 
-                self.assertEqual("[OMH plan todo]" in reminder, open_work)
-                self.assertEqual("[OMH plan todo]" in directive, open_work)
+                self.assertEqual(open_plan_position(todo) is not None, open_work)
 
 
 if __name__ == "__main__":

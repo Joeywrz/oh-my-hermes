@@ -68,6 +68,16 @@ OMH_TODO_SCHEMA = {
                                 "phase's checklist."
                             ),
                         },
+                        "blocked_reason": {
+                            "type": "string",
+                            "description": (
+                                "Why this item cannot proceed, recorded on the item rather "
+                                "than written into its text. The item keeps its state and the "
+                                "plan stops advancing past it, so record one only while the "
+                                "work is actually waiting on something and clear it when that "
+                                "arrives."
+                            ),
+                        },
                         "depth": {
                             "type": "integer",
                             "minimum": 0,

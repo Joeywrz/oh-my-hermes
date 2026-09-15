@@ -244,12 +244,14 @@ Rules:
   branch's new source files rather than after: resync last, after the final new
   file exists. Short of the two triggers above, nothing else heals it at all.
 
-  This is a property of the uv-managed dev environment, not of the project.
-  `python -m pip install -e .` ignores `[tool.uv]` and uses setuptools' default
-  path-hook editable mode — no `build/` tree, nothing to go stale. Every CI job
-  installs that way (`plan`, `test`, `test-windows`, `test-quarantine` all run
-  `python -m pip install -e .`), so CI never sees this and cannot warn you
-  about it.
+  This is a property of the uv-managed dev environment, not of the project. The
+  four test-bearing jobs (`plan`, `test`, `test-windows`, `test-quarantine`)
+  install with `python -m pip install -e .`, which ignores `[tool.uv]` and uses
+  setuptools' default path-hook editable mode — no `build/` tree. Where a job
+  does call `uv run` (the ruff gate in `test`, the packaging steps in
+  `distribution`) the strict tree is built, but every job installs into a fresh
+  checkout, so the tree is never older than the source. CI cannot reach the
+  stale state and so cannot warn you about it.
 
   What makes it read as a real regression is who resolves what. A `-P` spawn —
   or any run launched from outside the checkout, including the `omh` console

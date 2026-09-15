@@ -476,6 +476,7 @@ class WrapperSessionTests(unittest.TestCase):
                     "runtime_milestone_gaps",
                     "evidence_summary",
                     "pending_gaps",
+                    "blockers",
                     "next_action",
                     "user_facing_lines",
                     "claim_boundary",
@@ -517,7 +518,7 @@ class WrapperSessionTests(unittest.TestCase):
             self.assertEqual(status["chat_response"]["coding_briefing"]["schema_version"], "coding_briefing/v1")
             self.assertEqual(
                 set(status["chat_response"]["coding_briefing"]),
-                {"schema_version", "headline", "lines", "next_action", "pending_gaps", "claim_boundary"},
+                {"schema_version", "headline", "lines", "next_action", "pending_gaps", "blockers", "claim_boundary"},
             )
             self.assertNotIn("progress", status["chat_response"]["coding_briefing"])
             self.assertNotIn("coding_briefing", status["status_card"])

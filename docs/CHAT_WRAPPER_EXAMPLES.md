@@ -1139,7 +1139,8 @@ What gets better for the team:
 | User-facing executor status | `status_card.executor_display_status_lines[]` |
 | Coding work briefing | `coding_briefing.user_facing_lines[]` |
 | Coding progress ladder | `coding_briefing.progress[]` |
-| Missing coding evidence | `coding_briefing.pending_gaps[]` |
+| Coding steps not reached yet | `coding_briefing.pending_gaps[]` |
+| Coding steps that stopped | `coding_briefing.blockers[]` (`id`, `kind`, `event`) |
 
 Hermes Agent surfaces should render these fields natively and keep OMH focused
 on the routing, handoff, status, and evidence contract.

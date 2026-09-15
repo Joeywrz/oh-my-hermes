@@ -118,6 +118,14 @@ class ClosureRow(TypedDict):
     checkpoint: str
     receipt_ids: list[str]
     disposition: str | None
+    # Where the next watch run starts for this candidate; None while the row is
+    # held. It has no caller inside `src/` and is not meant to: it is output,
+    # carried in the `docs skill-sources --json` payload, so its consumer is the
+    # operator or the external tracker. Publishing it is what keeps the one rule
+    # that matters out of every consumer's hands -- that a held row yields no
+    # boundary. A consumer re-deriving that from `state` and `checkpoint` and
+    # getting it wrong re-emits a finding this repository has already resolved,
+    # which is the defect the whole contract exists to remove.
     scan_from: str | None
 
 

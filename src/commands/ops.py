@@ -908,6 +908,7 @@ def _add_ops_commands(sub) -> None:
     from .prompt_compatibility import add_ops_prompt_compatibility_command
     from .realtime_voice_readiness import add_ops_realtime_voice_readiness_command
     from .rules_import import add_ops_rules_import_command
+    from .skill_pattern_risk_review import add_ops_skill_pattern_risk_review_command
     from .toolcall_rules import add_ops_toolcall_rules_command
 
     ops = sub.add_parser("ops", help="Create, inspect, validate, and export local operations artifacts.")
@@ -919,6 +920,7 @@ def _add_ops_commands(sub) -> None:
     add_ops_realtime_voice_readiness_command(ops_sub)
     add_ops_rules_import_command(ops_sub)
     add_ops_plugin_risk_audit_command(ops_sub)
+    add_ops_skill_pattern_risk_review_command(ops_sub)
     add_ops_toolcall_rules_command(ops_sub)
     add_ops_permission_rehearsal_command(ops_sub)
     add_ops_design_direction_iterations_command(ops_sub)

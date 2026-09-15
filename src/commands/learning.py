@@ -67,6 +67,7 @@ from ..workflows.skill_draft import (
 )
 from ..local_store import utc_now
 from ..wrapper.contract import INTERACTION_MODES, build_chat_interaction_payload
+from .browser_skill_promotion import add_skill_promotion_commands
 from .common import _chat_input_and_metadata, _explicit_source_metadata, _paths, _print_json, _wants_json
 
 
@@ -997,3 +998,7 @@ def _add_learning_commands(sub) -> None:
     index_rebuild.set_defaults(func=cmd_learning_index_rebuild)
 
     _add_skill_draft_commands(learning_sub)
+    # #1571: the promotion lifecycle a reviewed draft needs already ships under
+    # `omh web-qa promotion`. This is the same registration, mounted where a
+    # draft author is already standing -- not a second implementation of it.
+    add_skill_promotion_commands(learning_sub)

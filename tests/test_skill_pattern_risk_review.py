@@ -78,6 +78,7 @@ from omh.workflows.skill_pattern_risk_review import (  # noqa: E402
 )
 
 from _platform_support import requires_secure_dir_io  # noqa: E402
+from _cli_harness import run_cli  # noqa: E402
 
 
 def audit_payload(*, categories: tuple[str, ...] = ("network_request", "process_execution")) -> dict[str, Any]:
@@ -807,6 +808,124 @@ class SkillPatternRiskReviewDeterminismTests(unittest.TestCase):
                     )
                 )
                 self.assertEqual(unresolved_risk_categories(review), ())
+
+
+class SkillPatternRiskReviewCommandTests(unittest.TestCase):
+    """#1571: the security step has a caller that is not this file.
+
+    The module docstring used to say `tests/test_skill_pattern_risk_review.py`
+    was its only caller, which made the step real and unreachable at once.
+    `omh ops skill-pattern-risk-review` is the reachable form, and these cases
+    drive it through the real CLI over a real directory.
+    """
+
+    @requires_secure_dir_io
+    def test_the_command_scans_a_real_directory_and_resolves_every_reported_category(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / "third-party-skill"
+            root.mkdir()
+            # atomic_write_text, not Path.write_text: these bytes are counted by
+            # the audit and the count lands inside review_digest.
+            atomic_write_text(root / "collect.py", "import subprocess\n\n\ndef collect():\n    return subprocess.run(['ls'])\n")
+
+            status, stdout, stderr = run_cli([
+                "ops", "skill-pattern-risk-review",
+                "--skill-root", str(root),
+                "--skill-ref", "third-party-listing-skill",
+                "--intended-outcome", "List the files a report needs to name.",
+                "--step", "Read the named directory.",
+                "--step", "Report the file names it holds.",
+                "--authority", "filesystem_read",
+                "--data", "repository_source",
+                "--side-effect", "spawns_processes",
+                "--resolve", "process_execution=rejected:spawn_a_host_process",
+                "--resolve", "undetermined_hook_contract=native_constraint:no_host_hook_registration",
+                "--confidence-level", "medium",
+                "--confidence-basis", "cited_static_scan",
+                "--evidence-limit", "static_scan_only_no_execution_observed",
+                "--safe-pattern", "List the directory with a bounded local read and no subprocess.",
+                "--native-constraint", "no_subprocess_execution",
+                "--native-constraint", "no_host_hook_registration",
+                "--prohibited", "spawn_a_host_process",
+                "--prepared-at", "2026-09-15T00:00:00Z",
+            ])
+
+            self.assertEqual(status, 0, stderr)
+            review = json.loads(stdout)
+            self.assertEqual(review["schema_version"], SKILL_PATTERN_RISK_REVIEW_SCHEMA_VERSION)
+            self.assertEqual(validate_skill_pattern_risk_review(review), [])
+            # The command cited a scan and decided nothing, which is the
+            # boundary the contract is built around.
+            self.assertEqual(review["review_status"], "awaiting_reviewer_decision")
+            self.assertFalse(review_reads_as_approved(review))
+            self.assertEqual(review["reviewer_decision"], {})
+            self.assertEqual(unresolved_risk_categories(review), ())
+            self.assertEqual(
+                set(review["audit_evidence"]["risk_categories"]),
+                set(audit_plugin_risk(root)["summary"]["risk_categories"]),
+            )
+
+    @requires_secure_dir_io
+    def test_an_unresolved_reported_category_is_refused_by_the_command(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / "third-party-skill"
+            root.mkdir()
+            atomic_write_text(root / "collect.py", "import subprocess\n\n\ndef collect():\n    return subprocess.run(['ls'])\n")
+
+            status, _, stderr = run_cli([
+                "ops", "skill-pattern-risk-review",
+                "--skill-root", str(root),
+                "--skill-ref", "third-party-listing-skill",
+                "--intended-outcome", "List the files a report needs to name.",
+                "--step", "Read the named directory.",
+                "--authority", "filesystem_read",
+                "--data", "repository_source",
+                "--side-effect", "spawns_processes",
+                "--resolve", "process_execution=rejected:spawn_a_host_process",
+                "--confidence-level", "medium",
+                "--confidence-basis", "cited_static_scan",
+                "--evidence-limit", "static_scan_only_no_execution_observed",
+                "--safe-pattern", "List the directory with a bounded local read and no subprocess.",
+                "--native-constraint", "no_subprocess_execution",
+                "--prohibited", "spawn_a_host_process",
+            ])
+
+            self.assertNotEqual(status, 0)
+            self.assertIn("undetermined_hook_contract", stderr)
+
+    def test_a_malformed_resolution_flag_names_the_shape_it_wanted(self) -> None:
+        """Deliberately not gated on secure dir IO: this one never scans.
+
+        The two cases above assert on what the scan reported, so they cannot run
+        where `read_static_plugin_sources` refuses for want of `O_NOFOLLOW`. This
+        one asserts the shape of an argument, which is decidable without touching
+        the filesystem, so it runs everywhere -- gating the whole class would
+        have taken Windows coverage away from the case that passes there. The
+        directory is still real, so the only thing wrong is the flag.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / "third-party-skill"
+            root.mkdir()
+
+            status, _, stderr = run_cli([
+                "ops", "skill-pattern-risk-review",
+                "--skill-root", str(root),
+                "--skill-ref", "third-party-listing-skill",
+                "--intended-outcome", "List the files a report needs to name.",
+                "--step", "Read the named directory.",
+                "--authority", "filesystem_read",
+                "--data", "repository_source",
+                "--side-effect", "no_side_effects_identified",
+                "--resolve", "undetermined_hook_contract",
+                "--confidence-level", "low",
+                "--confidence-basis", "cited_static_scan",
+                "--evidence-limit", "static_scan_only_no_execution_observed",
+                "--safe-pattern", "List the directory with a bounded local read.",
+                "--native-constraint", "no_host_hook_registration",
+            ])
+
+            self.assertNotEqual(status, 0)
+            self.assertIn("category=resolution:target", stderr)
 
 
 if __name__ == "__main__":

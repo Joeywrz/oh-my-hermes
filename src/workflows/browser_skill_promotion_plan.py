@@ -1,9 +1,17 @@
-"""Deterministic, reviewable browser-skill promotion plans.
+"""Deterministic, reviewable skill promotion plans.
 
 The plan has no activation behavior.  A lifecycle caller supplies a verified
 managed base and uses ``package`` only as the new immutable generation; old
 generations are deliberately retained rather than being reconstructed from a
 whole-directory replacement.
+
+Since #1571 one builder renders either kind of promotion source: an approved,
+replay-passing browser workflow trace, or a reviewed and activated
+``skill_draft/v1``.  What differs between them lives in
+``skill_promotion_source``; the generation formula, the exact-byte diff, the
+package bounds and every digest below are shared, because the lifecycle that
+consumes them is shared.  The browser branch renders byte-identically to what it
+rendered before, which is why its ``source`` block gained no new key.
 """
 from __future__ import annotations
 
@@ -20,6 +28,11 @@ from typing import Literal
 from ..system.paths import find_project_root
 from .browser_workflow_learning_store import read_browser_workflow_trace, resolved_browser_workflow_promotion_reference
 from .skill_draft import build_skill_draft, check_skill_draft_generated_output
+from .skill_promotion_source import (
+    SKILL_DRAFT_SOURCE, SkillPromotionSourceError, promotion_source_kind,
+    read_project_skill_draft, skill_draft_entry, skill_draft_pattern_risk_review,
+    skill_draft_resources, skill_draft_source_block,
+)
 
 PROMOTION_PLAN_SCHEMA_VERSION = "browser_skill_promotion_plan/v1"
 PROMOTION_REFERENCE_SCHEMA_VERSION = "browser_workflow_promotion_reference/v1"
@@ -35,9 +48,9 @@ class BrowserSkillPromotionPlanError(ValueError):
     pass
 
 
-def build_browser_skill_promotion_plan(
+def build_skill_promotion_plan(
     project_root: str | Path,
-    trace_id: str,
+    source_id: str,
     skill_name: str,
     *,
     previous_generation: str | None = None,
@@ -49,6 +62,10 @@ def build_browser_skill_promotion_plan(
 ) -> dict[str, object]:
     """Render the exact immutable generation and the exact touched-path diff.
 
+    ``source_id`` names either promotion source: a ``bwt-`` browser workflow
+    trace or an ``sd-`` skill draft.  The id shape decides, so there is no
+    caller-supplied kind that can disagree with the record actually read.
+
     ``existing_files`` is a lifecycle-validated managed inventory.  Supplying it
     makes the base explicit and prevents an approval from treating arbitrary
     target bytes as owned.  The legacy default remains useful for a read-only
@@ -56,15 +73,9 @@ def build_browser_skill_promotion_plan(
     """
     if operation not in {"install", "update", "rollback", "remove"}:
         raise BrowserSkillPromotionPlanError("promotion operation is unsupported")
+    kind = _source_kind(source_id)
     root = _project_root(project_root)
     target = _target(root, skill_name)
-    resolved = _validate_reference(resolved_browser_workflow_promotion_reference(root, trace_id))
-    public_reference = _validate_reference(reference) if reference is not None else resolved
-    if public_reference != resolved or public_reference["project_identity"] != _project_identity(root):
-        raise BrowserSkillPromotionPlanError("promotion reference differs from current project evidence")
-    trace = read_browser_workflow_trace(root, trace_id)
-    if trace.get("schema_version") != "browser_workflow_trace/v1" or trace.get("digest") != public_reference["trace_digest"]:
-        raise BrowserSkillPromotionPlanError("validated redacted trace does not bind promotion reference")
     if previous_generation is not None and _DIGEST.fullmatch(previous_generation) is None:
         raise BrowserSkillPromotionPlanError("previous generation must be a SHA-256 digest")
     if rollback_of is not None and _DIGEST.fullmatch(rollback_of) is None:
@@ -72,25 +83,52 @@ def build_browser_skill_promotion_plan(
     if base_entry_digest != "absent" and _DIGEST.fullmatch(base_entry_digest) is None:
         raise BrowserSkillPromotionPlanError("base entry digest must be absent or a SHA-256 digest")
 
-    draft = _draft(trace, skill_name)
-    source = {
-        "trace_id": public_reference["trace_id"], "trace_digest": public_reference["trace_digest"],
-        "trace_revision": public_reference["trace_revision"], "origins": public_reference["origins"],
-        "output_schema": public_reference["output_schema"], "output_schema_digest": public_reference["output_schema_digest"],
-        "fixture_digests": public_reference["fixture_digests"], "replay_digest": public_reference["replay_digest"],
-        "generic_draft_digest": _digest(_canonical(draft)), "previous_generation": previous_generation,
-    }
+    extra: dict[str, object] = {}
+    if kind == SKILL_DRAFT_SOURCE:
+        if reference is not None:
+            # `reference` re-states the public browser promotion reference so a
+            # caller can prove it reviewed the same evidence. A draft has no
+            # such public projection, so accepting one would be accepting a
+            # field nothing checks.
+            raise BrowserSkillPromotionPlanError("a skill draft source takes no browser promotion reference")
+        record = _read_draft(root, source_id)
+        project_identity = _project_identity(root)
+        source = skill_draft_source_block(record, previous_generation)
+        draft = record
+        extra["pattern_risk_review"] = _draft_risk_review(record)
+    else:
+        resolved = _validate_reference(resolved_browser_workflow_promotion_reference(root, source_id))
+        public_reference = _validate_reference(reference) if reference is not None else resolved
+        if public_reference != resolved or public_reference["project_identity"] != _project_identity(root):
+            raise BrowserSkillPromotionPlanError("promotion reference differs from current project evidence")
+        record = read_browser_workflow_trace(root, source_id)
+        if record.get("schema_version") != "browser_workflow_trace/v1" or record.get("digest") != public_reference["trace_digest"]:
+            raise BrowserSkillPromotionPlanError("validated redacted trace does not bind promotion reference")
+        project_identity = public_reference["project_identity"]
+        draft = _draft(record, skill_name)
+        source = {
+            "trace_id": public_reference["trace_id"], "trace_digest": public_reference["trace_digest"],
+            "trace_revision": public_reference["trace_revision"], "origins": public_reference["origins"],
+            "output_schema": public_reference["output_schema"], "output_schema_digest": public_reference["output_schema_digest"],
+            "fixture_digests": public_reference["fixture_digests"], "replay_digest": public_reference["replay_digest"],
+            "generic_draft_digest": _digest(_canonical(draft)), "previous_generation": previous_generation,
+        }
+
     old = dict(existing_files) if existing_files is not None else read_browser_skill_package(target)
     base_digest = _package_digest(old)
     payload_digest = _digest(_canonical({"source": source, "rollback_of": rollback_of}))
     activation_id = _digest(_canonical({
-        "project_identity": public_reference["project_identity"], "target": str(target.relative_to(root)),
+        "project_identity": project_identity, "target": str(target.relative_to(root)),
         "operation": operation, "base_entry_digest": base_entry_digest, "base_digest": base_digest,
         "payload_digest": payload_digest, "rollback_of": rollback_of,
     }))
     generation = _digest(_canonical({"activation_id": activation_id, "payload_digest": payload_digest}))
-    entry = _entry(skill_name, source, generation, activation_id, rollback_of)
-    resources = _resources(generation, entry, source, trace)
+    if kind == SKILL_DRAFT_SOURCE:
+        entry = _draft_entry(skill_name, record, source, generation, activation_id, rollback_of)
+        resources = skill_draft_resources(generation, entry, record, source)
+    else:
+        entry = _entry(skill_name, source, generation, activation_id, rollback_of)
+        resources = _resources(generation, entry, source, record)
     package = {"SKILL.md": entry, **resources}
     if operation == "remove":
         desired = dict(old)
@@ -104,7 +142,7 @@ def build_browser_skill_promotion_plan(
     manifest_name = f"resources/{generation}/manifest.json"
     return {
         "schema_version": PROMOTION_PLAN_SCHEMA_VERSION, "operation": operation,
-        "project_root": str(root), "project_identity": public_reference["project_identity"],
+        "project_root": str(root), "project_identity": project_identity,
         "skill_name": skill_name, "target_path": str(target), "source": source,
         "payload_digest": payload_digest, "activation_id": activation_id, "generation": generation,
         "rollback_of": rollback_of, "generic_draft": draft,
@@ -114,8 +152,44 @@ def build_browser_skill_promotion_plan(
         "base_digest": base_digest, "base_entry_digest": base_entry_digest,
         "entry_digest": _digest(entry.encode("utf-8")),
         "manifest_digest": _digest(resources[manifest_name].encode("utf-8")),
-        "diff": diff, "diff_digest": _digest(diff.encode("utf-8")),
+        "diff": diff, "diff_digest": _digest(diff.encode("utf-8")), **extra,
     }
+
+
+# The browser lane's shipped name. Kept so the one call chain that has always
+# meant "build the plan" stays spelled the same at every existing call site.
+build_browser_skill_promotion_plan = build_skill_promotion_plan
+
+
+def _source_kind(source_id: str) -> str:
+    try:
+        return promotion_source_kind(source_id)
+    except SkillPromotionSourceError as exc:
+        raise BrowserSkillPromotionPlanError(str(exc)) from exc
+
+
+def _read_draft(root: Path, source_id: str) -> dict[str, object]:
+    try:
+        return read_project_skill_draft(root, source_id)
+    except SkillPromotionSourceError as exc:
+        raise BrowserSkillPromotionPlanError(str(exc)) from exc
+
+
+def _draft_risk_review(record: Mapping[str, object]) -> dict[str, object]:
+    try:
+        return skill_draft_pattern_risk_review(record)
+    except SkillPromotionSourceError as exc:
+        raise BrowserSkillPromotionPlanError(str(exc)) from exc
+
+
+def _draft_entry(
+    skill_name: str, record: Mapping[str, object], source: Mapping[str, object],
+    generation: str, activation_id: str, rollback_of: str | None,
+) -> str:
+    try:
+        return skill_draft_entry(skill_name, record, source, generation, activation_id, rollback_of)
+    except SkillPromotionSourceError as exc:
+        raise BrowserSkillPromotionPlanError(str(exc)) from exc
 
 
 def read_browser_skill_package(target: str | Path) -> dict[str, str]:

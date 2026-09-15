@@ -1,12 +1,29 @@
-# Browser skill promotion
+# Skill promotion
 
-This page documents issue 1386: turning one approved, replay-passing
-`browser_workflow_trace/v1` into a project-local Hermes skill under
-`.hermes/skills/<skill-name>/`. The contracts are
-`browser_skill_promotion_plan/v1`, `browser_skill_promotion_native_preflight/v1`,
+This page documents issue 1386 and its widening in issue 1571: turning one
+reviewed source into a project-local Hermes skill under
+`.hermes/skills/<skill-name>/`. There are two sources and one lifecycle:
+
+| Source | Id shape | Reviewed by | Command |
+| --- | --- | --- | --- |
+| An approved, replay-passing `browser_workflow_trace/v1` | `bwt-<24 hex>` | `omh web-qa trace approve` plus a passing offline fixture replay | `omh web-qa promotion ... --trace-id` |
+| A reviewed, activated `skill_draft/v1` | `sd-<20 hex>` | `omh learning skill-draft review --decision approve` | `omh learning promotion ... --source-id` |
+
+Both mounts register the same seven subcommands and call the same functions.
+Everything below — the exact-byte diff, the reviewer-bound approval receipt,
+the single visibility commit, retained generations, rollback, removal, status
+and explicit retry — is one implementation shared by both, and the sections
+that name a trace apply to a draft with its own id in that position. The
+differences are named where they occur.
+
+The contracts are `browser_skill_promotion_plan/v1`,
+`browser_skill_promotion_native_preflight/v1`,
 `browser_skill_promotion_approval_receipt/v1`, `browser_skill_activation/v1`,
-`browser_skill_entry/v1`, `browser_skill_resource_manifest/v1`, and the
-`browser_skill_promotion/v1` status payload.
+`browser_skill_entry/v1` or `skill_promotion_entry/v1`,
+`browser_skill_resource_manifest/v1`, and the `browser_skill_promotion/v1`
+status payload. The `browser_*` names are the shipped ones and are kept
+deliberately: renaming them would have moved bytes that installed entries and
+persisted receipts are digest-bound to.
 
 Promotion is an operator decision on exact bytes. OMH renders the diff, a
 person approves that exact diff, and one later command makes the skill
@@ -23,11 +40,18 @@ Nobody needs the commands below to get value. Describe the outcome in chat:
   it would take to roll back to the previous generation."
 - "Remove the promoted login skill from this repo."
 
-Hermes routes to `workflow-learning` (trace lifecycle and promotion receipts)
+Or, for a draft:
+
+- "We reviewed and approved that receipt-reconciliation draft. Install it for
+  this project."
+- "Roll the reconciliation skill back to the generation we had last week."
+
+Hermes routes to `workflow-learning` (source lifecycle and promotion receipts)
 or `browser-operator` (interaction boundary and drift rule), explains what
 evidence exists, and asks for the one approval it can't supply itself. The
-skill it produces is project-local and hostname-scoped; the entry text tells
-Hermes to stop and use ordinary browser operation on any drift.
+skill it produces is project-local; a trace-derived one is hostname-scoped and
+its entry text tells Hermes to stop and use ordinary browser operation on any
+drift, and a draft-derived one carries the draft's own stop conditions.
 
 ## Agent and operator reference
 
@@ -38,7 +62,9 @@ global fallback store.
 
 ### Prerequisites
 
-A promotion source is a trace already in this project's store:
+A promotion source is a record already in this project's store.
+
+For a browser trace:
 
 ```sh
 omh web-qa trace record  --project-root . --input trace.json
@@ -53,23 +79,50 @@ current trace digest, revision, origins, output schema, fixture digests, and
 replay digest. A well-shaped trace dictionary that isn't in
 `.omh/web-visual-qa/traces/` is not a source.
 
+For a skill draft:
+
+```sh
+omh learning skill-draft new --scope project --name <slug> "turn this into a skill: ..." ...
+omh learning skill-draft review --scope project <sd-id> --decision approve
+```
+
+Promotion reads the draft from `<project root>/.omh/learning/skill-drafts/`,
+which is where `--scope project` writes it, and requires the record to validate
+as `skill_draft/v1`, to be in the `active_proposal` state a human approval
+produces, and to pass its own generated-output checks. A draft in the user-scope
+OMH home is not a source for a project: the lane refuses `--omh-home` as a
+fallback for its source exactly as it does for skills, receipts and state.
+
 `--project-root` must resolve to an observed Git root. It defaults to `.` for
 the promotion commands, and running outside a Git root fails; `--omh-home` is
 never a fallback location for skills, receipts, or state.
 
 ### Commands as shipped
 
-Observed from `omh web-qa promotion --help` and its seven subcommands:
+Observed from `omh web-qa promotion --help` and `omh learning promotion --help`
+and their seven subcommands. The two mounts differ only in how the source is
+spelled: `--trace-id` on `web-qa`, `--source-id` on `learning`, both landing on
+the same handler.
 
 ```sh
-omh web-qa promotion diff     [--project-root PATH] --skill-name NAME --trace-id ID [--operation {install,update}]
-omh web-qa promotion approve  [--project-root PATH] --skill-name NAME --trace-id ID --reviewed-diff-digest SHA256 --reviewer ID [--operation {install,update}]
-omh web-qa promotion promote  [--project-root PATH] --receipt-id SHA256
-omh web-qa promotion status   [--project-root PATH] --skill-name NAME [--no-source-check]
-omh web-qa promotion rollback [--project-root PATH] --skill-name NAME --generation SHA256 [--reviewed-diff-digest SHA256 --reviewer ID]
-omh web-qa promotion remove   [--project-root PATH] --skill-name NAME [--reviewed-diff-digest SHA256 --reviewer ID]
-omh web-qa promotion retry    [--project-root PATH] --receipt-id SHA256
+omh learning promotion diff     [--project-root PATH] --skill-name NAME --source-id ID [--operation {install,update}]
+omh learning promotion approve  [--project-root PATH] --skill-name NAME --source-id ID --reviewed-diff-digest SHA256 --reviewer ID [--operation {install,update}]
+omh learning promotion promote  [--project-root PATH] --receipt-id SHA256
+omh learning promotion status   [--project-root PATH] --skill-name NAME [--no-source-check]
+omh learning promotion rollback [--project-root PATH] --skill-name NAME --generation SHA256 [--reviewed-diff-digest SHA256 --reviewer ID]
+omh learning promotion remove   [--project-root PATH] --skill-name NAME [--reviewed-diff-digest SHA256 --reviewer ID]
+omh learning promotion retry    [--project-root PATH] --receipt-id SHA256
+
+omh web-qa promotion diff       [--project-root PATH] --skill-name NAME --trace-id ID [--operation {install,update}]
+# ... and the same six others, with --trace-id in place of --source-id.
 ```
+
+An exit status of `0` from any of them says the lane did not end with the entry
+refused or deactivated. `stale`, `quarantined` and `unverified_managed_state`
+exit non-zero, because in each of them nothing of yours is installed; `inactive`
+exits `0`, because a project that never promoted this skill is not a promotion
+that failed, and so do `removed` and `already_deactivated`, which are what
+`remove` was asked for. A refusal inside the lifecycle raises and exits `2`.
 
 | Subcommand | What it does | What it never does |
 | --- | --- | --- |
@@ -93,9 +146,78 @@ All output is JSON. `diff` returns `plan`, `native_preflight`, and
 `native_preflight_digest`; `approve` returns the receipt; `promote`, `status`,
 and `retry` return the `browser_skill_promotion/v1` status payload.
 
+### What a draft source changes, and what it does not
+
+Only five things differ by source kind. Everything else on this page — the
+generation formula, the exact-byte diff, the native preflight, the receipt, the
+single visibility commit, retained generations, rollback, removal, status,
+drift deactivation, retry, locking and the file-sync rules — is one shared
+implementation.
+
+1. **How the id resolves.** `bwt-` reads the trace store and requires an
+   approved, replay-passing promotion reference; `sd-` reads the project draft
+   store and requires an activated `skill_draft/v1`.
+2. **The entry's metadata line.** A trace writes `omh_browser_promotion:` with
+   `browser_skill_entry/v1`; a draft writes `omh_skill_promotion:` with
+   `skill_promotion_entry/v1`, holding the draft id and digest rather than
+   origins, output schema and replay digest, which a draft does not have. The
+   `description` is the draft's own summary on one line.
+3. **The third immutable resource file.** `trace.json` for a trace,
+   `draft.json` for a draft. `entry.md`, `procedure.md` and `manifest.json` are
+   the same four-file generation either way; a draft's `procedure.md` renders
+   the draft's preconditions, declared inputs, fixed instructions, stop
+   conditions and required verification.
+4. **The pattern risk review**, below. Draft sources only.
+5. **What drift means.** A trace drifts when its promotion reference stops
+   resolving as approved and replay-passing, and can be `quarantined`. A draft
+   drifts when its record stops resolving as an activated proposal — a review
+   later changed to `revise` or `reject` deactivates the entry it approved on
+   the next `status` — and is always `stale`, never `quarantined`.
+
+The approval receipt's `trace_id`, `trace_revision`, `trace_digest` and
+`fixture_digests` keep their shipped `/v1` names. For a draft receipt they hold
+that draft's id, revision `1`, its content digest and an empty map. The names
+were kept rather than widened so a receipt written before this change still
+reads; `receipt_source_binding` in `src/workflows/skill_promotion_source.py` is
+the one place either kind fills them.
+
+### Pattern risk review: draft sources only
+
+Before a draft's package is rendered, `diff` scans the draft's own summary and
+instruction text with the detectors `omh ops plugin-risk-audit` uses, and
+refuses the promotion naming the category it matched:
+
+```
+skill draft pattern risk review refused promotion; the draft text matches: process_execution
+```
+
+The categories are the audit's: `process_execution`, `dynamic_code_execution`,
+`network_request`, `potential_committed_secret`, `hermes_hook_capability`,
+`declared_dependency`. The refusal happens in the plan, so `approve` and
+`promote` re-run it against the same bytes the reviewer saw; the gate is a pure
+function of the draft record, and the record's digest is what the receipt binds.
+A passing scan is reported on the plan as `pattern_risk_review`, with an empty
+`risk_categories` list and its own claim boundary: it says a pattern does not
+occur in this text, never that the skill is safe.
+
+A trace source does not run this gate. Its content is machine-captured and
+redacted before it is ever approved, whereas a draft's instruction text is free
+text a person wrote and the text Hermes will follow once the skill is visible.
+Both kinds still run the Hermes `skills_guard` scan inside the native preflight,
+and a `dangerous` verdict refuses either.
+
+The reviewer-judgment form of the same question — what a borrowed third-party
+skill pattern is worth, what it costs, how far the evidence goes, and what OMH
+may reproduce natively — is `omh ops skill-pattern-risk-review`, which mints one
+`skill_pattern_risk_review/v1` over an explicit local directory. It cites the
+scan and decides nothing: a clean scan never reads as an approval, and only a
+recorded reviewer decision approves anything, which is approval to build a
+native pattern rather than to adopt the source.
+
 ### Review: the exact diff and the native preflight
 
-`diff` builds the package from the approved trace and a generic skill draft:
+For a trace, `diff` builds the package from the approved trace and a generic
+skill draft:
 
 - `SKILL.md`: front matter with `name`, a picker `description` of the form
   `Use <origins> browser workflow.` (refused over 60 characters), and one
@@ -303,7 +425,8 @@ never removed.
 | `.omh/browser-skill-promotions/<name>/activation-by-entry/<entry_digest>.json` | Activation index, one per committed entry. |
 | `.omh/browser-skill-promotions/<name>/staging/<activation_id>/` | Private pre-entry staging. |
 | `.omh/browser-skill-promotions/<name>/last-observation.json` | Last committed transition. Not consulted for activation. |
-| `.omh/web-visual-qa/traces/<trace_id>.json` | The source trace; also the trace lock during promotion. |
+| `.omh/web-visual-qa/traces/<trace_id>.json` | The source trace; also the source lock during promotion. |
+| `.omh/learning/skill-drafts/<draft_id>.json` | The source draft; also the source lock during promotion. |
 
 Every path is checked against symlinks at each component, every read is a
 bounded regular-file read (256 KiB per file, 512 KiB per package, 128 files),

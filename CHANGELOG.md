@@ -350,6 +350,31 @@ All notable changes will be documented here.
   always-loaded body rather than a reference note, because a judge is used
   while comparing executors and the existing reference pointer fires only for
   self-evaluation.
+- **Three reported misroutes reach the skill that owns the question.** A
+  filling context window ("context window is almost full, save decisions and
+  hand off to a new session") returned the project-terminology workflow at high
+  confidence because the message opens with the word `context`, which is that
+  workflow's whole name; `context-budget-review`, which owns the must-keep
+  pack, the summarization checkpoint plan and the overflow recovery route, did
+  not place. The budget sense of `context` -- `window`, `limit`, `compaction`,
+  `overflow` alongside the `budget` already carved out -- now stops that word
+  carrying explicit-invocation weight, and the lane gains the overflow
+  phrasings it had no trigger for. A Korean continuous watch ("계속 감시해줘")
+  reached nothing, and so did its English form ("keep watching this", "keep
+  monitoring the build"): every phrasing `automation-blueprint` recognised
+  named a cadence or the word automation itself, so the intent was missing in
+  every language rather than only in Korean, and the English base corpus, the
+  `ko.json` pack, and new `ja.json`/`zh.json` entries all ship together. And a
+  memory-provider comparison ("compare memory providers on my own data for
+  retrieval quality and latency") reached the operations telemetry card,
+  because it reads as telemetry word for word, while the skill that declares
+  `memory_provider_posture/v1` -- and that `memory-sync` explicitly defers
+  provider questions to -- did not place at all; the noun phrase now reaches
+  `external-connector-readiness`, its declared owner. Every generic word these
+  triggers are built from (`window`, `hand`, `off`, `keep`, `watch`, `monitor`
+  and the rest) is held back from its skill's trigger tokens and pinned by a
+  negative control in the sense it does not mean, so an ordinary sentence
+  routes exactly as it did before.
 
 ## 2.0.3 - 2026-09-12
 

@@ -2936,7 +2936,14 @@ _OPS_OBSERVABILITY_CONNECTOR_READINESS_BLOCKERS = (
     "weather plugin readiness",
     "weather connector readiness",
     "wxtrain readiness",
-    "memory provider readiness",
+    # Broader than the sibling entries on purpose. `external-connector-readiness`
+    # declares `memory_provider_posture/v1` and `memory-sync` sends every
+    # provider-lifecycle question to it, so the noun phrase itself is the
+    # ownership line -- "memory provider readiness" was only the one wording
+    # that had been asked for. A comparison ("retrieval quality and latency
+    # across providers") reads as telemetry word for word and is still a
+    # provider-posture question.
+    "memory provider",
     "search provider connector readiness",
     "social automation connector readiness",
     "twitter automation connector readiness",
@@ -5352,6 +5359,25 @@ _INVOCATION_RUN_CUES = (
     "부탁",
 )
 
+# `context` is an everyday word and also a catalog name, so a message that opens
+# with it reads as an explicit invocation of the terminology workflow: +12 and
+# first place in the shortlist, ahead of whatever the sentence is about. The
+# budget sense was carved out one word at a time, starting with `context
+# budget`. `window`, `limit`, `compaction`, and `overflow` are the same word in
+# the same sense, and every one of them belongs to `context-budget-review`, not
+# to the workflow that aligns the words a repository uses.
+#
+# Each entry is `context ` plus one word on purpose: the first-word check below
+# and the scorer's phrase check then read one table rather than two lists that
+# drift apart.
+CONTEXT_BUDGET_SENSE_WORDS = frozenset({"budget", "compaction", "limit", "overflow", "window"})
+CONTEXT_BUDGET_SENSE_PHRASES = tuple(f"context {word}" for word in sorted(CONTEXT_BUDGET_SENSE_WORDS))
+
+
+def context_query_is_budget_sense(normalized_query: str) -> bool:
+    """True when "context" here names the context window, not the project's terms."""
+    return _contains_phrase(normalized_query, CONTEXT_BUDGET_SENSE_PHRASES)
+
 
 def explicit_skill_invocation(message: str, names: set[str]) -> str | None:
     stripped = executable_routing_text(message).strip()
@@ -5382,7 +5408,7 @@ def explicit_skill_invocation(message: str, names: set[str]) -> str | None:
             not used_prefix
             and first == "context"
             and len(words) > 1
-            and words[1] == "budget"
+            and words[1] in CONTEXT_BUDGET_SENSE_WORDS
         )
         and not _bare_first_word_reads_as_a_verb(stripped, first, used_prefix)
         and not _bare_first_word_names_a_longer_skill(stripped, first, names, used_prefix)

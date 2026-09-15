@@ -748,6 +748,8 @@ _FEATURE_SURFACE_SKILLS = (
             "memory provider retention",
             "memory provider portability",
             "memory provider sync failure",
+            "compare memory providers",
+            "memory provider comparison",
             "switch memory provider",
             "switching memory providers",
             "disable memory provider",

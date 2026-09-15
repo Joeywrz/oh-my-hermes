@@ -888,7 +888,21 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # an orphan rather than a delivered section. The budget had zero headroom.
 # Re-derived from the full-profile skill_context_cost_payload() producer,
 # never by adding deltas.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 954701
+#
+# 953938 -> 954233: #1581/#1582/#1583 add twelve trigger phrases across three
+# skills -- three overflow phrasings on `context-budget-review`, four English
+# and three Korean continuous-watch phrasings on `automation-blueprint` (the
+# Korean through its trigger pack), and two memory-provider comparison
+# phrasings on `external-connector-readiness`. Trigger lists render into the
+# always-loaded body because that is where a lane states what it answers to,
+# and a phrase
+# the router scores but the body does not print is a lane nobody can tell you
+# how to reach. Each phrase is a wording the router previously missed, not a
+# restatement; warranted growth. Re-derived from the full-profile
+# skill_context_cost_payload() producer, never by adding the deltas.
+# Rebased onto #1574's 954701: the two deltas are independent, so the combined
+# value is re-derived here rather than either side's number being kept.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 954996
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

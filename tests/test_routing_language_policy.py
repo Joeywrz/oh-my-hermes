@@ -87,7 +87,16 @@ FROZEN_HANGUL_TRIGGERS_BY_SKILL: dict[str, int] = {
     "agent-ops-review": 18,
     "ai-slop-cleaner": 5,
     "ask": 2,
-    "automation-blueprint": 15,
+    # 15 -> 18 (2026-09-15, #1582): a continuous watch with no cadence word
+    # ("계속 감시해줘") reached nothing -- and neither did its English form
+    # ("keep watching this", "keep monitoring the build"). Every phrasing this
+    # lane already recognised named a cadence ("매일", "every morning") or the
+    # word automation itself, so what was missing was the intent, not the
+    # language. The English base corpus ("keep watching", "keep monitoring",
+    # "watch continuously", "monitor continuously") and the ja/zh packs ship in
+    # the same commit: new capability reach, not padding over a Korean-only
+    # miss.
+    "automation-blueprint": 18,
     "browser-operator": 15,
     "build-failure-triage": 14,
     "code-review": 7,

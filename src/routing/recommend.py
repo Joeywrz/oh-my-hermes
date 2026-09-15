@@ -38,6 +38,7 @@ from .policy import (
     SKILL_SCOUT_CANDIDATE_INTENT_PHRASES,
     _explicit_skill_candidate_is_negated,
     active_routing_guard_rules,
+    context_query_is_budget_sense,
     explicit_skill_invocation,
     is_explicit_one_off_request,
     jit_learn_guard_applies,
@@ -1952,6 +1953,21 @@ _SIBLING_POINTER_METADATA_TOKENS = {
 # `models` and `work` look like observed-work inventory requests.
 _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS = {
     "running-work-board": frozenset({"board", "models", "running", "units", "what", "which", "work"}),
+    # The overflow phrasings `context-budget-review` needs -- "context window",
+    # "running out of context", "hand off to a new session" -- are built from
+    # words that mean nothing on their own. Credited as bare tokens they took
+    # "resize the browser window", "the maintenance window is tonight", "the
+    # build is running out of disk space", and "hand off the frontend work to a
+    # new engineer". The intent is in the complete phrases, which already score
+    # +6 each.
+    "context-budget-review": frozenset({"hand", "new", "off", "out", "running", "session", "window"}),
+    # The continuous-watch phrasings split the same way, one word short of the
+    # line: "watching", "monitoring", and "continuously" all say the thing is
+    # ongoing, while the bare verbs "keep", "watch", and "monitor" are one-off
+    # words that took "keep the old API around", "buy a second monitor", and
+    # "watch out for the race condition in this handler". Those three score only
+    # inside a complete phrase.
+    "automation-blueprint": frozenset({"keep", "monitor", "watch"}),
     # `long-document-reading` names its work with the most ordinary words in
     # the catalog -- "read", "document", "pdf", "report", "contract", "page",
     # "large", "long", "process". Credited as bare tokens they claimed "read
@@ -2418,7 +2434,10 @@ def _score_definition(
         offers_itself is not None
         and (
             explicit_skill != definition.name
-            or (definition.name == "context" and "budget" in query_tokens)
+            or (
+                definition.name == "context"
+                and ("budget" in query_tokens or context_query_is_budget_sense(normalized_query))
+            )
         )
         and not offers_itself(normalized_query, query_tokens)
     ):
@@ -2572,6 +2591,8 @@ def _external_connector_readiness_recommendation_applies(normalized_query: str, 
         return True
     if _realtime_voice_connector_readiness_match(normalized_query):
         return True
+    if _memory_provider_posture_match(normalized_query):
+        return True
 
     strong_anchor_tokens = {
         "adopt",
@@ -2672,6 +2693,21 @@ def _external_connector_readiness_recommendation_applies(normalized_query: str, 
             "crustocean platform",
             "smart home connector",
         )
+    )
+
+
+def _memory_provider_posture_match(normalized_query: str) -> bool:
+    """A memory-provider question, judged as the complete noun phrase.
+
+    `external-connector-readiness` declares `memory_provider_posture/v1` and
+    `memory-sync` hands every provider-lifecycle question to it, so this phrase
+    is the ownership line the catalog already states. Containment only: a bare
+    "memory" is a curation question and a bare "provider" is a model-chain one,
+    and neither reaches here.
+    """
+    return any(
+        _explicit_phrase_match(normalized_query, normalized_phrase(phrase))
+        for phrase in ("memory provider", "memory providers")
     )
 
 

@@ -1019,6 +1019,26 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "",
         "context-budget-review",
     ),
+    # The same guard for the overflow triggers. "window", "running out", "hand
+    # off", "new", and "session" are held back from this workflow's trigger
+    # tokens precisely so these two sentences keep answering the question they
+    # asked instead of naming a budget review.
+    RoutingPrecisionCase(
+        "browser-window-resize-direct",
+        "Resizing a browser window never dispatches context budget review",
+        "resize the browser window to 1280 wide and rerun the screenshot",
+        "answer_clarification",
+        "",
+        "context-budget-review",
+    ),
+    RoutingPrecisionCase(
+        "disk-space-running-out-direct",
+        "Running out of disk space never dispatches context budget review",
+        "the build is running out of disk space",
+        "answer_clarification",
+        "",
+        "context-budget-review",
+    ),
     RoutingPrecisionCase(
         "new-project-file-concept-direct",
         "New-project file concept question stays a lookup, not an app delivery loop",
@@ -1649,6 +1669,54 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "answer_directly",
         "direct_answer",
         "external-connector-readiness",
+    ),
+    # "memory" and "provider" both occur here in their ordinary senses -- a heap
+    # leak and a list of suppliers -- and neither is a provider-posture
+    # question. The match is the complete noun phrase or nothing.
+    RoutingPrecisionCase(
+        "memory-leak-provider-list-stays-direct",
+        "A heap leak beside the word provider is not memory-provider readiness",
+        "the parser leaks memory when the provider list grows",
+        "answer_clarification",
+        "",
+        "external-connector-readiness",
+    ),
+    # A surveillance camera is the unrelated sense of the word the Korean
+    # continuous-watch pack phrases are built from.
+    RoutingPrecisionCase(
+        "korean-surveillance-camera-format-stays-direct",
+        "A Korean question about surveillance-camera video is not a recurring-ops request",
+        "감시 카메라 영상 포맷이 뭐야",
+        "answer_directly",
+        "direct_answer",
+        "automation-blueprint",
+    ),
+    # One per bare verb held back from the continuous-watch phrases: "keep",
+    # "monitor", "watch". Each of these sentences is the one-off sense of that
+    # verb and none of them is a recurring operation.
+    RoutingPrecisionCase(
+        "keep-old-api-stays-a-clarification",
+        "Keeping an old API around is not a recurring operation",
+        "keep the old api around for one more release",
+        "answer_clarification",
+        "",
+        "automation-blueprint",
+    ),
+    RoutingPrecisionCase(
+        "second-monitor-purchase-stays-a-clarification",
+        "Buying a monitor is not a monitoring schedule",
+        "i need to buy a second monitor for this desk",
+        "answer_clarification",
+        "",
+        "automation-blueprint",
+    ),
+    RoutingPrecisionCase(
+        "watch-out-warning-stays-a-clarification",
+        "Watching out for a race condition is not a recurring watch",
+        "watch out for the race condition in this handler",
+        "answer_clarification",
+        "",
+        "automation-blueprint",
     ),
 )
 
@@ -3063,6 +3131,37 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "prepare_scheduled_ops_blueprint",
         "automation_blueprint",
     ),
+    # Every phrasing this lane recognised named a cadence ("매일", "every
+    # morning") or the word automation itself. A continuous watch names neither
+    # and reached nothing -- in Korean, and in English too, which is why the
+    # base corpus grows here rather than only the pack.
+    RoutingInterventionCase(
+        "korean-continuous-watch-automation",
+        "A Korean continuous-watch request opens automation blueprint",
+        "계속 감시해줘",
+        "dispatch",
+        "automation-blueprint",
+        "prepare_scheduled_ops_blueprint",
+        "automation_blueprint",
+    ),
+    RoutingInterventionCase(
+        "keep-monitoring-opens-automation-blueprint",
+        "An English continuous-watch request opens automation blueprint",
+        "keep monitoring the build",
+        "dispatch",
+        "automation-blueprint",
+        "prepare_scheduled_ops_blueprint",
+        "automation_blueprint",
+    ),
+    RoutingInterventionCase(
+        "watch-continuously-opens-automation-blueprint",
+        "Watching continuously opens automation blueprint",
+        "watch continuously and report any change",
+        "dispatch",
+        "automation-blueprint",
+        "prepare_scheduled_ops_blueprint",
+        "automation_blueprint",
+    ),
     RoutingInterventionCase(
         "korean-morning-market-research",
         "Korean recurring market research opens research department",
@@ -3127,6 +3226,29 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "external-connector-readiness",
         "prepare_external_connector_readiness",
         "external_connector_readiness",
+    ),
+    # A sixth shape: comparing providers. It reads as telemetry word for word --
+    # "retrieval quality", "latency" -- so the ops guard claimed it outright and
+    # the declared owner did not place at all.
+    RoutingInterventionCase(
+        "memory-provider-comparison-readiness",
+        "Comparing memory providers reaches their declared owner, not the telemetry card",
+        "compare memory providers on my own data for retrieval quality and latency",
+        "dispatch",
+        "external-connector-readiness",
+        "prepare_external_connector_readiness",
+        "external_connector_readiness",
+    ),
+    # The other half of that split: telemetry about operations, not about a
+    # provider choice, keeps the card it always had.
+    RoutingInterventionCase(
+        "loop-run-telemetry-stays-ops-observability",
+        "Token, cost, and latency of operations still reach the telemetry card",
+        "show token cost and latency for the last week of loop runs",
+        "dispatch",
+        "ops-observability-card",
+        "prepare_ops_observability_card",
+        "ops_observability",
     ),
     RoutingInterventionCase(
         "memory-provider-switch-readiness",
@@ -4233,6 +4355,42 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "prepare_context_budget_review",
         "context_budget_review",
         "context-budget-review",
+    ),
+    # The phrasing a person actually uses when the window is filling. It opens
+    # with the word "context", which is the terminology workflow's whole name,
+    # so it was read as an explicit invocation of that workflow and took first
+    # place on +12 of name weight alone.
+    RoutingInterventionCase(
+        "context-window-full-budget-review",
+        "A filling context window reaches budget review, not terminology alignment",
+        "context window is almost full, save decisions and hand off to a new session",
+        "dispatch",
+        "context-budget-review",
+        "prepare_context_budget_review",
+        "context_budget_review",
+        "context-budget-review",
+    ),
+    RoutingInterventionCase(
+        "running-out-of-context-budget-review",
+        "Running out of context reaches budget review",
+        "we are running out of context on this long agent run",
+        "dispatch",
+        "context-budget-review",
+        "prepare_context_budget_review",
+        "context_budget_review",
+        "context-budget-review",
+    ),
+    # The other sense of the same word, kept whole: this is the workflow the
+    # message above was taking.
+    RoutingInterventionCase(
+        "project-terminology-stays-context-alignment",
+        "A repository-terminology question still reaches terminology alignment",
+        "align project terminology for the words this repository uses",
+        "dispatch",
+        "context",
+        "prepare_project_terms_context",
+        "project_terms_context",
+        "context",
     ),
     RoutingInterventionCase(
         "greenfield-bootstrap-the-project",

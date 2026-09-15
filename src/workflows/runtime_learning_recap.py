@@ -397,8 +397,10 @@ def _observation_view(record: Mapping[str, Any] | None, missing_reason: str) -> 
     recomputes both, so a stored cell cannot say `observed` next to an
     observation status of `failed`, and cannot carry prose in `reason`.
 
-    Also used for the run-level terminal and block observations, which are not
-    cells but are the same question asked of one record.
+    Also used for the run-level terminal and block observations. Their `state`
+    is the same narrowing and means the same thing -- whether this record is
+    terminal evidence for a *stage* -- which for a cancellation is `unavailable`
+    and is why `_records_termination` reads the record's presence instead.
     """
     if not record:
         return {
@@ -462,28 +464,28 @@ def _typed_evidence_values(record: Mapping[str, Any], prefix: str) -> list[str]:
 
 
 def _run_lifecycle(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """The two run-level observations that are not milestones.
+    """The run-level observations that are not milestones.
 
     `failed` and `cancelled` are event types as well as status values, and the
-    runtime ladder deliberately excludes them: they are not rungs, they are
-    statements that the run ended. `blocked` is the third, and is not terminal
-    -- a block is recoverable by definition, so it is reported and changes no
-    state. Reading only the ladder left a run that recorded exactly one terminal
-    failure reading as work in progress on every downstream surface.
+    runtime ladder excludes them: they are not rungs, they are statements that
+    the run ended. `blocked` is the third, and is not terminal -- a block is
+    recoverable by definition, so it is reported and changes no state.
+
+    The two terminal types are selected in separate groups rather than one.
+    Grouping by event type before selecting is the condition `_latest_of` states
+    for its own correctness, and putting both types in one group broke it twice
+    over: a cancellation appended after a terminal failure won on last-append,
+    and the failure was gone.
     """
-    terminal = _latest_of([
-        record
-        for record in records
-        if str(record.get("event_type", "")) in RUNTIME_TERMINAL_OBSERVATION_EVENTS
-    ])
-    block = _latest_of([
-        record
-        for record in records
-        if str(record.get("event_type", "")) in RUNTIME_BLOCK_OBSERVATION_EVENTS
-    ])
+    terminal = _latest_by_event(records, RUNTIME_TERMINAL_OBSERVATION_EVENTS)
+    block = _latest_by_event(records, RUNTIME_BLOCK_OBSERVATION_EVENTS)
+    views = {
+        event_type: _observation_view(terminal.get(event_type), _NO_OBSERVATION_REASON)
+        for event_type in RUNTIME_TERMINAL_OBSERVATION_EVENTS
+    }
     return {
-        "termination": _observation_view(terminal, _NO_OBSERVATION_REASON),
-        "block": _observation_view(block, _NO_OBSERVATION_REASON),
+        "termination": {"kind": _termination_kind_from_views(views), **views},
+        "block": _observation_view(block.get(RUNTIME_BLOCK_OBSERVATION_EVENTS[0]), _NO_OBSERVATION_REASON),
         "claim_boundary": (
             "A terminal observation ends the run. A block does not: it is recoverable "
             "by definition and changes no completion state."
@@ -491,18 +493,40 @@ def _run_lifecycle(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _termination_kind(lifecycle: Mapping[str, Any]) -> str:
-    """Which terminal event the run recorded, or `none`.
+def _records_termination(view: Mapping[str, Any]) -> bool:
+    """Whether a terminal view stands on an observation that happened.
 
-    Derived from the view rather than asserted beside it: a view whose state is
-    `unavailable` -- no record, or one recorded `not_observed` -- terminated
-    nothing.
+    Presence of a record, not the narrowed cell state. The narrowing maps
+    `cancelled` to `unavailable` -- correct for a stage cell, where a
+    cancellation proves nothing about that stage -- and reading the kind from it
+    made a cancellation recorded as `omh runtime observe --event cancelled
+    --status cancelled` erase itself, so a cancelled run read as completed.
+    `failed` survived only because `failed` is the one status that happens to
+    round-trip the narrowing unchanged.
+
+    `not_observed` is the one status that does not count: it says in as many
+    words that the terminal event was not seen.
     """
-    view = lifecycle.get("termination") if isinstance(lifecycle.get("termination"), dict) else {}
-    if view.get("state") == "unavailable":
-        return "none"
-    kind = str(view.get("source_observation_type", ""))
-    return kind if kind in RUNTIME_TERMINAL_OBSERVATION_EVENTS else "none"
+    status = str(view.get("observation_status", ""))
+    return bool(status) and status != "not_observed"
+
+
+def _termination_kind_from_views(views: Mapping[str, Mapping[str, Any]]) -> str:
+    """Which terminal event the run recorded, by severity rather than arrival.
+
+    A recorded terminal failure is not undone by a cancellation appended after
+    it: the two are different facts about the run, not two reports of one.
+    """
+    for event_type in ("failed", "cancelled"):
+        view = views.get(event_type)
+        if isinstance(view, Mapping) and _records_termination(view):
+            return event_type
+    return "none"
+
+
+def _termination_kind(lifecycle: Mapping[str, Any]) -> str:
+    termination = lifecycle.get("termination") if isinstance(lifecycle.get("termination"), dict) else {}
+    return _termination_kind_from_views(termination)
 
 
 def _observed_completion(cells: Mapping[str, Mapping[str, Any]], termination_kind: str) -> dict[str, Any]:
@@ -882,13 +906,27 @@ def _lifecycle_errors(recap: Mapping[str, Any]) -> list[str]:
     if not isinstance(lifecycle, dict):
         return ["runtime learning recap run_lifecycle must be an object"]
     errors: list[str] = []
-    for key, allowed in (("termination", RUNTIME_TERMINAL_OBSERVATION_EVENTS), ("block", RUNTIME_BLOCK_OBSERVATION_EVENTS)):
-        view = lifecycle.get(key)
-        errors.extend(_observation_view_errors(view, label=f"run_lifecycle.{key}"))
-        if isinstance(view, dict):
-            source = str(view.get("source_observation_type", ""))
-            if source and source not in allowed:
-                errors.append(f"runtime learning recap run_lifecycle.{key} names an event type it cannot hold")
+    termination = lifecycle.get("termination")
+    if not isinstance(termination, dict):
+        errors.append("runtime learning recap run_lifecycle.termination must be an object")
+    else:
+        for event_type in RUNTIME_TERMINAL_OBSERVATION_EVENTS:
+            view = termination.get(event_type)
+            errors.extend(_observation_view_errors(view, label=f"run_lifecycle.termination.{event_type}"))
+            if isinstance(view, dict):
+                source = str(view.get("source_observation_type", ""))
+                if source and source != event_type:
+                    errors.append(
+                        f"runtime learning recap run_lifecycle.termination.{event_type} names another event type"
+                    )
+        if termination.get("kind") != _termination_kind_from_views(termination):
+            errors.append("runtime learning recap run_lifecycle.termination.kind does not follow from its observations")
+    block = lifecycle.get("block")
+    errors.extend(_observation_view_errors(block, label="run_lifecycle.block"))
+    if isinstance(block, dict):
+        source = str(block.get("source_observation_type", ""))
+        if source and source not in RUNTIME_BLOCK_OBSERVATION_EVENTS:
+            errors.append("runtime learning recap run_lifecycle.block names an event type it cannot hold")
     return errors
 
 

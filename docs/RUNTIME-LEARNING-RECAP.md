@@ -58,8 +58,20 @@ unavailable, which is the executor-neutral answer.
 
 Three observation event types are not milestones and reach no cell: `failed`
 and `cancelled`, which state that the run ended, and `blocked`, which does not.
-They appear under `run_lifecycle` as `termination` and `block`, in the same
-shape a cell uses.
+They appear under `run_lifecycle`, in the same shape a cell uses.
+`run_lifecycle.termination` holds one view per terminal event type plus a
+derived `kind`.
+
+Which terminal event a run recorded is read from the presence of the record and
+its event type, never from the cell-state narrowing. That narrowing maps a
+`cancelled` status to `unavailable`, which is right for a stage — a cancellation
+proves nothing about that stage — and wrong for the run. A terminal event
+recorded `not_observed` terminates nothing, because that status says the event
+was not seen.
+
+`kind` is decided by severity, not arrival: a recorded terminal failure is not
+undone by a cancellation appended after it, since the two are different facts
+about the run rather than two reports of one.
 
 A terminal observation moves observed completion. A block never does — a block
 is recoverable by definition, so it is reported and changes no state, which is

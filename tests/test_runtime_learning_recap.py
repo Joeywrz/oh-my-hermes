@@ -67,7 +67,14 @@ class RuntimeLearningRecapTest(unittest.TestCase):
         run = create_run(paths, {"skill": "execute", "harness": "hermes", "status": "prepared"})
         return str(run["run_id"])
 
-    def _observe(self, paths, run_id: str, event_type: str, status: str = "observed", **extra) -> None:
+    def _observe(self, paths, run_id: str, event_type: str, status: str, **extra) -> None:
+        """`status` is required on purpose.
+
+        It used to default to `observed`, and a terminal-event case written
+        against that default exercised the one spelling that worked while the
+        one an operator types was broken. A helper default is a choice made
+        where the reader cannot see it.
+        """
         write_runtime_observation(
             paths.runtime_runs_dir / run_id,
             _observation(run_id, event_type, status, **extra),
@@ -122,7 +129,7 @@ class RuntimeLearningRecapTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = self._paths(Path(tmp))
             run_id = self._run(paths)
-            self._observe(paths, run_id, "worker_result", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
+            self._observe(paths, run_id, "worker_result", "observed", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
             self._observe(paths, run_id, "ci", "failed", evidence_refs=["ci-run-9"])
             recap = build_runtime_learning_recap(paths, run_id)
             cells = recap["evidence_cells"]
@@ -206,7 +213,7 @@ class RuntimeLearningRecapTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = self._paths(Path(tmp))
             run_id = self._run(paths)
-            self._observe(paths, run_id, "merge", evidence_refs=["merge_commit:deadbee", "pr:647"])
+            self._observe(paths, run_id, "merge", "observed", evidence_refs=["merge_commit:deadbee", "pr:647"])
             recap = build_runtime_learning_recap(paths, run_id)
             self.assertEqual(recap["observed_completion"]["state"], "completed")
             self.assertEqual(recap["identity"]["merge_commit"]["value"], "deadbee")
@@ -219,7 +226,7 @@ class RuntimeLearningRecapTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = self._paths(Path(tmp))
             run_id = self._run(paths)
-            self._observe(paths, run_id, "worker_result", worker_ref="worker-1", evidence_refs=["worker-log-1"])
+            self._observe(paths, run_id, "worker_result", "observed", worker_ref="worker-1", evidence_refs=["worker-log-1"])
             recap = build_runtime_learning_recap(paths, run_id)
             self.assertEqual(recap["evidence_cells"]["delivery"]["state"], "observed")
             self.assertEqual(recap["identity"]["commit"]["state"], "unavailable")
@@ -234,6 +241,7 @@ class RuntimeLearningRecapTest(unittest.TestCase):
                 paths,
                 run_id,
                 "worker_result",
+                "observed",
                 worker_ref="worker-1",
                 evidence_refs=[
                     "changed_path:src/workflows/runtime_learning_recap.py",
@@ -254,6 +262,7 @@ class RuntimeLearningRecapTest(unittest.TestCase):
                 paths,
                 run_id,
                 "worker_result",
+                "observed",
                 worker_ref="worker-1",
                 evidence_refs=[
                     "github_pr_created:https://github.com/rlaope/oh-my-hermes/pull/123",
@@ -295,7 +304,7 @@ class RuntimeLearningRecapTest(unittest.TestCase):
             write_runtime_learning_recap(paths, again)
             self.assertEqual(len(list(paths.learning_recaps_dir.glob("*.json"))), 1)
 
-            self._observe(paths, run_id, "worker_result", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
+            self._observe(paths, run_id, "worker_result", "observed", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
             later = build_runtime_learning_recap(paths, run_id, operator_outcome="useful")
             self.assertNotEqual(later["recap_id"], first["recap_id"])
             self.assertNotEqual(
@@ -327,7 +336,7 @@ class RuntimeLearningRecapTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = self._paths(Path(tmp))
             run_id = self._run(paths)
-            self._observe(paths, run_id, "worker_result", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
+            self._observe(paths, run_id, "worker_result", "observed", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
             recap = build_runtime_learning_recap(paths, run_id)
             self.assertEqual(runtime_learning_recap_errors(recap), [])
 
@@ -415,31 +424,76 @@ class RuntimeLearningRecapTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = self._paths(Path(tmp))
             run_id = self._run(paths)
-            self._observe(paths, run_id, "worker_result", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
-            self._observe(paths, run_id, "failed", evidence_refs=["runner-exit"])
+            self._observe(paths, run_id, "worker_result", "observed", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
+            self._observe(paths, run_id, "failed", "observed", evidence_refs=["runner-exit"])
             recap = build_runtime_learning_recap(paths, run_id)
             self.assertEqual(recap["observed_completion"]["state"], "failed")
             self.assertEqual(recap["observed_completion"]["run_termination"], "failed")
-            self.assertEqual(recap["run_lifecycle"]["termination"]["source_observation_type"], "failed")
+            self.assertEqual(recap["run_lifecycle"]["termination"]["kind"], "failed")
+            self.assertEqual(recap["run_lifecycle"]["termination"]["failed"]["source_observation_type"], "failed")
             self.assertIn("terminal failed observation", recap["observed_completion"]["reason"])
             # The stage cell keeps its own verdict; the run-level fact is separate.
             self.assertEqual(recap["evidence_cells"]["delivery"]["state"], "observed")
             self.assertEqual(recap["observed_completion"]["failed_cells"], [])
             self.assertIn("run termination observed: failed", recap["summary"])
 
-    def test_a_cancelled_run_is_never_completed(self) -> None:
+    def test_a_cancelled_run_is_never_completed_in_either_spelling(self) -> None:
+        """`cancelled` is both an event type and a status, and
+        `omh runtime observe` offers every status for every event, so an
+        operator can write `--event cancelled --status cancelled` or
+        `--status observed`. Both spellings are the same fact and must read the
+        same. Reading the termination through the cell-state narrowing made the
+        first one erase itself, because that narrowing maps `cancelled` to
+        `unavailable` -- right for a stage, wrong for the run.
+        """
+        for status in ("observed", "cancelled"):
+            with self.subTest(status=status):
+                with TemporaryDirectory() as tmp:
+                    paths = self._paths(Path(tmp))
+                    run_id = self._run(paths)
+                    self._observe(paths, run_id, "merge", "observed", evidence_refs=["merge_commit:deadbee"])
+                    self._observe(paths, run_id, "cancelled", status, evidence_refs=["operator-stop"])
+                    recap = build_runtime_learning_recap(paths, run_id)
+                    self.assertEqual(recap["observed_completion"]["run_termination"], "cancelled")
+                    self.assertEqual(recap["observed_completion"]["state"], "partial")
+                    self.assertIn("terminal cancelled observation", recap["observed_completion"]["reason"])
+                    # A cancellation is not a fault of any stage.
+                    self.assertEqual(recap["observed_completion"]["failed_cells"], [])
+                    self.assertEqual(recap["evidence_cells"]["merge"]["state"], "observed")
+
+    def test_a_terminal_failure_survives_a_later_cancellation(self) -> None:
+        """Selecting across both terminal event types in one group let a
+        cancellation appended after a failure win on last-append and then erase
+        itself, so a recorded terminal failure read as unfinished. The two are
+        different facts about the run, not two reports of one, so severity
+        decides and the answer does not depend on arrival order.
+        """
+        for order in ((("failed", "observed"), ("cancelled", "cancelled")), (("cancelled", "cancelled"), ("failed", "observed"))):
+            with self.subTest(order=[event for event, _ in order]):
+                with TemporaryDirectory() as tmp:
+                    paths = self._paths(Path(tmp))
+                    run_id = self._run(paths)
+                    self._observe(paths, run_id, "worker_result", "observed", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
+                    for event_type, status in order:
+                        self._observe(paths, run_id, event_type, status, evidence_refs=[f"{event_type}-ref"])
+                    recap = build_runtime_learning_recap(paths, run_id)
+                    self.assertEqual(recap["observed_completion"]["run_termination"], "failed")
+                    self.assertEqual(recap["observed_completion"]["state"], "failed")
+                    termination = recap["run_lifecycle"]["termination"]
+                    self.assertEqual(termination["kind"], "failed")
+                    # Both terminal facts are kept; only the kind is a verdict.
+                    self.assertEqual(termination["failed"]["source_observation_type"], "failed")
+                    self.assertEqual(termination["cancelled"]["source_observation_type"], "cancelled")
+
+    def test_a_terminal_event_recorded_not_observed_terminates_nothing(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = self._paths(Path(tmp))
             run_id = self._run(paths)
-            self._observe(paths, run_id, "merge", evidence_refs=["merge_commit:deadbee"])
-            self._observe(paths, run_id, "cancelled", evidence_refs=["operator-stop"])
+            self._observe(paths, run_id, "merge", "observed", evidence_refs=["merge_commit:deadbee"])
+            self._observe(paths, run_id, "cancelled", "not_observed")
             recap = build_runtime_learning_recap(paths, run_id)
-            self.assertEqual(recap["observed_completion"]["run_termination"], "cancelled")
-            self.assertEqual(recap["observed_completion"]["state"], "partial")
-            self.assertIn("terminal cancelled observation", recap["observed_completion"]["reason"])
-            # A cancellation is not a fault of any stage.
-            self.assertEqual(recap["observed_completion"]["failed_cells"], [])
-            self.assertEqual(recap["evidence_cells"]["merge"]["state"], "observed")
+            self.assertEqual(recap["observed_completion"]["run_termination"], "none")
+            self.assertEqual(recap["observed_completion"]["state"], "completed")
 
     def test_a_block_is_reported_and_changes_no_state(self) -> None:
         """A block is recoverable by definition, so it is surfaced without
@@ -448,8 +502,8 @@ class RuntimeLearningRecapTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = self._paths(Path(tmp))
             run_id = self._run(paths)
-            self._observe(paths, run_id, "worker_result", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
-            self._observe(paths, run_id, "blocked", evidence_refs=["waiting-on-review"])
+            self._observe(paths, run_id, "worker_result", "observed", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
+            self._observe(paths, run_id, "blocked", "observed", evidence_refs=["waiting-on-review"])
             recap = build_runtime_learning_recap(paths, run_id)
             self.assertEqual(recap["run_lifecycle"]["block"]["source_observation_type"], "blocked")
             self.assertEqual(recap["observed_completion"]["run_termination"], "none")
@@ -487,7 +541,7 @@ class RuntimeLearningRecapTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = self._paths(Path(tmp))
             run_id = self._run(paths)
-            self._observe(paths, run_id, "merge", evidence_refs=["merge_commit:deadbee"])
+            self._observe(paths, run_id, "merge", "observed", evidence_refs=["merge_commit:deadbee"])
             # Resolved, because macOS reaches a temporary directory through a
             # symlink and the two spellings would read as different trees.
             root = Path(tmp).resolve()

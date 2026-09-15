@@ -900,7 +900,9 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # how to reach. Each phrase is a wording the router previously missed, not a
 # restatement; warranted growth. Re-derived from the full-profile
 # skill_context_cost_payload() producer, never by adding the deltas.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 0
+# Rebased onto #1574's 954701: the two deltas are independent, so the combined
+# value is re-derived here rather than either side's number being kept.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 954996
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

@@ -883,6 +883,56 @@ record's `derived_from` list so an executor can ask for lineage when a
 summary alone is not enough. Lineage is prepared-context traversal only; it
 never claims the derivation itself was re-verified.
 
+## Source Recovery: Which Records Came From One Source
+
+Lineage answers "where did this record come from". The reverse question --
+"which records came from this source" -- is what recovery from a poisoned,
+wrong, or no-longer-trusted source starts with, because `lineage`, `retire`,
+`prune`, and `correct` all take a record id that must already be known.
+
+```sh
+# Agent/operator only: every source label in the store, with record counts.
+omh memory sources
+
+# Agent/operator only: the records admitted from one source.
+omh memory sources --source wiki-scrape
+```
+
+The report (`memory_source_index/v1`) is a read: it quarantines, retires, and
+deletes nothing. Two record fields are source axes and one record can carry
+both -- `source`, the admission channel recorded at capture, and `source_ref`,
+the document, ticket, or URL the memory was taken from. A record is indexed
+under every label it carries, so a record admitted from two sources appears
+under both, and one whose two axes name the same value reports both axes under
+`matched_axes` rather than only the first. `source_class` is deliberately not
+an axis: it is a four-value governance classification and every directly
+captured record is `omh_local`, so indexing it would produce one label matching
+most of the store.
+
+A record that recorded no source at all is listed under `indeterminate` with
+reason `source_not_recorded`, never quietly excluded -- this selector cannot
+call it clean. A record file that would not parse is listed beside it. An empty
+selection carries its reason in `selected.outcome`, because the three ways to
+match nothing are three different answers: `empty_store`,
+`source_never_recorded` (records exist and none recorded a source, so nothing
+can be excluded), and `no_records_for_source` (sources are recorded and this
+one is not among them -- the only outcome meaning the source contributed
+nothing).
+
+Recovery from the enumerated set uses the primitives above, in order:
+`omh memory lineage <record-id>` to widen through descendants, then
+`omh memory retire <record-id> --apply` to quarantine into the local archive
+(reversible, and the default), then `omh memory prune <record-id> --revision
+<n> --apply --confirm-hard-delete-local` only as an explicit second step.
+Completion evidence is a recall report over this store showing the records
+absent -- `omh memory recall "<the claim those records answered>"`, or `omh
+memory recall-incident --record-id <id>` for one record's stored/eligible/
+selected stages. The retire command's exit code is not: a sweep that archived
+nothing also exits `0`. Neither is `omh memory recall-suite`, which seeds its
+own fixture corpus in a temporary store (see Retrieval Regression Suite) and
+proves the recall engine did not regress, never that this store's records left
+recall.
+
 ## Perspectives (Observer / Observed)
 
 A record may optionally carry a perspective: which actor's view it is

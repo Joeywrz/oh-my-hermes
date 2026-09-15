@@ -72,11 +72,19 @@ def _record(
     attention_tier: str = "active",
     admission_state: str = "approved_manual",
     contamination_class: str = "",
+    source: str = "",
 ) -> dict[str, object]:
-    """One fixture record specification, in the retained corpus's own shape."""
+    """One fixture record specification, in the retained corpus's own shape.
+
+    ``source`` names the admission channel the stored record carries; a case
+    about recovering from one wrong source needs records that differ on it. It
+    is emitted only when set, so every spec that does not care about the source
+    stays byte-identical and the corpus digest does not move.
+    """
     if contamination_class and contamination_class not in CONTAMINATION_CLASSES:
         raise ValueError(f"unsupported contamination class: {contamination_class}")
     return {
+        **({"source": source} if source else {}),
         "record_id": record_id,
         "summary": summary,
         "approved_at": approved_at,
@@ -122,7 +130,7 @@ def materialize_fixture_record(spec: dict[str, object]) -> tuple[dict[str, objec
         "summary": str(spec["summary"]),
         "scope": {"kind": str(spec["scope_kind"]), "ref": str(spec["scope_ref"])},
         "tags": [str(tag) for tag in tags],
-        "source": "retrieval_fixture",
+        "source": str(spec.get("source") or "retrieval_fixture"),
         "source_class": "omh_local",
         "source_ref": "",
         "derived_from": [],

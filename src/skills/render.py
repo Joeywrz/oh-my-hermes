@@ -1438,6 +1438,7 @@ This is a Hermes-native `{name}` workflow skill.
 - **Per-entry confirmation (확인)** - One candidate at a time: quote it back from your own memory file, say what you take it to mean, then ask the user to keep, revise, or archive it before moving on. A review the user cannot correct entry by entry is not a review.
 - **Cursor (이어하기)** - Close every pass with reviewed entry indexes, remaining candidates, and the next entry a resumed review starts from. The resume point lives only in the conversation; name it.
 - **Incident (진단)** - A recall complaint ("my saved preference was not used") is a diagnosis, never an apology or automatic write. Anchor one expected claim and run `omh memory recall-incident --record-id <id> | --claim-digest <sha256> --session-id <session>` (agent reference; JSON only). Explain its `memory_recall_incident/v1` stage, evidence surfaces, and remediation: stored, eligible, selected, rendered, delivered, and used are separate claims; diagnosis today stops at `selected`; a missing receipt is `unavailable`, never non-delivery. Mutation waits for this interview's approvals. Contract: `docs/MEMORY-RECALL-INCIDENT.md`.
+- **Source recovery (출처 회수)** - A whole wrong source is not a record-by-record review. Enumerate it with `omh memory sources --source <label>` (a read; it quarantines nothing), then follow `references/source-recovery.md`.
 - **Review (검토)** - Prioritize stale, conflicting, duplicate, and overgeneralized claims. Offer keep, revise, or archive; never call an archive a removal.
 - **Attention (주의)** - For a reviewed OMH-local record, keep/archive is an attention tier: `active` leads the working context, `reference` stays recallable behind it, `archive` leaves default recall. Preview with `omh memory attention <record-id> --tier <tier>`, name which records stay in or leave the working context, then add `--apply` only after the user agrees. The preview writes nothing.
 - **Diff (차이)** - Prepare one concise native write diff with before/after claims and counts. Caps: MEMORY.md about 2,200 characters, USER.md about 1,375 characters.
@@ -1485,6 +1486,64 @@ Normal users talk to Hermes in natural language; `omh memory ...` commands are a
 {_common_rail_sections(definition, primary_harness)}
 """
     return SkillTemplate(name, _frontmatter(name, definition.description) + "\n" + body)
+
+
+MEMORY_SOURCE_RECOVERY_REFERENCE_PATH = "references/source-recovery.md"
+
+
+def memory_sync_reference_templates() -> list[SkillReferenceTemplate]:
+    """The source-recovery procedure, deliberately off the always-loaded body.
+
+    Recovering from one wrong source is rare and multi-step: enumerate,
+    widen through lineage, quarantine, hard-delete only then, and close on a
+    recall report. The body carries one pointer to it and nothing else, so
+    every ordinary memory-sync interview stops paying for a procedure it will
+    not run.
+    """
+    return [
+        SkillReferenceTemplate(
+            "memory-sync",
+            MEMORY_SOURCE_RECOVERY_REFERENCE_PATH,
+            _memory_source_recovery_reference(),
+        )
+    ]
+
+
+def _memory_source_recovery_reference() -> str:
+    return """# Recovering From One Wrong Memory Source
+
+When a source turns out to be poisoned, wrong, or no longer trusted, recovery is not a record-by-record review. It starts with the one question the per-record commands cannot answer -- which records came from it -- and it closes on a recall report over this store, not on an exit code.
+
+## Sequence
+
+1. **Enumerate.** `omh memory sources` lists every source label in the store with its record count and the axes it appears on; `omh memory sources --source <label>` returns that source's records. It is a read: it quarantines, retires, and deletes nothing.
+2. **Widen.** `omh memory lineage <record-id>` for each returned record. A record derived from a poisoned one carries the claim forward, and this selector does not follow provenance on its own.
+3. **Quarantine.** `omh memory retire <record-id> --apply` moves the revision into the local archive. Reversible, and the default.
+4. **Delete only then.** `omh memory prune <record-id> --revision <n> --apply --confirm-hard-delete-local` hard-deletes the manifest-declared OMH-local target set. Irreversible; an explicit second step, never folded into the quarantine.
+5. **Prove it.** `omh memory recall "<the claim those records answered>"` over this store, or `omh memory recall-incident --record-id <id>` for one record's stored/eligible/selected stages. A recall report showing the records absent is the completion evidence. The retire command's exit code is not: a sweep that archived nothing also exits 0. Neither is `omh memory recall-suite`, which seeds its own fixture corpus in a temporary store -- it proves the recall engine did not regress while you worked, never that this store's records left recall.
+
+## What the selector matches
+
+Two axes carry a record's origin and one record can carry both: `source`, the admission channel recorded at capture, and `source_ref`, the document, ticket, or URL the memory was taken from. A record is listed under every label it carries, so a record admitted from two sources appears under both, and one whose two axes name the same value reports both axes rather than the first.
+
+`source_class` is not an axis. It is a four-value governance classification and every directly captured record is `omh_local`, so indexing it would produce one label matching most of the store and say nothing about where a record came from.
+
+## What it cannot tell you
+
+A record that recorded no source at all is listed under `indeterminate`, never quietly excluded. This selector cannot call it clean and neither can this report; those records stay yours to judge. An unreadable record file is the same answer for a different reason and is listed beside them.
+
+## Reading an empty result
+
+`selected.outcome` separates the three ways to match nothing, because they are three different answers:
+
+- `empty_store` -- nothing readable in the store.
+- `source_never_recorded` -- records exist and none of them recorded a source. The selector can exclude nothing here; the whole store is indeterminate.
+- `no_records_for_source` -- sources are recorded and this one is not among them. This is the only outcome that means the source contributed nothing.
+
+## Boundaries
+
+The report is `memory_source_index/v1`: OMH-local prepared context, never execution, review, CI, merge, or Hermes internal-memory evidence. Retire archives and prune deletes only the OMH-local target set each one names; neither proves anything about Hermes' own memory files or an external provider's store.
+"""
 
 
 def deep_interview_skill() -> SkillTemplate:

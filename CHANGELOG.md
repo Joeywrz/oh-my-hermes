@@ -279,6 +279,25 @@ All notable changes will be documented here.
   written only under `--with-mcp`. Transport stays out: export writes a local
   file, apply reads a local file, and moving one between machines is your own
   git or file copy.
+- **A wrong memory source now has a blast radius.** `omh memory sources`
+  indexes reviewed records by the source recorded on them, and `--source
+  <label>` returns that source's records so they can be piped into the
+  primitives that already shipped -- `lineage`, `retire`, `prune`, `correct`,
+  `recall-suite` -- every one of which takes a record id the operator
+  previously had no way to produce. Two record fields are source axes and one
+  record can carry both (`source`, the admission channel, and `source_ref`,
+  the document the memory was taken from), so a record admitted from two
+  sources is indexed under both and reports both under `matched_axes` rather
+  than only the first. The report is a read: it quarantines, retires and
+  deletes nothing. A record that recorded no source is listed as
+  `indeterminate`, never assumed clean, alongside any record file that would
+  not parse, and an empty selection names which of the three empties it is
+  (`empty_store`, `source_never_recorded`, `no_records_for_source`) because
+  they are three different answers. `memory-sync` gains one pointer to a new
+  `references/source-recovery.md` carrying the quarantine-first sequence and
+  the rule that completion evidence is a recall report over this store showing
+  the records absent -- never the retire command's exit code, and never
+  `recall-suite`, which seeds its own fixture corpus in a temporary store.
 
 ## 2.0.3 - 2026-09-12
 

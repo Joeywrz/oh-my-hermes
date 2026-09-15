@@ -55,6 +55,7 @@ references rather than normal user steps.
 | Read a very large PDF, contract, or manual through Hermes in page ranges | [Long Document Reading](LONG-DOCUMENT-READING.md) |
 | Judge whether a realtime voice connector keeps whole spoken turns | [Realtime Voice Trial Receipts](REALTIME-VOICE-TRIAL-RECEIPTS.md) |
 | See which OMH workflow owns each plugin in the active host catalog | [Plugin Catalog Coverage](PLUGIN-CATALOG-COVERAGE.md) |
+| Tell whether a local plugin's declared hooks can block an action or only watch one | [Declared Plugin Hook Contract](PLUGIN-HOOK-CONTRACT.md) |
 | Choose a situation-level workflow | [Playbooks](PLAYBOOKS.md) |
 | Prepare or verify a release | [Release](RELEASE.md) |
 

@@ -245,6 +245,11 @@ Rules:
   failure as pre-existing or as another branch's; if it is red, clear, resync,
   and re-measure, because the earlier run is not evidence.
 
+  The ordering that produces the false red is resyncing *before* writing the
+  branch's new source files rather than after. A branch that adds a module is
+  exactly the branch the canary fires on, so resync last — after the final new
+  file exists, not at the start of the task.
+
   The bytecode cache lies the same way and is worse in one respect: it survives
   a clean `git diff`. A constant mutated for a reproduction and then restored
   byte-for-byte kept returning the mutated value for an hour, because the edit

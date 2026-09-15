@@ -839,8 +839,30 @@ Rules, all applied at freeze time:
   worktree and owner state bound writable, toolchain `TMPDIR` redirected into
   the worktree's ignored `.omh/confinement-tmp`, and the per-user runtime
   directory (`/run/user/<uid>`, which holds the session bus) replaced by an
-  empty read-only mount: a socket on a read-only mount still lets a confined
-  process ask a host service, such as `systemd-run --user`, to write for it.
+  empty read-only mount **when that directory exists** — bwrap cannot create a
+  mount point on the read-only root, so a host without it is fenced without
+  that cover, and the run's own `probe.command` in the receipt is what says
+  which it got. The mount exists because a socket on a read-only mount still
+  lets a confined process ask a host service, such as `systemd-run --user`, to
+  write for it.
+
+  That cover is one socket, not the class. A read-only mount stops writes, not
+  `connect()`, so any socket still reachable by a well-known path remains a way
+  to ask another process to write outside the fence. A dispatching user in the
+  `docker` group can reach `/run/docker.sock` and
+  `docker run --rm -v /:/host … touch /host/…` writes anywhere as root, which
+  is a wider hole than the `systemd-run` one this fence closes. The system bus
+  at `/run/dbus/system_bus_socket` is bounded only by the host's polkit rules,
+  and a broad-read fence also exposes `~/.Xauthority`, so an X11 socket is
+  reachable with the cookie. Abstract-namespace unix sockets are scoped to the
+  network namespace rather than the filesystem, so **no mount can hide them**
+  and only `--unshare-net` would, which dispatch does not use because fanout
+  needs the network. What does cut the environment-addressed half of this is
+  `resolve_child_environment`, an allowlist that does not pass `DOCKER_HOST`,
+  `DBUS_SESSION_BUS_ADDRESS`, `SSH_AUTH_SOCK`, `DISPLAY` or `XDG_RUNTIME_DIR`
+  to the child. Treat the fence as confining the child's own writes, not as
+  containing a child that is actively trying to escape on a host where those
+  sockets are reachable.
   `executor_honours_declared_targets` is advisory everywhere: a unit's
   file boundary is frozen in the contract and checked for overlaps at prepare
   time, but nothing constrains the spawned CLI to it at runtime.

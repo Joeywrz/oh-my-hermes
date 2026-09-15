@@ -283,8 +283,12 @@ def prepare_fanout_filesystem_confinement(
         "fanout-filesystem-confinement",
     )
     # bwrap's strict layout cannot start a dynamically linked program, so on
-    # Linux the preflight and the probe run under the same broad-read layout as
-    # the real spawn. sandbox-exec keeps its stricter probe policy unchanged.
+    # Linux the preflight and the probe both take the broad-read layout.
+    # Only the PROBE matches the real spawn argv: `preflight` takes no write
+    # roots or literals, so its command omits every `--bind-try`. That is
+    # strictly narrower than the spawn and so cannot over-attest, and the probe
+    # -- which is what the receipt attests -- is byte-identical to the command.
+    # sandbox-exec keeps its stricter probe policy unchanged.
     linux_layout = selected == "bwrap"
     ready, backend_digest = preflight(
         selected, roots, child, True, environment,

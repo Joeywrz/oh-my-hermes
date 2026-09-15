@@ -94,53 +94,46 @@ a reader see the tasks, not to produce a number to quote against the headline.
 
 ### What this corpus is made of
 
-Numbers describe the pinned corpus at digest `b3c7d735e3b2`. Every
-figure in the four tables below is re-derived from `corpus/evaluation.json` and
-`provenance.json` by a test, so none of them can drift from the files they
-describe.
+Numbers describe the pinned corpus at digest `edefed9f3d9e`. Every
+figure in the tables below is re-derived from `corpus/evaluation.json` and
+`corpus/provenance.json` by a test, so none can drift from the files.
 
 | | Count |
 | --- | ---: |
 | Merged pull requests read, newest first | 800 |
-| Candidates probed | 43 |
+| Candidates probed | 41 |
 | **Tasks kept** | **40** |
-| — from a linked issue (the headline subset) | 21 |
-| — from a pull request body (secondary) | 19 |
+| — from a linked issue (the headline subset) | 10 |
+| — from a pull request body (secondary) | 30 |
 
-Who wrote the headline subset's task text, and when, over its 21 tasks:
+**The headline subset is 10 tasks**, and it is small because the filters are
+honest rather than because the repository is short of pull requests. Those
+tasks are PR-859, PR-912, PR-913, PR-914, PR-917, PR-1055, PR-1195, PR-1278, PR-1281, PR-1323.
+
+Who wrote their task text, and when:
 
 | | Count |
 | --- | ---: |
-| Issue author is the author of the fixing pull request | 17 |
-| Issue filed from one of the project's two owner accounts | 18 |
-| Issue filed by an outside contributor | 3 |
-| Median hours from issue to pull request opened | 6.6 |
-| Median hours from issue to merge | 11.1 |
+| Issue author is the author of the fixing pull request | 8 |
+| Issue filed from one of the project's two owner accounts | 8 |
+| Issue filed by an outside contributor | 2 |
+| Median hours from issue to pull request opened | 10.8 |
+| Median hours from issue to merge | 11.3 |
 
 Both gaps are given because they measure different things: issue-to-merge
-includes review and CI latency, so issue-to-opened is the tighter statement of
-how long the problem existed before somebody started fixing it. 4 of the
-21 were opened within the hour.
+carries review and CI latency, so issue-to-opened is the tighter statement of
+how long the problem stood before somebody started on it.
 
 Read that as what it is. Most of these are specifications written shortly
 before implementation, by the implementer. The cut removes the prescription; it
 cannot remove that the author already knew the answer.
 
-A reader who sees "40 tasks" without seeing what was probed and
-dropped cannot judge the number, so the rejections are here rather than in the
-corpus file alone.
-
 | Rejected by the probe | Count |
 | --- | ---: |
-| Validator not green with the pull request's own fix | 2 |
+| Validator not green with the pull request's own fix | 0 |
 | Verdict depends on the workspace path | 1 |
 | Regression set already red at the merge base | 0 |
 | Validator disagrees with itself at one path | 0 |
-
-The first line means the corpus is selected partly on what this harness can
-run. PR-1488's validator asserts a filesystem-confinement receipt that cannot
-hold in a temp-directory workspace, so that task is red before the fix and
-still red after it.
 
 How much of the answer each task's text still carries, worst class first:
 
@@ -149,48 +142,53 @@ How much of the answer each task's text still carries, worst class first:
 | `heading_prescriptive` | 0 | 0 |
 | `names_new_identifier` | 0 | 0 |
 | `names_grading_module` | 0 | 0 |
-| `names_changed_file` | 7 | 7 |
-| `clean` | 33 | 14 |
+| `names_changed_file` | 5 | 5 |
+| `clean` | 35 | 5 |
 
-The first three are zero because each is an outright exclusion, not because
-nothing was found: 35 candidates were dropped for naming a token the fix
-introduces and 4 for naming the test module that grades them.
+The first three are zero because each is an outright exclusion: 35 candidates
+were dropped for naming a token the fix introduces and 3 for naming the test
+module that grades them.
 
 ### Answerability, and why it is a filter
 
 Removing the prescription can remove the only text that determined the work.
-That is the failure the leak work created, and no probe catches it: the probe
-proves a task is red at its base and green with the fix, never that the TEXT is
-what determines the fix.
+No probe catches that: the probe proves a task is red at its base and green
+with the fix, never that the TEXT is what determines the fix. PR-1256 is the
+case -- its acceptance literals lived under `Target behaviour`, which is
+exactly why it was a leak and the only reason it was answerable.
 
-PR-1256 is the case. Its acceptance literals lived under `Target behaviour` --
-which is exactly why it was a leak, and the only reason it was answerable.
+Two screens run, and both are rules a skeptic can apply, because a
+load-bearing filter nobody can inspect is not one anybody should trust.
 
-Two screens run, and both are rules rather than judgements, because a
-load-bearing filter a reader cannot inspect is not a filter they can trust.
+1. **The text must say what is wrong.** At least one kept section must state a
+   problem (`Problem`, `Summary`, `Observed`, `Gap`, `What breaks`, `Impact`,
+   `Motivation`) rather than supply context (`Environment`, `Reproduction`,
+   `Logs or output`, `Context`, `Current state`). 5 candidates failed this.
 
-1. **The text must say what is wrong.** At least one kept section must be a
-   statement heading (`Problem`, `Summary`, `Observed`, `Gap`, `What breaks`,
-   `Current state`, …) rather than pure context (`Environment`, `Reproduction`,
-   `Logs or output`). 1 candidate failed this. It is the PR-996 shape,
-   whose kept sections were `['Environment']` alone against a 242-line change.
-2. **The text must supply what the validator demands.** A string literal that
-   the fix writes into the source, that the tests then assert, and that existed
-   nowhere in the tree beforehand, has to reach the candidate somehow. In the
-   task text it is a leak and the rule above excludes it; absent from the task
-   text the candidate cannot produce it, and the task would read red for every
-   arm however well any of them worked. 75 candidates failed this.
+   `Current state` is context, not a statement, and that placement is load
+   bearing. PR-1064's `Current state (exact)` prints the entire price dict
+   across 1048 characters, never says which row is missing, and its validator
+   asserts one specific new key. A dump of what exists is not an account of
+   what is wrong with it.
 
-The second screen is deliberately restricted to literals present in **both**
-the source diff and the test diff. A literal only the test diff carries is
-fixture data -- a temp path, a sample name -- which a candidate invents freely.
-Counting those instead dropped most of the corpus, including twelve tasks a
-human reviewer read and judged answerable.
+2. **The text must supply what the validator demands.** A string literal
+   asserted by the pull request's tests, written into the source by its fix,
+   and absent from the tree beforehand, has to reach the candidate somehow. In
+   the task text it is a leak and rule 2 above excludes it; absent from the
+   task text the candidate cannot produce it, and the task reads red for every
+   arm however well any of them works. 104 candidates failed this.
 
-Where this rule and that reviewer disagree, it disagrees in both directions: it
-keeps nine issue-sourced tasks the reviewer's list does not, and drops four the
-reviewer kept (PR-641, PR-742, PR-916, PR-1284). The rule is published rather
-than the list because the list cannot be checked and the rule can.
+   Literals are collected from **assertion lines only**, and matched against
+   the source diff as a substring rather than as a second literal extraction.
+   Both halves were wrong once and each failed silently. The literal pattern
+   could not represent `"**Hard to reverse**"`, `"Two of three or fewer: no
+   record"` or `"151/151 negative-control cases"`, so the most prescriptive
+   validators in this repository returned no match at all and the silence read
+   as evidence of no leak. And much of what they assert is generated prose in
+   multi-line bodies, where the source side has no quote pair to match: PR-1268
+   yielded 22 test literals against 1 source literal, the intersection fell to
+   one, and the task was kept. A substring answers the only question that
+   matters -- does the fix write this string -- whatever the syntax around it.
 
 ### What is excluded, and why
 

@@ -155,7 +155,6 @@ STATEMENT_HEADINGS = (
     "Evidence",
     "Gap",
     "What breaks",
-    "Current state",
     "Impact",
     "Motivation",
     "Why This Exists",
@@ -163,30 +162,54 @@ STATEMENT_HEADINGS = (
 
 #: Allowlisted but supporting only: they say where and how, never what is
 #: wrong. A text built solely from these is a setting without a story.
+#:
+#: `Current state` belongs here rather than among the statements, which is
+#: where it first landed. A dump of what exists is not an account of what is
+#: wrong with it: PR-1064's `Current state (exact)` prints the entire price
+#: dict and explains the tuple format across 1048 characters, never says which
+#: row is missing, and the validator asserts one specific new key. It passed
+#: the screen on a section that says where to write and never what.
 SUPPORTING_HEADINGS = (
     "Environment",
     "Logs or output",
     "Reproduction",
     "Steps to reproduce",
     "Context",
+    "Current state",
 )
 
 
 #: A literal long enough that a validator asserting it is asserting a specific
-#: value rather than a flag or a short word. Below this the token is usually
-#: something a candidate would arrive at anyway.
+#: value rather than a flag or a short word.
 ASSERTED_LITERAL_MIN_CHARS = 8
+
+#: A line that checks a value, rather than one that merely mentions one.
+#: `asserted_literals` used to take every literal on every added line, which
+#: made its name a claim the code did not honour: a name in a fixture setup is
+#: not a value the validator demands.
+ASSERTION_LINE = re.compile(r"\bassert|==|!=")
 
 
 def asserted_literals(test_diff: str) -> list[str]:
-    """String literals the pull request's own test diff starts asserting."""
+    """String literals the pull request's tests begin ASSERTING.
+
+    Assertion lines only, and any quoted run of eight or more characters.
+    The previous pattern required the literal to start with a letter and to
+    contain nothing but word characters, dots, hyphens and spaces -- so it
+    could not represent `"**Hard to reverse**"`, `"Two of three or fewer: no
+    record"` or `"151/151 negative-control cases"`, which is most of what
+    these validators actually assert. Every one of those returned no match,
+    and the silence looked like evidence of no leak.
+    """
 
     literals: set[str] = set()
     for line in _added_lines(test_diff):
+        if not ASSERTION_LINE.search(line):
+            continue
         literals.update(
             literal
             for literal in STRING_LITERAL.findall(line)
-            if len(literal) >= ASSERTED_LITERAL_MIN_CHARS
+            if len(literal.strip()) >= ASSERTED_LITERAL_MIN_CHARS
         )
     return sorted(literals)
 
@@ -213,19 +236,24 @@ def undetermined_literals(
     """
 
     # The literal has to be introduced by the FIX and checked by the TEST. A
-    # literal that only the test diff carries is fixture data -- a temp path, a
-    # sample name -- which a candidate invents freely and no validator pins. A
-    # value the fix writes into `src/` and the tests then assert is the one the
-    # candidate has to reproduce exactly, and can only get from the brief.
+    # literal only the test carries is fixture data -- a temp path, a sample
+    # name -- which a candidate invents freely and no validator pins. A value
+    # the fix writes into the source and the tests then assert is one the
+    # candidate must reproduce exactly and can only get from the brief.
     #
-    # Taking every literal in the test diff instead drops most of the corpus,
-    # including twelve tasks a reviewer read and judged answerable.
-    in_test = set(asserted_literals(test_diff))
-    in_source = set(asserted_literals(source_diff)) if source_diff else in_test
+    # The source side is a SUBSTRING search over the added lines, not a second
+    # literal extraction. Much of what these validators assert is generated
+    # prose living in multi-line bodies, where there is no quote pair to match
+    # on the source side at all: extracting literals there collapsed the
+    # intersection to almost nothing -- 22 test literals against 1 for PR-1268
+    # -- and let every such task through. The question is only whether the fix
+    # writes this string, and a substring answers it whatever the syntax.
+    added_source = "\n".join(_added_lines(source_diff)) if source_diff else ""
     candidates = [
         literal
-        for literal in sorted(in_test & in_source)
+        for literal in asserted_literals(test_diff)
         if literal not in task_text
+        and (not source_diff or literal in added_source)
     ]
     if not candidates:
         return []
@@ -473,7 +501,7 @@ DEFINITION = re.compile(
 #: criterion read `throughput_overlay.mode == "gpt_hermes_ulw"` and the
 #: validator's added line was `assertEqual(overlay["mode"], "gpt_hermes_ulw")`
 #: -- and that task was published as `clean`.
-STRING_LITERAL = re.compile(r"""['"]([A-Za-z_][A-Za-z0-9_.\- ]{4,63})['"]""")
+STRING_LITERAL = re.compile(r"""['"]([^'"\n]{8,200})['"]""")
 
 #: An identifier-shaped token anywhere in an added line: attribute access, a
 #: keyword argument, a dict subscript. Cheap to over-collect, because the

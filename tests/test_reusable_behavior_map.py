@@ -288,7 +288,9 @@ class BoundedEvidenceEndToEndTests(unittest.TestCase):
 
             audit = audit_plugin_risk(root)
 
-            self.assertEqual(audit["summary"]["risk_categories"], [])
+            # No root plugin.yaml, so the hook contract was never established;
+            # what the scan did NOT find is still nothing.
+            self.assertEqual(audit["summary"]["risk_categories"], ["undetermined_hook_contract"])
             with self.assertRaises(ReusableBehaviorMapError) as raised:
                 build_reusable_behavior_map(audit=audit, behaviors=[behavior("risky")])
 
@@ -531,6 +533,7 @@ class CitedAuditTests(unittest.TestCase):
                 "network_request",
                 "potential_committed_secret",
                 "process_execution",
+                "undetermined_hook_contract",
             ],
         )
         self.assertEqual(list(AUDIT_MANIFEST_STATUSES), ["invalid_json", "missing", "present"])

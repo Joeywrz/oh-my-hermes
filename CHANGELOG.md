@@ -4,6 +4,29 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The plugin risk audit says what a declared hook would actually do.**
+  `omh ops plugin-risk-audit` reported one aggregate `hermes_hook_capability`
+  category decided by a regex holding three hook names, so a policy gate that
+  can block a tool and a best-effort observer read identically, and a plugin
+  declaring only `post_tool_call` was reported with no hook capability at all.
+  The audit now reads a root `plugin.yaml` as structured data and classifies
+  every hook it declares against one pinned Hermes contract revision: what the
+  host does with the return (policy gate, prompt/context contributor, result
+  transformer, lifecycle callback, observer), where the callback runs (bounded,
+  caller thread, queued worker), and what a timeout does (fail closed, fail
+  open, not applicable). `pre_tool_call` is the only hook whose timeout blocks
+  the action; a `pre_verify` gate is bounded and fail-open, so a hung gate lets
+  the turn finish -- the distinction the aggregate hid. Nothing is imported,
+  registered, installed or executed, so hook registration, execution, timeout
+  enforcement and failure handling are each reported `not_observed`, and a
+  declaration is never evidence that a hook ran. A manifest the audit could not
+  understand -- unreadable, malformed, outside the reader's bounded subset,
+  requiring an unsupported host revision, naming a hook the contract does not
+  contain, or absent entirely -- reports `undetermined_hook_contract` in the
+  summary rather than a clean result. The mapping is a hand-transcribed snapshot
+  of Hermes 0.21.1 and cannot detect upstream drift;
+  `docs/PLUGIN-HOOK-CONTRACT.md` says so, and says what to do when a hook
+  classifies `unknown`.
 - **Loop is a native tool, and the CLI now speaks through the same
   service.** `omh_loop` registers one session-bound plugin tool over eight
   workflow-critical lifecycle actions -- `assess`, `start`, `status`,

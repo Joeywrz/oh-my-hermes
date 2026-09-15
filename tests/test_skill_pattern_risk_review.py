@@ -428,11 +428,19 @@ class SkillPatternRiskReviewRiskResolutionTests(unittest.TestCase):
                         "resolution": "rejected",
                         "prohibited_behavior": "spawn_a_host_process",
                     },
+                    {
+                        # Whatever the audit failed to establish about the
+                        # plugin's hooks, the native version registers none.
+                        "category": "undetermined_hook_contract",
+                        "resolution": "native_constraint",
+                        "native_constraint": "no_host_hook_registration",
+                    },
                 ],
                 native_constraints=[
                     "no_runtime_dependencies",
                     "explicit_user_invocation_only",
                     "no_credential_material_retained",
+                    "no_host_hook_registration",
                 ],
                 prohibited_behaviors=[
                     "execute_evaluated_source",
@@ -595,6 +603,7 @@ class SkillPatternRiskReviewCitationTests(unittest.TestCase):
                 "network_request",
                 "potential_committed_secret",
                 "process_execution",
+                "undetermined_hook_contract",
             ),
         )
         self.assertEqual(sorted(AUDIT_EVIDENCE_KEYS), sorted(cite_plugin_risk_audit(audit_payload())))
@@ -634,15 +643,24 @@ class SkillPatternRiskReviewCitationTests(unittest.TestCase):
                             "category": "network_request",
                             "resolution": "rejected",
                             "prohibited_behavior": "reach_a_remote_endpoint",
-                        }
+                        },
+                        {
+                            # This fixture ships no plugin.yaml, so the audit
+                            # reports the hook contract as never established.
+                            "category": "undetermined_hook_contract",
+                            "resolution": "native_constraint",
+                            "native_constraint": "no_host_hook_registration",
+                        },
                     ],
-                    native_constraints=["no_network_access"],
+                    native_constraints=["no_network_access", "no_host_hook_registration"],
                 )
             )
 
         rendered = json.dumps(review)
 
-        self.assertEqual(review["audit_evidence"]["risk_categories"], ["network_request"])
+        self.assertEqual(
+            review["audit_evidence"]["risk_categories"], ["network_request", "undetermined_hook_contract"]
+        )
         self.assertEqual(review["audit_evidence"]["scanned_file_count"], 2)
         self.assertEqual(review["review_status"], "awaiting_reviewer_decision")
         self.assertNotIn(marker, rendered)

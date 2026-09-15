@@ -25,9 +25,11 @@ from ..local_store import atomic_write_json, read_json_object
 from ..paths import OmhPaths
 from ..runtime.artifacts import show_run
 from ..runtime.records import (
+    RUNTIME_BLOCK_OBSERVATION_EVENTS,
     RUNTIME_OBSERVABLE_EVENTS,
     RUNTIME_OBSERVATION_EVENTS,
     RUNTIME_OBSERVATION_SCHEMA_VERSION,
+    RUNTIME_TERMINAL_OBSERVATION_EVENTS,
     validate_runtime_observation_record,
 )
 from ..system.append_only_store import redacted_ref
@@ -83,6 +85,10 @@ _CELL_STATE_BY_OBSERVATION_STATUS: dict[str, str] = {
     "cancelled": "unavailable",
     "not_observed": "unavailable",
 }
+
+_NO_OBSERVATION_REASON = "no eligible runtime observation"
+_NO_PULL_REQUEST_REASON = "no eligible runtime observation carries a pr: evidence reference"
+_NOT_TERMINAL_REASON = "observation status {status} is not terminal evidence"
 
 # The closed typed-evidence vocabulary. An identity field is filled only when
 # the observation that owns its cell carries the matching prefix, so a recap can
@@ -196,9 +202,10 @@ def build_runtime_learning_recap_from_shown(
     identity = _run_identity(run_id)
     eligible, rejected = _eligible_observations(shown, identity)
     digest = _runtime_history_digest(identity, eligible)
-    latest_by_event = _latest_by_event(eligible)
+    latest_by_event = _latest_by_event(eligible, RUNTIME_OBSERVATION_EVENTS)
     cells = _evidence_cells(latest_by_event)
-    completion = _observed_completion(cells)
+    lifecycle = _run_lifecycle(eligible)
+    completion = _observed_completion(cells, _termination_kind(lifecycle))
     recap = {
         "schema_version": RUNTIME_LEARNING_RECAP_SCHEMA_VERSION,
         "record_type": RUNTIME_LEARNING_RECAP_RECORD_TYPE,
@@ -223,6 +230,7 @@ def build_runtime_learning_recap_from_shown(
         },
         "observed_completion": completion,
         "evidence_cells": cells,
+        "run_lifecycle": lifecycle,
         "identity": _identity_fields(cells, latest_by_event),
         "privacy": {
             "mode": "metadata_only",
@@ -285,52 +293,57 @@ def _eligible_observations(shown: Mapping[str, Any], run_id: str) -> tuple[list[
     return eligible, rejected
 
 
-def _sort_key(record: Mapping[str, Any]) -> tuple[str, str]:
-    """Which of two records for one milestone is the later one.
+def _latest_of(records: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The record that speaks for one group: newest timestamp, ties to the last appended.
 
-    `status` is deliberately not a member. `updated_at` has second resolution --
-    `local_store.utc_now` drops microseconds -- so two records for one event
-    type written in one second tie on both fields here, and any third field
-    would decide the winner by its own ordering rather than by arrival. With
-    `status` in the tuple the comparison ran
+    Timestamp and nothing else. `updated_at` has second resolution --
+    `local_store.utc_now` drops microseconds -- so records written in one second
+    tie here, and any second field would decide the winner by its own ordering
+    rather than by arrival. This selector previously ranked `status` after the
+    timestamp, which compared
     `blocked < cancelled < failed < not_observed < observed`, so `observed` won
     every same-second tie in both directions: a corrective `failed` appended
     after an `observed` was discarded, and a stale `observed` appended after a
-    `failed` also won. The key was not picking a different record from the
-    runtime projection, it was not picking at all.
-    """
-    return (
-        str(record.get("updated_at", "")),
-        str(record.get("event_type", "")),
-    )
+    `failed` also won. It was not picking a different record from the runtime
+    projection, it was not picking at all. One selector now serves every group
+    -- ladder milestones, terminal events, blocks -- so that class of fault has
+    one place to come back rather than three.
 
-
-def _latest_by_event(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """The record that speaks for each event type: the last one appended.
-
-    Stored order is append order, so a tie on the key falls through `>=` to the
-    later record. That is this repository's existing rule, stated at
-    `append_only_store.latest_record_in`: a later append always wins the tie.
+    Falling through to the last appended is this repository's existing rule,
+    stated at `append_only_store.latest_record_in`: a later append always wins
+    the tie.
 
     It agrees with the runtime status projection, whose key is
 
         (updated_at, target_type, target_id, event_type)
 
     in `runtime.artifacts._runtime_observation_sort_key`, and which breaks a
-    full tie the same way. The agreement is conditional, not structural: the two
-    fields that key carries and this one does not are constant across the
-    eligible set only because `_eligible_observations` keeps one run id and
-    `target_type == "run"`. Widen that filter and the two keys stop being
-    equivalent, so widen this key in the same commit.
+    full tie the same way. The agreement is conditional, not structural: the
+    three fields that key carries and this one does not are constant within each
+    group here only because `_eligible_observations` keeps one run id and
+    `target_type == "run"`, and because callers group by event type before
+    selecting. Widen that filter, or select across event types without
+    grouping, and the two stop being equivalent.
     """
-    latest: dict[str, dict[str, Any]] = {}
+    latest: dict[str, Any] | None = None
+    for record in records:
+        if latest is None or str(record.get("updated_at", "")) >= str(latest.get("updated_at", "")):
+            latest = record
+    return latest
+
+
+def _latest_by_event(records: list[dict[str, Any]], event_types: tuple[str, ...]) -> dict[str, dict[str, Any]]:
+    """The record that speaks for each of `event_types`."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for record in records:
         event_type = str(record.get("event_type", ""))
-        if event_type not in RUNTIME_OBSERVATION_EVENTS:
-            continue
-        current = latest.get(event_type)
-        if current is None or _sort_key(record) >= _sort_key(current):
-            latest[event_type] = record
+        if event_type in event_types:
+            grouped.setdefault(event_type, []).append(record)
+    latest: dict[str, dict[str, Any]] = {}
+    for event_type, group in grouped.items():
+        chosen = _latest_of(group)
+        if chosen is not None:
+            latest[event_type] = chosen
     return latest
 
 
@@ -371,19 +384,38 @@ def _evidence_cells(latest_by_event: dict[str, dict[str, Any]]) -> dict[str, dic
     for cell in RUNTIME_LEARNING_RECAP_CELLS:
         if cell == "pull_request":
             continue
-        cells[cell] = _cell_from_record(latest_by_event.get(_CELL_EVENT_TYPES[cell]))
-    cells["pull_request"] = _pull_request_cell(latest_by_event)
+        cells[cell] = _observation_view(latest_by_event.get(_CELL_EVENT_TYPES[cell]), _NO_OBSERVATION_REASON)
+    cells["pull_request"] = _observation_view(_pull_request_source(latest_by_event), _NO_PULL_REQUEST_REASON)
     return {cell: cells[cell] for cell in RUNTIME_LEARNING_RECAP_CELLS}
 
 
-def _cell_from_record(record: Mapping[str, Any] | None) -> dict[str, Any]:
+def _observation_view(record: Mapping[str, Any] | None, missing_reason: str) -> dict[str, Any]:
+    """One observation rendered as a cell, every field derived from the record.
+
+    Nothing here is asserted beside the record: `state` is the narrowing of the
+    record's own status, and `reason` comes from the same two inputs. Validation
+    recomputes both, so a stored cell cannot say `observed` next to an
+    observation status of `failed`, and cannot carry prose in `reason`.
+
+    Also used for the run-level terminal and block observations, which are not
+    cells but are the same question asked of one record.
+    """
     if not record:
-        return _unavailable_cell("no eligible runtime observation")
+        return {
+            "state": "unavailable",
+            "source_observation_schema": "",
+            "source_observation_type": "",
+            "observation_status": "",
+            "observed_at": "",
+            "evidence_refs": [],
+            "evidence_ref_count": 0,
+            "evidence_refs_truncated": False,
+            "reason": missing_reason,
+        }
     status = str(record.get("status", ""))
-    state = _CELL_STATE_BY_OBSERVATION_STATUS.get(status, "unavailable")
     refs, truncated = _bounded_evidence_refs(record.get("evidence_refs"))
     return {
-        "state": state,
+        "state": _cell_state(status),
         "source_observation_schema": RUNTIME_OBSERVATION_SCHEMA_VERSION,
         "source_observation_type": str(record.get("event_type", "")),
         "observation_status": status,
@@ -391,39 +423,32 @@ def _cell_from_record(record: Mapping[str, Any] | None) -> dict[str, Any]:
         "evidence_refs": refs,
         "evidence_ref_count": len([ref for ref in record.get("evidence_refs") or [] if str(ref).strip()]),
         "evidence_refs_truncated": truncated,
-        "reason": "" if state != "unavailable" else f"observation status {status} is not terminal evidence",
+        "reason": _cell_reason(status, missing_reason),
     }
 
 
-def _unavailable_cell(reason: str) -> dict[str, Any]:
-    return {
-        "state": "unavailable",
-        "source_observation_schema": "",
-        "source_observation_type": "",
-        "observation_status": "",
-        "observed_at": "",
-        "evidence_refs": [],
-        "evidence_ref_count": 0,
-        "evidence_refs_truncated": False,
-        "reason": reason,
-    }
+def _cell_state(observation_status: str) -> str:
+    return _CELL_STATE_BY_OBSERVATION_STATUS.get(observation_status, "unavailable")
 
 
-def _pull_request_cell(latest_by_event: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """The most advanced ladder observation that names a pull request.
+def _cell_reason(observation_status: str, missing_reason: str) -> str:
+    if not observation_status:
+        return missing_reason
+    if _cell_state(observation_status) == "unavailable":
+        return _NOT_TERMINAL_REASON.format(status=observation_status)
+    return ""
 
-    Most advanced rather than newest: a merge observation naming the pull
-    request says more about it than a worker result naming the same one, and
-    ladder order is the only ordering both agree on.
-    """
-    carrier: Mapping[str, Any] | None = None
-    for event_type in RUNTIME_OBSERVATION_EVENTS:
-        record = latest_by_event.get(event_type)
-        if record and _typed_evidence_values(record, _PULL_REQUEST_PREFIX):
-            carrier = record
-    if carrier is None:
-        return _unavailable_cell("no eligible runtime observation carries a pr: evidence reference")
-    return _cell_from_record(carrier)
+
+def _cell_reason_vocabulary() -> frozenset[str]:
+    """Every reason this module can produce, so validation can refuse the rest."""
+    return frozenset(
+        {"", _NO_OBSERVATION_REASON, _NO_PULL_REQUEST_REASON}
+        | {
+            _NOT_TERMINAL_REASON.format(status=status)
+            for status, state in _CELL_STATE_BY_OBSERVATION_STATUS.items()
+            if state == "unavailable"
+        }
+    )
 
 
 def _typed_evidence_values(record: Mapping[str, Any], prefix: str) -> list[str]:
@@ -436,38 +461,111 @@ def _typed_evidence_values(record: Mapping[str, Any], prefix: str) -> list[str]:
     return values
 
 
-def _observed_completion(cells: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
-    """The one closed state for the run, from the cells and nothing else.
+def _run_lifecycle(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """The two run-level observations that are not milestones.
 
-    `completed` requires an observed merge, because merge is the only cell whose
-    evidence is terminal for the whole run. Every other observed cell moves the
-    run to `partial`, which is the honest answer for work that reached a
-    milestone and stopped there.
+    `failed` and `cancelled` are event types as well as status values, and the
+    runtime ladder deliberately excludes them: they are not rungs, they are
+    statements that the run ended. `blocked` is the third, and is not terminal
+    -- a block is recoverable by definition, so it is reported and changes no
+    state. Reading only the ladder left a run that recorded exactly one terminal
+    failure reading as work in progress on every downstream surface.
+    """
+    terminal = _latest_of([
+        record
+        for record in records
+        if str(record.get("event_type", "")) in RUNTIME_TERMINAL_OBSERVATION_EVENTS
+    ])
+    block = _latest_of([
+        record
+        for record in records
+        if str(record.get("event_type", "")) in RUNTIME_BLOCK_OBSERVATION_EVENTS
+    ])
+    return {
+        "termination": _observation_view(terminal, _NO_OBSERVATION_REASON),
+        "block": _observation_view(block, _NO_OBSERVATION_REASON),
+        "claim_boundary": (
+            "A terminal observation ends the run. A block does not: it is recoverable "
+            "by definition and changes no completion state."
+        ),
+    }
+
+
+def _termination_kind(lifecycle: Mapping[str, Any]) -> str:
+    """Which terminal event the run recorded, or `none`.
+
+    Derived from the view rather than asserted beside it: a view whose state is
+    `unavailable` -- no record, or one recorded `not_observed` -- terminated
+    nothing.
+    """
+    view = lifecycle.get("termination") if isinstance(lifecycle.get("termination"), dict) else {}
+    if view.get("state") == "unavailable":
+        return "none"
+    kind = str(view.get("source_observation_type", ""))
+    return kind if kind in RUNTIME_TERMINAL_OBSERVATION_EVENTS else "none"
+
+
+def _observed_completion(cells: Mapping[str, Mapping[str, Any]], termination_kind: str) -> dict[str, Any]:
+    """The one closed state for the run, from the cells and the terminal event.
+
+    Precedence, and the reason for it:
+
+    - An observed failure wins, whether it is a stage cell or a terminal `failed`
+      observation for the whole run.
+    - A terminal `cancelled` observation is checked before `completed`, so a
+      cancelled run can never read as completed. It is not reported as a
+      failure: a cancellation is not a fault of any stage.
+    - `completed` needs an observed merge, because merge is the only cell whose
+      evidence is terminal for the whole run.
+    - Everything else that reached a milestone is `partial`, which is the honest
+      answer for work that stopped there.
     """
     observed = [cell for cell in RUNTIME_LEARNING_RECAP_CELLS if cells[cell]["state"] == "observed"]
     failed = [cell for cell in RUNTIME_LEARNING_RECAP_CELLS if cells[cell]["state"] == "failed"]
     unavailable = [cell for cell in RUNTIME_LEARNING_RECAP_CELLS if cells[cell]["state"] == "unavailable"]
-    if failed:
-        state = "failed"
-        reason = f"observed failure in: {', '.join(failed)}"
-    elif "merge" in observed:
-        state = "completed"
-        reason = "merge observed and no cell reports a failure"
-    elif observed:
-        state = "partial"
-        reason = f"observed evidence in: {', '.join(observed)}; merge not observed"
-    else:
-        state = "unknown"
-        reason = "no eligible runtime observation reports a terminal evidence cell"
+    state = _completion_state(observed, failed, termination_kind)
     return {
         "authority": "observed_evidence",
         "state": state,
-        "reason": reason,
+        "reason": _completion_reason(state, observed, failed, termination_kind),
         "observed_cells": observed,
         "failed_cells": failed,
         "unavailable_cells": unavailable,
+        "run_termination": termination_kind,
         "claim_boundary": _OBSERVED_CLAIM_BOUNDARY,
     }
+
+
+def _completion_state(observed: list[str], failed: list[str], termination_kind: str) -> str:
+    if failed or termination_kind == "failed":
+        return "failed"
+    if termination_kind == "cancelled":
+        return "partial" if observed else "unknown"
+    if "merge" in observed:
+        return "completed"
+    return "partial" if observed else "unknown"
+
+
+def _completion_reason(state: str, observed: list[str], failed: list[str], termination_kind: str) -> str:
+    if state == "failed":
+        parts = []
+        if failed:
+            parts.append(f"observed failure in: {', '.join(failed)}")
+        if termination_kind == "failed":
+            parts.append("the run recorded a terminal failed observation")
+        return "; ".join(parts)
+    if termination_kind == "cancelled":
+        if observed:
+            return (
+                "the run recorded a terminal cancelled observation; "
+                f"observed evidence in: {', '.join(observed)}"
+            )
+        return "the run recorded a terminal cancelled observation and no evidence cell"
+    if state == "completed":
+        return "merge observed and no cell reports a failure"
+    if state == "partial":
+        return f"observed evidence in: {', '.join(observed)}; merge not observed"
+    return "no eligible runtime observation reports a terminal evidence cell"
 
 
 def _identity_fields(
@@ -639,8 +737,10 @@ def _recap_summary(recap: Mapping[str, Any]) -> str:
     operator = recap["operator_assessment"]
     cells = recap["evidence_cells"]
     states = "; ".join(f"{cell} {cells[cell]['state']}" for cell in RUNTIME_LEARNING_RECAP_CELLS)
+    termination = str(completion.get("run_termination", "none"))
+    ended = "" if termination == "none" else f" run termination observed: {termination}."
     return (
-        f"run {recap['run_id']}: observed completion {completion['state']}. "
+        f"run {recap['run_id']}: observed completion {completion['state']}.{ended} "
         f"{states}. "
         f"operator outcome {operator['operator_outcome']} (supplied assessment, not evidence)."
     )[:_MAX_SUMMARY]
@@ -675,6 +775,7 @@ def runtime_learning_recap_errors(recap: Any) -> list[str]:
         errors.append("runtime learning recap record_type is invalid")
     errors.extend(_identity_errors(recap))
     errors.extend(_cell_errors(recap))
+    errors.extend(_lifecycle_errors(recap))
     errors.extend(_completion_errors(recap))
     errors.extend(_identity_field_errors(recap))
     errors.extend(_operator_errors(recap))
@@ -725,94 +826,128 @@ def _cell_errors(recap: Mapping[str, Any]) -> list[str]:
         return [f"runtime learning recap has unsupported evidence cells: {extra[:5]}"]
     errors: list[str] = []
     for cell in RUNTIME_LEARNING_RECAP_CELLS:
-        entry = cells.get(cell)
-        if not isinstance(entry, dict):
-            errors.append(f"runtime learning recap evidence cell {cell} must be an object")
-            continue
-        state = entry.get("state")
-        if state not in RECAP_CELL_STATES:
-            errors.append(f"runtime learning recap evidence cell {cell} state is invalid")
-            continue
-        source = entry.get("source_observation_type")
-        if not isinstance(source, str):
-            errors.append(f"runtime learning recap evidence cell {cell} source_observation_type must be a string")
-            continue
-        if state == "unavailable":
-            # An unavailable cell may still name its source: a blocked or
-            # cancelled observation is why the cell is unavailable, and saying
-            # which one is the difference between "unproven" and "unexplained".
-            # What it may not do is name an observation type that does not exist.
-            if source and source not in RUNTIME_OBSERVABLE_EVENTS:
-                errors.append(f"runtime learning recap evidence cell {cell} names an unknown observation type")
-        else:
-            if source not in RUNTIME_OBSERVABLE_EVENTS:
-                errors.append(f"runtime learning recap evidence cell {cell} must name a supporting observation type")
-            if entry.get("source_observation_schema") != RUNTIME_OBSERVATION_SCHEMA_VERSION:
-                errors.append(f"runtime learning recap evidence cell {cell} must cite {RUNTIME_OBSERVATION_SCHEMA_VERSION}")
-        errors.extend(_evidence_ref_errors(cell, entry))
+        errors.extend(_observation_view_errors(cells.get(cell), label=f"evidence cell {cell}"))
     return errors
 
 
-def _evidence_ref_errors(cell: str, entry: Mapping[str, Any]) -> list[str]:
+def _observation_view_errors(entry: Any, *, label: str) -> list[str]:
+    """Recompute a stored view from the fields it carries, rather than read it.
+
+    The completion block is checked against the cells elsewhere; this is the
+    layer under that. Without it a cell could say `observed` beside an
+    observation status of `failed` at an unchanged recap id, because the id
+    binds the observation history and not the projection derived from it.
+    `_CELL_STATE_BY_OBSERVATION_STATUS` is total and deterministic, so the
+    stored state is checkable, and `reason` is drawn from a closed set, so it
+    cannot carry prose.
+    """
+    if not isinstance(entry, dict):
+        return [f"runtime learning recap {label} must be an object"]
+    errors: list[str] = []
+    state = entry.get("state")
+    if state not in RECAP_CELL_STATES:
+        return [f"runtime learning recap {label} state is invalid"]
+    source = entry.get("source_observation_type")
+    status = entry.get("observation_status")
+    if not isinstance(source, str) or not isinstance(status, str):
+        return [f"runtime learning recap {label} source_observation_type and observation_status must be strings"]
+    if status:
+        if status not in _CELL_STATE_BY_OBSERVATION_STATUS:
+            errors.append(f"runtime learning recap {label} observation_status is invalid")
+        elif state != _cell_state(status):
+            errors.append(
+                f"runtime learning recap {label} state {state} does not follow from observation status {status}"
+            )
+        if source not in RUNTIME_OBSERVABLE_EVENTS:
+            errors.append(f"runtime learning recap {label} must name a supporting observation type")
+        if entry.get("source_observation_schema") != RUNTIME_OBSERVATION_SCHEMA_VERSION:
+            errors.append(f"runtime learning recap {label} must cite {RUNTIME_OBSERVATION_SCHEMA_VERSION}")
+    else:
+        # No supporting record at all: nothing may be claimed beside it.
+        if state != "unavailable":
+            errors.append(f"runtime learning recap {label} claims {state} with no supporting observation")
+        if source or entry.get("source_observation_schema") or entry.get("observed_at"):
+            errors.append(f"runtime learning recap {label} names a source it does not have")
+    reason = entry.get("reason")
+    if not isinstance(reason, str) or reason not in _cell_reason_vocabulary():
+        errors.append(f"runtime learning recap {label} reason is not one this projection produces")
+    elif reason != _cell_reason(status if isinstance(status, str) else "", reason or _NO_OBSERVATION_REASON):
+        errors.append(f"runtime learning recap {label} reason does not follow from its observation status")
+    errors.extend(_evidence_ref_errors(label, entry))
+    return errors
+
+
+def _lifecycle_errors(recap: Mapping[str, Any]) -> list[str]:
+    lifecycle = recap.get("run_lifecycle")
+    if not isinstance(lifecycle, dict):
+        return ["runtime learning recap run_lifecycle must be an object"]
+    errors: list[str] = []
+    for key, allowed in (("termination", RUNTIME_TERMINAL_OBSERVATION_EVENTS), ("block", RUNTIME_BLOCK_OBSERVATION_EVENTS)):
+        view = lifecycle.get(key)
+        errors.extend(_observation_view_errors(view, label=f"run_lifecycle.{key}"))
+        if isinstance(view, dict):
+            source = str(view.get("source_observation_type", ""))
+            if source and source not in allowed:
+                errors.append(f"runtime learning recap run_lifecycle.{key} names an event type it cannot hold")
+    return errors
+
+
+def _evidence_ref_errors(label: str, entry: Mapping[str, Any]) -> list[str]:
     refs = entry.get("evidence_refs")
     if not isinstance(refs, list):
-        return [f"runtime learning recap evidence cell {cell} evidence_refs must be a list"]
+        return [f"runtime learning recap {label} evidence_refs must be a list"]
     if len(refs) > _MAX_EVIDENCE_REFS_PER_CELL:
-        return [f"runtime learning recap evidence cell {cell} carries too many evidence references"]
+        return [f"runtime learning recap {label} carries too many evidence references"]
     errors: list[str] = []
     for ref in refs:
         if not isinstance(ref, str) or not ref:
-            errors.append(f"runtime learning recap evidence cell {cell} evidence reference must be a non-empty string")
+            errors.append(f"runtime learning recap {label} evidence reference must be a non-empty string")
             continue
         try:
-            require_opaque_metadata_ref(ref, field=f"{cell} evidence reference")
+            require_opaque_metadata_ref(ref, field=f"{label} evidence reference")
         except ValueError as exc:
             errors.append(str(exc))
     count = entry.get("evidence_ref_count")
     if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-        errors.append(f"runtime learning recap evidence cell {cell} evidence_ref_count must be a non-negative integer")
+        errors.append(f"runtime learning recap {label} evidence_ref_count must be a non-negative integer")
     if not isinstance(entry.get("evidence_refs_truncated"), bool):
-        errors.append(f"runtime learning recap evidence cell {cell} evidence_refs_truncated must be boolean")
+        errors.append(f"runtime learning recap {label} evidence_refs_truncated must be boolean")
     return errors
 
 
 def _completion_errors(recap: Mapping[str, Any]) -> list[str]:
+    """Recompute the completion block from the cells and the terminal event.
+
+    Every field is derived, so none of them is checked by a rule of its own:
+    the state, its reason, and the three cell lists all come back out of
+    `_observed_completion`, and a stored block that differs anywhere is a block
+    that was edited away from its own evidence.
+    """
     completion = recap.get("observed_completion")
     if not isinstance(completion, dict):
         return ["runtime learning recap observed_completion must be an object"]
+    cells = recap.get("evidence_cells")
+    if not isinstance(cells, dict) or any(
+        not isinstance(cells.get(cell), dict) or cells[cell].get("state") not in RECAP_CELL_STATES
+        for cell in RUNTIME_LEARNING_RECAP_CELLS
+    ):
+        # The cells are already reported as broken; recomputation would only
+        # repeat that in a less useful place.
+        return []
     errors: list[str] = []
     if completion.get("authority") != "observed_evidence":
         errors.append("runtime learning recap observed_completion authority must be observed_evidence")
-    if completion.get("state") not in OBSERVED_COMPLETION_STATES:
-        errors.append("runtime learning recap observed_completion state is invalid")
-    cells = recap.get("evidence_cells")
-    if not isinstance(cells, dict):
+    termination = completion.get("run_termination")
+    lifecycle = recap.get("run_lifecycle")
+    if not isinstance(termination, str) or termination not in ("none",) + RUNTIME_TERMINAL_OBSERVATION_EVENTS:
+        return errors + ["runtime learning recap observed_completion.run_termination is invalid"]
+    if isinstance(lifecycle, dict) and termination != _termination_kind(lifecycle):
+        errors.append("runtime learning recap observed_completion.run_termination does not follow from run_lifecycle")
         return errors
-    for key, state in (("observed_cells", "observed"), ("failed_cells", "failed"), ("unavailable_cells", "unavailable")):
-        listed = completion.get(key)
-        if not isinstance(listed, list) or any(not isinstance(item, str) for item in listed):
-            errors.append(f"runtime learning recap observed_completion.{key} must be a list of strings")
-            continue
-        expected = [
-            cell
-            for cell in RUNTIME_LEARNING_RECAP_CELLS
-            if isinstance(cells.get(cell), dict) and cells[cell].get("state") == state
-        ]
-        if list(listed) != expected:
-            # A summary that disagrees with the cells is a recap whose headline
-            # was edited away from its evidence.
-            errors.append(f"runtime learning recap observed_completion.{key} does not match the evidence cells")
-    state = completion.get("state")
-    observed = [cell for cell in RUNTIME_LEARNING_RECAP_CELLS if isinstance(cells.get(cell), dict) and cells[cell].get("state") == "observed"]
-    failed = [cell for cell in RUNTIME_LEARNING_RECAP_CELLS if isinstance(cells.get(cell), dict) and cells[cell].get("state") == "failed"]
-    if state == "completed" and ("merge" not in observed or failed):
-        errors.append("runtime learning recap may report completed only with an observed merge and no failed cell")
-    if state == "partial" and not observed:
-        errors.append("runtime learning recap may report partial only with at least one observed cell")
-    if state == "unknown" and (observed or failed):
-        errors.append("runtime learning recap may report unknown only with no observed or failed cell")
-    if state == "failed" and not failed:
-        errors.append("runtime learning recap may report failed only with a failed cell")
+    expected = _observed_completion(cells, termination)
+    for key in ("state", "reason", "observed_cells", "failed_cells", "unavailable_cells"):
+        if completion.get(key) != expected[key]:
+            errors.append(f"runtime learning recap observed_completion.{key} does not follow from the evidence cells")
     return errors
 
 

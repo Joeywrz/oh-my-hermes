@@ -21,11 +21,15 @@ from omh.runtime.records import RUNTIME_OBSERVATION_SCHEMA_VERSION
 from omh.workflow_learning import (
     WorkflowLearningError,
     build_improvement_candidate,
+    build_learning_export_bundle,
     build_runtime_run_learning_record,
     build_workflow_eval_result,
     list_learning_traces,
+    validate_workflow_learning_export,
     validate_workflow_learning_trace,
+    write_improvement_candidate,
     write_learning_trace,
+    write_workflow_eval,
 )
 from omh.workflows.runtime_learning_recap import (
     OBSERVED_COMPLETION_STATES,
@@ -333,7 +337,7 @@ class RuntimeLearningRecapTest(unittest.TestCase):
 
             mismatched = json.loads(json.dumps(recap))
             mismatched["observed_completion"]["observed_cells"] = list(RUNTIME_LEARNING_RECAP_CELLS)
-            self.assertIn("does not match", " ".join(runtime_learning_recap_errors(mismatched)))
+            self.assertIn("does not follow from the evidence cells", " ".join(runtime_learning_recap_errors(mismatched)))
 
             malformed = json.loads(json.dumps(recap))
             malformed["evidence_cells"]["review"]["state"] = "probably_fine"
@@ -363,6 +367,93 @@ class RuntimeLearningRecapTest(unittest.TestCase):
 
             with self.assertRaises(WorkflowLearningError):
                 validate_runtime_learning_recap(foreign)
+
+    def test_a_cell_cannot_be_edited_away_from_its_own_observation(self) -> None:
+        """The recap id binds the observation history, not the projection over it,
+        so the cells have to be checkable from the fields they carry.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = self._run(paths)
+            self._observe(paths, run_id, "merge", "failed", evidence_refs=["merge-failed"])
+            recap = build_runtime_learning_recap(paths, run_id)
+            self.assertEqual(recap["observed_completion"]["state"], "failed")
+
+            # Flip the cell and keep the completion block self-consistent, the
+            # way a hand edit would.
+            tampered = json.loads(json.dumps(recap))
+            tampered["evidence_cells"]["merge"]["state"] = "observed"
+            tampered["observed_completion"]["state"] = "completed"
+            tampered["observed_completion"]["reason"] = "merge observed and no cell reports a failure"
+            tampered["observed_completion"]["observed_cells"] = ["merge"]
+            tampered["observed_completion"]["failed_cells"] = []
+            self.assertEqual(tampered["recap_id"], recap["recap_id"])
+            errors = " ".join(runtime_learning_recap_errors(tampered))
+            self.assertIn("does not follow from observation status failed", errors)
+            with self.assertRaises(WorkflowLearningError):
+                validate_runtime_learning_recap(tampered)
+
+            prose = json.loads(json.dumps(recap))
+            prose["evidence_cells"]["merge"]["reason"] = "the operator said this one was fine"
+            self.assertIn(
+                "reason is not one this projection produces",
+                " ".join(runtime_learning_recap_errors(prose)),
+            )
+
+            unsupported = json.loads(json.dumps(recap))
+            unsupported["evidence_cells"]["ci"]["state"] = "observed"
+            self.assertIn(
+                "claims observed with no supporting observation",
+                " ".join(runtime_learning_recap_errors(unsupported)),
+            )
+
+    def test_a_terminal_failed_observation_is_not_work_in_progress(self) -> None:
+        """`failed` and `cancelled` are event types as well as status values, and
+        the milestone ladder excludes them. Reading only the ladder left a run
+        that recorded exactly one terminal failure reading as unfinished.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = self._run(paths)
+            self._observe(paths, run_id, "worker_result", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
+            self._observe(paths, run_id, "failed", evidence_refs=["runner-exit"])
+            recap = build_runtime_learning_recap(paths, run_id)
+            self.assertEqual(recap["observed_completion"]["state"], "failed")
+            self.assertEqual(recap["observed_completion"]["run_termination"], "failed")
+            self.assertEqual(recap["run_lifecycle"]["termination"]["source_observation_type"], "failed")
+            self.assertIn("terminal failed observation", recap["observed_completion"]["reason"])
+            # The stage cell keeps its own verdict; the run-level fact is separate.
+            self.assertEqual(recap["evidence_cells"]["delivery"]["state"], "observed")
+            self.assertEqual(recap["observed_completion"]["failed_cells"], [])
+            self.assertIn("run termination observed: failed", recap["summary"])
+
+    def test_a_cancelled_run_is_never_completed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = self._run(paths)
+            self._observe(paths, run_id, "merge", evidence_refs=["merge_commit:deadbee"])
+            self._observe(paths, run_id, "cancelled", evidence_refs=["operator-stop"])
+            recap = build_runtime_learning_recap(paths, run_id)
+            self.assertEqual(recap["observed_completion"]["run_termination"], "cancelled")
+            self.assertEqual(recap["observed_completion"]["state"], "partial")
+            self.assertIn("terminal cancelled observation", recap["observed_completion"]["reason"])
+            # A cancellation is not a fault of any stage.
+            self.assertEqual(recap["observed_completion"]["failed_cells"], [])
+            self.assertEqual(recap["evidence_cells"]["merge"]["state"], "observed")
+
+    def test_a_block_is_reported_and_changes_no_state(self) -> None:
+        """A block is recoverable by definition, so it is surfaced without
+        moving completion, the same reasoning the runtime projection uses.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = self._run(paths)
+            self._observe(paths, run_id, "worker_result", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
+            self._observe(paths, run_id, "blocked", evidence_refs=["waiting-on-review"])
+            recap = build_runtime_learning_recap(paths, run_id)
+            self.assertEqual(recap["run_lifecycle"]["block"]["source_observation_type"], "blocked")
+            self.assertEqual(recap["observed_completion"]["run_termination"], "none")
+            self.assertEqual(recap["observed_completion"]["state"], "partial")
 
     def test_diagnostics_are_bounded(self) -> None:
         broken = {
@@ -506,6 +597,107 @@ class RuntimeLearningRecapLearningSurfaceTest(unittest.TestCase):
             unlinked["status"].pop("observed_completion_authority")
             checks = {check["id"]: check for check in build_workflow_eval_result(unlinked)["checks"]}
             self.assertEqual(checks["completion_authority"]["status"], "warning")
+
+
+    def test_the_export_bundle_carries_both_sides_of_the_boundary(self) -> None:
+        """The bundle is the artifact that travels, so it is the one place the
+        boundary must not collapse. It previously emitted the operator outcome
+        with no label saying whose it was, and the completion-authority check's
+        verdict with no sign of what that check had found.
+        """
+        with TemporaryDirectory() as tmp:
+            paths, run_id = self._prepared(Path(tmp))
+            record = build_runtime_run_learning_record(paths, run_id, outcome="useful")
+            trace = write_learning_trace(paths, record["trace"])
+            write_runtime_learning_recap(paths, record["recap"])
+            evaluation = write_workflow_eval(paths, build_workflow_eval_result(trace))
+            write_improvement_candidate(paths, build_improvement_candidate(trace, evaluation))
+
+            bundle = build_learning_export_bundle(paths, trace_ids=[trace["trace_id"]])
+            validate_workflow_learning_export(bundle)
+            exported_trace = bundle["records"]["traces"][0]
+            exported_candidate = bundle["records"]["candidates"][0]
+
+            self.assertEqual(exported_trace["status"]["outcome"], "useful")
+            self.assertEqual(exported_trace["status"]["outcome_authority"], "operator_supplied")
+            self.assertEqual(exported_trace["status"]["observed_completion"], "partial")
+            self.assertEqual(exported_trace["status"]["observed_completion_authority"], "observed_evidence")
+            completion = exported_trace["runtime_completion"]
+            self.assertEqual(completion["observed_completion"], "partial")
+            self.assertEqual(completion["cell_states"]["delivery"], "observed")
+            self.assertEqual(completion["cell_states"]["merge"], "unavailable")
+            self.assertTrue(completion["recap_ref_sha256"].startswith("sha256:"))
+            self.assertEqual(exported_candidate["completion_evidence"]["observed_completion"], "partial")
+            self.assertEqual(
+                exported_candidate["completion_evidence"]["operator_outcome_authority"], "operator_supplied"
+            )
+
+            # The bundle stays metadata-only: the ref travels hashed like every
+            # other reference, and no free-text feedback rides along.
+            serialized = json.dumps(bundle)
+            self.assertNotIn("omh-runtime-learning-recap:", serialized)
+            self.assertNotIn(record["recap"]["recap_id"], serialized)
+
+    def test_a_wrapper_summary_fallback_is_labelled_prepared_not_operator(self) -> None:
+        """A `prepared_not_observed` string may not be labelled operator-supplied
+        merely because it occupies the operator's field.
+        """
+        with TemporaryDirectory() as tmp:
+            paths, run_id = self._prepared(Path(tmp))
+            (paths.runtime_runs_dir / run_id / "wrapper.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "runtime_record/v1",
+                        "summary": "Prepared handoff: the change is ready and should merge cleanly.",
+                        "completion_status": "completed",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            record = build_runtime_run_learning_record(paths, run_id, outcome="useful")
+            status = record["trace"]["status"]
+            self.assertEqual(status["feedback_summary_authority"], "prepared_wrapper_summary")
+            self.assertIn("Prepared handoff", status["feedback_summary"])
+            # The recap takes only what the operator supplied, so it stays empty.
+            self.assertEqual(record["recap"]["operator_assessment"]["operator_feedback_summary"], "")
+
+            supplied = build_runtime_run_learning_record(
+                paths, run_id, outcome="useful", feedback_summary="I checked the diff myself."
+            )
+            self.assertEqual(supplied["trace"]["status"]["feedback_summary_authority"], "operator_supplied")
+
+            absent = build_runtime_run_learning_record(paths, self._run_without_wrapper(paths), outcome="useful")
+            self.assertEqual(absent["trace"]["status"]["feedback_summary_authority"], "absent")
+
+    def test_an_unlabelled_trace_is_reported_as_unlabelled_not_assumed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, run_id = self._prepared(Path(tmp))
+            trace = build_runtime_run_learning_record(paths, run_id, outcome="useful")["trace"]
+            stripped = json.loads(json.dumps(trace))
+            del stripped["status"]["outcome_authority"]
+            del stripped["status"]["feedback_summary_authority"]
+            # Still valid: a trace written by an earlier generation carries none
+            # of these keys and must not be refused.
+            validate_workflow_learning_trace(stripped)
+            write_learning_trace(paths, stripped)
+            row = [item for item in list_learning_traces(paths) if item["trace_id"] == stripped["trace_id"]][0]
+            self.assertEqual(row["outcome_authority"], "unlabelled")
+            self.assertEqual(row["feedback_summary_authority"], "unlabelled")
+            checks = {check["id"]: check for check in build_workflow_eval_result(stripped)["checks"]}
+            self.assertEqual(checks["completion_authority"]["status"], "warning")
+
+    def test_an_observed_state_must_name_the_recap_that_holds_it(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, run_id = self._prepared(Path(tmp))
+            trace = build_runtime_run_learning_record(paths, run_id, outcome="useful")["trace"]
+            orphaned = json.loads(json.dumps(trace))
+            del orphaned["runtime_completion"]
+            with self.assertRaises(WorkflowLearningError):
+                validate_workflow_learning_trace(orphaned)
+
+    def _run_without_wrapper(self, paths) -> str:
+        run = create_run(paths, {"skill": "execute", "harness": "hermes", "status": "prepared"})
+        return str(run["run_id"])
 
 
 class RuntimeLearningRecapCliTest(unittest.TestCase):

@@ -20,6 +20,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 import re
 import shutil
+import sys
 from tempfile import TemporaryDirectory
 from typing import Any
 
@@ -62,35 +63,229 @@ INFRASTRUCTURE_PREFIXES = (
 TEST_PREFIX = "tests/"
 SOURCE_PREFIX = "src/"
 
-#: Headings whose text describes the problem rather than the fix. The PR body
-#: fallback takes the first of these that the body actually carries.
-PROBLEM_HEADINGS = ("Why This Exists", "Problem", "Motivation")
+#: The novelty test searches the WHOLE tree at the merge base, not just `src/`.
+#: A token that exists anywhere the candidate can read is not something the fix
+#: introduced, and scoping the search to `src/` called `live-model-tools` a new
+#: name because the directory it names lives under `benchmarks/`. The question
+#: is "did this exist before the fix", and the tree is where that is answered.
+WHOLE_TREE = "."
 
-#: Headings that describe the change. Everything from the first one onwards is
-#: dropped from a PR-body task text, because it names the solution.
+#: The only sections a task text may keep: the ones that state a symptom.
 #:
-#: These match by prefix, not by equality, because a heading in the wild
-#: carries qualifiers. This repository's own pull request template writes
-#: `### Implementation (boundary level)`, which equals no string such a list
-#: would ever hold, so an equality test left the entire implementation section
-#: inside the task text.
-SOLUTION_HEADINGS = (
-    "What Changed",
-    "How It Works",
-    "Files And Contracts Touched",
-    "Implementation",
-    "Validation",
-    "Observed Evidence",
-    "Proposal",
-    # An issue prescribes the fix under headings of its own, and those sections
-    # name the change to make just as directly as a pull request body does.
-    "Suggested fix",
-    "Proposed fix",
-    "Root cause",
-    "Verification",
-    "Solution",
-    "Approach",
+#: An ALLOWLIST, because the denylist it replaces could not be completed and
+#: could not report that it was incomplete. A survey of every issue reachable
+#: from the 800 newest merged pull requests found 205 bodies carrying more than
+#: a hundred distinct headings, and the fix was prescribed under `Target
+#: behaviour`, `Acceptance criteria`, `Native capability to add`,
+#: `Boundary-level design`, `Requested outcome`, `What will ship`, `Plan` and a
+#: dozen others that no list written in advance would have held. Under a
+#: denylist each of those was silently kept.
+#:
+#: Inverted, an unrecognized heading fails safe: dropped, not kept. The cost is
+#: tasks, which the corpus can afford; the alternative cost is credibility,
+#: which it cannot.
+#:
+#: Each entry earned its place in that survey, and the test is always "what
+#: IS" rather than "what SHOULD BE". `Expected behavior` is deliberately
+#: absent: in this repository it reads as specification -- issue 1111's says a
+#: mismatch "must result in `hold`" and the validator asserts exactly that --
+#: which is acceptance criteria wearing a symptom's name. `Observed evidence`
+#: is present for the mirror reason: it reports what the code does today, and
+#: naming an existing function is not handing over a fix.
+PROBLEM_STATEMENT_HEADINGS = (
+    "Problem",
+    "User problem",
+    "Summary",
+    # Prefix-matched, so this covers `Observed evidence` and `Observed
+    # behavior`, which is how this repository writes both.
+    "Observed",
+    "Evidence",
+    # Covers `Reproduction / Evidence` too.
+    "Reproduction",
+    "Steps to reproduce",
+    "Environment",
+    "Logs or output",
+    "Context",
+    # Covers `Current state (exact)`.
+    "Current state",
+    # Covers `Gap today` and `Gap (audited <date>)`.
+    "Gap",
+    "What breaks",
+    "Impact",
+    "Motivation",
+    # The pull request body's problem section, for the secondary subset.
+    "Why This Exists",
 )
+
+#: `Observed` is allowed for an ISSUE and refused for a PULL REQUEST BODY, and
+#: the two are not the same section wearing one name.
+#:
+#: An issue's `Observed evidence` reports what the code does today, before the
+#: fix exists. The pull request template defines `### Observed Evidence` as
+#: "targeted tests, commands, CI checks, and manual behavior actually
+#: observed" -- written after the change, describing the tests it added. Seven
+#: of eleven pull-request-body tasks handed over assertions with their expected
+#: values through it, all labelled `clean`: PR-1411's text carried "brief-only
+#: → `recall_status()` is `None`; brief plus one approved block →
+#: `RecallStatus("OMH", 1)`" against a fifteen-line change.
+#:
+#: Prefix matching cannot tell the two apart, because the heading is identical.
+#: The source can.
+PULL_REQUEST_BODY_REFUSED_HEADINGS = ("Observed", "Evidence")
+
+
+#: Allowlisted headings that STATE WHAT IS WRONG, as opposed to supplying the
+#: context around it. A task text has to contain at least one of these with a
+#: body, or it does not determine the work.
+#:
+#: This is the answerability screen, and it is a rule rather than a judgement
+#: on purpose: it is load-bearing, so a reader has to be able to inspect what
+#: "answerable" was decided by. The failure it catches is the one the leak work
+#: created. PR-996's kept sections were `['Environment']` alone -- "macOS,
+#: hermes-cli, oh-my-hermes 1.0.6, node at <path>" -- against a 242-line change
+#: across five files, with no statement anywhere of what was wrong. Removing
+#: the prescription removed the only text that determined the work, and no
+#: probe can catch that: the probe proves a task is red at its base and green
+#: with the fix, never that the TEXT is what determines the fix.
+STATEMENT_HEADINGS = (
+    "Problem",
+    "User problem",
+    "Summary",
+    "Observed",
+    "Evidence",
+    "Gap",
+    "What breaks",
+    "Impact",
+    "Motivation",
+    "Why This Exists",
+)
+
+#: Allowlisted but supporting only: they say where and how, never what is
+#: wrong. A text built solely from these is a setting without a story.
+#:
+#: `Current state` belongs here rather than among the statements, which is
+#: where it first landed. A dump of what exists is not an account of what is
+#: wrong with it: PR-1064's `Current state (exact)` prints the entire price
+#: dict and explains the tuple format across 1048 characters, never says which
+#: row is missing, and the validator asserts one specific new key. It passed
+#: the screen on a section that says where to write and never what.
+SUPPORTING_HEADINGS = (
+    "Environment",
+    "Logs or output",
+    "Reproduction",
+    "Steps to reproduce",
+    "Context",
+    "Current state",
+)
+
+
+#: A literal long enough that a validator asserting it is asserting a specific
+#: value rather than a flag or a short word.
+ASSERTED_LITERAL_MIN_CHARS = 8
+
+#: A line that checks a value, rather than one that merely mentions one.
+#: `asserted_literals` used to take every literal on every added line, which
+#: made its name a claim the code did not honour: a name in a fixture setup is
+#: not a value the validator demands.
+ASSERTION_LINE = re.compile(r"\bassert|==|!=")
+
+
+def asserted_literals(test_diff: str) -> list[str]:
+    """String literals the pull request's tests begin ASSERTING.
+
+    Assertion lines only, and any quoted run of eight or more characters.
+    The previous pattern required the literal to start with a letter and to
+    contain nothing but word characters, dots, hyphens and spaces -- so it
+    could not represent `"**Hard to reverse**"`, `"Two of three or fewer: no
+    record"` or `"151/151 negative-control cases"`, which is most of what
+    these validators actually assert. Every one of those returned no match,
+    and the silence looked like evidence of no leak.
+    """
+
+    literals: set[str] = set()
+    for line in _added_lines(test_diff):
+        if not ASSERTION_LINE.search(line):
+            continue
+        literals.update(
+            literal
+            for literal in STRING_LITERAL.findall(line)
+            if len(literal.strip()) >= ASSERTED_LITERAL_MIN_CHARS
+        )
+    return sorted(literals)
+
+
+def undetermined_literals(
+    repository: Path, base: str, task_text: str, test_diff: str, source_diff: str = ""
+) -> list[str]:
+    """Values the validator demands that the task text does not supply.
+
+    The mirror of the leak rule, and the same measurement read the other way.
+    A literal the pull request's tests begin asserting, which did not exist
+    anywhere in the tree beforehand, has to reach the candidate somehow. If the
+    task text carries it, the task is a transcription and the leak rule
+    excludes it. If the task text does NOT carry it, the candidate cannot
+    produce it and the task is unanswerable -- it will read red for every arm
+    no matter how well any of them works.
+
+    That second half is what the leak work created and nobody measured. The
+    probe cannot catch it: the probe proves a task is red at its base and green
+    with the fix, never that the TEXT is what determines the fix. PR-1256 is
+    the case that makes it concrete -- its acceptance literals lived under
+    `Target behaviour`, which is exactly why it was a leak and the only reason
+    it was answerable.
+    """
+
+    # The literal has to be introduced by the FIX and checked by the TEST. A
+    # literal only the test carries is fixture data -- a temp path, a sample
+    # name -- which a candidate invents freely and no validator pins. A value
+    # the fix writes into the source and the tests then assert is one the
+    # candidate must reproduce exactly and can only get from the brief.
+    #
+    # The source side is a SUBSTRING search over the added lines, not a second
+    # literal extraction. Much of what these validators assert is generated
+    # prose living in multi-line bodies, where there is no quote pair to match
+    # on the source side at all: extracting literals there collapsed the
+    # intersection to almost nothing -- 22 test literals against 1 for PR-1268
+    # -- and let every such task through. The question is only whether the fix
+    # writes this string, and a substring answers it whatever the syntax.
+    added_source = "\n".join(_added_lines(source_diff)) if source_diff else ""
+    candidates = [
+        literal
+        for literal in asserted_literals(test_diff)
+        if literal not in task_text
+        and (not source_diff or literal in added_source)
+    ]
+    if not candidates:
+        return []
+    present = repo_lib.present_needles(repository, base, candidates)
+    return sorted(literal for literal in candidates if literal not in present)
+
+
+def states_the_problem(kept_sections: Sequence[str], task_source: str) -> bool:
+    """Whether the kept sections include one that says what is wrong."""
+
+    statements = tuple(
+        heading
+        for heading in STATEMENT_HEADINGS
+        if heading in headings_for(task_source)
+    )
+    return any(
+        any(heading_matches(title, statement) for statement in statements)
+        for title in kept_sections
+    )
+
+
+def headings_for(task_source: str) -> tuple[str, ...]:
+    """The allowlist as it applies to one task source."""
+
+    if task_source != "pull_request_body":
+        return PROBLEM_STATEMENT_HEADINGS
+    return tuple(
+        heading
+        for heading in PROBLEM_STATEMENT_HEADINGS
+        if heading not in PULL_REQUEST_BODY_REFUSED_HEADINGS
+    )
+
 
 MAX_CHANGED_LINES = 400
 MAX_REGRESSION_MODULES = 6
@@ -144,17 +339,6 @@ def heading_matches(title: str, heading: str) -> bool:
     return normalized.startswith(wanted) and not normalized[len(wanted)].isalnum()
 
 
-def _section(body: str, headings: Sequence[str]) -> tuple[str, int] | None:
-    """The first markdown section whose heading matches, with its offset."""
-
-    for match in _headings_outside_code(body):
-        title = match.group(1)
-        for heading in headings:
-            if heading_matches(title, heading):
-                return heading, match.start()
-    return None
-
-
 def _headings_outside_code(body: str) -> list[re.Match[str]]:
     """Heading matches that are not inside a fenced code block.
 
@@ -175,9 +359,18 @@ def _headings_outside_code(body: str) -> list[re.Match[str]]:
         fenced.append((opened, len(body)))
     return [
         match
-        for match in re.finditer(r"^#{1,4}\s*(.+?)\s*$", body, re.MULTILINE)
+        for match in HEADING_LINE.finditer(body)
         if not any(start <= match.start() < end for start, end in fenced)
     ]
+
+
+#: A markdown heading line. At least one space after the hashes is required,
+#: because GitHub requires it and because without it `#1351 stopped the
+#: workspace boundary...` reads as a section title -- an issue reference, not a
+#: heading. Under a denylist a mis-split was survivable; under an allowlist
+#: every mis-split is a deletion, and PR-1353 and PR-1355 each lost their whole
+#: problem statement to this one.
+HEADING_LINE = re.compile(r"^#{1,4}[ \t]+(.+?)\s*$", re.MULTILINE)
 
 
 #: A home directory in a public issue body, which is somebody's username.
@@ -197,28 +390,76 @@ def redact_home_directories(text: str) -> str:
     return HOME_DIRECTORY.sub("<home>", text)
 
 
-def task_text_from_pull_request_body(body: str) -> str:
-    """The problem half of a PR body, with the solution half removed."""
+def split_sections(body: str) -> list[tuple[str | None, str]]:
+    """Every markdown section as ``(heading or None, text)``, in order.
 
-    found = _section(body, PROBLEM_HEADINGS)
-    if found is None:
-        return ""
-    _heading, start = found
-    body_from_problem = body[start:]
-    cut = _section(body_from_problem[1:], SOLUTION_HEADINGS)
-    if cut is not None:
-        body_from_problem = body_from_problem[: cut[1] + 1]
-    lines = body_from_problem.splitlines()
-    return "\n".join(lines[1:]).strip()
+    The leading run of text before any heading is returned with a heading of
+    ``None``. It is nobody's labelled section, so the cut treats it as
+    unrecognized and drops it -- which costs nothing here, because in this
+    repository that text is boilerplate ("Contributions welcome — good first
+    issue"), not a problem statement.
+    """
+
+    matches = _headings_outside_code(body)
+    sections: list[tuple[str | None, str]] = []
+    if not matches:
+        return [(None, body.strip())] if body.strip() else []
+    if body[: matches[0].start()].strip():
+        sections.append((None, body[: matches[0].start()].strip()))
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
+        title = " ".join(match.group(1).strip().strip("*_`#").split()).rstrip(":")
+        sections.append((title, body[match.end() : end].strip()))
+    return sections
+
+
+def problem_statement(
+    body: str, *, task_source: str = "linked_issue"
+) -> tuple[str, list[str], list[str]]:
+    """Keep the symptom sections; drop everything else. Say what was dropped.
+
+    Returns the kept text, the headings kept, and the headings dropped. The
+    third value is the point: under the denylist this replaced, a heading
+    nobody had listed was kept silently, and the canary built from the same
+    list could not report it either. Here an unrecognized heading is an event
+    with a name, recorded on the task and counted over the corpus, so the
+    allowlist's own gaps are visible in the artifact rather than inferred.
+    """
+
+    allowed_headings = headings_for(task_source)
+    kept_text: list[str] = []
+    kept: list[str] = []
+    dropped: list[str] = []
+    for title, text in split_sections(body):
+        if title is None:
+            if text:
+                dropped.append("(unheaded preamble)")
+            continue
+        if not any(heading_matches(title, allowed) for allowed in allowed_headings):
+            dropped.append(title)
+            continue
+        if not text:
+            # An allowlisted heading with nothing under it is not a problem
+            # statement. Appending the bare title made `sections_kept` report
+            # one that was not there, which is how PR-1353 and PR-1355 came to
+            # claim a `Why This Exists` they had lost to the mis-split above.
+            dropped.append(f"{title} (empty)")
+            continue
+        kept.append(title)
+        kept_text.append(f"{title}\n\n{text}".strip())
+    return "\n\n".join(kept_text).strip(), kept, dropped
+
+
+def task_text_from_pull_request_body(body: str) -> str:
+    """The symptom sections of a pull request body, and nothing else."""
+
+    return problem_statement(body, task_source="pull_request_body")[0]
 
 
 def strip_solution_sections(body: str) -> str:
-    """An issue body with its proposal half removed."""
+    """An issue body reduced to its symptom sections."""
 
-    cut = _section(body, SOLUTION_HEADINGS)
-    if cut is None:
-        return body.strip()
-    return body[: cut[1]].strip()
+    return problem_statement(body)[0]
 
 
 def _added_lines(diff: str) -> list[str]:
@@ -253,6 +494,21 @@ DEFINITION = re.compile(
 )
 
 
+#: A string literal in an added line. A fix introduces far more than
+#: definitions: a dict key, a mode name, a status string, a field label. Those
+#: are exactly what a validator asserts on, and matching only `def`, `class`
+#: and `CONSTANT =` left every one of them invisible. PR-929's acceptance
+#: criterion read `throughput_overlay.mode == "gpt_hermes_ulw"` and the
+#: validator's added line was `assertEqual(overlay["mode"], "gpt_hermes_ulw")`
+#: -- and that task was published as `clean`.
+STRING_LITERAL = re.compile(r"""['"]([^'"\n]{8,200})['"]""")
+
+#: An identifier-shaped token anywhere in an added line: attribute access, a
+#: keyword argument, a dict subscript. Cheap to over-collect, because the
+#: novelty test discards anything that already existed.
+IDENTIFIER_TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{5,63}")
+
+
 def defined_names(source_diff: str) -> list[str]:
     """Every function, class, or constant name the diff's added lines define."""
 
@@ -265,6 +521,24 @@ def defined_names(source_diff: str) -> list[str]:
     return sorted(names)
 
 
+def introduced_candidates(source_diff: str) -> list[str]:
+    """Every name or literal an added line could be introducing.
+
+    Deliberately generous. What makes a token a leak is not its shape but its
+    novelty -- it must be absent from `src/` at the merge base -- and that test
+    is applied afterwards against only the tokens the task text actually uses.
+    Collecting widely here and narrowing there costs one set intersection and
+    catches the whole class, instead of the three syntactic forms somebody
+    thought of first.
+    """
+
+    found: set[str] = set(defined_names(source_diff))
+    for line in _added_lines(source_diff):
+        found.update(STRING_LITERAL.findall(line))
+        found.update(IDENTIFIER_TOKEN.findall(line))
+    return sorted(found)
+
+
 def introduced_names_in_task_text(
     repository: Path, base: str, task_text: str, source_diff: str
 ) -> list[str]:
@@ -275,21 +549,48 @@ def introduced_names_in_task_text(
     reproducing a line of it, and the task becomes transcription: the hidden
     validator asserts on exactly that name.
 
-    A name counts only when the pull request defines it AND the task text uses
-    it AND `git grep` finds it nowhere under `src/` at the merge base. The last
-    condition is what separates handing over the answer from naming something
-    the candidate could have read for itself.
+    A token counts only when the pull request's added lines introduce it AND
+    the task text uses it AND `git grep` finds it nowhere under `src/` at the
+    merge base. The last condition is what separates handing over the answer
+    from naming something the candidate could have read for itself.
+
+    "Introduce" means any name or literal on an added line, not only a `def`,
+    `class` or `CONSTANT =`. Restricting it to those three shapes missed every
+    new dict key, mode name and status string -- which is most of what a
+    validator actually asserts on.
     """
 
-    words = set(re.findall(r"[A-Za-z_]\w+", task_text))
-    candidates = [name for name in defined_names(source_diff) if name in words]
+    words = set(re.findall(r"[A-Za-z_][A-Za-z0-9_.\-]*", task_text))
+    words.update(re.findall(r"[A-Za-z_]\w+", task_text))
+    candidates = [
+        token for token in introduced_candidates(source_diff) if token in words
+    ]
     if not candidates:
         return []
     return sorted(
-        name
-        for name in candidates
-        if not repo_lib.grep_paths(repository, base, [name], SOURCE_PREFIX)
+        token
+        for token in candidates
+        if not repo_lib.grep_paths(repository, base, [token], WHOLE_TREE)
     )
+
+
+def grading_modules_in_task_text(task_text: str, test_modules: Sequence[str]) -> list[str]:
+    """The task's own hidden validator modules that its text names.
+
+    The strongest pointer a task text can carry short of the diff itself. The
+    validator is supposed to be hidden: the candidate is told the symptom and
+    has to work out what correct behaviour is. A text naming
+    `tests/test_router_content.py` tells it exactly which file it will be
+    graded by, and the bare stem is as much of a pointer as the full path, so
+    both count.
+    """
+
+    named: set[str] = set()
+    for module in test_modules:
+        stem = Path(str(module)).stem
+        if str(module) in task_text or re.search(rf"\b{re.escape(stem)}\b", task_text):
+            named.add(str(module))
+    return sorted(named)
 
 
 def source_paths_in_task_text(task_text: str, source_paths: Sequence[str]) -> list[str]:
@@ -301,6 +602,66 @@ def source_paths_in_task_text(task_text: str, source_paths: Sequence[str]) -> li
     """
 
     return sorted(path for path in source_paths if path in task_text)
+
+
+#: How much of the answer a task's text still carries, worst class first. A
+#: task is `clean` only when none of the weaker signals fires.
+#:
+#: Recorded per task rather than argued about in prose, because the honest
+#: reading of any published number depends on which of these classes the tasks
+#: behind it belong to, and a reader holding the field can subset the corpus
+#: instead of trusting a sentence about it.
+LEAK_CLASSES = (
+    "heading_prescriptive",
+    "names_new_identifier",
+    "names_grading_module",
+    "names_changed_file",
+    "clean",
+)
+
+
+def has_prescriptive_heading(task_text: str) -> bool:
+    """Whether any heading at all survived that the allowlist does not name.
+
+    The previous version of this asked whether a heading from
+    `SOLUTION_HEADINGS` survived the cut -- using the same list and the same
+    matcher the cut used. If the list was short an entry, the cut kept that
+    section AND this returned False, so it could only ever detect an offset
+    bug in the cut, never the missing heading it claimed to detect. It read as
+    coverage while providing none, which is worse than not having it.
+
+    Under the allowlist the question is answerable: every heading the cut kept
+    is on the allowlist by construction, so anything else surviving is a real
+    defect in the cut. The vocabulary question -- is the allowlist short an
+    entry? -- is answered instead by `dropped_headings`, recorded per task and
+    counted over the corpus, where a heading nobody recognized is visible.
+    """
+
+    return any(
+        not any(heading_matches(title, allowed) for allowed in PROBLEM_STATEMENT_HEADINGS)
+        for title, _text in split_sections(task_text)
+        if title is not None
+    )
+
+
+def leak_class(
+    *,
+    prescriptive_heading: bool,
+    introduced_names: Sequence[str],
+    grading_modules: Sequence[str] = (),
+    named_paths: Sequence[str] = (),
+) -> str:
+    """The worst leak signal a task's text still carries."""
+
+    if prescriptive_heading:
+        return "heading_prescriptive"
+    if introduced_names:
+        return "names_new_identifier"
+    if grading_modules:
+        return "names_grading_module"
+    if named_paths:
+        return "names_changed_file"
+    return "clean"
 
 
 def _touched_packages(source_paths: Iterable[str]) -> list[str]:
@@ -431,18 +792,26 @@ def _candidate(
         candidate_number = issue.get("number")
         if not isinstance(candidate_number, int):
             continue
-        body = strip_solution_sections(issue_body(repository_name, candidate_number))
+        raw_issue = issue_body(repository_name, candidate_number)
+        body, kept_sections, dropped_sections = problem_statement(raw_issue)
         if len(body) >= MIN_TASK_TEXT_CHARS:
             issue_number = candidate_number
             task_text = body
             task_source = "linked_issue"
             break
     if not task_text:
-        task_text = task_text_from_pull_request_body(str(pull_request.get("body") or ""))
+        task_text, kept_sections, dropped_sections = problem_statement(
+            str(pull_request.get("body") or ""), task_source="pull_request_body"
+        )
         task_source = "pull_request_body"
     task_text = redact_home_directories(task_text.strip())
     if len(task_text) < MIN_TASK_TEXT_CHARS:
         return None, "task_text_too_short"
+    if not states_the_problem(kept_sections, task_source):
+        # Every section that survived is context: environment, reproduction
+        # steps, logs. A candidate reading this knows where to stand and not
+        # what is wrong, so the text does not determine the work.
+        return None, "task_text_states_no_problem"
     task_text = task_text[:MAX_TASK_TEXT_CHARS]
 
     source_diff = repo_lib.diff_text(repository, base, head, non_test_work)
@@ -455,7 +824,20 @@ def _candidate(
         # validator asserts on. Both arms would be transcribing rather than
         # solving, which inflates the pass rate and compresses the delta.
         return None, "task_text_names_an_introduced_definition"
+    named_grading_modules = grading_modules_in_task_text(task_text, test_modules)
+    if named_grading_modules:
+        # The task text names the file it will be graded by. That is a pointer
+        # to the hidden validator, which is the one thing the candidate is
+        # supposed to work out rather than be told.
+        return None, "task_text_names_its_grading_module"
     named_source_paths = source_paths_in_task_text(task_text, source_paths)
+    prescriptive_heading = has_prescriptive_heading(task_text)
+    classification = leak_class(
+        prescriptive_heading=prescriptive_heading,
+        introduced_names=introduced,
+        grading_modules=named_grading_modules,
+        named_paths=named_source_paths,
+    )
 
     packages = _touched_packages(source_paths)
     regression = _regression_modules(
@@ -464,6 +846,15 @@ def _candidate(
     test_diff = repo_lib.diff_text(repository, base, head, test_paths)
     if not test_diff.strip():
         return None, "empty_test_diff"
+    undetermined = undetermined_literals(
+        repository, base, task_text, test_diff, source_diff
+    )
+    if undetermined:
+        # The validator demands a value that did not exist before the fix and
+        # that the task text does not supply. No arm can produce it from this
+        # brief, so the task would read red for every arm regardless of how
+        # well any of them worked.
+        return None, "task_text_does_not_determine_the_work"
 
     task = {
         "task_id": f"PR-{number}",
@@ -480,6 +871,13 @@ def _candidate(
         # ordinary bug report does. A reader who wants the stricter corpus
         # subsets on this field rather than trusting a prose claim about it.
         "task_text_names_source_paths": named_source_paths,
+        "leak_class": classification,
+        # What the allowlist kept and what it discarded, by heading. The
+        # discarded list is how the allowlist's own gaps become visible: a
+        # heading nobody recognized is recorded here and counted over the
+        # corpus, rather than silently kept the way the denylist kept it.
+        "sections_kept": list(kept_sections),
+        "sections_dropped": list(dropped_sections),
         "changed_lines": changed_lines,
         "test_lines": test_lines,
         "touched_packages": packages,
@@ -565,6 +963,35 @@ def probe_passes_agree(first: Mapping[str, Any], second: Mapping[str, Any]) -> b
     return all(first.get(field) == second.get(field) for field in PROBE_VERDICT_FIELDS)
 
 
+def probe_environment(python_executable: str) -> dict[str, Any]:
+    """What the probe's verdicts depend on besides the repository.
+
+    The interpreter decides membership, not just timing. PR-1502 classifies as
+    `verdict_depends_on_workspace_path` under CPython 3.13.15 and as
+    `validator_already_green_at_merge_base` under 3.14.7, so a corpus built
+    with one and verified with the other is a different corpus with no sign
+    that it changed. Recording this is what lets `verify` say so.
+    """
+
+    import subprocess  # noqa: PLC0415
+
+    completed = subprocess.run(
+        [python_executable, "-c", "import sys; print(sys.version.split()[0])"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=60,
+    )
+    version = completed.stdout.strip() if completed.returncode == 0 else "unknown"
+    return {
+        "python_version": version,
+        "python_hash_seed": lane.HASH_SEED,
+        "probe_verdict_fields": list(PROBE_VERDICT_FIELDS),
+    }
+
+
 def probe(
     *,
     repository: Path,
@@ -611,11 +1038,28 @@ def probe(
     kept: list[dict[str, Any]] = []
     rejected: dict[str, int] = {}
     probed = 0
-    # Newest first, stopping as soon as the corpus is full. Each probe runs
-    # the pull request's own test modules and its regression set twice over,
-    # which costs minutes on this repository's larger modules; sweeping every
-    # candidate after the corpus is already full buys nothing.
-    candidates = sorted(payload["tasks"], key=lambda item: int(item["pull_request"]), reverse=True)
+    # Issue-sourced candidates first, then newest first within each group,
+    # stopping as soon as the corpus is full.
+    #
+    # The ordering is the headline's. A task whose text came from the pull
+    # request body was written after the fix by its author, so only the
+    # issue-sourced tasks can carry a sentence about solving this repository's
+    # own issues. The probe rejects some of every group, so taking them in
+    # merge order would let pull-request-body tasks consume slots the headline
+    # subset needs, and the headline's `n` is the number under the most
+    # pressure.
+    #
+    # Newest first inside each group because the probe runs each candidate's
+    # validator twice and its regression set once, which costs minutes on this
+    # repository's larger modules, and sweeping candidates past a full corpus
+    # buys nothing.
+    candidates = sorted(
+        payload["tasks"],
+        key=lambda item: (
+            str(item.get("task_source")) != "linked_issue",
+            -int(item["pull_request"]),
+        ),
+    )
     def one_pass(
         task: Mapping[str, Any],
         root: Path,
@@ -673,6 +1117,7 @@ def probe(
         elif regression["status"] != "green":
             verdict = "regression_set_not_green_at_merge_base"
         second: dict[str, Any] = {}
+        repeat: dict[str, Any] = {}
         if verdict == "included":
             # A different ROOT, not just a different leaf name, and a root that
             # differs in length as well as in spelling. Both halves matter: a
@@ -686,7 +1131,25 @@ def probe(
                     task, deeper, f"{task_id}-hermes", with_regression=False
                 )
             if not probe_passes_agree(target, second):
-                verdict = "verdict_depends_on_workspace_path"
+                # The control this check used to lack. Two runs disagreeing
+                # proves they disagreed, not that the PATH is why: a validator
+                # that is simply unstable disagrees with itself anywhere, and
+                # recording that as path dependence asserts a cause the
+                # comparison cannot establish. So repeat at the FIRST root. A
+                # task that also disagrees with itself there is flaky and is
+                # rejected under its own name; only a task that is stable at
+                # one root and different at another is path-dependent.
+                repeat, _ = one_pass(
+                    task,
+                    workspace_root,
+                    f"repeat-{task_id}",
+                    with_regression=False,
+                )
+                verdict = (
+                    "verdict_depends_on_workspace_path"
+                    if probe_passes_agree(target, repeat)
+                    else "validator_disagrees_with_itself_at_one_path"
+                )
         solved: dict[str, Any] = {}
         solved_regression: dict[str, Any] = {}
         if verdict == "included":
@@ -732,9 +1195,28 @@ def probe(
     selection["probe_rejected"] = dict(sorted(rejected.items()))
     selection["probed"] = probed
     selection["max_tasks"] = maximum_tasks
+    # The headline subset's size, recorded rather than left to be counted.
+    # Only issue-sourced tasks can carry a sentence about solving this
+    # repository's own issues, so that `n` is the one a reader needs beside
+    # any such number.
+    selection["probe_environment"] = probe_environment(python_executable)
+    selection["task_source"] = _counts(str(task.get("task_source")) for task in kept)
+    selection["leak_class"] = _counts(str(task.get("leak_class")) for task in kept)
+    selection["leak_class_issue_sourced"] = _counts(
+        str(task.get("leak_class"))
+        for task in kept
+        if str(task.get("task_source")) == "linked_issue"
+    )
     result["selection"] = selection
     result["corpus_digest"] = corpus_digest(kept)
     return result
+
+
+def _counts(values: Iterable[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def corpus_digest(tasks: Sequence[Mapping[str, Any]]) -> str:
@@ -771,6 +1253,39 @@ def load(path: Path) -> dict[str, Any]:
     return payload
 
 
+def environment_drift(payload: Mapping[str, Any]) -> list[str]:
+    """How this interpreter differs from the one that probed the corpus.
+
+    Kept apart from `verify` on purpose. Digests are re-derived from git and do
+    not depend on the interpreter, so a 3.12 checkout can confirm every one of
+    them; what a different interpreter cannot confirm is the PROBE's verdicts,
+    because the interpreter decides membership -- PR-1502 classifies as
+    path-dependent under 3.13.15 and as already-green under 3.14.7.
+
+    Folding this into `verify` made the digest check fail on every CI lane,
+    which run 3.11 and 3.12, and reported it as a drifted digest. That is a
+    different fact with a different remedy, so it gets its own list, its own
+    wording, and its own line in the command's output.
+
+    It is INFORMATION on the verify path and a REFUSAL on the probe path. A
+    digest check that only runs under one interpreter is a digest check that
+    does not run in CI, which is where it is wanted most; whereas re-probing
+    under a different interpreter genuinely produces a different corpus, and
+    that has to stop rather than report.
+    """
+
+    recorded = dict((payload.get("selection") or {}).get("probe_environment") or {})
+    if not recorded:
+        return []
+    current = probe_environment(sys.executable)
+    return [
+        f"{field}: this corpus was probed under {recorded.get(field)!r}, "
+        f"this interpreter is {current.get(field)!r}"
+        for field in ("python_version", "python_hash_seed")
+        if str(recorded.get(field)) != str(current.get(field))
+    ]
+
+
 def verify(repository: Path, payload: Mapping[str, Any]) -> list[str]:
     """Re-derive every pinned digest from the local object store."""
 
@@ -778,6 +1293,7 @@ def verify(repository: Path, payload: Mapping[str, Any]) -> list[str]:
     tasks = list(payload["tasks"])
     if corpus_digest(tasks) != payload.get("corpus_digest"):
         errors.append("corpus_digest does not match the task list")
+
     for task in tasks:
         task_id = str(task["task_id"])
         if lane.text_digest(str(task["task_text"])) != task["task_text_sha256"]:

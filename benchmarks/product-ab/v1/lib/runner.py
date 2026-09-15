@@ -99,7 +99,8 @@ def _version(executable: str, flag: str) -> str:
         return "not_on_path"
     try:
         completed = subprocess.run(
-            [executable, flag], capture_output=True, text=True, check=False, timeout=60
+            [executable, flag], capture_output=True, text=True, encoding="utf-8",
+            errors="replace", check=False, timeout=60
         )
     except (OSError, subprocess.SubprocessError):
         return "unavailable"

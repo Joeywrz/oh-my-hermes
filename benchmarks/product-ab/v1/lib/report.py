@@ -240,6 +240,33 @@ def paired_delta(
     }
 
 
+def subset_task_ids(
+    corpus_payload: Mapping[str, Any],
+    *,
+    task_source: str | None = None,
+    leak_classes: Sequence[str] | None = None,
+) -> set[str]:
+    """Task ids matching a corpus property, for reporting on a subset.
+
+    The headline sentence and the full table need not run on the same tasks. A
+    task whose text came from the pull request body was written after the fix,
+    by its author, and no heading rule removes what a paraphrase leaks -- so a
+    sentence of the form "solved N% of our own issues" has to be able to name
+    the tasks that actually came from issues, rather than lean on a caveat
+    paragraph that will be dropped the first time the number is quoted.
+    """
+
+    wanted = set(leak_classes) if leak_classes else None
+    ids: set[str] = set()
+    for task in corpus_payload.get("tasks") or []:
+        if task_source and str(task.get("task_source")) != task_source:
+            continue
+        if wanted is not None and str(task.get("leak_class")) not in wanted:
+            continue
+        ids.add(str(task["task_id"]))
+    return ids
+
+
 def analyze(
     *,
     records_path: Path,
@@ -247,8 +274,29 @@ def analyze(
     baseline_arm: str = "hermes",
     repetitions: int = 10_000,
     seed: int = 20260914,
+    only_task_ids: Sequence[str] | None = None,
+    subset_label: str = "all tasks",
 ) -> dict[str, Any]:
     records = read_records(records_path)
+    if only_task_ids is not None:
+        keep = set(only_task_ids)
+        present = {str(row["task_id"]) for row in records}
+        # The subset comes from a corpus file and the records from a run, and
+        # nothing so far checked they are the same corpus. A task whose
+        # `task_source` differed between two corpus versions would quietly
+        # enter or leave the headline subset -- exactly the definition that
+        # must not drift. An empty intersection already raised; a partial one
+        # did not.
+        unknown = sorted(keep - present)
+        if unknown and present:
+            raise ValueError(
+                f"the subset {subset_label!r} names {len(unknown)} task(s) with no "
+                f"run record ({unknown[:3]}); the corpus and the records do not "
+                "describe the same corpus"
+            )
+        records = [row for row in records if str(row["task_id"]) in keep]
+        if not records:
+            raise ValueError(f"no run record is in the subset {subset_label!r}")
     indexed = index_by_arm(records)
     if baseline_arm not in indexed:
         raise ValueError(f"records carry no {baseline_arm} arm")
@@ -288,6 +336,10 @@ def analyze(
         "analysis_seed": seed,
         "bootstrap_repetitions": repetitions,
         "corpus_digest": corpus_digests.pop(),
+        # Which tasks this report is about. A number read without it is a
+        # number about a different corpus than the reader assumes.
+        "subset": subset_label,
+        "subset_task_count": len({str(row["task_id"]) for row in records}),
         "baseline_arm": baseline_arm,
         "arms": summaries,
         "comparisons": comparisons,

@@ -46,7 +46,7 @@ def materialize_validator(repository: Path, task: Mapping[str, Any], workspace: 
             continue
         content = _blob(repository, str(task["merge_commit"]), str(path))
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8", newline="")
+        target.write_bytes(content)
         written.append(str(path))
     return sorted(written)
 
@@ -76,7 +76,7 @@ def materialize_solution(repository: Path, task: Mapping[str, Any], workspace: P
             continue
         content = _blob(repository, str(task["merge_commit"]), str(path))
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8", newline="")
+        target.write_bytes(content)
         written.append(str(path))
     return sorted(written)
 
@@ -107,13 +107,17 @@ def restore_regression_modules(
         content = _blob(repository, str(task["merge_base"]), path)
         target = workspace / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8", newline="")
+        target.write_bytes(content)
         restored.append(path)
     return restored
 
 
-def _blob(repository: Path, commit: str, path: str) -> str:
-    """One path's content at one commit, or a failure that names the cause.
+def _blob(repository: Path, commit: str, path: str) -> bytes:
+    """One path's exact bytes at one commit, or a failure that names the cause.
+
+    Bytes rather than text: a pull request may have changed a binary file, and
+    a file written into a candidate workspace has to be the file git holds or
+    the digest over it drifts with the platform's newline handling.
 
     A missing object here is almost never a missing file. It is a checkout
     with no history for that commit -- a shallow clone, most often -- and
@@ -121,7 +125,7 @@ def _blob(repository: Path, commit: str, path: str) -> str:
     loss that had not happened.
     """
 
-    content = repo_lib.file_at(repository, commit, path)
+    content = repo_lib.file_bytes(repository, commit, path)
     if content is not None:
         return content
     has_commit = repo_lib.git_ok(repository, "cat-file", "-e", f"{commit}^{{commit}}")
@@ -158,7 +162,9 @@ def validator_paths_already_present(workspace: Path, task: Mapping[str, Any]) ->
         target = workspace / str(path)
         if not target.is_file():
             continue
-        actual = hashlib.sha256(target.read_text(encoding="utf-8", errors="replace").encode("utf-8")).hexdigest()
+        # Over the bytes, matching how the corpus pinned them. Hashing decoded
+        # text instead would never match on a platform that rewrites newlines.
+        actual = hashlib.sha256(target.read_bytes()).hexdigest()
         if actual == expected:
             present.append(str(path))
     return sorted(present)
@@ -183,6 +189,8 @@ def run_modules(
             env=lane.unittest_environment(workspace, scratch),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=timeout,
         )

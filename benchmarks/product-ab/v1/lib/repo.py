@@ -22,10 +22,25 @@ class GitError(RuntimeError):
 
 
 def git(repo: Path, *arguments: str, timeout: int = GIT_TIMEOUT_SECONDS) -> str:
+    """Run one git command and decode its output as UTF-8, explicitly.
+
+    The decode is named rather than inherited. `text=True` alone decodes with
+    the ambient locale, and this repository's diffs are not ASCII: twelve of
+    the pinned test diffs carry non-ASCII bytes, so the same `git diff` that
+    digests one way under a UTF-8 locale raises `UnicodeDecodeError` under
+    `LC_ALL=C`. A pinned digest that depends on the caller's environment is
+    not a pin, and a build that dies on a differently-configured machine is
+    not reproducible. `errors="replace"` keeps a stray undecodable byte from
+    killing a build; it cannot silently change a digest, because the
+    replacement is deterministic.
+    """
+
     completed = subprocess.run(
         ["git", "-C", str(repo), *arguments],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=timeout,
     )
@@ -42,6 +57,8 @@ def git_ok(repo: Path, *arguments: str, timeout: int = GIT_TIMEOUT_SECONDS) -> b
         ["git", "-C", str(repo), *arguments],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=timeout,
     )
@@ -111,17 +128,41 @@ def diff_text(repo: Path, base: str, head: str, paths: Sequence[str]) -> str:
     return git(repo, "diff", "-M", "--no-renames", base, head, "--", *paths)
 
 
-def file_at(repo: Path, commit: str, path: str) -> str | None:
+def file_bytes(repo: Path, commit: str, path: str) -> bytes | None:
+    """One path's exact blob at one commit, or ``None`` when git has no such path.
+
+    Bytes, not text, and every caller that writes a file uses these. Two
+    reasons, and the first was found the hard way. A text-mode read decodes
+    with the ambient codec, so the first binary blob in this repository's
+    history -- a PNG, reached only once the corpus read was widened past the
+    recent pull requests -- crashed the build with a `UnicodeDecodeError` from
+    inside `subprocess`. The second is Windows: a text-mode round trip
+    translates newlines, so the file written into a candidate workspace would
+    not be the file git holds, and every digest over it would drift by
+    platform.
+    """
+
     completed = subprocess.run(
         ["git", "-C", str(repo), "show", f"{commit}:{path}"],
         capture_output=True,
-        text=True,
         check=False,
         timeout=GIT_TIMEOUT_SECONDS,
     )
     if completed.returncode:
         return None
     return completed.stdout
+
+
+def file_at(repo: Path, commit: str, path: str) -> str | None:
+    """One path's content as text, or ``None`` when it is missing or not text."""
+
+    raw = file_bytes(repo, commit, path)
+    if raw is None:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 def grep_paths(repo: Path, commit: str, needles: Sequence[str], prefix: str) -> list[str]:
@@ -137,6 +178,8 @@ def grep_paths(repo: Path, commit: str, needles: Sequence[str], prefix: str) -> 
         ["git", "-C", str(repo), *arguments],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=GIT_TIMEOUT_SECONDS,
     )
@@ -149,6 +192,42 @@ def grep_paths(repo: Path, commit: str, needles: Sequence[str], prefix: str) -> 
         if separator and path.strip():
             found.append(path.strip())
     return sorted(set(found))
+
+
+def present_needles(repo: Path, commit: str, needles: Sequence[str]) -> set[str]:
+    """Which of ``needles`` occur anywhere in the tree at ``commit``.
+
+    One subprocess for the whole batch. The novelty question is asked of tens
+    of literals per candidate over a hundred and fifty candidates, and a `git
+    grep` each turns a corpus build into an hour; `-o` reports the matched text
+    itself, so a single call partitions the batch into present and absent.
+    """
+
+    if not needles:
+        return set()
+    wanted = sorted({needle for needle in needles if needle})
+    arguments = ["grep", "-o", "-F"]
+    for needle in wanted:
+        arguments.extend(["-e", needle])
+    arguments.extend([commit, "--", "."])
+    completed = subprocess.run(
+        ["git", "-C", str(repo), *arguments],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=GIT_TIMEOUT_SECONDS * 4,
+    )
+    # git grep exits 1 when nothing matched, which is not an error here.
+    if completed.returncode not in {0, 1}:
+        raise GitError(f"git grep -o failed with exit {completed.returncode}")
+    found: set[str] = set()
+    for line in completed.stdout.splitlines():
+        _before, separator, matched = line.rpartition(":")
+        if separator and matched in set(wanted):
+            found.add(matched)
+    return found
 
 
 def blob_sizes(repo: Path, commit: str, prefix: str) -> dict[str, int]:
@@ -168,12 +247,17 @@ def blob_sizes(repo: Path, commit: str, prefix: str) -> dict[str, int]:
 
 
 def blob_digest(repo: Path, commit: str, path: str) -> str:
-    """sha256 of one path's content at one commit; a missing path digests as ``-``."""
+    """sha256 of one path's bytes at one commit; a missing path digests as ``-``.
 
-    content = file_at(repo, commit, path)
-    if content is None:
+    Over the bytes git holds, not over decoded text: a digest that depends on
+    a codec or on newline translation is not a pin, and a binary path has no
+    text to digest at all.
+    """
+
+    raw = file_bytes(repo, commit, path)
+    if raw is None:
         return "-"
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+    return hashlib.sha256(raw).hexdigest()
 
 
 @contextmanager
@@ -202,6 +286,8 @@ def candidate_workspace(repo: Path, commit: str, root: Path, name: str) -> Itera
             ["git", "-C", str(repo), "worktree", "remove", "--force", str(workspace)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=GIT_TIMEOUT_SECONDS,
         )
@@ -211,6 +297,8 @@ def candidate_workspace(repo: Path, commit: str, root: Path, name: str) -> Itera
             ["git", "-C", str(repo), "worktree", "prune"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=GIT_TIMEOUT_SECONDS,
         )

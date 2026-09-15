@@ -195,6 +195,8 @@ def resolve_route(
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=timeout,
     )
@@ -220,6 +222,8 @@ def resolve_delegation(
         input=task_text,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=timeout,
     )
@@ -340,6 +344,8 @@ def run_hermes(
                 env=_child_environment(workspace),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
                 timeout=timeout,
             )
@@ -426,6 +432,8 @@ def run_verification(
                 env=environment,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
                 timeout=timeout,
             )

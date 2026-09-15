@@ -212,7 +212,8 @@ Rules:
   regression. Clear it before you diagnose anything:
 
   ```sh
-  rm -rf build && uv sync --reinstall-package oh-my-hermes
+  rm -rf build && find src tests -name __pycache__ -prune -exec rm -rf {} + \
+    && uv sync --reinstall-package oh-my-hermes
   ```
 
   This is worth its own entry because of how it lies. Bisecting across the
@@ -223,6 +224,34 @@ Rules:
   If a checkout ever aborts with "local changes would be overwritten", stop:
   every run after that measured the same dirty tree. `git reset --hard &&
   git clean -fdx` first, then re-measure.
+
+  Why it is always a *missing module* and never a stale edit: `pyproject.toml`
+  sets `config-settings = { editable_mode = "strict" }`, so the editable install
+  is a static file-tree copy rather than a path hook. Files edited in place
+  still resolve through it; files ADDED since the last sync do not exist in it
+  at all. That is also why it recurs mid-session — a later `uv sync` or
+  `uv run` recreates the copy, and it can be recreated carrying your edited
+  module but not the new one that module imports, so the traceback points at
+  your own change.
+
+  Only a `-P` spawn sees it, which is what makes it read as a real regression:
+  `uv run python -m omh.cli docs … --check` passes at the same moment, because
+  without `-P` the repo-root `omh/` shim resolves to the checkout. So every
+  gate is green and exactly one test is red. The canary is
+  `tests/test_agent_board_kanban` — case K7 in `tests/five_issue_cases/kanban.py`
+  spawns three docs gates through `-P -m omh.cli` with `UV_NO_SYNC=1` in the
+  child's environment, so it cannot self-heal and reads whatever sits in
+  `build/` at that moment. Run that one file before reporting any isolated
+  failure as pre-existing or as another branch's; if it is red, clear, resync,
+  and re-measure, because the earlier run is not evidence.
+
+  The bytecode cache lies the same way and is worse in one respect: it survives
+  a clean `git diff`. A constant mutated for a reproduction and then restored
+  byte-for-byte kept returning the mutated value for an hour, because the edit
+  was length-identical (a date, and a 40-character hash) — exactly where
+  mtime-and-size invalidation is weakest. `git diff` clean is normally the end
+  of the "did I leave something modified" question; here it is not, so clear
+  `__pycache__` alongside `build/`, as the command above does.
 - Concluding a platform fact settles a call site. Windows and POSIX differ in
   ways this repo keeps rediscovering — `Path.write_text` without `newline=`
   emits CRLF; a child process's stdout arrives CRLF-terminated; CR is a control

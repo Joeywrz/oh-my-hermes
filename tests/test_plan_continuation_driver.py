@@ -158,6 +158,20 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
 
                 self.assertIsNone(self._fire())
 
+    def test_a_reason_that_says_nothing_is_wrong_still_stops_the_plan(self):
+        # The deliberate choice, pinned so it stays a decision rather than an
+        # accident. With no `blocked` item state the field's PRESENCE is the
+        # whole declaration, so a speculative fill does stop the loop. Ranking
+        # wordings instead would need a list of reasons that do not count --
+        # uncompletable in one language let alone four, which is exactly what
+        # sank text inference. The guard lives in the tool description, which
+        # says to omit the field unless the item cannot proceed.
+        for reason in ("none", "n/a", "not blocked", "없음"):
+            with self.subTest(reason=reason):
+                self._write_plan([("land the fix", "done"), ("open the PR", "active", reason)])
+
+                self.assertIsNone(self._fire())
+
     def test_item_text_about_a_block_is_not_a_block(self):
         # The regression that made the field necessary. Every item below is
         # ordinary descriptive text with no recorded reason, and each one used

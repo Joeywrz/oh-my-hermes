@@ -71,10 +71,13 @@ OMH_TODO_SCHEMA = {
                         "blocked_reason": {
                             "type": "string",
                             "description": (
-                                "Why this item cannot proceed, recorded on the item rather "
-                                "than written into its text. The item keeps its state and the "
-                                "plan stops advancing past it, so record one only while the "
-                                "work is actually waiting on something and clear it when that "
+                                "Omit this field. Send it only for an item that CANNOT "
+                                "proceed, naming what it is waiting on (a review, an "
+                                "approval, a missing credential, another item). Any value "
+                                "here stops the plan advancing past this item, so an item "
+                                "that is merely unstarted, slow, or mid-work carries no "
+                                "blocked_reason -- and neither does one whose text happens to "
+                                "discuss blocking. Remove the field once the thing it names "
                                 "arrives."
                             ),
                         },

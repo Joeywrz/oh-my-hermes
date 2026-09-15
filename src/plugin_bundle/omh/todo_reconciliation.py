@@ -221,6 +221,16 @@ def recorded_blocked_reason(item: dict[str, Any] | None) -> str:
     "waiting on the owner's review" did not. Every marker that would fix the
     second widens the first, so the plan schema owns the state instead
     (``blocked_reason`` in `todo_store`) and this only reads it.
+
+    ANY non-empty reason counts, including one that says nothing is wrong
+    ("none", "n/a", "없음"). That is deliberate, and it is the narrow form of
+    the question the matcher got wrong: deciding which wordings are REAL
+    blocks needs a list of reasons that do not count, and that list cannot be
+    completed in one language let alone four -- the same hole that made text
+    inference unfixable. So the field's presence is the declaration and the
+    writer owns it. The guard against filling it in speculatively is the tool
+    description, which says to omit the field and send it only for an item
+    that cannot proceed; a plan un-declares by removing it.
     """
     if not isinstance(item, dict):
         return ""

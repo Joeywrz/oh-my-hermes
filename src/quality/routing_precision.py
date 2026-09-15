@@ -1019,6 +1019,26 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "",
         "context-budget-review",
     ),
+    # The same guard for the overflow triggers. "window", "running out", "hand
+    # off", "new", and "session" are held back from this workflow's trigger
+    # tokens precisely so these two sentences keep answering the question they
+    # asked instead of naming a budget review.
+    RoutingPrecisionCase(
+        "browser-window-resize-direct",
+        "Resizing a browser window never dispatches context budget review",
+        "resize the browser window to 1280 wide and rerun the screenshot",
+        "answer_clarification",
+        "",
+        "context-budget-review",
+    ),
+    RoutingPrecisionCase(
+        "disk-space-running-out-direct",
+        "Running out of disk space never dispatches context budget review",
+        "the build is running out of disk space",
+        "answer_clarification",
+        "",
+        "context-budget-review",
+    ),
     RoutingPrecisionCase(
         "new-project-file-concept-direct",
         "New-project file concept question stays a lookup, not an app delivery loop",
@@ -4233,6 +4253,42 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "prepare_context_budget_review",
         "context_budget_review",
         "context-budget-review",
+    ),
+    # The phrasing a person actually uses when the window is filling. It opens
+    # with the word "context", which is the terminology workflow's whole name,
+    # so it was read as an explicit invocation of that workflow and took first
+    # place on +12 of name weight alone.
+    RoutingInterventionCase(
+        "context-window-full-budget-review",
+        "A filling context window reaches budget review, not terminology alignment",
+        "context window is almost full, save decisions and hand off to a new session",
+        "dispatch",
+        "context-budget-review",
+        "prepare_context_budget_review",
+        "context_budget_review",
+        "context-budget-review",
+    ),
+    RoutingInterventionCase(
+        "running-out-of-context-budget-review",
+        "Running out of context reaches budget review",
+        "we are running out of context on this long agent run",
+        "dispatch",
+        "context-budget-review",
+        "prepare_context_budget_review",
+        "context_budget_review",
+        "context-budget-review",
+    ),
+    # The other sense of the same word, kept whole: this is the workflow the
+    # message above was taking.
+    RoutingInterventionCase(
+        "project-terminology-stays-context-alignment",
+        "A repository-terminology question still reaches terminology alignment",
+        "align project terminology for the words this repository uses",
+        "dispatch",
+        "context",
+        "prepare_project_terms_context",
+        "project_terms_context",
+        "context",
     ),
     RoutingInterventionCase(
         "greenfield-bootstrap-the-project",

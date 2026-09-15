@@ -38,6 +38,7 @@ from .policy import (
     SKILL_SCOUT_CANDIDATE_INTENT_PHRASES,
     _explicit_skill_candidate_is_negated,
     active_routing_guard_rules,
+    context_query_is_budget_sense,
     explicit_skill_invocation,
     is_explicit_one_off_request,
     jit_learn_guard_applies,
@@ -1952,6 +1953,14 @@ _SIBLING_POINTER_METADATA_TOKENS = {
 # `models` and `work` look like observed-work inventory requests.
 _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS = {
     "running-work-board": frozenset({"board", "models", "running", "units", "what", "which", "work"}),
+    # The overflow phrasings `context-budget-review` needs -- "context window",
+    # "running out of context", "hand off to a new session" -- are built from
+    # words that mean nothing on their own. Credited as bare tokens they took
+    # "resize the browser window", "the maintenance window is tonight", "the
+    # build is running out of disk space", and "hand off the frontend work to a
+    # new engineer". The intent is in the complete phrases, which already score
+    # +6 each.
+    "context-budget-review": frozenset({"hand", "new", "off", "out", "running", "session", "window"}),
     # `long-document-reading` names its work with the most ordinary words in
     # the catalog -- "read", "document", "pdf", "report", "contract", "page",
     # "large", "long", "process". Credited as bare tokens they claimed "read
@@ -2418,7 +2427,10 @@ def _score_definition(
         offers_itself is not None
         and (
             explicit_skill != definition.name
-            or (definition.name == "context" and "budget" in query_tokens)
+            or (
+                definition.name == "context"
+                and ("budget" in query_tokens or context_query_is_budget_sense(normalized_query))
+            )
         )
         and not offers_itself(normalized_query, query_tokens)
     ):

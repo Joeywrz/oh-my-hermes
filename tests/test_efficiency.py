@@ -257,7 +257,14 @@ class EfficiencyContractTests(unittest.TestCase):
         # reference file, counted below rather than here. The ceiling restores
         # the ~11k standing headroom; the exact value stays ratcheted in
         # `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
-        self.assertLess(full["skill_body"]["bytes"], 975_000)
+        # 975,000 -> 990,000: `live-incident-response` (#1563) takes the full
+        # profile to 976,281 bytes (one new body plus its lane name on the
+        # automation_and_status skills' Workflow Lane lines, and the reciprocal
+        # boundary line in each of the three siblings it hands back to). Its
+        # method detail is a reference file, counted below rather than here. The
+        # ceiling restores the ~13k standing headroom; the exact value stays
+        # ratcheted in `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
+        self.assertLess(full["skill_body"]["bytes"], 990_000)
         self.assertLess(full["repeated"]["share_percent"], 38.0)
 
         # References are progressive disclosure, counted outside the always-loaded body.

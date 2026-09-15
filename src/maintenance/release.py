@@ -240,7 +240,13 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # threat-model request came back as an agent tool inventory under a
 # near-identical name. One new capability section for one new workflow, not
 # per-section padding; warranted growth.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 421221
+# 421221 -> 425447: `live-incident-response` is a new installable skill
+# (#1563). It exists because an incident that is still open had no owner:
+# `support-operations` routed an active incident to `reliability-review`, and
+# that lane reviews incident notes after the fact. One new capability section
+# for one new workflow plus the reciprocal boundary lines in the three siblings
+# it hands back to; not per-section padding, warranted growth.
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 425447
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -274,7 +280,9 @@ FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # `long-document-reading` skill; warranted growth.
 # 117199 -> 118167: one standalone capability row for the new
 # `application-threat-model` skill (#1564); warranted growth.
-STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 118167
+# 118167 -> 119140: one standalone capability row for the new
+# `live-incident-response` skill (#1563); warranted growth.
+STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 119140
 STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # ULW fold context ceiling (issue #954, PR D). The limit is the pre-D measured
 # value of the full profile's `skill_body` chars on `main` @ acb9a060, in the
@@ -929,7 +937,25 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # boundary. Without it the collision is closed in one direction only: the new
 # lane declines the agent surface, while the lane that owns the agent surface
 # would still answer an application request with `threat_surface_map/v1`.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 965080
+# 965080 -> 976281: #1563 adds `live-incident-response`, the skill that owns an
+# incident while it is still open. The catalog had the pieces spread across four
+# retrospective or release-shaped lanes and no live composite, so
+# `support-operations` handed an active outage to `reliability-review` -- a
+# postmortem lane -- while the outage was still running. The body carries only
+# what must hold whether or not a reference is open: the boundary against the
+# three siblings, the append-only timeline rule, the prepared-versus-observed
+# split for paging and customer sends, and the rule that recovery is an
+# observation of a named signal rather than a mitigation being applied. The
+# method detail (the severity ladder, the four roles, the three timeline entry
+# types and their fields, the communication ledger, handover and closing) is
+# `skills/omh-live-incident-response/references/incident-command-method.md`,
+# 6,192 bytes measured outside this budget. The remaining growth is the three
+# reciprocal `do_not_use_when` lines in `reliability-review`,
+# `support-operations`, and `deploy-and-monitor`, without which the collision is
+# closed in one direction only, plus the new lane name on the
+# automation_and_status skills' Workflow Lane lines. Re-derived from the
+# full-profile skill_context_cost_payload() producer, never by adding deltas.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 976281
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

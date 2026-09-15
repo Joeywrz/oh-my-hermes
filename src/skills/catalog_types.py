@@ -1188,6 +1188,7 @@ _CODING_INTENT_BY_SKILL = {
     "security-safety-review": "planning",
     "application-threat-model": "planning",
     "automation-blueprint": "planning",
+    "live-incident-response": "planning",
     "reliability-review": "planning",
     "idea-to-deploy": "planning",
     "cto-loop": "planning",

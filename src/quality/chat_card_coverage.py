@@ -563,6 +563,14 @@ CHAT_CARD_COVERAGE_CASES: tuple[ChatCardCoverageCase, ...] = (
         "prepare_application_threat_model",
     ),
     ChatCardCoverageCase(
+        "live-incident-response",
+        "Live Incident Response",
+        "we have a production outage right now, declare severity and assign an incident commander",
+        "live-incident-response",
+        "live_incident_record",
+        "prepare_live_incident_record",
+    ),
+    ChatCardCoverageCase(
         "skill-health",
         "Skill Health",
         "skill-health",

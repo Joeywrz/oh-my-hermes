@@ -1741,7 +1741,8 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The request clusters a backlog of customer signals to find product patterns or roadmap candidates; use `feedback-triage`.
   - The user only needs a generic, non-support marketing or email rewrite with no case, severity, or escalation context; use `content-operator`.
   - The request asks to send a reply, change ticket priority or status, issue a refund, modify an account, or update a helpdesk; use `connector-operator` with an explicit target and observed result.
-  - The request is an active reliability incident or postmortem rather than a support-case response; use `reliability-review`.
+  - The request is an incident that is still open, needing severity declared, a commander assigned, and a running timeline rather than a support-case response; use `live-incident-response`.
+  - The request is a closed incident's postmortem or reliability evidence rather than a support-case response; use `reliability-review`.
 - Strong routing signals: `support escalation`, `customer support reply`, `ticket triage`, `고객 지원 에스컬레이션`, `고객 답변 초안`, `지원 티켓 분류`
 - Good example:
   - Prompt: Draft a calm reply for this login-outage customer and tell me whether it needs an engineering escalation.
@@ -4206,6 +4207,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The user only needs a generic status report or leadership deck.
   - No service, incident, SLO, metric, or reliability source boundary is available.
   - The request is implementation of remediation rather than review of reliability evidence.
+  - The incident is still open and the user needs severity declared, a commander assigned, a running timeline, and recovery verified; use `live-incident-response` and review it once it is closed.
 - Strong routing signals: `reliability-review`, `reliability review`, `incident review`, `incident postmortem`, `postmortem`, `post-mortem`, `slo review`, `slo`, `sla`, `error budget`, `service reliability`, `reliability followup`, `remediation tracking`, `sre review`, `장애 리뷰`, `장애 회고`, `포스트모템`, `사후 분석`, `에러버짓`, `에러 버짓`, `서비스 신뢰성`, `신뢰성 검증`, `재발 방지`
 - Good example:
   - Prompt: reliability-review 장애 포스트모템과 SLO 에러버짓 상태를 검토해줘.
@@ -4470,8 +4472,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `deploy-and-monitor` exists to keep `monitoring` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use when Hermes should prepare or narrate a release operation with deploy checklist, health signals, rollback criteria, and post-deploy status without pretending to run infrastructure.
 - Do not use when:
-  - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-  - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+  - An incident has already been declared and the work is commanding it -- severity, commander, running timeline, recovery verification -- rather than watching a release; use `live-incident-response`.
 - Strong routing signals: `deploy-and-monitor`, `deploy and monitor`, `deploy monitor`, `deployment monitoring`, `release monitor`, `post deploy`, `post-deploy`, `rollback`, `rollback gate`, `health check`, `incident watch`, `release health`, `deploy this service`, `배포 모니터링`, `서비스 배포`, `프로덕션 배포`, `인프라에 배포`, `배포 감시`, `롤백`, `헬스 체크`, `장애 감시`, `릴리즈 모니터링`
 - Good example:
   - Prompt: deploy-and-monitor: prepare the release monitor, rollback signals, health checks, and post-deploy status card.
@@ -6444,6 +6445,89 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Do not model the agent's own prompts, tools, credentials, or dependencies here; that surface belongs to `security-safety-review`.
   - Never print secrets, tokens, keys, connection strings, or live customer records pulled in as examples.
   - A model is not a penetration test, a scan, or a compliance attestation; name which of the three the user still needs.
+
+### live-incident-response
+
+[omh] Live incident response workflow: command an incident that is still open -- severity as declared live state, commander and roles, an append-only timeline, a recorded temporary mitigation, verified recovery, and the customer notice.
+
+- Category: `reliability`
+- Phase: `live-incident-command`
+- Hermes role: `operator`
+- Quality tier: `incident-command-gated`
+- Reasoning demand: `standard`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Lifecycle stage: `canonical`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Keep severity, role assignment, the timeline, mitigation records, and recovery verification in Hermes. Paging, status-page updates, and customer sends are `connector-operator` requests recorded as observed only when the connector returns a result; rollbacks, code changes, and infrastructure operations are executor or operator work and reach the timeline as observations, never as claims.
+- Why this exists: `live-incident-response` exists because an incident that is still open had no owner. `support-operations` sent an active incident to `reliability-review`, and `reliability-review` reviews incident notes after the fact, so the one skill that saw the request handed it to a postmortem while the outage was still running.
+- Use when: Use when an incident is open right now and the user needs it commanded: severity declared as live state, a commander and the other roles assigned, an append-only timeline kept, a temporary mitigation recorded as temporary, recovery verified against a named signal, and the customer notice drafted. The incident is still running; once it is closed the work is a review.
+- Do not use when:
+  - The incident is over and the request is the postmortem, the SLO or error-budget consequence, or remediation follow-up; use `reliability-review`.
+  - The request is one customer's support case needing a reply, a severity opinion, and an escalation path, with no incident declared; use `support-operations`.
+  - The request is a release being rolled out and watched -- deploy checklist, health signals, rollback criteria -- and nothing has been declared broken; use `deploy-and-monitor`.
+  - The request is to send the page, publish the status-page update, or deliver the customer notice; use `connector-operator`, which records a send as observed only on a returned result.
+  - The request asks whether a release is ready across rollout, rollback, and observability, before anything broke; use `production-audit`.
+- Strong routing signals: `live-incident-response`, `live incident response`, `incident response`, `active incident`, `ongoing incident`, `open incident`, `incident commander`, `incident command`, `incident bridge`, `incident channel`, `incident timeline`, `incident roles`, `declare severity`, `declare an incident`, `declare the incident`, `sev1`, `sev2`, `sev3`, `production outage`, `production is down`, `the site is down`, `service is down`, `we have an outage`, `outage right now`, `war room`, `stop the bleeding`, `temporary mitigation`, `page the on-call`, `page on-call`, `who is the incident commander`, `assign an incident commander`, `verify recovery`
+- Good example:
+  - Prompt: we have a production outage right now, declare severity and assign an incident commander
+  - Expected behavior: Prepare live_incident_record/v1: ask for the user-visible symptom and blast radius, declare the severity with the observation that set it, name the commander and the remaining roles, open the append-only timeline, and state which signal decides recovery.
+  - Why: The incident is open, so severity and command are live state rather than findings to review later.
+- Bad example:
+  - Prompt: live-incident-response write up the postmortem for last week's outage and what it cost the error budget
+  - Expected behavior: Route to `reliability-review`: a closed incident is reviewed, never commanded.
+  - Why: Severity, roles, and a running timeline have no subject once the incident is over.
+- Quality bar:
+  - Declare severity from the observed blast radius and record the observation that set it; an undeclared severity is not a severity, and a changed one appends rather than replaces.
+  - Name one commander before anything else, then name or mark unfilled each of operations, communications, and scribe.
+  - Give every timeline entry a timestamp, an actor, and a type -- observation, action, or decision -- per `omh-live-incident-response/references/incident-command-method.md`.
+  - Separate a mitigation from a fix: say what was changed, whether it is temporary, and what removes it.
+  - Verify recovery against the named signal at its healthy value; when that signal is unavailable the incident stays open and says so.
+  - Keep paging, status-page updates, and customer sends listed as prepared until a connector result is observed.
+- Completion checklist:
+  - Severity is declared, carries the observation that set it, and every change appended rather than overwrote the previous level.
+  - One commander is named; operations, communications, and scribe each name a person or read unfilled.
+  - Every timeline entry is timestamped, attributed, and typed, and no earlier entry was edited.
+  - Each mitigation reads temporary or permanent, and a temporary one names what removes it.
+  - Recovery cites the named signal, its healthy value, the observed value, and the observer, never the mitigation alone.
+  - Paging, status-page, and customer-send entries read prepared unless a connector result was observed.
+- Recovery notes:
+  - If nobody is named commander, ask for one before anything else; an incident without a commander produces opinions instead of decisions.
+  - If the recovery signal is not stated, ask which signal and which value counts as healthy before calling anything recovered.
+  - If the incident turns out to be closed, hand the postmortem to `reliability-review` and leave this record as the timeline it reads.
+  - If a connector call fails or returns nothing, keep the send prepared and name the channel that is unconfirmed instead of assuming delivery.
+- Required inputs:
+  - what is broken right now, and the user-visible behavior that shows it
+  - blast radius: which customers, tenants, or regions, and since when
+  - who is available for commander, operations, communications, and scribe
+  - the signal that decides recovery, and the value that counts as healthy
+  - mitigation state so far: nothing tried, tried and failed, or in place
+- Expert clarification questions:
+  - `who is available for commander, operations, communications, and scribe`
+    - English: Who is the incident commander right now, and who else is available to take operations, communications, and scribe?
+    - Korean: 지금 인시던트 커맨더는 누구이고, 운영·커뮤니케이션·기록 역할을 맡을 수 있는 사람은 누구인가요?
+  - `the signal that decides recovery, and the value that counts as healthy`
+    - English: Which signal decides that this is recovered, and what value does it have to reach?
+    - Korean: 어떤 신호로 복구를 판정하며, 그 값이 얼마가 되어야 정상인가요?
+- Expected outputs:
+  - live_incident_record/v1
+  - declared severity: the level, the observation that set it, and when it last changed
+  - role assignment naming a person per role, or recording the role unfilled
+  - append-only timeline: one entry per observation, action, or decision, each timestamped and attributed
+  - mitigation entries marked temporary or permanent, each with what removes it
+  - recovery verification: the signal, its healthy value, the observed value, and who observed it
+  - customer notice draft plus the prepared paging and status-page requests, kept apart from observed sends
+- Artifact expectations:
+  - live_incident_record/v1 with severity, roles, timeline, mitigations, recovery verification, and a communication ledger
+  - every communication entry reads prepared or observed and never both; a correction appends an entry and never edits one
+- Safety rules:
+  - Never rewrite or delete a timeline entry. A correction is a new entry naming the entry it corrects, because the timeline is what the review reads afterwards.
+  - Do not claim a page was sent, a status page was updated, or a customer was notified; those are `connector-operator` requests, observed only when the connector returns a result.
+  - Do not call the incident recovered because a mitigation was applied; recovery needs the named signal observed at its healthy value, with the observer recorded.
+  - Never leave a temporary mitigation unmarked; record what it changed and what removes it, or it becomes permanent because nobody wrote it down.
+  - Never print customer records, credentials, tokens, or connection strings pulled into the timeline as evidence.
 
 ### decision-prototype
 

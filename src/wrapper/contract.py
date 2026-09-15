@@ -418,6 +418,9 @@ VISIBLE_ACTIONS = (
     "prepare_application_threat_model",
     "show_attack_scenarios",
     "show_control_tests",
+    "prepare_live_incident_record",
+    "show_incident_timeline",
+    "show_recovery_verification",
     "show_security_safety_review",
     "record_threat_surface",
     "record_permission_secret_risk",
@@ -882,6 +885,11 @@ _HUMAN_ACK_BODY_BY_SKILL = {
         "authenticates each crossing, attack scenarios per boundary, one control decision each, and the security test that "
         "fails when a control is removed. No control counts as deployed until configuration or a passing test is observed."
     ),
+    "live-incident-response": (
+        "I will command this incident while it is open: severity declared with the observation that set it, a named commander and "
+        "the remaining roles, an append-only timeline, every mitigation marked temporary or permanent, and recovery verified "
+        "against a named signal. Paging, status-page updates, and customer sends stay prepared until a connector returns a result."
+    ),
     "materials-package": (
         "I will shape this into a material package: target files, source inputs, missing data, outline, "
         "generation owner, and QA checks. I will not claim the files exist until export evidence is observed."
@@ -1044,6 +1052,9 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "show_run_efficiency_report": ("show_run_efficiency_report", "Show run efficiency"),
     "prepare_security_safety_review": ("prepare_security_safety_review", "Review safety"),
     "prepare_application_threat_model": ("prepare_application_threat_model", "Model the threats"),
+    "prepare_live_incident_record": ("prepare_live_incident_record", "Command the incident"),
+    "show_incident_timeline": ("show_incident_timeline", "Show incident timeline"),
+    "show_recovery_verification": ("show_recovery_verification", "Show recovery check"),
     "show_attack_scenarios": ("show_attack_scenarios", "Show attack scenarios"),
     "show_control_tests": ("show_control_tests", "Show control tests"),
     "prepare_material_package": ("prepare_material_package", "Prepare package"),
@@ -1466,6 +1477,42 @@ _REVIEW_QUALITY_CHAT_CARDS: dict[str, dict[str, object]] = {
             "review",
             "CI",
             "merge",
+        ],
+    },
+    "live-incident-response": {
+        "kind": "live_incident_record",
+        "headline": "I can command this incident while it is still open.",
+        "body": (
+            "I will prepare the live incident record: severity declared with the observation that set it and the time it changed, a "
+            "named commander plus operations, communications, and scribe, an append-only timeline of observations, actions, "
+            "and decisions, every mitigation marked temporary or permanent with what removes it, and recovery verified "
+            "against a named signal at its healthy value. A correction appends an entry; it never rewrites one."
+        ),
+        "phase": "live_incident_record_prepared",
+        "next_action": "prepare_live_incident_record",
+        "artifact_schema": "live_incident_record/v1",
+        "claim_boundary_suffix": "Paging, status-page updates, and customer sends stay prepared until `connector-operator` returns a result.",
+        "actions": [
+            {"id": "prepare_live_incident_record", "label": "Command the incident", "style": "primary"},
+            {"id": "show_incident_timeline", "label": "Show incident timeline", "style": "secondary"},
+            {"id": "show_recovery_verification", "label": "Show recovery check", "style": "secondary"},
+            {"id": "show_status", "label": "Show status", "style": "secondary"},
+        ],
+        "recommended_flow": [
+            "declare_severity_from_observed_blast_radius",
+            "name_the_commander_then_the_remaining_roles",
+            "open_the_append_only_timeline",
+            "record_each_mitigation_as_temporary_or_permanent",
+            "verify_recovery_against_the_named_signal",
+            "draft_the_customer_notice_and_keep_the_send_prepared",
+        ],
+        "evidence_not_observed": [
+            "page delivery",
+            "status page update",
+            "customer notification",
+            "rollback execution",
+            "recovery",
+            "incident closure",
         ],
     },
     "production-audit": {

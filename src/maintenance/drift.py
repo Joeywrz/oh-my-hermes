@@ -209,7 +209,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="chat_card_case_count",
             describe="Chat card coverage cases",
             live=_chat_card_case_count,
-            expected=90,
+            expected=91,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -220,7 +220,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="route_hint_case_count",
             describe="Route hint alignment cases",
             live=_route_hint_case_count,
-            expected=210,
+            expected=211,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -257,7 +257,13 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # own words in another sense: what threat modeling is, what a STRIDE
             # analysis is, a trust boundary asked as a domain-modeling term,
             # hitting one's stride, modeling churn, and a scale model.
-            expected=228,
+            # The live-incident-response lane adds seven of the same shape:
+            # three concept questions about the discipline (what an incident
+            # commander does at a wildfire, what an incident response plan is,
+            # what a war room is), a military rank, severity as a bug-tracker
+            # field, a manufacturing line down for maintenance, and a
+            # figurative outage.
+            expected=235,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -294,7 +300,15 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # between two components, attack scenarios on an endpoint, abuse
             # cases on a flow) and one that keeps the agent's own prompt and
             # tool surface with `security-safety-review`.
-            expected=380,
+            # The live-incident-response lane adds eight: five requests that
+            # command an incident still open (an outage declared now, the
+            # commander and severity question, a timeline to start, a temporary
+            # mitigation with recovery unverified, a severity level and a
+            # bridge) and three that keep the siblings it defers to -- a closed
+            # incident with `reliability-review`, one customer's outage reply
+            # with `support-operations`, and a healthy release watch with
+            # `deploy-and-monitor`.
+            expected=388,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -307,7 +321,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             describe="Installable workflow skills quoted in reference surfaces",
             live=_installable_skill_count,
             # The current workflow additions are part of the installable catalog.
-            expected=125,
+            expected=126,
             sites=(
                 "docs/README.md",
                 # The docs index quotes the count in prose and

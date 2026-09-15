@@ -127,6 +127,7 @@ _FAMILY_DEFINITIONS = (
             "doctor",
             "workspace-audit",
             "production-audit",
+            "live-incident-response",
             "automation-blueprint",
             "github-event-ops",
             "github-issue-intake",

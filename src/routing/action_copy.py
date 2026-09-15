@@ -46,6 +46,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "prepare_context_budget_review": "preparing a context budget review",
     "prepare_deliverable_package": "preparing a deliverable package",
     "prepare_deploy_monitor_plan": "preparing a deploy-and-monitor plan",
+    "prepare_live_incident_record": "preparing a live incident record",
     "prepare_design_quality_gate": "preparing a design quality gate",
     "prepare_design_orchestration": "preparing a design orchestration contract",
     "prepare_executor_runtime_readiness": "checking coding-agent readiness",

@@ -895,6 +895,20 @@ _SKILL_POLICIES = {
             "budget_risk_register/v1, and overflow_recovery_route/v1 while preserving the full objective."
         ),
     ),
+    "live-incident-response": RecommendationPolicy(
+        next_action="prepare_live_incident_record",
+        evidence_boundary=(
+            "A live incident record is not a page, a status-page update, a customer send, a rollback, or proof that anything "
+            "recovered. Paging and customer communication stay prepared until `connector-operator` returns a result, and "
+            "recovery counts only when the named signal is observed at its healthy value."
+        ),
+        wrapper_guidance=(
+            "Prepare live_incident_record/v1: declared severity with the observation that set it, one named commander plus the "
+            "remaining roles, an append-only timeline of observations, actions, and decisions, every mitigation marked "
+            "temporary or permanent with what removes it, recovery verified against a named signal, and the customer notice "
+            "kept prepared until a connector result is observed."
+        ),
+    ),
     "application-threat-model": RecommendationPolicy(
         next_action="prepare_application_threat_model",
         evidence_boundary=(
@@ -1994,6 +2008,62 @@ _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS = {
     # them: `application-threat`, which appears only when someone writes the
     # skill name, and `attacker`, which names the actor this workflow exists
     # to reason about.
+    # `live-incident-response` is assembled from words this catalog and ordinary
+    # English both use constantly: "incident", "response", "severity",
+    # "commander", "command", "outage", "production", "down", "declare",
+    # "timeline", "recovery", "mitigation", "page", "channel", "roles", "war",
+    # "room", "bleeding", "active", "open", "ongoing". Credited as bare tokens
+    # they moved "sort the log lines by severity", "he was promoted to
+    # commander last year" and "add a timeline to the project plan" toward this
+    # workflow, and "production" alone would claim every release sentence in
+    # the catalog. The intent lives in the complete phrases ("incident
+    # commander", "declare severity", "production outage", "stop the
+    # bleeding", ...). Four tokens stay creditable because nothing else owns
+    # them: `live-incident`, which appears only when someone writes the skill
+    # name, and `sev1`/`sev2`/`sev3`, which are severity levels and never
+    # ordinary words.
+    "live-incident-response": frozenset(
+        {
+            "active",
+            "an",
+            "assign",
+            "bleeding",
+            "bridge",
+            "call",
+            "channel",
+            "command",
+            "commander",
+            "declare",
+            "down",
+            "have",
+            "incident",
+            "is",
+            "live",
+            "mitigation",
+            "on-call",
+            "ongoing",
+            "open",
+            "outage",
+            "page",
+            "production",
+            "recovery",
+            "response",
+            "right",
+            "roles",
+            "room",
+            "service",
+            "severity",
+            "site",
+            "stop",
+            "temporary",
+            "the",
+            "timeline",
+            "verify",
+            "war",
+            "we",
+            "who",
+        }
+    ),
     "application-threat-model": frozenset(
         {
             "a",

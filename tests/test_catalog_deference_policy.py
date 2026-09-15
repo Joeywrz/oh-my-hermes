@@ -152,9 +152,24 @@ NON_SKILL_BACKTICKS = frozenset(
 # owner. `security-safety-review` gains the reciprocal statement pointing back
 # at `application-threat-model`, which closes the collision in both directions:
 # one more case and one more pair, no new owner.
-EXPECTED_DEFERENCE_CASES = 241
-EXPECTED_DEFERENCE_PAIRS = 254
-EXPECTED_DEFERRING_OWNERS = 69
+# `live-incident-response` defers on five boundaries -- a closed incident's
+# postmortem, SLO consequence, and remediation follow-up to `reliability-review`
+# (the misroute this skill exists to end), one customer's support case to
+# `support-operations`, a release being watched with nothing declared broken to
+# `deploy-and-monitor`, the actual send of a page, status-page update, or
+# customer notice to `connector-operator`, and pre-release readiness to
+# `production-audit`. Five cases, five new pairs, one new deferring owner.
+# The boundary closes in all three directions rather than one:
+# `reliability-review` and `deploy-and-monitor` each gain their first
+# `do_not_use_when` statement pointing back at the live lane, which makes them
+# two new deferring owners, and `support-operations`'s single active-incident
+# statement splits into two -- the live half to `live-incident-response`, the
+# retrospective half staying with `reliability-review` -- because that one line
+# is what sent an open outage to a postmortem. Three more cases, three more
+# pairs, two more owners.
+EXPECTED_DEFERENCE_CASES = 249
+EXPECTED_DEFERENCE_PAIRS = 262
+EXPECTED_DEFERRING_OWNERS = 72
 
 # The ratchet. Recording a new inversion must be a visible edit to this number,
 # not one more dict line with a plausible sentence attached.

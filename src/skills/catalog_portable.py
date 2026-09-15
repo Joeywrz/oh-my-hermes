@@ -133,6 +133,8 @@ _PORTABILITY: dict[str, str] = {
     'omh-application-threat-model': PORTABILITY_PORTABLE,
     # expected_outputs require hermes_ops_blueprint and hermes_recurring_intent lifecycle records.
     'omh-automation-blueprint': PORTABILITY_HERMES_ONLY,
+    # required_inputs: what is broken now, blast radius, available responders, the recovery signal; expected_outputs: live_incident_record/v1; the workflow is judgement over supplied facts, and every external effect is already delegated to connector-operator.
+    'omh-live-incident-response': PORTABILITY_PORTABLE,
     # required_inputs: service or incident scope; expected_outputs: reliability review; final_checklist requires evidence/approval, not a native runtime.
     'omh-reliability-review': PORTABILITY_PORTABLE,
     # required_inputs: product idea; expected_outputs: stage rail; final_checklist requires evidence/approval, not a native runtime.
@@ -883,4 +885,5 @@ PORTABLE_REFERENCE_PATHS = frozenset({
     'rust/references/ub-escalation.md',
     'native-debugging/references/native-debug-loop.md',
     'application-threat-model/references/threat-model-method.md',
+    'live-incident-response/references/incident-command-method.md',
 })

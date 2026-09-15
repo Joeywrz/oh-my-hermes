@@ -437,6 +437,40 @@ All notable changes will be documented here.
   hand-authored inputs no producer rewrites, frozen historical captures,
   single-line compact files no diff can bury a change in, and artifacts already
   held byte-exact by an existing gate. (#1615)
+- **An incident that is still open now has an owner.** The catalog held every
+  piece of live incident work and no skill that ran one: severity and the
+  customer reply in `support-operations`, health signals and the rollback gate
+  in `deploy-and-monitor`, retrospective synthesis in `reliability-review`,
+  readiness in `production-audit`. `support-operations` explicitly routed an
+  active incident to `reliability-review`, whose own `use_when` is "review
+  incident notes, SLOs, error budgets" -- so the one skill that saw the request
+  handed a running outage to a postmortem. Measured on the deciding surface
+  (`build_chat_interaction_payload`), "we have a production outage right now,
+  declare severity and assign an incident commander" was a clarification with
+  no owner, and "the checkout service is down right now, start the incident
+  timeline" dispatched to `reliability-review`. The new
+  `live-incident-response` workflow owns the open incident end to end: severity
+  declared as live state with the observation that set it, a named commander
+  plus operations, communications, and scribe, an append-only timeline where a
+  correction appends an entry naming the one it corrects and never rewrites it,
+  every mitigation marked temporary or permanent with what removes it, recovery
+  verified against a named signal at its healthy value rather than inferred
+  from a mitigation being applied, and the customer notice drafted. Paging,
+  status-page updates, and customer sends are effects OMH cannot perform: they
+  route to `connector-operator` and are recorded observed only when the
+  connector returns a result, with prepared and observed kept as separate
+  states in the record. The boundary closes in every direction rather than one
+  -- `reliability-review` and `deploy-and-monitor` each gain their first
+  `do_not_use_when` statement pointing back at the live lane, and
+  `support-operations`'s single active-incident statement splits so the live
+  half reaches the live lane and only the retrospective half stays with the
+  review. The method detail (the severity ladder, the four roles, the three
+  timeline entry types and their fields, the communication ledger, handover and
+  closing) is `skills/omh-live-incident-response/references/incident-command-method.md`,
+  measured outside the always-loaded body budget. Seven negative controls pin
+  the other senses of "incident", "commander", "severity", "outage",
+  "production" and "war room", and eight interventions pin the live phrasings
+  plus the three siblings keeping their own requests. (#1563)
 
 ## 2.0.3 - 2026-09-12
 

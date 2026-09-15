@@ -245,7 +245,14 @@ def plan_continuation_directive(
         todo = read_omh_todo(omh_home or None, hermes_home or None, session_ref=session_ref)
     except (OSError, ValueError, TypeError):
         # Same boundary the outcome reader keeps: a reminder that could fail
-        # the turn it decorates would be worse than a missing one.
+        # the turn it decorates would be worse than a missing one. Here it is
+        # also the difference between two indistinguishable outcomes: Hermes
+        # wraps the whole `pre_verify` call in `except Exception` and logs at
+        # debug, so a handler that raised would end the turn silently -- the
+        # exact symptom this directive exists to fix. `RuntimeBindingError`
+        # subclasses `ValueError`, so an unbindable home lands here too.
+        return ""
+    if not isinstance(todo, dict):
         return ""
     position = open_plan_position(todo)
     item = next_open_item(todo) if position is not None else ""

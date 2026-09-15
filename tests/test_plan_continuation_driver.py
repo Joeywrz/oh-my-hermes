@@ -30,6 +30,7 @@ from _local_package import load_local_package
 
 load_local_package()
 
+from omh.plugin_bundle.omh import runtime_paths, todo_reconciliation
 from omh.plugin_bundle.omh.hooks import verify_hooks
 from omh.plugin_bundle.omh.runtime_reader import read_omh_todo
 from omh.plugin_bundle.omh.todo_reconciliation import (
@@ -40,7 +41,12 @@ from omh.plugin_bundle.omh.todo_reconciliation import (
     open_todo_reminder,
     plan_continuation_directive,
 )
-from omh.plugin_bundle.omh.todo_store import build_todo_record, write_todo
+from omh.plugin_bundle.omh.todo_store import (
+    TODO_SCHEMA_VERSION,
+    build_todo_record,
+    todo_path,
+    write_todo,
+)
 
 FANOUT_ID = "fanout-0123456789ab"
 SESSION = "tui-session"
@@ -189,6 +195,53 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
 
         self.assertIn("rendered surface", message)
         self.assertIn("[OMH plan todo] 1/2 done", message)
+
+    def test_a_corrupt_plan_record_is_silence_and_never_an_exception(self):
+        # Hermes wraps the whole `pre_verify` call in `except Exception` and
+        # logs at debug (`agent/turn_stop_gates.py`, `_pre_verify_nudge`), so a
+        # handler that raised would end the turn with no trace -- the exact
+        # symptom this directive exists to fix. Every malformed record below
+        # must therefore come back as silence, not as a raise.
+        path = todo_path(self.home, SESSION)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        corrupt_records = (
+            "{not json",
+            "[]",
+            json.dumps({"schema_version": "omh_todo/v0", "items": [{"text": "x", "state": "active"}]}),
+            json.dumps({"schema_version": TODO_SCHEMA_VERSION, "items": "all of them"}),
+            json.dumps({"schema_version": TODO_SCHEMA_VERSION, "items": ["not an item"]}),
+            json.dumps({"schema_version": TODO_SCHEMA_VERSION, "items": [{"text": "x", "state": 7}]}),
+            json.dumps({"schema_version": TODO_SCHEMA_VERSION, "counts": "1/3", "items": []}),
+        )
+
+        for record in corrupt_records:
+            with self.subTest(record=record[:40]):
+                _ = path.write_text(record, encoding="utf-8")
+
+                self.assertIsNone(self._fire())
+
+    def test_a_reader_that_fails_is_silence_and_never_an_exception(self):
+        # The read touches the filesystem, so it can fail for reasons that have
+        # nothing to do with the plan's shape. `RuntimeBindingError` is in the
+        # list because it subclasses `ValueError`: an unbindable home must not
+        # reach the host as a raise either.
+        failures = (
+            OSError("permission denied"),
+            ValueError("bad payload"),
+            TypeError("bad type"),
+            runtime_paths.RuntimeBindingError("no safe store"),
+        )
+
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__):
+                with patch.object(todo_reconciliation, "read_omh_todo", side_effect=failure):
+                    self.assertIsNone(self._fire())
+
+    def test_a_reader_returning_something_other_than_a_record_is_silence(self):
+        for payload in (None, [], "plan"):
+            with self.subTest(payload=payload):
+                with patch.object(todo_reconciliation, "read_omh_todo", return_value=payload):
+                    self.assertIsNone(self._fire())
 
     def test_the_plan_is_read_from_the_host_home_when_no_path_is_passed(self):
         # Hermes calls `pre_verify` with the documented kwargs and nothing

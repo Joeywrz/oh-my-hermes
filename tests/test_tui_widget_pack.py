@@ -215,7 +215,10 @@ class TuiWidgetPackTests(unittest.TestCase):
 
         self.assertIn(json.dumps(os.path.realpath(sys.executable)), payload)
         self.assertNotIn("spawnSync('python3'", payload)
-        self.assertIn("['-I', '-c', READER]", payload)
+        # `-B` is load-bearing and no environment variable can stand in for it:
+        # `-I` implies `-E`, so the child ignores every PYTHON* variable and
+        # would write bytecode into the managed plugins directory (issue #1550).
+        self.assertIn("['-I', '-B', '-c', READER]", payload)
         self.assertIn("const READER_ENV =", payload)
         self.assertNotIn("...process.env", payload)
 
@@ -439,7 +442,7 @@ class TuiWidgetPackTests(unittest.TestCase):
         # with the same isolated interpreter spawn the HUD reader uses.
         self.assertIn("from omh.model_chain_picker import picker_rows", widget)
         self.assertIn("from omh.model_chain_picker import apply_picker_changes", widget)
-        self.assertIn("['-I', '-c', script]", widget)
+        self.assertIn("['-I', '-B', '-c', script]", widget)
         self.assertIn("Mirror of model_chain_picker.step_head_model", widget)
         self.assertIn("Mirror of model_chain_picker.step_effort", widget)
         self.assertNotIn("useInput", widget)

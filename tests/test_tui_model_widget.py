@@ -147,6 +147,17 @@ class ModelWidgetTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             result = json.loads(completed.stdout.strip().splitlines()[-1])
             self.assertNotIn("error", result, result)
+            # The copy above excludes `__pycache__`, and nothing may put it
+            # back: the widget's spawns import the copied bundle, and bytecode
+            # landing here raced this very block's teardown in CI (issue
+            # #1550). Checked on every drive rather than in one case, because
+            # the spawn set differs per key sequence and only the drive that
+            # writes would catch it. `-B` on the spawn is what holds this --
+            # `-I` implies `-E`, so no environment variable can.
+            self.assertEqual(
+                [str(path.relative_to(root)) for path in sorted(root.rglob("__pycache__"))], [],
+                "a widget spawn wrote bytecode into the temp tree; check `-B` on its argv",
+            )
             document_path = omh_home / "routing" / "model-chains.json"
             document = json.loads(document_path.read_text(encoding="utf-8")) if document_path.exists() else None
             return result, document, payload

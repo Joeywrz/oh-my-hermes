@@ -247,7 +247,13 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # processing a refund, reading the room, writing a long document
             # (en/ko/ja/zh), translating a whole document, and a site walked
             # page by page, and a page number beside a port number.
-            expected=215,
+            # The router-misroute round adds seven negatives that use a repaired
+            # lane's own words in another sense: a browser window resized, disk
+            # space running out, a heap leak beside a list of providers, a
+            # Korean question about surveillance-camera video, and one per bare
+            # verb held back from the continuous-watch phrases (keeping an old
+            # API, buying a monitor, watching out for a race condition).
+            expected=222,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -273,7 +279,13 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # languages, a large-PDF upload failure in four, a viewer crash, an
             # OCR pipeline, a section added to a long style guide, and a spec
             # page dated by a year).
-            expected=367,
+            # The router-misroute round adds eight: a filling context window and
+            # running out of context reaching budget review, a continuous watch
+            # reaching the recurring-ops lane in Korean and in English (two
+            # phrase families), a memory-provider comparison reaching its
+            # declared owner, and the sense each of those displaced staying
+            # where it was (terminology alignment, operations telemetry).
+            expected=375,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",

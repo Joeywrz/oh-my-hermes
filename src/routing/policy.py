@@ -2936,7 +2936,14 @@ _OPS_OBSERVABILITY_CONNECTOR_READINESS_BLOCKERS = (
     "weather plugin readiness",
     "weather connector readiness",
     "wxtrain readiness",
-    "memory provider readiness",
+    # Broader than the sibling entries on purpose. `external-connector-readiness`
+    # declares `memory_provider_posture/v1` and `memory-sync` sends every
+    # provider-lifecycle question to it, so the noun phrase itself is the
+    # ownership line -- "memory provider readiness" was only the one wording
+    # that had been asked for. A comparison ("retrieval quality and latency
+    # across providers") reads as telemetry word for word and is still a
+    # provider-posture question.
+    "memory provider",
     "search provider connector readiness",
     "social automation connector readiness",
     "twitter automation connector readiness",

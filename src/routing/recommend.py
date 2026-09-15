@@ -2591,6 +2591,8 @@ def _external_connector_readiness_recommendation_applies(normalized_query: str, 
         return True
     if _realtime_voice_connector_readiness_match(normalized_query):
         return True
+    if _memory_provider_posture_match(normalized_query):
+        return True
 
     strong_anchor_tokens = {
         "adopt",
@@ -2691,6 +2693,21 @@ def _external_connector_readiness_recommendation_applies(normalized_query: str, 
             "crustocean platform",
             "smart home connector",
         )
+    )
+
+
+def _memory_provider_posture_match(normalized_query: str) -> bool:
+    """A memory-provider question, judged as the complete noun phrase.
+
+    `external-connector-readiness` declares `memory_provider_posture/v1` and
+    `memory-sync` hands every provider-lifecycle question to it, so this phrase
+    is the ownership line the catalog already states. Containment only: a bare
+    "memory" is a curation question and a bare "provider" is a model-chain one,
+    and neither reaches here.
+    """
+    return any(
+        _explicit_phrase_match(normalized_query, normalized_phrase(phrase))
+        for phrase in ("memory provider", "memory providers")
     )
 
 

@@ -1670,6 +1670,17 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "direct_answer",
         "external-connector-readiness",
     ),
+    # "memory" and "provider" both occur here in their ordinary senses -- a heap
+    # leak and a list of suppliers -- and neither is a provider-posture
+    # question. The match is the complete noun phrase or nothing.
+    RoutingPrecisionCase(
+        "memory-leak-provider-list-stays-direct",
+        "A heap leak beside the word provider is not memory-provider readiness",
+        "the parser leaks memory when the provider list grows",
+        "answer_clarification",
+        "",
+        "external-connector-readiness",
+    ),
     # A surveillance camera is the unrelated sense of the word the Korean
     # continuous-watch pack phrases are built from.
     RoutingPrecisionCase(
@@ -3215,6 +3226,29 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "external-connector-readiness",
         "prepare_external_connector_readiness",
         "external_connector_readiness",
+    ),
+    # A sixth shape: comparing providers. It reads as telemetry word for word --
+    # "retrieval quality", "latency" -- so the ops guard claimed it outright and
+    # the declared owner did not place at all.
+    RoutingInterventionCase(
+        "memory-provider-comparison-readiness",
+        "Comparing memory providers reaches their declared owner, not the telemetry card",
+        "compare memory providers on my own data for retrieval quality and latency",
+        "dispatch",
+        "external-connector-readiness",
+        "prepare_external_connector_readiness",
+        "external_connector_readiness",
+    ),
+    # The other half of that split: telemetry about operations, not about a
+    # provider choice, keeps the card it always had.
+    RoutingInterventionCase(
+        "loop-run-telemetry-stays-ops-observability",
+        "Token, cost, and latency of operations still reach the telemetry card",
+        "show token cost and latency for the last week of loop runs",
+        "dispatch",
+        "ops-observability-card",
+        "prepare_ops_observability_card",
+        "ops_observability",
     ),
     RoutingInterventionCase(
         "memory-provider-switch-readiness",

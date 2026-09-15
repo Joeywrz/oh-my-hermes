@@ -271,13 +271,12 @@ def plan_continuation_directive(
     finished plan, or a next item carrying a `blocked_reason` -- so the
     directive never argues with the plan's own stop criterion.
     """
-    # Returning here drops the dispatch lines too, and that discards nothing:
-    # `unacknowledged_outcomes` reads this same record first and baselines
-    # "unacknowledged" on its `updated_at`, so a plan read that failed leaves
-    # it with nothing to report either. Measured -- readable record: 1 row;
-    # corrupt record: 0; deleted record: 0. It is not the independence F3
-    # established being quietly undone; that independence is enforced one
-    # guard down, where an outcome read CAN fail on its own.
+    # Dropping the dispatch lines with the plan is not a second F3:
+    # `unacknowledged_outcomes` opens with this same `read_omh_todo` call and
+    # needs the record it returns -- status, `updated_at` as the baseline, and
+    # the item text that says which outcomes are already named -- so a plan
+    # read that fails leaves it nothing to report either. Measured across a
+    # control and eight faults: no fault yields a row here.
     try:
         todo = read_omh_todo(omh_home or None, hermes_home or None, session_ref=session_ref)
     except _READ_FAILURES:

@@ -1670,6 +1670,43 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "direct_answer",
         "external-connector-readiness",
     ),
+    # A surveillance camera is the unrelated sense of the word the Korean
+    # continuous-watch pack phrases are built from.
+    RoutingPrecisionCase(
+        "korean-surveillance-camera-format-stays-direct",
+        "A Korean question about surveillance-camera video is not a recurring-ops request",
+        "감시 카메라 영상 포맷이 뭐야",
+        "answer_directly",
+        "direct_answer",
+        "automation-blueprint",
+    ),
+    # One per bare verb held back from the continuous-watch phrases: "keep",
+    # "monitor", "watch". Each of these sentences is the one-off sense of that
+    # verb and none of them is a recurring operation.
+    RoutingPrecisionCase(
+        "keep-old-api-stays-a-clarification",
+        "Keeping an old API around is not a recurring operation",
+        "keep the old api around for one more release",
+        "answer_clarification",
+        "",
+        "automation-blueprint",
+    ),
+    RoutingPrecisionCase(
+        "second-monitor-purchase-stays-a-clarification",
+        "Buying a monitor is not a monitoring schedule",
+        "i need to buy a second monitor for this desk",
+        "answer_clarification",
+        "",
+        "automation-blueprint",
+    ),
+    RoutingPrecisionCase(
+        "watch-out-warning-stays-a-clarification",
+        "Watching out for a race condition is not a recurring watch",
+        "watch out for the race condition in this handler",
+        "answer_clarification",
+        "",
+        "automation-blueprint",
+    ),
 )
 
 
@@ -3078,6 +3115,37 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "korean-competitor-news-automation",
         "Korean competitor news automation opens automation blueprint",
         "오늘 아침 경쟁사 뉴스 요약 자동화해줘",
+        "dispatch",
+        "automation-blueprint",
+        "prepare_scheduled_ops_blueprint",
+        "automation_blueprint",
+    ),
+    # Every phrasing this lane recognised named a cadence ("매일", "every
+    # morning") or the word automation itself. A continuous watch names neither
+    # and reached nothing -- in Korean, and in English too, which is why the
+    # base corpus grows here rather than only the pack.
+    RoutingInterventionCase(
+        "korean-continuous-watch-automation",
+        "A Korean continuous-watch request opens automation blueprint",
+        "계속 감시해줘",
+        "dispatch",
+        "automation-blueprint",
+        "prepare_scheduled_ops_blueprint",
+        "automation_blueprint",
+    ),
+    RoutingInterventionCase(
+        "keep-monitoring-opens-automation-blueprint",
+        "An English continuous-watch request opens automation blueprint",
+        "keep monitoring the build",
+        "dispatch",
+        "automation-blueprint",
+        "prepare_scheduled_ops_blueprint",
+        "automation_blueprint",
+    ),
+    RoutingInterventionCase(
+        "watch-continuously-opens-automation-blueprint",
+        "Watching continuously opens automation blueprint",
+        "watch continuously and report any change",
         "dispatch",
         "automation-blueprint",
         "prepare_scheduled_ops_blueprint",

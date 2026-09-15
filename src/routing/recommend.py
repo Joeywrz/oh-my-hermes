@@ -1961,6 +1961,13 @@ _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS = {
     # new engineer". The intent is in the complete phrases, which already score
     # +6 each.
     "context-budget-review": frozenset({"hand", "new", "off", "out", "running", "session", "window"}),
+    # The continuous-watch phrasings split the same way, one word short of the
+    # line: "watching", "monitoring", and "continuously" all say the thing is
+    # ongoing, while the bare verbs "keep", "watch", and "monitor" are one-off
+    # words that took "keep the old API around", "buy a second monitor", and
+    # "watch out for the race condition in this handler". Those three score only
+    # inside a complete phrase.
+    "automation-blueprint": frozenset({"keep", "monitor", "watch"}),
     # `long-document-reading` names its work with the most ordinary words in
     # the catalog -- "read", "document", "pdf", "report", "contract", "page",
     # "large", "long", "process". Credited as bare tokens they claimed "read

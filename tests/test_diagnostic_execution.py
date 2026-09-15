@@ -15,6 +15,21 @@ from omh.coding.diagnostic_execution import (
 )
 from omh.coding.diagnostic_providers import DiagnosticProviderConfig, ProviderCapability
 
+# These tests assert concurrency bounds, not timing. Every wait below exists to
+# get threads in flight or to notice a deadlock -- never to measure how fast the
+# machine is. At two seconds a loaded CI runner failed one: the second worker
+# had not been scheduled before the first gave up waiting and decremented its
+# slot, so the barrier the assertion waits on never formed.
+#
+# The cost is asymmetric, so this errs long. Too short reddens branches that
+# changed nothing -- it did so twice in one day -- while too long is paid only
+# when something is genuinely stuck. It is not unbounded, because a deadlock
+# should fail rather than hang the shard: measured at sixty seconds a broken
+# engine took 540s to report, so this is fifteen times the bound that failed
+# rather than thirty. A passing run never reaches it; these nine tests finish
+# in three milliseconds.
+_THREAD_DEADLINE_SECONDS = 30
+
 
 class _Resolver:
     def resolve(self, workspace_id: str, baseline: str, end: str) -> tuple[str, ...]:
@@ -46,7 +61,7 @@ class _Runner:
         with self.lock:
             self.calls.append((provider_id, revision, files))
         if self.barrier is not None:
-            self.barrier.wait(timeout=2)
+            self.barrier.wait(timeout=_THREAD_DEADLINE_SECONDS)
         diagnostics = () if revision == "base-1" else (_item(provider_id),)
         return ProviderObservation.completed(files, diagnostics)
 
@@ -235,7 +250,7 @@ class BoundedExecutionTests(unittest.TestCase):
                         started.set()
                     else:
                         second_started.set()
-                release.wait(timeout=2)
+                release.wait(timeout=_THREAD_DEADLINE_SECONDS)
                 with lock:
                     active[provider] -= 1
                 return ProviderObservation.completed(files, ())
@@ -248,11 +263,11 @@ class BoundedExecutionTests(unittest.TestCase):
         second_request = DiagnosticExecutionRequest("wrapper", "local/other", "base", "HEAD")
         with ThreadPoolExecutor(max_workers=2) as pool:
             first = pool.submit(engine.execute, request)
-            self.assertTrue(started.wait(timeout=2))
+            self.assertTrue(started.wait(timeout=_THREAD_DEADLINE_SECONDS))
             second = pool.submit(engine.execute, second_request)
             release.set()
-            first.result(timeout=2)
-            second.result(timeout=2)
+            first.result(timeout=_THREAD_DEADLINE_SECONDS)
+            second.result(timeout=_THREAD_DEADLINE_SECONDS)
         self.assertFalse(second_started.is_set())
 
     def test_global_and_per_provider_slots_bound_overlapping_requests(self) -> None:
@@ -271,7 +286,7 @@ class BoundedExecutionTests(unittest.TestCase):
                     maximum_total[0] = max(maximum_total[0], sum(active.values()))
                     if sum(active.values()) == 2:
                         two_running.set()
-                release.wait(timeout=2)
+                release.wait(timeout=_THREAD_DEADLINE_SECONDS)
                 with lock:
                     active[provider] -= 1
                 return ProviderObservation.completed(files, ())
@@ -283,10 +298,10 @@ class BoundedExecutionTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=2) as pool:
             first = pool.submit(engine.execute, DiagnosticExecutionRequest("wrapper", "local/one", "base", "HEAD"))
             second = pool.submit(engine.execute, DiagnosticExecutionRequest("wrapper", "local/two", "base", "HEAD"))
-            self.assertTrue(two_running.wait(timeout=2))
+            self.assertTrue(two_running.wait(timeout=_THREAD_DEADLINE_SECONDS))
             release.set()
-            first.result(timeout=2)
-            second.result(timeout=2)
+            first.result(timeout=_THREAD_DEADLINE_SECONDS)
+            second.result(timeout=_THREAD_DEADLINE_SECONDS)
         self.assertEqual(maximum_total[0], 2)
         self.assertLessEqual(max(maximum.values()), 1)
 

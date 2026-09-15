@@ -423,6 +423,21 @@ All notable changes will be documented here.
   live -- `stale`, `quarantined`, `unverified_managed_state` -- no longer exits
   `0`.
 
+- **Two more pinned fixtures say their own order out loud.** Every committed
+  fixture was read against the assertion that consumes it, asking what the
+  parse discards. Two maintain an order no assertion could fail:
+  `routing_precision_subset_at_c.json` keeps 237 pinned case ids sorted while
+  both consumers turn the list into a set, and `ulw_alias_baseline.json` keeps
+  84 cue keys sorted while the baseline is compared as a dict -- in each case a
+  re-derive in producer order rewrites the whole file, buries the row that
+  moved, and passes CI. Both orders are now asserted, and the second also
+  pins the `sorted()` inside `ulw_alias_corpus()` that supplies it, since
+  removing it makes the cue order hash-dependent without failing anything.
+  The rest of the sweep is recorded as not depending on a maintained property:
+  hand-authored inputs no producer rewrites, frozen historical captures,
+  single-line compact files no diff can bury a change in, and artifacts already
+  held byte-exact by an existing gate. (#1615)
+
 ## 2.0.3 - 2026-09-12
 
 Everything merged since the 2.0.2 tag (2026-09-07). Highlights, grouped:

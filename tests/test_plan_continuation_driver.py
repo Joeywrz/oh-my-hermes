@@ -333,12 +333,49 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
             ValueError("bad payload"),
             TypeError("bad type"),
             runtime_paths.RuntimeBindingError("no safe store"),
+            # Not a `ValueError`: the reader's state-root guard raises a plain
+            # `RuntimeError` for a symlinked home or a symlink loop, and so does
+            # `TodoStoreError`. It is the one type in this chain the guard used
+            # to miss while a comment asserted the list was complete.
+            RuntimeError("cannot use a symlink as a state root"),
         )
 
         for failure in failures:
             with self.subTest(failure=type(failure).__name__):
                 with patch.object(todo_reconciliation, "read_omh_todo", side_effect=failure):
                     self.assertIsNone(self._fire())
+
+    def test_a_symlinked_home_is_silence_and_never_an_exception(self):
+        # The same guard through the real code path rather than a patched one:
+        # the reader refuses a symlinked state root, and that refusal has to
+        # reach the host as silence.
+        self._write_plan([("land the fix", "done"), ("open the PR", "active")])
+        linked = Path(self._tmp.name) / "linked-omh"
+        try:
+            linked.symlink_to(self.home, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:  # pragma: no cover - platform dependent
+            self.skipTest(f"symlinks unavailable here: {exc}")
+
+        self.assertEqual(
+            todo_reconciliation.plan_continuation_directive(
+                omh_home=str(linked), hermes_home=str(self.hermes), session_ref=SESSION
+            ),
+            "",
+        )
+
+    def test_a_failed_outcome_read_does_not_take_the_plan_line_with_it(self):
+        # Two independent obligations, two guards. Folding them into one try
+        # would let a fanout-side failure silence the plan line -- the same
+        # coupling the blocked check had before F3.
+        self._write_plan([("land the fix", "done"), ("open the PR", "active")])
+
+        with patch.object(
+            todo_reconciliation, "unacknowledged_outcomes", side_effect=RuntimeError("bad root")
+        ):
+            result = self._fire()
+
+        self.assertIn("[OMH plan todo] 1/2 done", result["message"])
+        self.assertNotIn(DISPATCH_COMPLETION_RULE, result["message"])
 
     def test_a_reader_returning_something_other_than_a_record_is_silence(self):
         for payload in (None, [], "plan"):

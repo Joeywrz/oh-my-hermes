@@ -244,6 +244,20 @@ def recorded_blocked_reason(item: dict[str, Any] | None) -> str:
     return reason.strip() if isinstance(reason, str) else ""
 
 
+# Everything the runtime read below can raise, enumerated rather than
+# described, because the one thing this function may not do is raise into a
+# host that swallows exceptions: Hermes wraps the whole `pre_verify` call in
+# `except Exception` and logs at debug, so a handler that raised would end the
+# turn silently -- the exact symptom the directive exists to fix.
+#
+# Four bases cover the chain, and two of them are not obvious from the call:
+# `RuntimeBindingError` subclasses `ValueError` (an unbindable home), and the
+# reader's state-root guard raises a plain `RuntimeError` for a symlinked home
+# or a symlink loop, as does `TodoStoreError`. An earlier version of this list
+# left `RuntimeError` out while a comment asserted it was complete.
+_READ_FAILURES = (OSError, RuntimeError, ValueError, TypeError)
+
+
 def plan_continuation_directive(
     *, omh_home: str = "", hermes_home: str = "", session_ref: str = ""
 ) -> str:
@@ -259,14 +273,7 @@ def plan_continuation_directive(
     """
     try:
         todo = read_omh_todo(omh_home or None, hermes_home or None, session_ref=session_ref)
-    except (OSError, ValueError, TypeError):
-        # Same boundary the outcome reader keeps: a reminder that could fail
-        # the turn it decorates would be worse than a missing one. Here it is
-        # also the difference between two indistinguishable outcomes: Hermes
-        # wraps the whole `pre_verify` call in `except Exception` and logs at
-        # debug, so a handler that raised would end the turn silently -- the
-        # exact symptom this directive exists to fix. `RuntimeBindingError`
-        # subclasses `ValueError`, so an unbindable home lands here too.
+    except _READ_FAILURES:
         return ""
     if not isinstance(todo, dict):
         return ""
@@ -284,7 +291,16 @@ def plan_continuation_directive(
         if text:
             head = f"{head} · next: {text}"
         lines.append(f"{head}. {TODO_CONTINUATION_RULE}")
-    lines.extend(_dispatch_outcome_lines(unacknowledged_outcomes(omh_home, hermes_home, session_ref)))
+    # Read in its own guard, not folded into the one above: the two lines are
+    # independent obligations, so a failed outcome read must not take the plan
+    # line with it. `unacknowledged_outcomes` says it never raises and swallows
+    # its own read, but it expands the home a second time afterwards, and that
+    # expansion is outside its guard.
+    try:
+        outcomes = unacknowledged_outcomes(omh_home, hermes_home, session_ref)
+    except _READ_FAILURES:
+        outcomes = []
+    lines.extend(_dispatch_outcome_lines(outcomes))
     if not lines:
         return ""
     lines.append(PLAN_CONTINUATION_BOUNDARY)

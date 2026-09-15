@@ -226,37 +226,52 @@ Rules:
   git clean -fdx` first, then re-measure.
 
   Why it is always a *missing module* and never a stale edit: `pyproject.toml`
-  sets `config-settings = { editable_mode = "strict" }`, so the editable install
-  is a static file-tree copy rather than a path hook. Files edited in place
-  still resolve through it; files ADDED since the last sync do not exist in it
-  at all. That is also why it recurs mid-session — a later `uv sync` or
-  `uv run` recreates the copy, and it can be recreated carrying your edited
-  module but not the new one that module imports, so the traceback points at
-  your own change.
+  sets `[tool.uv] config-settings = { editable_mode = "strict" }`, so **uv**
+  builds the editable install as a tree of per-file symlinks under `build/`
+  (hard links where the filesystem has no symlinks). Every file that existed at
+  build time has a link and resolves live, so edits in place are seen; a file
+  ADDED afterward has no link and does not exist for the install at all. The
+  granularity that matters: a new module inside an existing package is
+  invisible, because `build/.../omh/<pkg>/` is a real directory of per-file
+  links. A new top-level directory under `src/` can still resolve, because
+  `build/.../omh/__init__.py` appends `src/` to `__path__`.
 
-  Only a `-P` spawn sees it, which is what makes it read as a real regression:
-  `uv run python -m omh.cli docs … --check` passes at the same moment, because
-  without `-P` the repo-root `omh/` shim resolves to the checkout. So every
-  gate is green and exactly one test is red. The canary is
+  It does not heal on its own. uv does not revalidate on ordinary `uv run` or
+  `uv sync` — the missing-link state persists until
+  `uv sync --reinstall-package oh-my-hermes`, or until something invalidates
+  uv's build cache, such as a change to `pyproject.toml`'s mtime. So the
+  ordering that produces the false red is resyncing *before* writing the
+  branch's new source files rather than after: resync last, after the final new
+  file exists. Short of the two triggers above, nothing else heals it at all.
+
+  This is a property of the uv-managed dev environment, not of the project.
+  `python -m pip install -e .` ignores `[tool.uv]` and uses setuptools' default
+  path-hook editable mode — no `build/` tree, nothing to go stale. Every CI job
+  installs that way (`plan`, `test`, `test-windows`, `test-quarantine` all run
+  `python -m pip install -e .`), so CI never sees this and cannot warn you
+  about it.
+
+  What makes it read as a real regression is who resolves what. A `-P` spawn —
+  or any run launched from outside the checkout, including the `omh` console
+  script — reads the installed generation, while `uv run python -m omh.cli docs
+  … --check` from inside the checkout resolves through the repo-root `omh/`
+  shim to your working tree and passes at the same moment. So every gate is
+  green and exactly one test is red. The canary is
   `tests/test_agent_board_kanban` — case K7 in `tests/five_issue_cases/kanban.py`
   spawns three docs gates through `-P -m omh.cli` with `UV_NO_SYNC=1` in the
   child's environment, so it cannot self-heal and reads whatever sits in
   `build/` at that moment. Run that one file before reporting any isolated
   failure as pre-existing or as another branch's; if it is red, clear, resync,
-  and re-measure, because the earlier run is not evidence.
+  and re-measure, because the earlier run is not evidence. It is a strong
+  heuristic and not a proof: importing `omh.cli` pulls in most of `src/` but
+  not all of it, so a new module nothing on the docs path imports will not fire
+  it.
 
-  The ordering that produces the false red is resyncing *before* writing the
-  branch's new source files rather than after. A branch that adds a module is
-  exactly the branch the canary fires on, so resync last — after the final new
-  file exists, not at the start of the task.
-
-  The bytecode cache lies the same way and is worse in one respect: it survives
-  a clean `git diff`. A constant mutated for a reproduction and then restored
-  byte-for-byte kept returning the mutated value for an hour, because the edit
-  was length-identical (a date, and a 40-character hash) — exactly where
-  mtime-and-size invalidation is weakest. `git diff` clean is normally the end
-  of the "did I leave something modified" question; here it is not, so clear
-  `__pycache__` alongside `build/`, as the command above does.
+  Clear `__pycache__` in the same breath, as the command above does. A cached
+  entry is validated by source mtime at one-second granularity plus size, so an
+  edit that is length-identical AND lands in the same second as the last
+  compile is not detected; a later edit is. It costs nothing and removes the
+  question.
 - Concluding a platform fact settles a call site. Windows and POSIX differ in
   ways this repo keeps rediscovering — `Path.write_text` without `newline=`
   emits CRLF; a child process's stdout arrives CRLF-terminated; CR is a control

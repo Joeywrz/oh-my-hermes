@@ -9,8 +9,12 @@ open items, so continuation waits for the person.
 `pre_verify` is the one moment a Hermes host lets a plugin start the next turn
 instead of describing the current one. These tests pin what the directive says
 and, at least as importantly, every state in which it must stay silent: no
-plan, a finished plan, a next item carrying a `blocked_reason`, a second
-attempt inside one turn, a non-coding turn, and another session's plan.
+plan, a finished plan, a next item carrying a `blocked_reason`, a later attempt
+with no first nudge behind it, a non-coding turn, and another session's plan.
+
+Which LATER attempts inside one turn may nudge is its own contract, decided on
+whether the plan moved since the previous nudge; it lives in
+`test_plan_nudge_progress_budget.py`.
 
 The last test is the anti-drift one: the context line and the directive must
 decide "does this plan have open work" through the same helper, so a plan that
@@ -39,7 +43,7 @@ from omh.plugin_bundle.omh.todo_reconciliation import (
     TODO_CONTINUATION_RULE,
     open_plan_position,
     open_todo_reminder,
-    plan_continuation_directive,
+    plan_continuation_reading,
 )
 from omh.plugin_bundle.omh.todo_store import (
     TODO_SCHEMA_VERSION,
@@ -59,8 +63,12 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
         self.home = Path(self._tmp.name) / "omh"
         self.hermes = Path(self._tmp.name) / "hermes"
         self.hermes.mkdir(parents=True, exist_ok=True)
+        # Per test, because the turn-end budget remembers the plan stamp its
+        # last nudge was issued on and keys that memory by session id. A shared
+        # id would let one test's first attempt supply another test's baseline.
+        self.session = f"{SESSION}-{self.id().rsplit('.', 1)[-1]}"
 
-    def _write_plan(self, items, session_ref=SESSION):
+    def _write_plan(self, items, session_ref=""):
         """`items` is a list of `(text, state)` pairs, or `(text, state, blocked_reason)`."""
         record = build_todo_record(
             "plan",
@@ -69,7 +77,7 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
                 for item in items
             ],
             source="test",
-            session_ref=session_ref,
+            session_ref=session_ref or self.session,
         )
         write_todo(self.home, record)
         return datetime.fromisoformat(record["updated_at"].replace("Z", "+00:00"))
@@ -98,7 +106,7 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
 
     def _fire(self, **overrides):
         payload = {
-            "session_id": SESSION,
+            "session_id": self.session,
             "coding": True,
             "attempt": 0,
             # A plain source file: no served-surface category, so what comes
@@ -238,7 +246,11 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
         self.assertIn(f"next: {long_text[:80]}", message)
         self.assertNotIn(long_text, message)
 
-    def test_a_second_attempt_inside_one_turn_does_not_nudge_again(self):
+    def test_a_later_attempt_with_no_first_nudge_behind_it_does_not_nudge(self):
+        # A later attempt nudges only on movement MEASURED against the previous
+        # nudge in the same turn. With no first attempt recorded there is
+        # nothing to measure, and an unmeasured attempt must not invent
+        # movement -- so this stays silent however open the plan is.
         self._write_plan([("land the fix", "done"), ("open the PR", "active")])
 
         self.assertIsNone(self._fire(attempt=1))
@@ -305,7 +317,7 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
         # handler that raised would end the turn with no trace -- the exact
         # symptom this directive exists to fix. Every malformed record below
         # must therefore come back as silence, not as a raise.
-        path = todo_path(self.home, SESSION)
+        path = todo_path(self.home, self.session)
         path.parent.mkdir(parents=True, exist_ok=True)
         corrupt_records = (
             "{not json",
@@ -357,10 +369,10 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
             self.skipTest(f"symlinks unavailable here: {exc}")
 
         self.assertEqual(
-            todo_reconciliation.plan_continuation_directive(
-                omh_home=str(linked), hermes_home=str(self.hermes), session_ref=SESSION
+            todo_reconciliation.plan_continuation_reading(
+                omh_home=str(linked), hermes_home=str(self.hermes), session_ref=self.session
             ),
-            "",
+            ("", ""),
         )
 
     def test_a_failed_outcome_read_does_not_take_the_plan_line_with_it(self):
@@ -393,7 +405,7 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
             "os.environ", {"OMH_HOME": str(self.home), "HERMES_HOME": str(self.hermes)}
         ):
             result = verify_hooks.pre_verify(
-                session_id=SESSION, coding=True, attempt=0, changed_paths=["src/example.py"]
+                session_id=self.session, coding=True, attempt=0, changed_paths=["src/example.py"]
             )
 
         self.assertIn("[OMH plan todo] 1/2 done", result["message"])
@@ -407,10 +419,17 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
         # guard that agrees with itself proves nothing -- so patch the helper
         # and require both surfaces to come through it.
         self._write_plan([("land the fix", "done"), ("open the PR", "active")])
-        homes = {"omh_home": str(self.home), "hermes_home": str(self.hermes), "session_ref": SESSION}
+        homes = {"omh_home": str(self.home), "hermes_home": str(self.hermes), "session_ref": self.session}
 
-        for surface in (open_todo_reminder, plan_continuation_directive):
-            with self.subTest(surface=surface.__name__):
+        surfaces = (
+            open_todo_reminder,
+            # The directive hands its plan stamp back beside the message, so
+            # the rendered half is the one this compares.
+            lambda **kwargs: plan_continuation_reading(**kwargs)[0],
+        )
+
+        for name, surface in zip(("open_todo_reminder", "plan_continuation_reading"), surfaces):
+            with self.subTest(surface=name):
                 with patch.object(
                     todo_reconciliation, "open_plan_position", return_value=None
                 ) as gate:
@@ -425,10 +444,10 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
         # because the asymmetry is deliberate and would otherwise read as a bug
         # to the next person who compares the two strings.
         self._write_plan([("land the fix", "done"), ("open the PR", "pending")])
-        homes = {"omh_home": str(self.home), "hermes_home": str(self.hermes), "session_ref": SESSION}
+        homes = {"omh_home": str(self.home), "hermes_home": str(self.hermes), "session_ref": self.session}
 
         reminder = open_todo_reminder(**homes)
-        directive = plan_continuation_directive(**homes)
+        directive, _stamp = plan_continuation_reading(**homes)
 
         self.assertIn("[OMH plan todo] 1/2 done.", reminder)
         self.assertNotIn("open the PR", reminder)
@@ -445,7 +464,7 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
         for items, open_work in matrices:
             with self.subTest(items=items):
                 self._write_plan(items)
-                todo = read_omh_todo(str(self.home), str(self.hermes), session_ref=SESSION)
+                todo = read_omh_todo(str(self.home), str(self.hermes), session_ref=self.session)
 
                 self.assertEqual(open_plan_position(todo) is not None, open_work)
 

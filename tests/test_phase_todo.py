@@ -55,9 +55,11 @@ class PhaseFieldStoreTest(unittest.TestCase):
 class BlockedReasonFieldStoreTest(unittest.TestCase):
     """The plan's stop criterion, recorded rather than inferred.
 
-    `TODO_CONTINUATION_RULE` ends a plan when "an item is recorded blocked
-    with its reason". Before this field the reason had to be read out of the
-    item's text, which was wrong in both directions on ordinary input: an item
+    `TODO_CONTINUATION_RULE` ends a plan when "an item carries an omh_todo
+    blocked_reason". It used to end when an item was "recorded blocked with
+    its reason", which a model could satisfy only by writing prose into the
+    item's text -- so the reason had to be read back out of that text, which
+    was wrong in both directions on ordinary input: an item
     saying work is *not* blocked read as blocked, and a Korean or plainly
     worded block did not read as blocked at all. The field keeps the state out
     of prose, and the item keeps its three-valued state so nothing in the

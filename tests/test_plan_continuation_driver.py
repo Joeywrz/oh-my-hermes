@@ -9,7 +9,7 @@ open items, so continuation waits for the person.
 `pre_verify` is the one moment a Hermes host lets a plugin start the next turn
 instead of describing the current one. These tests pin what the directive says
 and, at least as importantly, every state in which it must stay silent: no
-plan, a finished plan, a next item recorded blocked with its reason, a second
+plan, a finished plan, a next item carrying a `blocked_reason`, a second
 attempt inside one turn, a non-coding turn, and another session's plan.
 
 The last test is the anti-drift one: the context line and the directive must
@@ -171,6 +171,20 @@ class PlanContinuationDirectiveTest(unittest.TestCase):
                 self._write_plan([("land the fix", "done"), ("open the PR", "active", reason)])
 
                 self.assertIsNone(self._fire())
+
+    def test_a_reason_that_is_not_a_string_is_read_as_absent(self):
+        # A record written by hand, or by a writer that skipped
+        # `validate_todo_items`, can carry anything. Each value below
+        # stringifies to something truthy, so reading it as a block would be
+        # the silent stop this surface exists to end: corruption is not a
+        # declaration, and malformed data fails toward continuing. This is the
+        # other side of the sentinel rule, not a softening of it -- "none"
+        # counts because a string is a declaration; 7 is not one.
+        for reason in (7, {"a": 1}, [1], True, None, False, 0, [], "   "):
+            with self.subTest(reason=reason):
+                item = {"text": "open the PR", "state": "active", "blocked_reason": reason}
+
+                self.assertEqual(todo_reconciliation.recorded_blocked_reason(item), "")
 
     def test_item_text_about_a_block_is_not_a_block(self):
         # The regression that made the field necessary. Every item below is

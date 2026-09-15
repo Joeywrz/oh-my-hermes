@@ -75,8 +75,8 @@ TODO_UNCHANGED_RULE = (
 #
 # The termination criterion is explicit and it is what keeps this bounded --
 # this is a long loop with a stop condition, not an unbounded one. It ends when
-# every item is done, or when an item is recorded blocked with its reason. It
-# does not end because a turn happened to produce a paragraph.
+# every item is done, or when an item carries a `blocked_reason`. It does not
+# end because a turn happened to produce a paragraph.
 TODO_CONTINUATION_RULE = (
     "Open items mean this plan is not finished. Unless something is blocking "
     "it, advance the next item in this turn rather than ending on a status "
@@ -234,7 +234,14 @@ def recorded_blocked_reason(item: dict[str, Any] | None) -> str:
     """
     if not isinstance(item, dict):
         return ""
-    return str(item.get("blocked_reason", "") or "").strip()
+    reason = item.get("blocked_reason", "")
+    # A non-string is corruption, not a declaration, and corruption must not
+    # stop a plan. `7` and `{"a": 1}` stringify to something truthy, and
+    # reading that as a block is the silent stop this surface exists to end;
+    # malformed data fails toward continuing. This does not soften the
+    # sentinel rule above: "none" counts because a STRING is a declaration and
+    # the writer owns it, while `7` is not a declaration in any language.
+    return reason.strip() if isinstance(reason, str) else ""
 
 
 def plan_continuation_directive(
@@ -247,7 +254,7 @@ def plan_continuation_directive(
     that is already happening, so a turn that ends with open items ends
     anyway. This is that rule at the one moment a host lets a plugin start the
     next turn instead. Empty whenever the plan itself says stop -- no plan, a
-    finished plan, or a next item recorded blocked with its reason -- so the
+    finished plan, or a next item carrying a `blocked_reason` -- so the
     directive never argues with the plan's own stop criterion.
     """
     try:

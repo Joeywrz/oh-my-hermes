@@ -78,7 +78,9 @@ OMH_TODO_SCHEMA = {
                                 "that is merely unstarted, slow, or mid-work carries no "
                                 "blocked_reason -- and neither does one whose text happens to "
                                 "discuss blocking. Remove the field once the thing it names "
-                                "arrives."
+                                "arrives. Adding or clearing it goes through action=set like "
+                                "any other item edit, which replaces the whole list: send "
+                                "every item back, or the ones you leave out are dropped."
                             ),
                         },
                         "depth": {

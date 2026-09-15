@@ -55,6 +55,24 @@ class AgentSkillsProjectionTests(unittest.TestCase):
         actual = {t.name: hashlib.sha256(t.content.encode()).hexdigest() for t in builtin_skill_templates()}
         self.assertEqual(actual, expected)
 
+    def test_the_digest_fixture_stays_in_sorted_order(self):
+        """Sorted keys are what keeps one moved digest a one-line diff.
+
+        The assertion above compares dicts, so key order cannot fail it: a
+        re-derive in producer order rewrites all 125 lines, buries the one
+        that moved, and still passes. Producer order is catalog insertion
+        order, so it also re-shuffles whenever a skill is added. This says
+        the order out loud, because the convention was otherwise held only
+        by whoever regenerated the file knowing about it.
+        """
+        path = Path(__file__).parent / "fixtures/agent_skills_hermes_digests.json"
+        keys = list(json.loads(path.read_text()))
+        self.assertEqual(
+            keys,
+            sorted(keys),
+            "re-derive the fixture with json.dumps(..., indent=2, sort_keys=True)",
+        )
+
     def test_user_scope_mirror_has_shared_manifest_and_drift(self):
         from omh.install.agent_skills_projection import install_agent_skills, agent_skills_status, MANIFEST_NAME
         with tempfile.TemporaryDirectory() as tmp:

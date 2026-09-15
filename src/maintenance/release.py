@@ -929,7 +929,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # boundary. Without it the collision is closed in one direction only: the new
 # lane declines the agent surface, while the lane that owns the agent surface
 # would still answer an application request with `threat_surface_map/v1`.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 954996
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 965080
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

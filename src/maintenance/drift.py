@@ -257,7 +257,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # own words in another sense: what threat modeling is, what a STRIDE
             # analysis is, a trust boundary asked as a domain-modeling term,
             # hitting one's stride, modeling churn, and a scale model.
-            expected=222,
+            expected=228,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -294,7 +294,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # between two components, attack scenarios on an endpoint, abuse
             # cases on a flow) and one that keeps the agent's own prompt and
             # tool surface with `security-safety-review`.
-            expected=375,
+            expected=380,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",

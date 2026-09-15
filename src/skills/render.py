@@ -3915,7 +3915,7 @@ def _llm_app_eval_harness_reference() -> str:
     deliverables = "\n".join(f"- **{item}**" for item in LLM_APP_DEV_EVAL_DELIVERABLES)
     return f"""# LLM Feature Eval Harness
 
-Load this reference when the work is the eval suite: the golden set, the validators, and the comparison that decides whether a prompt or model swap ships.
+Load this reference when the work is the eval suite: the golden set, the hygiene checks that decide whether its numbers mean anything, the validators, and the comparison that decides whether a prompt or model swap ships.
 
 This is a prepared contract. OMH runs no eval and observes no result. A designed comparison is not a comparison that happened.
 
@@ -3934,7 +3934,19 @@ A golden set is a small, committed collection of task inputs with their expected
 - **Store it as data.** A JSON/CSV/YAML file under version control, with a stable case ID per row, so a result can name which cases moved.
 - **Grow it on every escape.** Any defect found in production becomes a case before it is fixed. This is the only mechanism that keeps the set aimed at what actually breaks.
 
-## 2. The Validator Ladder
+## 2. Corpus Hygiene
+
+A score from a leaking corpus is not a score. Run these checks on the committed set before any number taken from it is quoted, and report the result beside the number rather than when someone asks:
+
+- **Answer leakage.** No case's input may contain its own expected output, and no fixture, system prompt, few-shot example, or retrieved document the case restores may carry the answer the case exists to elicit. Check it by searching each expected value in that case's own input and in every fixture it restores. A case that leaks measures copying, and it measures it at the top of the score.
+- **Duplicates and near-duplicates.** The same input twice weights one behavior twice and moves the aggregate without anyone deciding to. Deduplicate on a normalized input hash, then review the near-duplicates by hand; keep a pair only when the two cases isolate genuinely different failures, and record which failure each one owns.
+- **Mutated fixtures.** A fixture edited until the case passes converts a regression into a green run. Fixture bytes are versioned with the case, a fixture change lands in the same commit as the reason for it, and a comparison whose two sides restored different fixture versions is not a comparison.
+- **Contaminated holdout.** A case used to tune a prompt, pick a threshold, or choose a model may never also report the result. Split the set before the first tuning pass, record which side every case is on, and quote the held-out number: a tuning-set number is a fit, not a measurement.
+- **Case provenance.** Each case records where it came from - a production escape, a hand-written probe, a generated variant - and, for a generated case, which model generated it. A set generated and graded by the same model measures that model's agreement with itself.
+
+Report the corpus state above the score: item count, duplicates removed, leakage hits, fixture version, and the tuning/holdout split. A set that has never been checked is reported as unchecked, and every number taken from it carries that label until it is.
+
+## 3. The Validator Ladder
 
 Prefer the most deterministic validator the task allows, and climb only when the rung below genuinely cannot express the check:
 
@@ -3947,7 +3959,7 @@ A task-level verdict is pass or fail per case. Aggregate scores hide which case 
 
 Grade with code wherever a field decides correctness: the arguments a write tool received, the business state after the run, and the identifiers and order of what was rendered. A rubric is for the semantic remainder. Pin a specific tool call or ordering only when it is part of the contract, such as a grounding read that must precede a write or an authorization check that must precede a side effect; otherwise accept any route that reaches the required outcome without breaking a safety invariant.
 
-## 3. Stateful Fixtures
+## 4. Stateful Fixtures
 
 A case is a message list plus the state that made the decision. A stateless model API does not make the feature stateless, and a transcript alone must never be able to recreate authority.
 
@@ -3969,13 +3981,13 @@ For a feature that loaded `references/stateful-contracts.md`, the golden set con
 - **Resulting-state limits.** Two sequential requests each under the cap that together exceed it; two concurrent workers targeting the same resource; a staged change applied after the target moved; a staged change applied after the approval expired. Each must end in a conflict or limit result with no partial mutation, and the fixture asserts the final business state, not the tool's reply.
 - **Memory lifecycle.** A user assertion that is stored; a tool result, a retrieved document, and a third-party claim the assistant repeated, each rejected; the same fact requested from a different person on a shared account and from a different tenant, each isolated; a correction that supersedes; a deletion that removes the fact from every read path; a retention expiry; and a delayed extractor whose window predates a deletion or a newer correction, which must be fenced rather than applied.
 
-## 4. Paired And Cross-Capability Cases
+## 5. Paired And Cross-Capability Cases
 
 Every required behavior gets a neighbor where the behavior must be absent: serve beside refuse, act beside ask, load a skill beside skip it, save a fact beside reject one. A suite of only required behaviors rewards a feature that always acts; the pair is what catches it.
 
 Add cases that span two contracts in one request and assert both obligations in one outcome: a positional reference to a rendered item followed by a write against it, a stored preference that changes which record is recommended, a limit check on a record that entered scope through a delegate. Separate suites for records, limits, and memory can each pass while a single request that crosses them fails at the seam.
 
-## 5. The Comparison Record
+## 6. The Comparison Record
 
 Run the regression **before** the swap, not after it.
 
@@ -3987,7 +3999,7 @@ Run the regression **before** the swap, not after it.
 - **Report per-case movement.** Which cases newly pass, which newly fail. A net-positive run that broke a case someone reported last month is not an improvement.
 - **Missing telemetry stays null.** If the harness did not report tokens, latency, or cost, the field is null and the report says the harness did not report it. Never reconstruct a token count from a pricing table or a character count; an estimate presented beside observed numbers reads as observed.
 
-## 6. What A Result Is Not
+## 7. What A Result Is Not
 
 - A designed comparison is not a result.
 - A committed fixture is not a run. Restoring runtime state proves the case is replayable, not that it was replayed. Until the run happened and its output was observed, every number is absent, not zero.
@@ -4007,6 +4019,9 @@ Run the regression **before** the swap, not after it.
 | Fixtures that restore messages only | The transcript recreated authority the provenance store never granted, so the case passes for the wrong reason. |
 | Required behaviors with no paired absence | A feature that always acts passes every "should act" case and fails every user it should have asked. |
 | Comparing per-call price | Failed attempts are free in that arithmetic; cost per successful task is the number that decides. |
+| A case whose input contains its own answer | The score measures copying, and it measures it as the highest-confidence case in the set. |
+| Tuning a prompt on the set that reports the result | The number is a fit to the cases that shaped it, so it cannot predict the next input. |
+| Editing a fixture until the case goes green | The regression is still there; only the evidence of it was removed. |
 """
 
 
@@ -6051,6 +6066,42 @@ to know.
   which, since presentation order alone moves judgements.
 - Keep the full trajectory: every iteration's output, score, and critique.
   A refinement loop with no history cannot be debugged, only rerun.
+
+## Qualifying a judge
+
+A judge nobody measured is unqualified, and an unqualified judge's number is
+not a result. Qualification happens before the run whose score depends on it,
+and again whenever the grader model ID, the rubric, or the task distribution
+changes - a judge qualified on last quarter's tasks is unqualified on these.
+
+1. **Label a sample by hand.** Fifty cases is a working floor. Draw them from
+   the distribution the judge will actually score, and include the boundary
+   cases the rubric is likeliest to get wrong; a sample of clear passes and
+   clear failures qualifies a judge for a job it will never do.
+2. **Score that sample with the judge**, blind to the human label, with the
+   grader model ID pinned and the rubric version recorded.
+3. **Measure agreement against the human labels**, never against a second
+   model. Report raw agreement and a chance-corrected statistic beside it -
+   Cohen's kappa for a categorical verdict, Krippendorff's alpha or a rank
+   correlation for an ordinal rubric. Raw agreement alone is not evidence: on
+   a sample that is 90% pass, a judge answering pass every time scores 90%.
+4. **Read every disagreement.** Each one says either that the judge is wrong
+   or that the rubric is ambiguous, and a rubric two humans score differently
+   is not repaired by a better judge.
+
+What the agreement figure licenses:
+
+| Chance-corrected agreement | What the judge's number is |
+| --- | --- |
+| not measured | unqualified; reported as unqualified, never quoted as a result |
+| below 0.4 | unusable; fix the rubric or replace the judge with an executable check |
+| 0.4 to 0.6 | usable only to compare two runs against the same rubric, never as an absolute score |
+| above 0.6 | usable as an absolute score, reported with the agreement figure beside it |
+
+Every reported judge score carries four fields: the grader model ID, the
+rubric version, the size of the sample agreement was measured on, and the
+agreement value. A score missing any of them is prepared analysis, and the
+report names the missing field instead of dropping the caveat.
 
 ## Boundary
 

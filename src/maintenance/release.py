@@ -870,7 +870,25 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # reference nothing points at is an orphan rather than a delivered note. The
 # budget had zero headroom, so the smallest reachable form still needs this
 # entry. Re-derived from the full-profile skill_context_cost_payload() producer.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 953938
+# 953938 -> 954701: #1574 hardens the evaluation lane on two skills. Two of the
+# three edits are reference files, measured outside this budget: the
+# corpus-hygiene checks in `llm-app-dev`'s `eval-harness.md` and the
+# judge-qualification procedure with its agreement thresholds in
+# `agent-evaluation`'s `self-evaluation-loops.md`. What is charged here is the
+# part a run cannot be told after it has already scored: `agent-evaluation`
+# gains the trajectory dimension, scored beside the outcome and never folded
+# into one total, so a run that reached the right answer with a search, an
+# approval, a tool, or a verification skipped or out of order scores lower on
+# it; and one safety rule saying that a judge with no agreement measured
+# against human labels is reported as unqualified rather than as a result,
+# which must be ungated because a judge is used while comparing executors and
+# the existing reference pointer fires only for self-evaluation. That body
+# carries +702 of the delta; the remaining +61 extends the `llm-app-dev`
+# pointer to name the hygiene checks, because a reference nothing points at is
+# an orphan rather than a delivered section. The budget had zero headroom.
+# Re-derived from the full-profile skill_context_cost_payload() producer,
+# never by adding deltas.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 954701
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

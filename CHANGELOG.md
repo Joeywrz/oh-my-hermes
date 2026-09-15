@@ -324,6 +324,32 @@ All notable changes will be documented here.
   the rule that completion evidence is a recall report over this store showing
   the records absent -- never the retire command's exit code, and never
   `recall-suite`, which seeds its own fixture corpus in a temporary store.
+- **The evaluation lane scores the path, checks the corpus, and qualifies the
+  judge.** Three gaps let a number out of this lane with nothing behind it.
+  `agent-evaluation` scored quality, correctness, time, cost, tool coverage,
+  verification and review gaps separately but never the order the run took, so
+  a run that reached the right answer by skipping verification scored the same
+  as one that did not; it now carries a trajectory dimension scored beside the
+  outcome and never folded into one total, asking whether the run searched
+  before it asserted, took approval before an irreversible side effect, used an
+  available tool instead of guessing, and verified before claiming done.
+  `llm-app-dev`'s `references/eval-harness.md` specified the golden-set shape
+  but not its hygiene, so a leaking corpus produced a quotable score; it gains
+  a corpus-hygiene section covering answer leakage, duplicates and
+  near-duplicates, fixtures mutated until a case passes, a holdout contaminated
+  by the tuning that chose the threshold, and per-case provenance, with the
+  rule that the corpus state is reported above the score and an unchecked set
+  is labelled unchecked. The catalog ranked judges below executable checks but
+  never said how to qualify one you have no choice but to use, so
+  `agent-evaluation`'s `references/self-evaluation-loops.md` gains the
+  qualification procedure -- a hand-labeled sample, a blind judge pass with the
+  grader model ID pinned, agreement measured against the human labels with a
+  chance-corrected statistic beside raw agreement, and every disagreement read
+  -- plus the table saying what each agreement band licenses. A judge with no
+  measured agreement is unqualified, and that verdict is a safety rule in the
+  always-loaded body rather than a reference note, because a judge is used
+  while comparing executors and the existing reference pointer fires only for
+  self-evaluation.
 
 ## 2.0.3 - 2026-09-12
 

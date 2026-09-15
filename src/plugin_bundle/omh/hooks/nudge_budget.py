@@ -27,8 +27,10 @@ the two properties that make a global safe for it:
   turn against another session's plan, and losing two nudges is by far the
   cheaper failure);
 - bounded, because a host outlives every session it runs and a map keyed by
-  session id only grows. Eviction fails toward silence: a session whose
-  baseline was evicted is refused, never nudged.
+  session id only grows. Eviction fails toward the behaviour that shipped
+  before this gate existed: a session whose baseline was evicted is refused at
+  `attempt > 0`, so it spends exactly the one nudge it used to. The direction
+  is the point -- an evicted row must not fall back toward MORE nudging.
 
 Nothing here raises. Hermes wraps the whole `pre_verify` call in
 `except Exception` and logs at debug, so a handler that raised would end the
@@ -117,8 +119,29 @@ def _stamp_text(stamp: object) -> str:
     return stamp if isinstance(stamp, str) else ""
 
 
+def reset_nudge_budget() -> None:
+    """Forget every recorded baseline. A test seam, deliberately named.
+
+    This memory is process-global, and the repository has already paid for that
+    shape once: `fanout_dispatch._INTERRUPT_FLAG` was set by one test and
+    surfaced as a CI-only failure in whichever test the shard planner happened
+    to run next, because the planner reorders tests run to run. A suite that
+    passes in one local order proves nothing about that.
+
+    So every test that populates this clears it through this function rather
+    than by reaching into the module attribute -- the obligation is then
+    greppable instead of remembered, and a new test file that forgets it is one
+    `reset_nudge_budget` search away from being found.
+    """
+    _LAST_NUDGE_STAMPS.clear()
+
+
 def _remember(key: str, stamp: str) -> None:
     _ = _LAST_NUDGE_STAMPS.pop(key, None)
     _LAST_NUDGE_STAMPS[key] = stamp
+    # Oldest first: the row least recently nudged is the one whose turn is most
+    # likely already over. Losing it costs that session the extra nudges and
+    # nothing else -- see the module docstring on which direction eviction
+    # fails toward.
     while len(_LAST_NUDGE_STAMPS) > MAX_TRACKED_SESSIONS:
         _ = _LAST_NUDGE_STAMPS.popitem(last=False)

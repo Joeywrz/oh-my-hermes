@@ -47,16 +47,20 @@ MAX_VERIFY_NUDGES = 3
 
 OPEN_PLAN = (("land the fix", "done"), ("open the PR", "active"), ("report", "pending"))
 
+SESSION = "budget-session"
+
 _UNSET = object()
 
 
 class _PlanHome(unittest.TestCase):
-    """A temp OMH/Hermes home pair plus a session id unique to each test.
+    """A temp OMH/Hermes home pair, a session id, and a cleared budget.
 
-    The budget's memory is a process-global keyed by session id, so a shared id
-    would let one test's first attempt supply another test's baseline -- and the
-    tests that assert silence for a missing baseline would pass or fail on
-    execution order.
+    The budget's memory is process-global, so a test that fires the hook leaves
+    a baseline behind for whichever test runs next -- and the CI shard planner
+    reorders tests run to run, which is how `fanout_dispatch._INTERRUPT_FLAG`
+    became a CI-only failure in this repository. Cleared through the module's
+    named seam on the way in and again on the way out, so neither direction
+    depends on execution order.
     """
 
     def setUp(self):
@@ -65,7 +69,9 @@ class _PlanHome(unittest.TestCase):
         self.home = Path(self._tmp.name) / "omh"
         self.hermes = Path(self._tmp.name) / "hermes"
         self.hermes.mkdir(parents=True, exist_ok=True)
-        self.session = f"budget-{self.id().rsplit('.', 1)[-1]}"
+        nudge_budget.reset_nudge_budget()
+        self.addCleanup(nudge_budget.reset_nudge_budget)
+        self.session = SESSION
         # Well inside `TODO_STALE_SECONDS`, so every stamp below is a live plan
         # and the only thing that varies between attempts is its order.
         self._base = datetime.now(timezone.utc) - timedelta(seconds=600)
@@ -276,6 +282,31 @@ class TheBudgetIsPerSessionTest(_PlanHome):
 
         self.assertIsNone(self._fire(attempt=1, session_id=""))
 
+    def test_a_populated_budget_cannot_reach_a_session_that_never_nudged(self):
+        # Cross-contamination made impossible rather than merely absent in this
+        # ordering. Session A records a baseline and its plan moves; session B
+        # has never called the hook. B's first attempt must behave as a first
+        # attempt -- nudge, and rebaseline on B's OWN plan -- and B's second
+        # attempt must then answer to B's plan alone. Session ids are what make
+        # that true, so this is the case that pins them.
+        other = f"{self.session}-never-nudged"
+        self._write_plan(step=0)
+        self._write_plan(step=0, session_ref=other)
+        self.assertIsNotNone(self._fire(attempt=0))
+        self._write_plan(step=2)
+
+        # B has no baseline, so a later attempt cannot borrow A's movement.
+        self.assertIsNone(
+            self._fire(attempt=1, session_id=other),
+            "a session that never nudged inherited another session's baseline",
+        )
+        # And B's own first attempt is still a first attempt.
+        self.assertIsNotNone(self._fire(attempt=0, session_id=other))
+        self.assertIsNone(
+            self._fire(attempt=1, session_id=other),
+            "B's second attempt answered to a plan that is not B's",
+        )
+
     def test_one_sessions_movement_does_not_spend_another_sessions_budget(self):
         # Two sessions served by one process. The first is advancing, the
         # second is not; the second must not inherit the first's movement.
@@ -320,7 +351,9 @@ class PlanNudgeBudgetUnitTest(unittest.TestCase):
     """The gate itself, on inputs the plan reader cannot produce on demand."""
 
     def setUp(self):
-        self.key = f"unit-{self.id().rsplit('.', 1)[-1]}"
+        nudge_budget.reset_nudge_budget()
+        self.addCleanup(nudge_budget.reset_nudge_budget)
+        self.key = "unit-session"
         self.earlier = "2026-09-15T10:00:00Z"
         self.later = "2026-09-15T10:01:00Z"
 
@@ -375,13 +408,14 @@ class PlanNudgeBudgetUnitTest(unittest.TestCase):
         # the evicted session is refused, never nudged on a baseline that is
         # gone.
         self.assertTrue(self._allow(0, self.earlier))
-        for index in range(nudge_budget.MAX_TRACKED_SESSIONS):
-            _ = self._allow(0, self.earlier, session_id=f"{self.key}-filler-{index}")
+        fillers = [f"{self.key}-filler-{index}" for index in range(nudge_budget.MAX_TRACKED_SESSIONS)]
+        for filler in fillers:
+            _ = self._allow(0, self.earlier, session_id=filler)
 
-        self.assertLessEqual(
-            len(nudge_budget._LAST_NUDGE_STAMPS), nudge_budget.MAX_TRACKED_SESSIONS
-        )
-        self.assertFalse(self._allow(1, self.later))
+        self.assertFalse(self._allow(1, self.later), "the oldest baseline was not evicted")
+        # Eviction, not a wipe: the row recorded most recently is still there,
+        # which is what makes the assertion above a bound rather than a bug.
+        self.assertTrue(self._allow(1, self.later, session_id=fillers[-1]))
 
 
 if __name__ == "__main__":

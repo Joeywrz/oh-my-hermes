@@ -11,7 +11,12 @@ from _local_package import load_local_package
 
 load_local_package()
 from omh.paths import resolve_paths
-from omh.runtime.artifacts import create_run, write_runtime_observation
+from omh.runtime.artifacts import (
+    create_run,
+    show_run,
+    summarize_runtime_observation_status,
+    write_runtime_observation,
+)
 from omh.runtime.records import RUNTIME_OBSERVATION_SCHEMA_VERSION
 from omh.workflow_learning import (
     WorkflowLearningError,
@@ -137,6 +142,61 @@ class RuntimeLearningRecapTest(unittest.TestCase):
             self.assertEqual(recap["evidence_cells"]["review"]["observation_status"], "blocked")
             self.assertEqual(recap["evidence_cells"]["review"]["source_observation_type"], "review")
             self.assertEqual(recap["observed_completion"]["state"], "unknown")
+
+    def test_a_corrective_failure_in_the_same_second_is_not_discarded(self) -> None:
+        """The realistic collision: `utc_now` has second resolution, so two
+        records for one milestone routinely share a timestamp. Whichever was
+        appended last speaks for the milestone, in both directions, and the
+        recap must reach the same verdict as the runtime status projection.
+        """
+        for order, expected in ((("observed", "failed"), "failed"), (("failed", "observed"), "observed")):
+            with self.subTest(order=order):
+                with TemporaryDirectory() as tmp:
+                    paths = self._paths(Path(tmp))
+                    run_id = self._run(paths)
+                    for status in order:
+                        self._observe(
+                            paths,
+                            run_id,
+                            "merge",
+                            status,
+                            updated_at="2026-09-15T03:13:42Z",
+                            evidence_refs=[f"merge-{status}"],
+                        )
+                    recap = build_runtime_learning_recap(paths, run_id)
+                    cell = recap["evidence_cells"]["merge"]
+                    self.assertEqual(cell["observation_status"], expected)
+                    runtime = summarize_runtime_observation_status(
+                        show_run(paths, run_id, history_limit=None)["runtime_observations"]
+                    )
+                    if expected == "observed":
+                        self.assertEqual(runtime["observed_events"], ["merge"])
+                        self.assertEqual(cell["state"], "observed")
+                        self.assertEqual(recap["observed_completion"]["state"], "completed")
+                    else:
+                        self.assertEqual(runtime["failed_events"], ["merge"])
+                        self.assertEqual(cell["state"], "failed")
+                        self.assertEqual(recap["observed_completion"]["state"], "failed")
+
+    def test_a_same_second_tie_still_builds_byte_identically(self) -> None:
+        """Append order decides the tie, and append order is stable, so the
+        revision stays idempotent rather than trading one bias for a coin flip.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = self._run(paths)
+            for status in ("observed", "failed"):
+                self._observe(
+                    paths,
+                    run_id,
+                    "merge",
+                    status,
+                    updated_at="2026-09-15T03:13:42Z",
+                    evidence_refs=[f"merge-{status}"],
+                )
+            builds = {json.dumps(build_runtime_learning_recap(paths, run_id), sort_keys=True) for _ in range(10)}
+            self.assertEqual(len(builds), 1)
+            self.assertEqual(json.loads(builds.pop())["evidence_cells"]["merge"]["state"], "failed")
 
     def test_merge_observed_completes_and_earlier_stages_stay_unavailable(self) -> None:
         with TemporaryDirectory() as tmp:

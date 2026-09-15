@@ -285,21 +285,43 @@ def _eligible_observations(shown: Mapping[str, Any], run_id: str) -> tuple[list[
     return eligible, rejected
 
 
-def _sort_key(record: Mapping[str, Any]) -> tuple[str, str, str]:
+def _sort_key(record: Mapping[str, Any]) -> tuple[str, str]:
+    """Which of two records for one milestone is the later one.
+
+    `status` is deliberately not a member. `updated_at` has second resolution --
+    `local_store.utc_now` drops microseconds -- so two records for one event
+    type written in one second tie on both fields here, and any third field
+    would decide the winner by its own ordering rather than by arrival. With
+    `status` in the tuple the comparison ran
+    `blocked < cancelled < failed < not_observed < observed`, so `observed` won
+    every same-second tie in both directions: a corrective `failed` appended
+    after an `observed` was discarded, and a stale `observed` appended after a
+    `failed` also won. The key was not picking a different record from the
+    runtime projection, it was not picking at all.
+    """
     return (
         str(record.get("updated_at", "")),
         str(record.get("event_type", "")),
-        str(record.get("status", "")),
     )
 
 
 def _latest_by_event(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """The record that speaks for each event type: the newest one.
+    """The record that speaks for each event type: the last one appended.
 
-    Stored order is arrival order, so a later append supersedes an earlier one
-    for the same milestone. Ties break on the same key the runtime status
-    projection uses, so the two surfaces cannot pick different records and reach
-    opposite conclusions about one run.
+    Stored order is append order, so a tie on the key falls through `>=` to the
+    later record. That is this repository's existing rule, stated at
+    `append_only_store.latest_record_in`: a later append always wins the tie.
+
+    It agrees with the runtime status projection, whose key is
+
+        (updated_at, target_type, target_id, event_type)
+
+    in `runtime.artifacts._runtime_observation_sort_key`, and which breaks a
+    full tie the same way. The agreement is conditional, not structural: the two
+    fields that key carries and this one does not are constant across the
+    eligible set only because `_eligible_observations` keeps one run id and
+    `target_type == "run"`. Widen that filter and the two keys stop being
+    equivalent, so widen this key in the same commit.
     """
     latest: dict[str, dict[str, Any]] = {}
     for record in records:

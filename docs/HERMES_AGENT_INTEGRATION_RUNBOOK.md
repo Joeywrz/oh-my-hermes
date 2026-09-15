@@ -647,7 +647,12 @@ When the user asks “what is happening with that coding task?”, prefer the
 `coding_briefing/v1` object from `omh chat session status`. Render
 `coding_briefing.user_facing_lines[]` for a readable answer, and use
 `coding_briefing.progress[]`, `pending_gaps[]`, and `evidence_summary` for
-expanded status. Keep `status_card/v1` compact; do not treat the briefing as
+expanded status. Read `blockers[]` before `pending_gaps[]`: a gap is a step
+nothing has reached yet, while a blocker is a step the runtime failed, blocked,
+or cancelled, and only the second one needs the user. Each entry carries `id`,
+`kind` (`failed`, `blocked`, or `cancelled`), and the `event` behind it.
+`progress[].state` cannot substitute — it spells an unmet prerequisite and a
+runtime failure with the same word. Keep `status_card/v1` compact; do not treat the briefing as
 proof of execution, verification, review, CI, or merge unless the matching
 observed evidence appears in the briefing.
 

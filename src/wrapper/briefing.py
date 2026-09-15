@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, Final
 
 from ..coding.executor_capabilities import (
     capability_for_profile_or_none,
@@ -39,6 +39,7 @@ def build_coding_briefing(
     headline = _headline(selected_executor, lifecycle_status, next_action, executor_status, runtime_status, runtime_observation)
     evidence = _evidence_summary(progress, runtime_status, executor_status)
     pending_gaps = _pending_gaps(progress, runtime_status, executor_status, runtime_observation)
+    blockers = _blockers(executor_status, runtime_observation)
     work_summary = _work_summary(session, runtime_status)
     user_facing_lines = _user_facing_lines(
         headline=headline,
@@ -46,6 +47,7 @@ def build_coding_briefing(
         work_summary=work_summary,
         runtime_milestones=runtime_milestones,
         pending_gaps=pending_gaps,
+        blockers=blockers,
         next_action=next_action,
     )
 
@@ -62,7 +64,7 @@ def build_coding_briefing(
         "run_id": run_id,
         "thread_key": str(session.get("thread_key", "")),
         "headline": headline,
-        "narrative": _narrative(headline, pending_gaps, next_action),
+        "narrative": _narrative(headline, pending_gaps, blockers, next_action),
         "current_state": {
             "session_status": str(session.get("status", "")),
             "selected_executor_profile": selected_executor,
@@ -78,6 +80,10 @@ def build_coding_briefing(
         "runtime_milestone_gaps": [str(step["id"]) for step in runtime_milestones if step.get("state") in {"pending", "blocked", "in_progress"}],
         "evidence_summary": evidence,
         "pending_gaps": pending_gaps,
+        # Beside `pending_gaps`, not inside it: the two answer different
+        # questions ("what has not happened yet" and "what stopped"), and a
+        # consumer that has only ever read the first keeps reading it unchanged.
+        "blockers": blockers,
         "next_action": next_action,
         "user_facing_lines": user_facing_lines,
         "claim_boundary": (
@@ -94,6 +100,7 @@ def chat_response_briefing(briefing: dict[str, Any]) -> dict[str, Any]:
         "lines": list(briefing.get("user_facing_lines", [])) if isinstance(briefing.get("user_facing_lines"), list) else [],
         "next_action": briefing.get("next_action", ""),
         "pending_gaps": list(briefing.get("pending_gaps", [])) if isinstance(briefing.get("pending_gaps"), list) else [],
+        "blockers": deepcopy(briefing.get("blockers")) if isinstance(briefing.get("blockers"), list) else [],
         "claim_boundary": briefing.get("claim_boundary", ""),
     }
 
@@ -436,6 +443,66 @@ def _evidence_summary(
     }
 
 
+# Which runtime observation event stands behind each progress step, mirroring
+# the `_runtime_event_state` calls in `_progress_steps`. `plan` and `handoff`
+# are wrapper-side and have no runtime event, so they are absent rather than
+# mapped to an empty string. `tests/test_wrapper_briefing_blockers.py` drives a
+# failure through every pair, so a step that gains an event here without
+# gaining one there (or the reverse) fails rather than silently reporting no
+# blocker for a stopped run.
+_STEP_RUNTIME_EVENTS: Final[tuple[tuple[str, str], ...]] = (
+    ("workspace_isolation", "worktree_creation"),
+    ("dispatch", "runtime_start"),
+    ("executor_result", "worker_result"),
+    ("verification", "verification"),
+    ("review", "review"),
+    ("ci", "ci"),
+    ("merge_ready", "merge_readiness"),
+    ("merged", "merge"),
+)
+
+# Ordered so the worst standing fact wins when one event carries more than one:
+# a failed run that was then cancelled is reported as cancelled, because that
+# is the state it is in now.
+_BLOCKER_KINDS: Final[tuple[tuple[str, str], ...]] = (
+    ("cancelled", "cancelled_events"),
+    ("failed", "failed_events"),
+    ("blocked", "blocked_events"),
+)
+
+BLOCKER_EXECUTOR_SESSION: Final[str] = "executor_session_error"
+
+
+def _blockers(
+    executor_status: dict[str, Any],
+    runtime_observation: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Steps stopped by an observed failure, block, or cancellation.
+
+    Distinct from ``_pending_gaps``, which also lists steps nothing has reached
+    yet. The distinction cannot be recovered from ``progress[].state``:
+    ``_state`` returns ``blocked`` for a step whose PREREQUISITE is unmet -- a
+    normal early state -- and ``_runtime_event_state`` returns the same word for
+    a step the runtime actually failed. One word, two facts, and the briefing
+    then listed both under "still missing evidence", which reads a stopped run
+    as an early one and a cancelled one as merely incomplete (``_runtime_event_state``
+    does not look at cancellations at all, so those reached no surface here).
+
+    The runtime layer never lost the distinction -- ``build_runtime_observation``
+    keeps ``failed_events``, ``blocked_events`` and ``cancelled_events`` apart --
+    so this reads those directly instead of re-deriving them from a state word.
+    """
+    blockers: list[dict[str, str]] = []
+    for step_id, event_type in _STEP_RUNTIME_EVENTS:
+        for kind, key in _BLOCKER_KINDS:
+            if event_type in _string_list(runtime_observation.get(key)):
+                blockers.append({"id": step_id, "kind": kind, "event": event_type})
+                break
+    if executor_status.get("executor_session_error"):
+        blockers.append({"id": BLOCKER_EXECUTOR_SESSION, "kind": "failed", "event": "executor_session"})
+    return blockers
+
+
 def _pending_gaps(
     progress: list[dict[str, Any]],
     runtime_status: dict[str, Any],
@@ -459,6 +526,7 @@ def _user_facing_lines(
     work_summary: dict[str, Any],
     runtime_milestones: list[dict[str, str]],
     pending_gaps: list[str],
+    blockers: list[dict[str, str]],
     next_action: str,
 ) -> list[str]:
     lines = [headline]
@@ -492,10 +560,22 @@ def _user_facing_lines(
                 "Hermes coding team path is prepared; runtime observations are still required before "
                 "worker, worktree, verification, review, CI, or merge claims advance."
             )
-    if pending_gaps:
-        lines.append(f"Still missing evidence: {', '.join(pending_gaps[:5])}.")
+    # Before the gap line, and with the gap line no longer repeating it. A
+    # stopped step is the one thing in this briefing a reader has to act on,
+    # and it used to appear only as one more name in a list of steps that had
+    # merely not happened yet.
+    if blockers:
+        lines.append(f"Stopped: {'; '.join(_blocker_line_item(blocker) for blocker in blockers[:5])}.")
+    stopped_ids = {blocker["id"] for blocker in blockers}
+    remaining = [gap for gap in pending_gaps if gap not in stopped_ids]
+    if remaining:
+        lines.append(f"Not reached yet: {', '.join(remaining[:5])}.")
     lines.append(f"Next action: {next_action}.")
     return _dedupe(lines)
+
+
+def _blocker_line_item(blocker: dict[str, str]) -> str:
+    return f"{blocker['id']} ({blocker['kind']})"
 
 
 def _executor_local_workflow_line(work_summary: dict[str, Any]) -> str:
@@ -515,7 +595,13 @@ def _executor_local_workflow_line(work_summary: dict[str, Any]) -> str:
     )
 
 
-def _narrative(headline: str, pending_gaps: list[str], next_action: str) -> str:
+def _narrative(headline: str, pending_gaps: list[str], blockers: list[dict[str, str]], next_action: str) -> str:
+    # A stopped step leads: "waiting on review, ci" is true of a run that is
+    # progressing and of one that failed an hour ago, and only one of those is
+    # worth reading first.
+    if blockers:
+        stopped = "; ".join(_blocker_line_item(blocker) for blocker in blockers[:4])
+        return f"{headline} The run is stopped at {stopped}; next action is {next_action}."
     if pending_gaps:
         return f"{headline} The wrapper is still waiting on {', '.join(pending_gaps[:4])}; next action is {next_action}."
     return f"{headline} The wrapper has no additional pending gap in this briefing; next action is {next_action}."

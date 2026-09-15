@@ -4,6 +4,25 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A stopped coding run no longer reads as an early one.** The coding briefing
+  listed everything that had not happened under a single `Still missing
+  evidence:` heading, so a step the runtime had failed, blocked, or cancelled
+  appeared as one more name beside steps nothing had reached yet — and a reader
+  had no way to tell which. The distinction was not recoverable from the
+  payload either: `_state` spells an unmet prerequisite `blocked`, and
+  `_runtime_event_state` spells an observed runtime failure with the same word,
+  while a cancelled milestone reached no briefing surface at all even though
+  `build_runtime_observation` had tracked it separately all along.
+  `coding_briefing/v1` now carries `blockers[]` beside `pending_gaps[]`, each
+  entry naming the step, its kind (`failed`, `blocked`, or `cancelled`), and the
+  runtime event behind it, read from the runtime observation rather than
+  re-derived from a state word. The rendered lines lead with `Stopped:` and no
+  longer repeat a stopped step under what is now `Not reached yet:`, and the
+  narrative leads with the stop instead of with what the run is waiting on.
+  `pending_gaps[]` keeps its meaning, its ordering, and its consumers; the
+  headline still reports the executor's own result and does not yet consult
+  `blockers[]`.
+
 - **Fanout's write fence now works on Linux.** `omh coding fanout dispatch`
   confines the owner CLI and its verification commands with `sandbox-exec` on
   macOS, but the Linux `bwrap` path had never run, and on a real host (Fedora

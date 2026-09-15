@@ -29,6 +29,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "prepare_agent_debug": "preparing an agent debug report",
     "prepare_agent_evaluation": "preparing an agent evaluation",
     "prepare_agent_ops_review": "preparing an agent-ops review",
+    "prepare_application_threat_model": "preparing an application threat model",
     "prepare_behavior_lock_and_refactor_scope": "preparing behavior locks and refactor scope",
     "prepare_coding_handoff": "preparing a coding handoff",
     "prepare_coding_runtime_handoff": "preparing a coding runtime handoff",

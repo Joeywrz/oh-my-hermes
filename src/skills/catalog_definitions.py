@@ -5282,6 +5282,7 @@ _DEFINITIONS = [
             "The user asks for production readiness across release, rollback, and observability; use `production-audit`.",
             "The user asks for merge verification commands; use `verification-gate`.",
             "The user asks for a normal code review focused on bugs; use `code-review`.",
+            "The subject is an application or service rather than the agent's own runtime -- its assets, trust boundaries, attack scenarios, and the controls that defend them; use `application-threat-model`.",
         ),
         good_example=SkillExample(
             prompt="security-safety-review 이 자동화가 프롬프트 인젝션, 시크릿, 파괴적 명령 위험이 있는지 봐줘.",
@@ -7645,6 +7646,144 @@ _DEFINITIONS.append(
             "If the context was compacted or the session resumed, reread the ledger and continue from the `next` range; do not restart from page 1.",
             "If the document is encrypted, ask for the password or stop; `pdf_read.py` and `pdf_split.py` accept `--password`.",
             "If most pages are scanned and the goal needs them all, stop and get approval for the per-page OCR job before spending one vision call per page.",
+        ),
+    )
+)
+
+
+_DEFINITIONS.append(
+    SkillDefinition(
+        "application-threat-model",
+        "Application threat model workflow: turn a system's components and data flows into assets, trust boundaries, attack scenarios, controls, and the security test that proves each control holds.",
+        (
+            "application-threat-model",
+            "application threat model",
+            "threat model",
+            "threat modeling",
+            "threat modelling",
+            "threat modeling session",
+            "threat modeling workshop",
+            "security threat model",
+            "build a threat model",
+            "model the threats",
+            "threat scenarios",
+            "stride analysis",
+            "stride model",
+            "trust boundary",
+            "trust boundaries",
+            "attack scenario",
+            "attack scenarios",
+            "attack tree",
+            "attack trees",
+            "abuse case",
+            "abuse cases",
+            "security design review",
+            "security architecture review",
+            "architecture security review",
+            "how would an attacker",
+            "how could an attacker",
+            "what could an attacker do",
+            "attacker perspective",
+        ),
+        (
+            "Use when Hermes must model the security of an application, service, or deployed system the user operates: which "
+            "assets are worth taking, where trust changes hands, how an attacker reaches each asset, which control stops them, "
+            "and which security test fails when that control is removed. The subject is the modeled system, never the agent's "
+            "own runtime."
+        ),
+        category="review",
+        phase="application-threat-model",
+        hermes_role="hybrid-review",
+        delegation_boundary="retained-catalog-intent",
+        handoff_policy=(
+            "Keep the model in Hermes: assets, boundaries, scenarios, control decisions, and test definitions are analysis over "
+            "architecture the user supplies. Writing the tests, running a scanner, changing an IAM policy, or patching a component "
+            "is executor work and needs observed evidence before a control counts as deployed."
+        ),
+        required_inputs=(
+            "the system under review: components, which component calls which, and where each is deployed",
+            "data flows and data classes: what every store, queue, and message carries",
+            "known trust boundaries: authentication points, network edges, tenant separation, third parties",
+            "controls already deployed, and who owns each",
+            "scope exclusions and the threat actors in scope",
+        ),
+        expert_questions=(
+            ExpertQuestion(
+                "the system under review: components, which component calls which, and where each is deployed",
+                "Which components make up the system, which of them call each other, and where does each one run?",
+                "이 시스템은 어떤 컴포넌트로 구성되고, 서로 어떤 호출 관계이며, 각각 어디에서 실행되나요?",
+            ),
+            ExpertQuestion(
+                "scope exclusions and the threat actors in scope",
+                "Which attackers are in scope — external, authenticated tenant, insider, compromised dependency — and what is out of scope?",
+                "어떤 공격자를 범위에 포함하나요 — 외부, 인증된 테넌트, 내부자, 침해된 의존성 — 그리고 제외 범위는 무엇인가요?",
+            ),
+        ),
+        expected_outputs=(
+            "application_threat_model/v1",
+            "asset register: data class plus the one loss that makes each asset worth defending",
+            "trust boundaries: what crosses, what authenticates the crossing, what the receiver assumes unchecked",
+            "attack scenarios: entry point, path, precondition, impact",
+            "one decision per scenario (mitigate, transfer, accept, eliminate) with an owner",
+            "per-control security test naming the observable that fails without it, plus residual risk",
+        ),
+        artifact_expectations=(
+            "application_threat_model/v1 with asset register, trust boundaries, attack scenarios, control decisions, and per-control tests",
+            "every control marked deployed, planned, or unverified; a scenario with no boundary and no asset is dropped, never carried",
+        ),
+        safety_rules=(
+            "Never write working exploit code, a payload, or a runnable attack script; a scenario names the entry point, the path, and the precondition, not the weapon.",
+            "Do not record a control as deployed because the architecture describes it; an unobserved control is `unverified` until configuration or a passing test says otherwise.",
+            "Do not model the agent's own prompts, tools, credentials, or dependencies here; that surface belongs to `security-safety-review`.",
+            "Never print secrets, tokens, keys, connection strings, or live customer records pulled in as examples.",
+            "A model is not a penetration test, a scan, or a compliance attestation; name which of the three the user still needs.",
+        ),
+        quality_tier="security-safety-gated",
+        quality_bar=(
+            "Name every component, data store, and external dependency of the real system before naming one threat; a model of a system nobody described is a checklist.",
+            "Give each asset a data class and exactly one loss: disclosure, corruption, unavailability, or fraud.",
+            "For each trust boundary, state what crosses it, what authenticates the crossing, and what the receiver assumes without checking.",
+            "Run all six STRIDE prompts from `omh-application-threat-model/references/threat-model-method.md` per boundary; drop an unreachable scenario with its reason instead of carrying it.",
+            "Resolve every scenario to one decision (mitigate, transfer, accept, eliminate) with an owner, and give every mitigating control a test whose observable fails when the control is removed.",
+        ),
+        why_this_exists=(
+            "`application-threat-model` exists because the nearest neighbour does not merely miss this request. `security-safety-review` "
+            "maps the agent's own prompt, tool, credential, and dependency surface, so an application threat-model request came back as an "
+            "agent tool inventory under a near-identical name — a confident wrong artifact rather than a miss, in the one domain where that costs most."
+        ),
+        do_not_use_when=(
+            "The subject is the agent's own prompts, tools, files, credentials, dependencies, or destructive actions; use `security-safety-review`, which maps that runtime surface.",
+            "The user wants defects found in a diff or a file; use `code-review`.",
+            "The user asks whether a release is ready across rollout, rollback, and observability; use `production-audit`.",
+            "The user asks which commands prove a merge is safe; use `verification-gate`.",
+            "The user asks for a contractual or regulatory obligation rather than an attacker; use `legal-compliance-review`.",
+        ),
+        good_example=SkillExample(
+            prompt="build a threat model for our payment service architecture",
+            expected=(
+                "Prepare application_threat_model/v1: ask for the component map and data flows, register card data and settlement "
+                "records as assets, mark the merchant API edge and the PSP callback as trust boundaries, derive scenarios per "
+                "boundary, decide a control for each, and name the test that fails when the control is removed."
+            ),
+            why="The subject is an application the user operates, and the goal needs assets, boundaries, scenarios, controls, and tests.",
+        ),
+        bad_example=SkillExample(
+            prompt="application-threat-model check whether this agent can be prompt-injected through its file tool",
+            expected="Route to `security-safety-review`: prompts, tools, and credentials are the agent's runtime surface, not an application this workflow models.",
+            why="The two surfaces share vocabulary and nothing else; modeling the agent's runtime here is how the artifacts get confused.",
+        ),
+        final_checklist=(
+            "Every asset carries a data class and one named loss; every boundary names what crosses it and what authenticates the crossing.",
+            "Every scenario resolves to mitigate, transfer, accept, or eliminate, with an owner.",
+            "Every mitigating control carries a security test and the observable that fails without it.",
+            "Controls read deployed, planned, or `unverified`; none is inferred from the architecture description.",
+            "Residual risk is listed, and the model is not offered as a scan, a penetration test, or an attestation.",
+        ),
+        recovery_notes=(
+            "If the architecture is not described, ask for the component map and the data flows before modeling; never substitute a generic checklist for the real system.",
+            "If a scenario has no boundary and no asset, drop it with the reason rather than carrying an unreachable threat.",
+            "If the user asks for exploit code, give the precondition and the detection signal instead, then hand remediation to an executor.",
+            "If the request turns out to be about the agent's own prompts, tools, or credentials, stop and hand it to `security-safety-review`.",
         ),
     )
 )

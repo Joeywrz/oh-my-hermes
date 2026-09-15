@@ -375,6 +375,29 @@ All notable changes will be documented here.
   and the rest) is held back from its skill's trigger tokens and pinned by a
   negative control in the sense it does not mean, so an ordinary sentence
   routes exactly as it did before.
+- **An application threat-model request no longer gets the agent's threat
+  surface.** `security-safety-review` emits `threat_surface_map/v1` over the
+  AGENT's own prompts, tools, files, dependencies and credentials, so asking
+  Hermes to "build a threat model for our payment service architecture" did not
+  merely miss -- it would have answered confidently with the wrong artifact
+  under a near-identical name. That phrasing returned `deep-interview`,
+  `build-failure-triage` and `model-setup`; it now opens the new
+  `application-threat-model` workflow, and an agent-surface phrasing still
+  opens `security-safety-review`, both pinned in the routing corpora. The
+  workflow models a real system: an asset register with a data class and one
+  named loss each, trust boundaries stating what crosses and what authenticates
+  the crossing, attack scenarios derived per boundary, one decision per scenario
+  from a closed vocabulary (mitigate, transfer, accept, eliminate) with an
+  owner, and a security test per mitigating control naming the observable that
+  fails when the control is removed. Its artifact is `application_threat_model/v1`
+  -- it shares no word of structure with `threat_surface_map/v1`, names the
+  application as its subject, and is never a surface map. A control is
+  `unverified` until observed configuration or a passing test says otherwise,
+  the workflow never writes exploit code, and the model is not a scan, a
+  penetration test, or a compliance attestation. The six STRIDE prompts, the
+  asset/loss table and the per-control test shapes live in
+  `references/threat-model-method.md`, measured outside the always-loaded body
+  budget.
 
 ## 2.0.3 - 2026-09-12
 

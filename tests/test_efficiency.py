@@ -251,7 +251,13 @@ class EfficiencyContractTests(unittest.TestCase):
         # research_and_ops skills' Workflow Lane lines). The ceiling restores
         # the ~11k standing headroom; the exact value stays ratcheted in
         # `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
-        self.assertLess(full["skill_body"]["bytes"], 960_000)
+        # 960,000 -> 975,000: `application-threat-model` (#1564) takes the full
+        # profile to 963,825 bytes (one new body plus its lane name on the
+        # coding_handoff skills' Workflow Lane lines). Its derivation detail is a
+        # reference file, counted below rather than here. The ceiling restores
+        # the ~11k standing headroom; the exact value stays ratcheted in
+        # `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
+        self.assertLess(full["skill_body"]["bytes"], 975_000)
         self.assertLess(full["repeated"]["share_percent"], 38.0)
 
         # References are progressive disclosure, counted outside the always-loaded body.

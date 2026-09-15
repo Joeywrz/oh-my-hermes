@@ -143,9 +143,18 @@ NON_SKILL_BACKTICKS = frozenset(
 # `materials-package`, non-document media to `media-input-operator`, and a
 # document not yet in hand to `source-finder`. Four cases, four new pairs, one
 # new deferring owner.
-EXPECTED_DEFERENCE_CASES = 235
-EXPECTED_DEFERENCE_PAIRS = 248
-EXPECTED_DEFERRING_OWNERS = 68
+# `application-threat-model` defers on five boundaries -- the agent's own
+# prompt, tool, and credential surface to `security-safety-review` (the
+# collision this skill exists to end), diff-scoped defect hunting to
+# `code-review`, release readiness to `production-audit`, merge commands to
+# `verification-gate`, and a regulatory obligation rather than an attacker to
+# `legal-compliance-review`. Five cases, five new pairs, one new deferring
+# owner. `security-safety-review` gains the reciprocal statement pointing back
+# at `application-threat-model`, which closes the collision in both directions:
+# one more case and one more pair, no new owner.
+EXPECTED_DEFERENCE_CASES = 241
+EXPECTED_DEFERENCE_PAIRS = 254
+EXPECTED_DEFERRING_OWNERS = 69
 
 # The ratchet. Recording a new inversion must be a visible edit to this number,
 # not one more dict line with a plausible sentence attached.

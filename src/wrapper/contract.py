@@ -415,6 +415,9 @@ VISIBLE_ACTIONS = (
     "record_budget_risk",
     "record_provider_usage",
     "prepare_security_safety_review",
+    "prepare_application_threat_model",
+    "show_attack_scenarios",
+    "show_control_tests",
     "show_security_safety_review",
     "record_threat_surface",
     "record_permission_secret_risk",
@@ -874,6 +877,11 @@ _HUMAN_ACK_BODY_BY_SKILL = {
         "I will prepare a redacted security safety review: threat surface, prompt-injection risks, tool permissions, "
         "secret/dependency/destructive-action gates, and safe remediation handoff without exposing secrets."
     ),
+    "application-threat-model": (
+        "I will model this application, not the agent: assets with their data class and loss, trust boundaries with what "
+        "authenticates each crossing, attack scenarios per boundary, one control decision each, and the security test that "
+        "fails when a control is removed. No control counts as deployed until configuration or a passing test is observed."
+    ),
     "materials-package": (
         "I will shape this into a material package: target files, source inputs, missing data, outline, "
         "generation owner, and QA checks. I will not claim the files exist until export evidence is observed."
@@ -1035,6 +1043,9 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "prepare_context_budget_review": ("prepare_context_budget_review", "Review context"),
     "show_run_efficiency_report": ("show_run_efficiency_report", "Show run efficiency"),
     "prepare_security_safety_review": ("prepare_security_safety_review", "Review safety"),
+    "prepare_application_threat_model": ("prepare_application_threat_model", "Model the threats"),
+    "show_attack_scenarios": ("show_attack_scenarios", "Show attack scenarios"),
+    "show_control_tests": ("show_control_tests", "Show control tests"),
     "prepare_material_package": ("prepare_material_package", "Prepare package"),
     "prepare_design_quality_gate": ("prepare_design_quality_gate", "Prepare design gate"),
     "prepare_design_orchestration": ("prepare_design_orchestration", "Prepare design direction"),
@@ -1612,6 +1623,40 @@ _REVIEW_QUALITY_CHAT_CARDS: dict[str, dict[str, object]] = {
             "remediation",
             "CI",
             "security sign-off",
+        ],
+    },
+    "application-threat-model": {
+        "kind": "application_threat_model",
+        "headline": "I can model this application's threats — its assets, not the agent's tool surface.",
+        "body": (
+            "I will prepare the application threat model: an asset register with a data class and one named loss each, trust "
+            "boundaries stating what crosses and what authenticates the crossing, attack scenarios derived per boundary, one "
+            "decision per scenario (mitigate, transfer, accept, eliminate) with an owner, and a security test per mitigating "
+            "control naming the observable that fails without it. A control I cannot observe stays unverified."
+        ),
+        "phase": "application_threat_model_prepared",
+        "next_action": "prepare_application_threat_model",
+        "artifact_schema": "application_threat_model/v1",
+        "claim_boundary_suffix": "It is not a scan, a penetration test, a compliance attestation, or proof that any control is deployed.",
+        "actions": [
+            {"id": "prepare_application_threat_model", "label": "Model the threats", "style": "primary"},
+            {"id": "show_attack_scenarios", "label": "Show attack scenarios", "style": "secondary"},
+            {"id": "show_control_tests", "label": "Show control tests", "style": "secondary"},
+            {"id": "show_status", "label": "Show status", "style": "secondary"},
+        ],
+        "recommended_flow": [
+            "map_components_data_flows_and_assets",
+            "mark_trust_boundaries_and_what_authenticates_each",
+            "derive_attack_scenarios_per_boundary",
+            "decide_one_control_per_scenario_with_an_owner",
+            "name_the_security_test_that_fails_without_each_control",
+        ],
+        "evidence_not_observed": [
+            "control deployment",
+            "scanner execution",
+            "penetration test",
+            "security test result",
+            "compliance attestation",
         ],
     },
 }

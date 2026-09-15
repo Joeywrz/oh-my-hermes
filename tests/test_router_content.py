@@ -437,8 +437,12 @@ class RouterContentTests(unittest.TestCase):
         # per new skill, ~2% headroom kept.
         # 26,000 -> 27,500: omh-docs and github-issue-intake each add one
         # measured registry row while preserving bounded per-row headroom.
+        # 28,000 -> 28,900: workflow-registry.md carries one row per routable
+        # workflow, and the `application-threat-model` row (#1564) took it to
+        # 28,195. One row per new skill is the growth this registry is supposed
+        # to have; the ceiling keeps ~2.4% headroom.
         for template in builtin_skill_reference_templates():
-            self.assertLess(len(template.content.encode("utf-8")), 28_000, template.relative_path)
+            self.assertLess(len(template.content.encode("utf-8")), 28_900, template.relative_path)
 
         schemas = (
             OMH_CAPABILITIES_SCHEMA,
@@ -4015,7 +4019,7 @@ class RouterContentTests(unittest.TestCase):
         # Retired engines must not be presented as current planning skills.
         self.assertNotIn("`ultragoal`", docs_readme)
         # omh-docs and github-issue-intake raise the measured catalog to 119.
-        self.assertIn("**124 installable skills**", docs_readme)
+        self.assertIn("**125 installable skills**", docs_readme)
         self.assertIn("**Retain knowledge**", docs_readme)
         # The unit suite runs through the deterministic sharding tools (issue
         # #1294): plan once, run per shard plus the serial quarantine, then

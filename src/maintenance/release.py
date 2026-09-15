@@ -234,7 +234,13 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # page-anchored chunk ledger over a document too large for one read); one new
 # capability section for one new workflow, not per-section padding; warranted
 # growth.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 417027
+# 417027 -> 421221: `application-threat-model` is a new installable skill
+# (#1564). It exists because `security-safety-review` maps the AGENT's prompt,
+# tool, and credential surface into `threat_surface_map/v1`, so an application
+# threat-model request came back as an agent tool inventory under a
+# near-identical name. One new capability section for one new workflow, not
+# per-section padding; warranted growth.
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 421221
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -266,7 +272,9 @@ FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 111483 -> 112443: apple-design adds one standalone capability row.
 # 116240 -> 117199: one standalone capability row for the new
 # `long-document-reading` skill; warranted growth.
-STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 117199
+# 117199 -> 118167: one standalone capability row for the new
+# `application-threat-model` skill (#1564); warranted growth.
+STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 118167
 STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # ULW fold context ceiling (issue #954, PR D). The limit is the pre-D measured
 # value of the full profile's `skill_body` chars on `main` @ acb9a060, in the
@@ -902,6 +910,25 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # skill_context_cost_payload() producer, never by adding the deltas.
 # Rebased onto #1574's 954701: the two deltas are independent, so the combined
 # value is re-derived here rather than either side's number being kept.
+# 953938 -> 963825: #1564 adds `application-threat-model`, the one new skill the
+# owner approved a ratchet for. Its nearest neighbour does not merely miss an
+# application threat-model request: `security-safety-review` emits
+# `threat_surface_map/v1` over the agent's own prompts, tools, and credentials,
+# so the request came back as a confident wrong artifact rather than a miss, in
+# the domain where that costs most. The body carries only what must hold whether
+# or not a reference is open -- the boundary against the sibling, the closed
+# decision vocabulary, the no-exploit-code rule, and the unverified-control
+# default. The derivation detail (the six STRIDE prompts per boundary, the
+# asset/loss table, the per-control test shapes) is
+# `skills/omh-application-threat-model/references/threat-model-method.md`,
+# measured outside this budget, and moving it cut the body by 532 chars. The
+# budget had zero headroom, so the smallest reachable form still needs this
+# entry. Re-derived from the full-profile skill_context_cost_payload() producer,
+# never by adding deltas.
+# 963825 -> 964022: the same issue gives `security-safety-review` the reciprocal
+# boundary. Without it the collision is closed in one direction only: the new
+# lane declines the agent surface, while the lane that owns the agent surface
+# would still answer an application request with `threat_surface_map/v1`.
 FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 954996
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 

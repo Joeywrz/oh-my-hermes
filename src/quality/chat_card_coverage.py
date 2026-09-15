@@ -555,6 +555,14 @@ CHAT_CARD_COVERAGE_CASES: tuple[ChatCardCoverageCase, ...] = (
         "prepare_security_safety_review",
     ),
     ChatCardCoverageCase(
+        "application-threat-model",
+        "Application Threat Model",
+        "build a threat model for our payment service architecture",
+        "application-threat-model",
+        "application_threat_model",
+        "prepare_application_threat_model",
+    ),
+    ChatCardCoverageCase(
         "skill-health",
         "Skill Health",
         "skill-health",

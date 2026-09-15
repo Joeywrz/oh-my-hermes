@@ -209,7 +209,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="chat_card_case_count",
             describe="Chat card coverage cases",
             live=_chat_card_case_count,
-            expected=89,
+            expected=90,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -220,7 +220,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="route_hint_case_count",
             describe="Route hint alignment cases",
             live=_route_hint_case_count,
-            expected=209,
+            expected=210,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -253,6 +253,10 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # Korean question about surveillance-camera video, and one per bare
             # verb held back from the continuous-watch phrases (keeping an old
             # API, buying a monitor, watching out for a race condition).
+            # The application-threat-model lane adds six negatives that use its
+            # own words in another sense: what threat modeling is, what a STRIDE
+            # analysis is, a trust boundary asked as a domain-modeling term,
+            # hitting one's stride, modeling churn, and a scale model.
             expected=222,
             sites=(
                 "tests/test_cli.py",
@@ -285,6 +289,11 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # phrase families), a memory-provider comparison reaching its
             # declared owner, and the sense each of those displaced staying
             # where it was (terminology alignment, operations telemetry).
+            # The application-threat-model lane adds five: four requests that
+            # model a real application (a payment service, an attacker path
+            # between two components, attack scenarios on an endpoint, abuse
+            # cases on a flow) and one that keeps the agent's own prompt and
+            # tool surface with `security-safety-review`.
             expected=375,
             sites=(
                 "tests/test_cli.py",
@@ -298,9 +307,13 @@ def count_metrics() -> tuple[CountMetric, ...]:
             describe="Installable workflow skills quoted in reference surfaces",
             live=_installable_skill_count,
             # The current workflow additions are part of the installable catalog.
-            expected=124,
+            expected=125,
             sites=(
                 "docs/README.md",
+                # The docs index quotes the count in prose and
+                # `test_first_release_trust_surfaces_are_present` asserts that
+                # exact string, so the number lives in two files, not one.
+                "tests/test_router_content.py",
             ),
         ),
         CountMetric(

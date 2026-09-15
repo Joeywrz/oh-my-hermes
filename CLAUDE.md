@@ -249,9 +249,10 @@ Rules:
   install with `python -m pip install -e .`, which ignores `[tool.uv]` and uses
   setuptools' default path-hook editable mode — no `build/` tree. Where a job
   does call `uv run` (the ruff gate in `test`, the packaging steps in
-  `distribution`) the strict tree is built, but every job installs into a fresh
-  checkout, so the tree is never older than the source. CI cannot reach the
-  stale state and so cannot warn you about it.
+  `distribution`) the strict tree is built, but each job checks out fresh and
+  installs after checking out (`aggregate` installs nothing at all), so no tree
+  in CI is ever older than its source. CI cannot reach the stale state and so
+  cannot warn you about it.
 
   What makes it read as a real regression is who resolves what. A `-P` spawn —
   or any run launched from outside the checkout, including the `omh` console

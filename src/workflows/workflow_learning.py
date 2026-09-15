@@ -9,6 +9,11 @@ from typing import Any, Callable, Iterable
 from ..local_store import atomic_write_json, ensure_dir, read_json_object, utc_now
 from ..paths import OmhPaths
 from ..runtime.artifacts import show_run
+from .runtime_learning_recap import (
+    OBSERVED_COMPLETION_STATES,
+    build_runtime_learning_recap_from_shown,
+    runtime_learning_recap_ref,
+)
 from .self_improvement_store_contract import (
     SELF_IMPROVEMENT_DESTINATION_DETAILS,
     SELF_IMPROVEMENT_DESTINATION_PRIORITY,
@@ -76,6 +81,11 @@ _SELF_IMPROVEMENT_FORBIDDEN_NORMALIZED_PAYLOAD_KEYS = {
 } | {"rawtextstored"}
 _OBSERVED_STATES = {"observed", "verified", "complete", "completed", "ready", "merged"}
 _LEARNING_OUTCOMES = {"unknown", "useful", "not_useful", "blocked", "failed"}
+# Where a trace's feedback string came from. `prepared_wrapper_summary` exists
+# because the runtime builder falls back to the wrapper summary, which is
+# prepared prose and nobody's assessment: labelling it operator-supplied would
+# assert an authority a `prepared_not_observed` string does not have.
+TRACE_FEEDBACK_AUTHORITIES = ("operator_supplied", "prepared_wrapper_summary", "absent")
 _PRIVATE_OR_RAW_SIGNAL_TERMS = (
     "secret-token",
     "api token",
@@ -316,7 +326,12 @@ def build_trace_from_chat_interaction(
             "evidence_state": str(evidence_state),
             "learning_state": "recorded",
             "outcome": outcome,
-            "feedback_summary": feedback_summary,
+            # Labelled on every trace, not only the runtime-projected ones, so
+            # one reader of `outcome` never has to know which builder made the
+            # record to know whose claim it is.
+            "outcome_authority": "operator_supplied",
+            "feedback_summary": _feedback_summary_and_authority(feedback_summary)[0],
+            "feedback_summary_authority": _feedback_summary_and_authority(feedback_summary)[1],
         },
         "improvement": {
             "candidate_available": False,
@@ -336,6 +351,22 @@ def build_trace_from_chat_interaction(
     return trace
 
 
+def _feedback_summary_and_authority(feedback_summary: str, prepared_fallback: str = "") -> tuple[str, str]:
+    """The feedback string and the label for where it came from, produced together.
+
+    Derived rather than asserted beside the value, so the label cannot drift
+    from the string it describes. One function is the only producer, so a caller
+    cannot supply one without the other.
+    """
+    supplied = str(feedback_summary or "")
+    if supplied:
+        return supplied, "operator_supplied"
+    prepared = str(prepared_fallback or "")
+    if prepared:
+        return prepared, "prepared_wrapper_summary"
+    return "", "absent"
+
+
 def build_trace_from_runtime_run(
     paths: OmhPaths,
     run_id: str,
@@ -344,14 +375,68 @@ def build_trace_from_runtime_run(
     feedback_summary: str = "",
     trace_id: str | None = None,
 ) -> dict[str, Any]:
+    return build_runtime_run_learning_record(
+        paths,
+        run_id,
+        outcome=outcome,
+        feedback_summary=feedback_summary,
+        trace_id=trace_id,
+    )["trace"]
+
+
+def build_runtime_run_learning_record(
+    paths: OmhPaths,
+    run_id: str,
+    *,
+    outcome: str = "unknown",
+    feedback_summary: str = "",
+    trace_id: str | None = None,
+) -> dict[str, Any]:
+    """One trace and one completion recap from a single read of the run.
+
+    One read rather than two because the two records are bound to each other:
+    the trace names the recap's revision digest, so a second read that happened
+    to catch a newly appended observation would produce a trace citing a recap
+    that was never built.
+    """
     if outcome not in _LEARNING_OUTCOMES:
         raise WorkflowLearningError(f"unsupported learning outcome: {outcome}")
     # Learning traces summarize every observation, so they need the full record.
     shown = show_run(paths, run_id, history_limit=None)
+    recap = build_runtime_learning_recap_from_shown(
+        shown,
+        run_id,
+        operator_outcome=outcome,
+        # Only what the operator actually supplied reaches the operator block.
+        # The trace may fall back to the wrapper summary below; the recap may
+        # not, because prepared wrapper prose is nobody's assessment.
+        operator_feedback_summary=feedback_summary,
+    )
+    trace = _trace_from_runtime_shown(
+        shown,
+        run_id,
+        recap=recap,
+        outcome=outcome,
+        feedback_summary=feedback_summary,
+        trace_id=trace_id,
+    )
+    return {"trace": trace, "recap": recap}
+
+
+def _trace_from_runtime_shown(
+    shown: dict[str, Any],
+    run_id: str,
+    *,
+    recap: dict[str, Any],
+    outcome: str,
+    feedback_summary: str,
+    trace_id: str | None,
+) -> dict[str, Any]:
     run = _object(shown.get("run"))
     routing = _object(shown.get("routing"))
     coding = _object(shown.get("coding_delegation"))
     wrapper = _object(shown.get("wrapper"))
+    feedback_text, feedback_authority = _feedback_summary_and_authority(feedback_summary, str(wrapper.get("summary", "")))
     observations = [record for record in _list(shown.get("runtime_observations")) if isinstance(record, dict)]
     selected_workflow = _first_nonempty(coding.get("recommended_workflow"), routing.get("selected_skill"), run.get("skill"), "unknown")
     selected_harness = _first_nonempty(coding.get("recommended_harness"), routing.get("selected_harness"), run.get("harness"), "unknown")
@@ -421,8 +506,16 @@ def build_trace_from_runtime_run(
             "evidence_state": evidence_state,
             "learning_state": "recorded",
             "outcome": outcome,
-            "feedback_summary": feedback_summary or str(wrapper.get("summary", "")),
+            # The label travels with the value. A reader of `outcome` alone
+            # cannot tell a human judgement from an evidence state, and that
+            # ambiguity is what the recap exists to remove.
+            "outcome_authority": "operator_supplied",
+            "feedback_summary": feedback_text,
+            "feedback_summary_authority": feedback_authority,
+            "observed_completion": str(_nested(recap, "observed_completion", "state") or "unknown"),
+            "observed_completion_authority": "observed_evidence",
         },
+        "runtime_completion": _runtime_completion_block(recap),
         "improvement": {
             "candidate_available": False,
             "candidate_refs": [],
@@ -562,6 +655,7 @@ def build_workflow_eval_result(
         _privacy_check(trace),
         _routing_check(trace),
         _boundary_check(trace),
+        _completion_authority_check(trace),
         _workflow_specific_check(trace),
     ]
     failed = any(check["status"] == "failed" for check in checks)
@@ -694,11 +788,40 @@ def build_improvement_candidate(
             "available": False,
             "reason": "v1 records a reviewable candidate only; it does not mutate skill files or routing tables.",
         },
+        "completion_evidence": _candidate_completion_evidence(trace),
         "claim_boundary": "Improvement candidates are review material. They do not apply patches until a later explicit human-approved workflow exists.",
     }
     candidate["review_card"] = build_improvement_candidate_review_card(candidate)
     validate_improvement_candidate(candidate)
     return candidate
+
+
+def _candidate_completion_evidence(trace: dict[str, Any]) -> dict[str, Any]:
+    """What the reviewer of this candidate is allowed to assume already happened.
+
+    A candidate is a proposal to change how work is done, so the first thing a
+    reviewer needs is whether the run behind it finished. Carrying the operator
+    outcome alone here is how a candidate born from an unfinished run reads as
+    one born from a shipped change.
+    """
+    completion = _object(trace.get("runtime_completion"))
+    status = _object(trace.get("status"))
+    return {
+        # No fallback to `status`: a candidate may report observed completion
+        # only from the block that names the recap holding the evidence.
+        "observed_completion": str(completion.get("observed_completion", "unknown") or "unknown"),
+        "observed_completion_authority": "observed_evidence",
+        "observed_cells": _strings(completion.get("observed_cells")),
+        "failed_cells": _strings(completion.get("failed_cells")),
+        "unavailable_cells": _strings(completion.get("unavailable_cells")),
+        "runtime_learning_recap_ref": str(completion.get("recap_ref", "")),
+        "operator_outcome": str(status.get("outcome", "unknown")),
+        "operator_outcome_authority": "operator_supplied",
+        "claim_boundary": (
+            "Observed completion is evidence; the operator outcome is assessment. "
+            "Neither makes this candidate approved."
+        ),
+    }
 
 
 def build_improvement_candidate_review_card(candidate: dict[str, Any]) -> dict[str, Any]:
@@ -1644,7 +1767,62 @@ def validate_workflow_learning_trace(trace: dict[str, Any]) -> None:
                 raise WorkflowLearningError(f"trace.feedback.{key} must be a string")
         if not isinstance(feedback.get("fixture_provided"), bool):
             raise WorkflowLearningError("trace.feedback.fixture_provided must be boolean")
+    _validate_trace_completion_authority(trace)
     _reject_forbidden_payload_keys(trace)
+
+
+def _validate_trace_completion_authority(trace: dict[str, Any]) -> None:
+    """The two authorities may not be relabelled into each other.
+
+    Enforced at the store and not only at the build, because the boundary is
+    only worth anything if a hand-edited trace cannot cross it either.
+
+    Each rule fires only when the key it judges is present. A trace written by
+    an earlier generation carries none of these keys, and must keep validating:
+    refusing it would make `learning list` and `learning show` fail over records
+    that were correct when written.
+    """
+    status = _object(trace.get("status"))
+    if "outcome_authority" in status and status.get("outcome_authority") != "operator_supplied":
+        raise WorkflowLearningError("trace status.outcome_authority must be operator_supplied")
+    if "feedback_summary_authority" in status and status.get("feedback_summary_authority") not in TRACE_FEEDBACK_AUTHORITIES:
+        raise WorkflowLearningError("trace status.feedback_summary_authority is invalid")
+    completion = trace.get("runtime_completion")
+    if "observed_completion" in status:
+        if status.get("observed_completion") not in OBSERVED_COMPLETION_STATES:
+            raise WorkflowLearningError("trace status.observed_completion is invalid")
+        if status.get("observed_completion_authority") != "observed_evidence":
+            raise WorkflowLearningError("trace status.observed_completion_authority must be observed_evidence")
+        if status.get("observed_completion") != "unknown" and not _has_recap_reference(completion):
+            # A state above `unknown` asserts observed evidence, so it has to
+            # name the recap that holds it. Without this the label could be
+            # deleted and the state kept, and every surface would still report
+            # the state as evidence-backed.
+            raise WorkflowLearningError(
+                "trace status.observed_completion above unknown requires a runtime_completion recap reference"
+            )
+    if completion is None:
+        return
+    if not isinstance(completion, dict):
+        raise WorkflowLearningError("trace.runtime_completion must be an object")
+    if completion.get("authority") != "observed_evidence":
+        raise WorkflowLearningError("trace.runtime_completion authority must be observed_evidence")
+    if completion.get("observed_completion") not in OBSERVED_COMPLETION_STATES:
+        raise WorkflowLearningError("trace.runtime_completion observed_completion is invalid")
+    if str(completion.get("observed_completion")) != str(status.get("observed_completion", completion.get("observed_completion"))):
+        raise WorkflowLearningError("trace.runtime_completion must agree with status.observed_completion")
+
+
+def _has_recap_reference(completion: Any) -> bool:
+    """Whether a completion block names its recap, in either carried form.
+
+    The export projection hashes every reference it carries, so there the ref
+    travels as `recap_ref_sha256`. Both forms identify the same recap; only the
+    plain one is navigable.
+    """
+    if not isinstance(completion, dict):
+        return False
+    return bool(str(completion.get("recap_ref", "")).strip() or str(completion.get("recap_ref_sha256", "")).strip())
 
 
 def validate_learning_audit_card(card: dict[str, Any]) -> None:
@@ -2166,6 +2344,33 @@ def _runtime_prepared_refs(run_id: str, shown: dict[str, Any]) -> list[dict[str,
     return refs
 
 
+def _runtime_completion_block(recap: dict[str, Any]) -> dict[str, Any]:
+    """The trace's pointer at the recap, carrying no evidence of its own.
+
+    States and cell names only. The trace links to the revision it was built
+    beside, so a later revision of the same run is a different record rather
+    than a silent rewrite of what a reviewer already read.
+    """
+    completion = _object(recap.get("observed_completion"))
+    cells = _object(recap.get("evidence_cells"))
+    return {
+        "authority": "observed_evidence",
+        "recap_id": str(recap.get("recap_id", "")),
+        "recap_ref": runtime_learning_recap_ref(str(recap.get("recap_id", ""))),
+        "runtime_history_digest": str(_nested(recap, "revision", "runtime_history_digest") or ""),
+        "observation_count": _nested(recap, "revision", "observation_count") or 0,
+        "observed_completion": str(completion.get("state", "unknown")),
+        "observed_cells": _strings(completion.get("observed_cells")),
+        "failed_cells": _strings(completion.get("failed_cells")),
+        "unavailable_cells": _strings(completion.get("unavailable_cells")),
+        "cell_states": {name: str(_object(cell).get("state", "")) for name, cell in cells.items()},
+        "claim_boundary": (
+            "Observed completion comes from validated runtime observation records. "
+            "The operator outcome recorded on this trace never sets or upgrades it."
+        ),
+    }
+
+
 def _runtime_not_evidence_yet(shown: dict[str, Any]) -> list[str]:
     missing = []
     if not shown.get("delegation"):
@@ -2192,6 +2397,65 @@ def _routing_check(trace: dict[str, Any]) -> dict[str, Any]:
     if selected and selected != "unknown":
         return _check("route_selected", "passed", f"Workflow selected: {selected}.", [])
     return _check("route_selected", "warning", "No concrete workflow was selected.", [])
+
+
+def _completion_authority_check(trace: dict[str, Any]) -> dict[str, Any]:
+    """Whether this trace still says who claimed what.
+
+    A trace projected from a runtime run carries both an operator outcome and an
+    observed completion state. The check passes when the observed state is
+    present and labelled, warns when only the operator's word is on record, and
+    fails when the operator's word is the thing labelled as evidence.
+    """
+    status = _object(trace.get("status"))
+    completion = _object(trace.get("runtime_completion"))
+    refs = [learning_trace_ref(str(trace["trace_id"]))]
+    if status.get("outcome_authority") not in (None, "operator_supplied"):
+        return _check("completion_authority", "failed", "Operator outcome is labelled as something other than supplied assessment.", refs)
+    if status.get("feedback_summary_authority") not in (None,) + TRACE_FEEDBACK_AUTHORITIES:
+        return _check("completion_authority", "failed", "Feedback summary carries a provenance label this trace cannot produce.", refs)
+    if completion and "outcome_authority" not in status:
+        # The check has to look for the label, not assume it. A trace that
+        # reports observed completion while its operator outcome is unlabelled
+        # is the case a presence-blind guard reported as passing.
+        return _check(
+            "completion_authority",
+            "warning",
+            "Observed completion is recorded, but the operator outcome carries no authority label.",
+            refs,
+        )
+    if not completion:
+        if str(_nested(trace, "source", "kind")) != "runtime_run":
+            # A chat interaction has no run to observe, so there is no second
+            # authority for the operator's word to be confused with. Warning
+            # here would mark every chat trace deficient for lacking evidence
+            # its source cannot produce.
+            return _check(
+                "completion_authority",
+                "passed",
+                "Trace records operator assessment only; its source has no runtime completion evidence.",
+                refs,
+            )
+        return _check(
+            "completion_authority",
+            "warning",
+            "No runtime completion recap is linked; only operator assessment is on record.",
+            refs,
+        )
+    recap_ref = str(completion.get("recap_ref", ""))
+    observed = str(completion.get("observed_completion", ""))
+    if not recap_ref or observed not in OBSERVED_COMPLETION_STATES:
+        return _check("completion_authority", "failed", "Linked runtime completion is missing its recap ref or closed state.", refs)
+    return _check(
+        "completion_authority",
+        "passed",
+        (
+            f"Observed completion {observed} is recorded separately from the operator outcome "
+            f"({status.get('outcome_authority', 'unlabelled')}) and feedback "
+            f"({status.get('feedback_summary_authority', 'unlabelled')})."
+        ),
+        refs + [recap_ref],
+    )
 
 
 def _boundary_check(trace: dict[str, Any]) -> dict[str, Any]:
@@ -2625,11 +2889,7 @@ def _export_trace_projection(trace: dict[str, Any]) -> dict[str, Any]:
         "reasoning_summary": _export_reasoning_summary(trace),
         "prepared_refs": _export_refs(_list(trace.get("prepared_refs"))),
         "observed_refs": _export_refs(_list(trace.get("observed_refs"))),
-        "status": {
-            "evidence_state": str(status.get("evidence_state", "")),
-            "learning_state": str(status.get("learning_state", "")),
-            "outcome": str(status.get("outcome", "")),
-        },
+        "status": _export_status_projection(status),
         "improvement": {
             "candidate_available": improvement.get("candidate_available") is True,
             "candidate_ref_count": len(_strings(improvement.get("candidate_refs"))),
@@ -2641,8 +2901,59 @@ def _export_trace_projection(trace: dict[str, Any]) -> dict[str, Any]:
             "values_omitted": bool(_strings(trace.get("overclaim_guard"))),
         },
     }
+    completion = _export_completion_projection(_object(trace.get("runtime_completion")))
+    if completion:
+        projection["runtime_completion"] = completion
     validate_workflow_learning_trace(projection)
     return projection
+
+
+def _export_status_projection(status: dict[str, Any]) -> dict[str, Any]:
+    """The trace status, carrying every closed token and no free text.
+
+    That is the whole of the original three-key allowlist's reasoning: of the
+    four keys the status block held, it kept the three closed vocabularies and
+    dropped `feedback_summary`, the only free-text field. The completion keys
+    are closed vocabularies too, so they travel. Without them the bundle emitted
+    the operator's outcome with no label saying it was the operator's, and the
+    eval check's verdict with no sign of what it found.
+    """
+    projection = {
+        "evidence_state": str(status.get("evidence_state", "")),
+        "learning_state": str(status.get("learning_state", "")),
+        "outcome": str(status.get("outcome", "")),
+        "feedback_summary_omitted": bool(str(status.get("feedback_summary", "")).strip()),
+    }
+    for key in ("outcome_authority", "feedback_summary_authority", "observed_completion", "observed_completion_authority"):
+        if key in status:
+            projection[key] = _export_token(status.get(key))
+    return projection
+
+
+def _export_completion_projection(completion: dict[str, Any]) -> dict[str, Any]:
+    """The observed side of the boundary, as closed tokens and a hashed ref.
+
+    The ref is hashed rather than carried, matching every other reference in
+    this bundle. That does not make it resolvable, and it is not meant to: what
+    a reader needs is the substance -- the state, its authority and the per-cell
+    verdicts -- which travels here as closed tokens.
+    """
+    if not completion:
+        return {}
+    return {
+        "authority": _export_token(completion.get("authority")),
+        "observed_completion": _export_token(completion.get("observed_completion")),
+        "runtime_history_digest": _export_token(completion.get("runtime_history_digest")),
+        "observation_count": completion.get("observation_count", 0) if isinstance(completion.get("observation_count"), int) else 0,
+        "observed_cells": [_export_token(cell) for cell in _strings(completion.get("observed_cells"))],
+        "failed_cells": [_export_token(cell) for cell in _strings(completion.get("failed_cells"))],
+        "unavailable_cells": [_export_token(cell) for cell in _strings(completion.get("unavailable_cells"))],
+        "cell_states": {
+            str(name): _export_token(state)
+            for name, state in sorted(_object(completion.get("cell_states")).items())
+        },
+        "recap_ref_sha256": next(iter(_export_ref_values([str(completion.get("recap_ref", ""))])), ""),
+    }
 
 
 def _export_eval_projection(result: dict[str, Any]) -> dict[str, Any]:
@@ -2697,6 +3008,20 @@ def _export_candidate_projection(candidate: dict[str, Any]) -> dict[str, Any]:
         },
         "claim_boundary": str(candidate.get("claim_boundary", "")),
     }
+    evidence = _object(candidate.get("completion_evidence"))
+    if evidence:
+        projection["completion_evidence"] = {
+            "observed_completion": _export_token(evidence.get("observed_completion")),
+            "observed_completion_authority": _export_token(evidence.get("observed_completion_authority")),
+            "operator_outcome": _export_token(evidence.get("operator_outcome")),
+            "operator_outcome_authority": _export_token(evidence.get("operator_outcome_authority")),
+            "observed_cells": [_export_token(cell) for cell in _strings(evidence.get("observed_cells"))],
+            "failed_cells": [_export_token(cell) for cell in _strings(evidence.get("failed_cells"))],
+            "unavailable_cells": [_export_token(cell) for cell in _strings(evidence.get("unavailable_cells"))],
+            "recap_ref_sha256": next(
+                iter(_export_ref_values([str(evidence.get("runtime_learning_recap_ref", ""))])), ""
+            ),
+        }
     _validate_export_candidate_projection(projection)
     return projection
 
@@ -3303,6 +3628,19 @@ def _patch_proposal_progress_rank(status: str) -> int:
     }.get(status, -1)
 
 
+def _queue_completion(candidate: dict[str, Any]) -> dict[str, Any]:
+    evidence = _object(candidate.get("completion_evidence"))
+    if not evidence:
+        return {}
+    return {
+        "observed_completion": str(evidence.get("observed_completion", "unknown")) or "unknown",
+        "observed_completion_authority": "observed_evidence",
+        "operator_outcome": str(evidence.get("operator_outcome", "unknown")) or "unknown",
+        "operator_outcome_authority": "operator_supplied",
+        "runtime_learning_recap_ref": str(evidence.get("runtime_learning_recap_ref", "")),
+    }
+
+
 def _candidate_review_queue_entry(
     candidate: dict[str, Any],
     *,
@@ -3314,6 +3652,11 @@ def _candidate_review_queue_entry(
     eval_id = str(candidate.get("eval_id", ""))
     title = str(candidate.get("title", "Workflow improvement candidate"))
     target_ref = str(candidate.get("target_ref", ""))
+    # The queue is where a reviewer decides what to act on, so a row says
+    # what was observed to happen on the run behind it, next to what the
+    # operator said about it, rather than leaving the reviewer to open the
+    # trace to find out which of the two they are reading.
+    completion = _queue_completion(candidate)
     if decision == "pending":
         return _learning_review_queue_entry(
             kind="candidate_review",
@@ -3333,6 +3676,7 @@ def _candidate_review_queue_entry(
             candidate_id=candidate_id,
             trace_id=trace_id,
             eval_id=eval_id,
+            completion=completion,
         )
     if decision == "revise":
         return _learning_review_queue_entry(
@@ -3353,6 +3697,7 @@ def _candidate_review_queue_entry(
             candidate_id=candidate_id,
             trace_id=trace_id,
             eval_id=eval_id,
+            completion=completion,
         )
     if decision == "approve":
         if latest_proposal is None:
@@ -3374,6 +3719,7 @@ def _candidate_review_queue_entry(
                 candidate_id=candidate_id,
                 trace_id=trace_id,
                 eval_id=eval_id,
+                completion=completion,
             )
         return _patch_proposal_queue_entry(latest_proposal, candidate_title=title)
     return None
@@ -3441,6 +3787,7 @@ def _learning_review_queue_entry(
     proposal_id: str = "",
     trace_id: str = "",
     eval_id: str = "",
+    completion: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     seed = json.dumps(
         {
@@ -3470,6 +3817,10 @@ def _learning_review_queue_entry(
         "proposal_id": proposal_id,
         "trace_id": trace_id,
         "eval_id": eval_id,
+        # Present only where a candidate stands behind the entry. A queue row
+        # about a broken index has no run and no completion to report, and an
+        # empty completion block there would read as an unfinished run.
+        **({"completion": completion} if completion else {}),
     }
 
 
@@ -3839,6 +4190,15 @@ def _trace_summary(trace: dict[str, Any]) -> dict[str, Any]:
         "selected_harness": _nested(trace, "workflow", "selected_harness"),
         "evidence_state": _nested(trace, "status", "evidence_state"),
         "outcome": _nested(trace, "status", "outcome"),
+        # A list row is where the two authorities are easiest to confuse, so
+        # the row carries both states and says which is whose. Read from the
+        # record rather than asserted here: a row that printed the label it
+        # wished for would hide a trace that had lost it.
+        "outcome_authority": str(_nested(trace, "status", "outcome_authority") or "unlabelled"),
+        "feedback_summary_authority": str(_nested(trace, "status", "feedback_summary_authority") or "unlabelled"),
+        "observed_completion": str(_nested(trace, "status", "observed_completion") or "unknown"),
+        "observed_completion_authority": str(_nested(trace, "status", "observed_completion_authority") or "unlabelled"),
+        "runtime_learning_recap_ref": str(_nested(trace, "runtime_completion", "recap_ref") or ""),
         "learning_trace_ref": learning_trace_ref(str(trace.get("trace_id", ""))),
     }
 

@@ -403,6 +403,10 @@ class OmhPaths:
         return self.learning_dir / "exports"
 
     @property
+    def learning_recaps_dir(self) -> Path:
+        return self.learning_dir / "recaps"
+
+    @property
     def learning_skill_drafts_dir(self) -> Path:
         return self.learning_dir / "skill-drafts"
 

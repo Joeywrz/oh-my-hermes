@@ -16,6 +16,7 @@ import unittest
 from pathlib import Path
 
 from _cli_harness import run_cli
+from _credential_fixtures import AWS_ACCESS_KEY_ID
 from _local_package import load_local_package
 
 load_local_package()
@@ -39,8 +40,15 @@ from omh.profiles.setup import read_setup_profile, write_setup_profile
 from omh.runtime.artifacts import update_state
 
 
+# A platform-token shape, written out: `_PLATFORM_SECRET_PREFIX` in
+# `src/system/metadata_safety.py` matches it, and it is short of the 36-char
+# body a real GitHub PAT carries, so no scanner pattern matches it on disk.
 _SOURCE_SECRET = "ghp_0123456789abcdef0123456789"
-_SOURCE_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE"
+# An AWS access key id shape, imported rather than written: the literal cannot
+# exist in a tracked file or secret scanning alerts on a value nobody issued.
+# `tests/test_credential_fixture_policy.py` enforces that, and this constant is
+# the same twenty characters at runtime that the literal was.
+_SOURCE_ACCESS_KEY = AWS_ACCESS_KEY_ID
 
 
 class _PackFixture(unittest.TestCase):

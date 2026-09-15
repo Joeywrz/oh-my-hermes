@@ -16,13 +16,99 @@ Rules:
   contract language. The license column records what made close study
   acceptable; `none` means link-only reference.
 - When a tracker issue is resolved (folded in or rejected), update
-  `reviewed_ref` and `reviewed_on` in the same PR that resolves it.
+  `reviewed_ref` and `reviewed_on` in the same PR that resolves it, and append
+  the closure receipt that records the decision. Both halves or neither; see
+  [Closure receipts](#closure-receipts), which is what now enforces this rule.
 - This file is hand-written; no generator owns it.
 - A license read from the GitHub API can be a false negative: the API answers
   `other` for `Effeilo/claude-code-frontend-skills` because its `LICENSE.md`
   opens with a logo block above the MIT text. That repository is MIT across
   every row that cites it, and a tracker run must not "correct" those rows to
   unlicensed off the API field.
+
+## Closure receipts
+
+The rule above used to be prose, and prose does not fail a build. A merged
+capability change could resolve a tracker finding and leave the matching row
+untouched, so the next run re-evaluated a range that had already been reviewed
+and presented resolved work as fresh risk.
+
+The receipt is what binds the two halves. `docs/skill-source-receipts.json`
+holds an append-only ledger; each entry names one candidate, the checkpoint it
+moved from, the checkpoint it moved to, and the terminal disposition:
+
+```json
+{
+  "receipt_id": "ssc-2026-09-14-lifecycle-growth-posthog",
+  "candidate_key": "lifecycle-growth@github.com/posthog/posthog",
+  "prior_checkpoint": "ae880d309f33eaf236cb4e46991f249a88e1c16e",
+  "next_checkpoint": "4f1c0b77a2e5d1c6b93a0f2e8d47b5c1a6e3d902",
+  "disposition": "adopted",
+  "decision_ref": "#1543",
+  "reviewed_on": "2026-09-14",
+  "rationale": "Adopted the reviewed exposure semantics; upstream product copy rejected.",
+  "supersedes": null
+}
+```
+
+- `candidate_key` is `<omh unit>@<upstream source>`: the first backticked token
+  of the **OMH skill** cell, lowercased, then the source URL with its scheme,
+  trailing slash, and any trailing prose removed. It must identify exactly one
+  row in the table below.
+- `disposition` is `adopted`, `rejected`, or `duplicate`. All three settle a
+  finding and all three advance the checkpoint, because a rejected or duplicate
+  range was still reviewed and must not be rediscovered forever.
+- `decision_ref` names the OMH issue or pull request that records the decision,
+  as `#N`. Closure of that issue is not itself review evidence.
+- `rationale` is one line of at most 240 characters stating the OMH decision.
+  Watch evidence -- what the tracker saw upstream, which commits were in range
+  -- stays in the private continuity record and in the cited OMH issue, never
+  in this public ledger.
+- `supersedes` names an earlier receipt for the **same** candidate when a later
+  review corrects it. Receipts are append-only: a correction is appended, and
+  the earlier decision stays readable exactly as it was recorded.
+
+A row is `closed` when its receipt chain terminates at the row's current
+`reviewed_ref` **and** `reviewed_on`. Half an atomic change fails from either
+side.
+
+Check it locally, the same command CI runs:
+
+```sh
+uv run python -m omh.cli docs skill-sources --check
+```
+
+Add `--json` for the `skill_source_closure_audit/v1` payload. The check is
+offline and deterministic: it never fetches a watched repository, runs a
+scheduled job, closes an issue, or merges a pull request, and it never decides
+whether a capability should be adopted. It validates OMH-owned continuity after
+a human or an authorized workflow already decided.
+
+Every failure carries a stable reason code, so CI output is grepped rather than
+read: `closure_checkpoint_missing` (the decision landed, the row did not move),
+`closure_receipt_missing` (the row moved, no receipt records why),
+`checkpoint_prior_stale`, `checkpoint_not_superseding`,
+`ambiguous_candidate_match`, `unmatched_candidate_key`, `receipt_id_reused`,
+`supersede_reference_unknown`, `supersede_reference_unrelated`,
+`receipt_field_invalid`, `rationale_over_budget`, `ledger_order_violation`,
+`unenrolled_registry_row`, `stale_baseline_entry`, `registry_row_unparsed`, and
+`ledger_unreadable`. Passing rows carry a code too: `receipt_chain_settled` or
+`pre_receipt_baseline`.
+
+### Rows that predate receipts
+
+No receipt was fabricated for work reviewed before this contract existed. Every
+row in the table below is enrolled at the state it stood in, by an entry in
+`pre_receipt_baselines()` in `src/catalogs/skill_source_closure.py`. Such a row
+reports `not_applicable` while it stays there, and already hands the next run a
+starting boundary.
+
+The migration is a one-way door. The first time an enrolled row moves, the move
+needs a receipt whose `prior_checkpoint` equals the baseline value, or the check
+fails `closure_receipt_missing`. A new row added to the table needs either a
+receipt or a baseline entry with its own reason, or it fails
+`unenrolled_registry_row`; adding a baseline is a reviewed act visible in the
+diff, not a way around the contract.
 
 ## Shipped skills
 

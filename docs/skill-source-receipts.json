@@ -1,0 +1,5 @@
+{
+  "schema_version": "skill_source_closure_receipt/v1",
+  "contract": "docs/SKILL-SOURCES.md, Closure receipts. Append-only: a correction adds a superseding receipt and never rewrites an earlier one. Rationale states the OMH decision in one bounded line; watch evidence stays in the private continuity record and in the cited OMH issue.",
+  "receipts": []
+}

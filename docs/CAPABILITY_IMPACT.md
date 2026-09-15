@@ -82,9 +82,19 @@ check only for surfaces where ordinary code tests are insufficient:
 - dependency or build metadata changes require installation or import smoke
 - CI workflow changes require a syntax check or the workflow's local command
 
+The same hook carries one further directive: when the session's own OMH plan
+still has open work, or a finished dispatch is unacknowledged, the message also
+names the plan position and the next item. This is the only moment a host lets
+a plugin start the next turn, so it is where a run that would otherwise end its
+turn on a status report is told to advance instead. It stops on the plan's own
+stop criterion — every item done, or the next item recorded blocked with its
+reason — and it fires only on a turn that edited code, so a turn ending after
+pure research or reporting still stops.
+
 The hook is one-shot, fail-open, and metadata-only. It does not store raw
 changed paths or final responses, and its message is guidance rather than proof
-that verification, review, CI, or merge readiness occurred.
+that verification, review, CI, or merge readiness occurred. The plan directive
+reports what the plan record says and is never evidence that an item ran.
 
 ## Growth Gate
 

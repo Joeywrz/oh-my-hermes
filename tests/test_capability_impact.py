@@ -93,6 +93,21 @@ class RepresentativeRoutingTests(unittest.TestCase):
 
 
 class PreVerifyHookTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # The hook also reads the session's plan (see
+        # test_plan_continuation_driver), so a host default here would read
+        # whichever machine runs the suite: an open plan in the developer's own
+        # `~/.omh` would turn these silences into continue directives. Pin an
+        # empty runtime so "no plan" is a property of the test, not the laptop.
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        env = patch.dict(
+            "os.environ",
+            {"OMH_HOME": str(Path(tmp.name) / "omh"), "HERMES_HOME": str(Path(tmp.name) / "hermes")},
+        )
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_pre_verify_is_registered_and_scoped_to_served_surface_risks(self) -> None:
         context = FakeHermesContext()
         register(context)

@@ -22,6 +22,14 @@ dispatch the plan has not written down (`dispatch_outcomes`), each with
 the verb it owes, plus `DISPATCH_COMPLETION_RULE`. Same boundary: the
 lines are instruction and a pointer at a record, never evidence that a
 unit did anything.
+
+The per-turn line has one structural limit: it is read at the start of a
+turn, so nothing observes a turn that ENDS with open items, and continuation
+then waits for the person. `plan_continuation_directive` is the same policy
+delivered at the one moment a host offers -- `pre_verify`, where a returned
+directive starts the next turn instead of describing the current one. Same
+gate (`open_plan_position`), same rules, same boundary: it reports what the
+plan record says and asserts nothing about what the next turn does.
 """
 from __future__ import annotations
 
@@ -74,6 +82,26 @@ TODO_CONTINUATION_RULE = (
     "it, advance the next item in this turn rather than ending on a status "
     "report. This stops when every item is done or an item is recorded blocked "
     "with its reason -- not when a turn has produced an answer."
+)
+
+# What the turn-end directive adds to the rule above. The message arrives as a
+# synthetic user turn, so it has to say what it is: a read of the plan record,
+# never a claim that an item ran.
+PLAN_CONTINUATION_BOUNDARY = (
+    "This directive reports what the plan record says; it is not evidence that "
+    "any item ran, passed, or was verified."
+)
+
+# How an item records a block. Multi-word on purpose: the token "blocked" alone
+# also appears in ordinary item text ("unblock the release"), and a marker that
+# matched it would let one sentence stop the plan's own continuation.
+_BLOCKED_MARKERS = (
+    "blocked:",
+    "blocked -",
+    "blocked by",
+    "blocked on",
+    "blocked until",
+    "blocked because",
 )
 
 TODO_RECONCILIATION_RULE = (
@@ -144,24 +172,107 @@ def open_todo_reminder(
     return "\n".join(lines)
 
 
-def _open_plan_line(*, omh_home: str, hermes_home: str, session_ref: str) -> str:
-    todo = read_omh_todo(omh_home or None, hermes_home or None, session_ref=session_ref)
+def open_plan_position(todo: dict[str, Any]) -> tuple[int, int] | None:
+    """``(done, total)`` while this plan has open work, else ``None``.
+
+    The single place the question "does this plan have open work" is decided.
+    The per-turn context line and the turn-end continuation directive are the
+    same policy read at two moments -- the line rides a turn that is already
+    happening, the directive starts the next one -- so a second copy of this
+    condition would let the two disagree about the same plan.
+    """
     if todo.get("status") != "established":
-        return ""
+        return None
     counts = todo.get("counts") if isinstance(todo.get("counts"), dict) else {}
     done = counts.get("done")
     total = counts.get("total")
     if not isinstance(done, int) or not isinstance(total, int) or total <= 0 or done >= total:
-        return ""
+        return None
+    return done, total
+
+
+def next_open_item(todo: dict[str, Any]) -> str:
+    """The item a continuation would advance: the active one, else the first pending."""
     items = todo.get("items") if isinstance(todo.get("items"), list) else []
-    active = next(
+    return _first_item_text(items, "active") or _first_item_text(items, "pending")
+
+
+def _first_item_text(items: list[Any], state: str) -> str:
+    return next(
         (
             str(item.get("text", ""))[:_MAX_ACTIVE_TEXT_CHARS]
             for item in items
-            if isinstance(item, dict) and item.get("state") == "active"
+            if isinstance(item, dict) and item.get("state") == state
         ),
         "",
     )
+
+
+def records_blocked_reason(text: str) -> bool:
+    """Whether an item records that it is blocked AND says by what.
+
+    The plan schema has three item states (pending/active/done) and no blocked
+    one, so an item records a block in its own text -- which is what
+    ``TODO_CONTINUATION_RULE`` asks for: "an item is recorded blocked with its
+    reason". The reason is what makes it a stop criterion, so a bare "blocked"
+    with nothing after it does not qualify; the marker set is deliberately
+    multi-word so ordinary prose about unblocking work does not match.
+    """
+    folded = str(text or "").casefold()
+    for marker in _BLOCKED_MARKERS:
+        index = folded.find(marker)
+        if index < 0:
+            continue
+        if folded[index + len(marker) :].strip(" -:.·"):
+            return True
+    return False
+
+
+def plan_continuation_directive(
+    *, omh_home: str = "", hermes_home: str = "", session_ref: str = ""
+) -> str:
+    """The turn-end message for a session whose plan still has open work.
+
+    ``TODO_CONTINUATION_RULE`` is already the right sentence delivered at the
+    wrong moment: ``_open_plan_line`` renders it into the context of a turn
+    that is already happening, so a turn that ends with open items ends
+    anyway. This is that rule at the one moment a host lets a plugin start the
+    next turn instead. Empty whenever the plan itself says stop -- no plan, a
+    finished plan, or a next item recorded blocked with its reason -- so the
+    directive never argues with the plan's own stop criterion.
+    """
+    try:
+        todo = read_omh_todo(omh_home or None, hermes_home or None, session_ref=session_ref)
+    except (OSError, ValueError, TypeError):
+        # Same boundary the outcome reader keeps: a reminder that could fail
+        # the turn it decorates would be worse than a missing one.
+        return ""
+    position = open_plan_position(todo)
+    item = next_open_item(todo) if position is not None else ""
+    if item and records_blocked_reason(item):
+        return ""
+    lines: list[str] = []
+    if position is not None:
+        done, total = position
+        head = f"[OMH plan todo] {done}/{total} done"
+        if item:
+            head = f"{head} · next: {item}"
+        lines.append(f"{head}. {TODO_CONTINUATION_RULE}")
+    lines.extend(_dispatch_outcome_lines(unacknowledged_outcomes(omh_home, hermes_home, session_ref)))
+    if not lines:
+        return ""
+    lines.append(PLAN_CONTINUATION_BOUNDARY)
+    return "\n".join(lines)
+
+
+def _open_plan_line(*, omh_home: str, hermes_home: str, session_ref: str) -> str:
+    todo = read_omh_todo(omh_home or None, hermes_home or None, session_ref=session_ref)
+    position = open_plan_position(todo)
+    if position is None:
+        return ""
+    done, total = position
+    items = todo.get("items") if isinstance(todo.get("items"), list) else []
+    active = _first_item_text(items, "active")
     head = f"[OMH plan todo] {done}/{total} done"
     if active:
         head = f"{head} · active: {active}"

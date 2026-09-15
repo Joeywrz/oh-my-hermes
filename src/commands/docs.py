@@ -387,6 +387,20 @@ def cmd_docs_navigation(args: argparse.Namespace) -> int:
     return 1 if args.check and not payload["ok"] else 0
 
 
+def cmd_docs_skill_sources(args: argparse.Namespace) -> int:
+    from ..maintenance.skill_source_closure import (
+        format_skill_source_closure,
+        skill_source_closure_report,
+    )
+
+    payload = skill_source_closure_report(root=Path(args.root))
+    if args.json:
+        _print_json(payload)
+    else:
+        print(format_skill_source_closure(payload))
+    return 1 if args.check and not payload["ok"] else 0
+
+
 def _add_docs_commands(sub) -> None:
     docs = sub.add_parser("docs", help="Render or check generated OMH workflow reference docs.")
     docs_sub = docs.add_subparsers(dest="docs_command", required=True)
@@ -413,6 +427,19 @@ def _add_docs_commands(sub) -> None:
     navigation.add_argument("--json", action="store_true", help="Print the machine-readable documentation_navigation_audit/v1 payload.")
     navigation.add_argument("--root", default=".", help="Repository tree to audit.")
     navigation.set_defaults(func=cmd_docs_navigation)
+
+    skill_sources = docs_sub.add_parser(
+        "skill-sources",
+        help=(
+            "Check recurring-watch closure continuity offline: every docs/SKILL-SOURCES.md row is "
+            "closed by a terminal receipt chain, held at a named failure, or not applicable at its "
+            "pre-receipt baseline. Never contacts a watched repository (maintainers)."
+        ),
+    )
+    skill_sources.add_argument("--check", action="store_true", help="Exit 1 when any closure finding is reported.")
+    skill_sources.add_argument("--json", action="store_true", help="Print the machine-readable skill_source_closure_audit/v1 payload.")
+    skill_sources.add_argument("--root", default=".", help="Repository tree holding the registry and the receipt ledger.")
+    skill_sources.set_defaults(func=cmd_docs_skill_sources)
 
     docs_agents = docs_sub.add_parser("agent-skills", help="Generate or byte-check the portable Agent Skills tree (maintainers).")
     docs_agents.add_argument("--output", default=None, help="Projection root (default: agent-skills).")

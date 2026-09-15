@@ -1,0 +1,681 @@
+"""Gate for the recurring-watch closure contract (issue #1543).
+
+`docs/SKILL-SOURCES.md` has always required that resolving an upstream-tracker
+finding advances `reviewed_ref` and `reviewed_on` in the same pull request.
+These tests are what makes that mechanical. Every named failure is pinned by
+its stable reason code, because CI output and maintainer greps read the code,
+not the sentence next to it.
+
+Fixtures build their own registry and their own enrolment baseline rather than
+leaning on the 38 live rows, whose checkpoints move whenever a real review
+lands. That separation is load-bearing: an earlier version asserted the shipped
+baseline equalled each row's current values, which the first legitimate closure
+would have broken, because a baseline is the chain's origin and a closed row has
+moved past it. Assertions against the real repository therefore pin invariants
+that survive a closure, never the state of the tree on the day they were written.
+"""
+
+from __future__ import annotations
+
+import importlib
+import json
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from _cli_harness import run_cli
+from _local_package import load_local_package
+
+load_local_package()
+from omh.catalogs.skill_source_closure import (
+    CLOSURE_SCHEMA,
+    DISPOSITIONS,
+    FAILURE_CLASSES,
+    MAX_RATIONALE_CHARS,
+    PASS_REASONS,
+    PRE_RECEIPT_CENSUS_DIGEST,
+    RECEIPT_SCHEMA,
+    ROW_STATES,
+    PreReceiptBaseline,
+    census_digest,
+    pre_receipt_baselines,
+    pre_receipt_census_digest,
+)
+from omh.maintenance.skill_source_closure import (
+    candidate_key,
+    format_skill_source_closure,
+    parse_registry,
+    skill_source_closure_report,
+)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+UNIT = "demo-skill"
+SOURCE = "https://github.com/example/demo"
+KEY = candidate_key(UNIT, SOURCE)
+OTHER_UNIT = "other-skill"
+OTHER_SOURCE = "https://github.com/example/other"
+OTHER_KEY = candidate_key(OTHER_UNIT, OTHER_SOURCE)
+
+BASE_REF = "aaaaaaaaaaaa"
+NEXT_REF = "bbbbbbbbbbbb"
+THIRD_REF = "cccccccccccc"
+BASE_ON = "2026-09-01"
+NEXT_ON = "2026-09-10"
+THIRD_ON = "2026-09-12"
+
+BASELINE = (
+    PreReceiptBaseline(KEY, BASE_ON, BASE_REF, "Fixture row enrolled before receipts."),
+    PreReceiptBaseline(OTHER_KEY, BASE_ON, BASE_REF, "Fixture sibling row enrolled before receipts."),
+)
+
+
+def registry_markdown(rows: list[tuple[str, str, str, str]]) -> str:
+    """Render a registry table in the shape the real document uses."""
+    header = (
+        "# Skill Upstream Sources\n\n## Shipped skills\n\n"
+        "| OMH skill | Category | Upstream repo | Paths studied | License | reviewed_on | reviewed_ref |\n"
+        "| --- | --- | --- | --- | --- | --- | --- |\n"
+    )
+    body = "".join(
+        f"| `{unit}` (PR #1) | planning | {source} | `README.md` | MIT | {reviewed_on} | {reviewed_ref} |\n"
+        for unit, source, reviewed_on, reviewed_ref in rows
+    )
+    return header + body
+
+
+def receipt(**changes: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "receipt_id": "ssc-2026-09-10-demo-skill-example-demo",
+        "candidate_key": KEY,
+        "prior_checkpoint": BASE_REF,
+        "next_checkpoint": NEXT_REF,
+        "disposition": "adopted",
+        "decision_ref": "#1543",
+        "reviewed_on": NEXT_ON,
+        "rationale": "Folded the reviewed range into the OMH skill contract.",
+    }
+    base.update(changes)
+    return base
+
+
+class ClosureFixture(unittest.TestCase):
+    """Builds a throwaway repository root holding a registry and a ledger."""
+
+    def report(
+        self,
+        *,
+        rows: list[tuple[str, str, str, str]] | None = None,
+        receipts: list[dict[str, object]] | None = None,
+        ledger_text: str | None = None,
+        registry_text: str | None = None,
+        baselines: tuple[PreReceiptBaseline, ...] | None = BASELINE,
+    ):
+        default_rows = [(UNIT, SOURCE, BASE_ON, BASE_REF), (OTHER_UNIT, OTHER_SOURCE, BASE_ON, BASE_REF)]
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "docs").mkdir()
+            (root / "docs" / "SKILL-SOURCES.md").write_text(
+                registry_text if registry_text is not None else registry_markdown(rows if rows is not None else default_rows),
+                encoding="utf-8",
+            )
+            if ledger_text is None:
+                ledger_text = json.dumps(
+                    {"schema_version": RECEIPT_SCHEMA, "receipts": receipts or []}, indent=2,
+                )
+            (root / "docs" / "skill-source-receipts.json").write_text(ledger_text, encoding="utf-8")
+            return skill_source_closure_report(root=root, baselines=baselines)
+
+    def codes(self, report) -> list[str]:
+        return [finding["failure_class"] for finding in report["findings"]]
+
+    def row(self, report, key: str = KEY):
+        return next(row for row in report["rows"] if row["candidate_key"] == key)
+
+
+class ClosureContractTests(ClosureFixture):
+    def test_pre_receipt_rows_are_not_applicable_and_never_fabricate_a_receipt(self):
+        # The migration path: a row that predates the contract passes, carries a
+        # named pass reason, and still hands the next run a starting boundary.
+        report = self.report()
+
+        self.assertTrue(report["ok"], report["findings"])
+        self.assertEqual(self.row(report)["state"], "not_applicable")
+        self.assertEqual(self.row(report)["reason"], "pre_receipt_baseline")
+        self.assertEqual(self.row(report)["receipt_ids"], [])
+        self.assertEqual(self.row(report)["scan_from"], BASE_REF)
+        self.assertEqual(report["summary"]["receipts"], 0)
+
+    def test_resolved_finding_without_the_row_update_fails_closure_checkpoint_missing(self):
+        # The defect the issue names: implementation and receipt landed, the
+        # matching continuity row did not move.
+        report = self.report(receipts=[receipt()])
+
+        self.assertFalse(report["ok"])
+        self.assertIn("closure_checkpoint_missing", self.codes(report))
+        self.assertEqual(self.row(report)["state"], "held")
+        self.assertEqual(self.row(report)["reason"], "closure_checkpoint_missing")
+        self.assertIsNone(self.row(report)["scan_from"])
+
+    def test_checkpoint_advancing_without_a_receipt_fails_closure_receipt_missing(self):
+        # The mirror defect: the row moved and nothing records the decision.
+        report = self.report(
+            rows=[(UNIT, SOURCE, NEXT_ON, NEXT_REF), (OTHER_UNIT, OTHER_SOURCE, BASE_ON, BASE_REF)],
+        )
+
+        self.assertFalse(report["ok"])
+        self.assertIn("closure_receipt_missing", self.codes(report))
+        self.assertEqual(self.row(report)["reason"], "closure_receipt_missing")
+
+    def test_each_disposition_closes_the_row_and_records_the_next_boundary(self):
+        for disposition in DISPOSITIONS:
+            with self.subTest(disposition=disposition):
+                report = self.report(
+                    rows=[(UNIT, SOURCE, NEXT_ON, NEXT_REF), (OTHER_UNIT, OTHER_SOURCE, BASE_ON, BASE_REF)],
+                    receipts=[receipt(disposition=disposition)],
+                )
+
+                self.assertTrue(report["ok"], report["findings"])
+                self.assertEqual(self.row(report)["state"], "closed")
+                self.assertEqual(self.row(report)["reason"], "receipt_chain_settled")
+                self.assertEqual(self.row(report)["disposition"], disposition)
+                self.assertEqual(self.row(report)["scan_from"], NEXT_REF)
+
+    def test_a_new_row_enrols_through_an_initial_receipt_with_no_prior(self):
+        # The other enrolment path: a source shipping for the first time has no
+        # prior checkpoint, so its first review is itself the terminal receipt.
+        report = self.report(
+            rows=[(UNIT, SOURCE, BASE_ON, BASE_REF), (OTHER_UNIT, OTHER_SOURCE, NEXT_ON, NEXT_REF)],
+            receipts=[receipt(
+                receipt_id="ssc-2026-09-10-other-skill-initial", candidate_key=OTHER_KEY,
+                prior_checkpoint=None, rationale="First review of a newly shipped source.",
+            )],
+            baselines=(BASELINE[0],),
+        )
+
+        self.assertTrue(report["ok"], report["findings"])
+        self.assertEqual(self.row(report, OTHER_KEY)["state"], "closed")
+        self.assertEqual(self.row(report, OTHER_KEY)["scan_from"], NEXT_REF)
+
+    def test_review_date_must_move_with_the_checkpoint(self):
+        # Half the row is not the row: advancing `reviewed_ref` while leaving
+        # `reviewed_on` behind is the same unclosed range with a newer hash.
+        report = self.report(
+            rows=[(UNIT, SOURCE, BASE_ON, NEXT_REF), (OTHER_UNIT, OTHER_SOURCE, BASE_ON, BASE_REF)],
+            receipts=[receipt()],
+        )
+
+        self.assertIn("closure_checkpoint_missing", self.codes(report))
+
+    def test_stale_prior_checkpoint_fails_deterministically(self):
+        report = self.report(
+            rows=[(UNIT, SOURCE, NEXT_ON, NEXT_REF), (OTHER_UNIT, OTHER_SOURCE, BASE_ON, BASE_REF)],
+            receipts=[receipt(prior_checkpoint="ffffffffffff")],
+        )
+
+        self.assertIn("checkpoint_prior_stale", self.codes(report))
+        self.assertEqual(self.row(report)["reason"], "checkpoint_prior_stale")
+
+    def test_non_superseding_next_checkpoint_fails(self):
+        # Returning to a checkpoint the chain already left re-opens a reviewed
+        # range. A correction is allowed, but it has to say so.
+        report = self.report(
+            rows=[(UNIT, SOURCE, THIRD_ON, BASE_REF), (OTHER_UNIT, OTHER_SOURCE, BASE_ON, BASE_REF)],
+            receipts=[
+                receipt(),
+                receipt(
+                    receipt_id="ssc-2026-09-12-demo-skill-rollback",
+                    prior_checkpoint=NEXT_REF, next_checkpoint=BASE_REF, reviewed_on=THIRD_ON,
+                ),
+            ],
+        )
+
+        self.assertIn("checkpoint_not_superseding", self.codes(report))
+
+    def test_a_declared_correction_supersedes_without_rewriting_the_earlier_receipt(self):
+        # Append-only: the superseded receipt stays in the chain and stays
+        # listed on the row.
+        report = self.report(
+            rows=[(UNIT, SOURCE, THIRD_ON, THIRD_REF), (OTHER_UNIT, OTHER_SOURCE, BASE_ON, BASE_REF)],
+            receipts=[
+                receipt(),
+                receipt(
+                    receipt_id="ssc-2026-09-12-demo-skill-correction",
+                    prior_checkpoint=BASE_REF, next_checkpoint=THIRD_REF, reviewed_on=THIRD_ON,
+                    disposition="rejected", supersedes="ssc-2026-09-10-demo-skill-example-demo",
+                    rationale="Correction: the earlier adoption was reversed on review.",
+                ),
+            ],
+        )
+
+        self.assertTrue(report["ok"], report["findings"])
+        self.assertEqual(self.row(report)["state"], "closed")
+        self.assertEqual(
+            self.row(report)["receipt_ids"],
+            ["ssc-2026-09-10-demo-skill-example-demo", "ssc-2026-09-12-demo-skill-correction"],
+        )
+
+    def test_reused_receipt_identity_fails(self):
+        report = self.report(
+            rows=[(UNIT, SOURCE, NEXT_ON, NEXT_REF), (OTHER_UNIT, OTHER_SOURCE, BASE_ON, BASE_REF)],
+            receipts=[receipt(), receipt(candidate_key=OTHER_KEY)],
+        )
+
+        self.assertIn("receipt_id_reused", self.codes(report))
+
+    def test_supersede_reference_must_exist_and_must_stay_on_its_own_candidate(self):
+        unrelated = self.report(
+            rows=[(UNIT, SOURCE, NEXT_ON, NEXT_REF), (OTHER_UNIT, OTHER_SOURCE, NEXT_ON, NEXT_REF)],
+            receipts=[
+                receipt(),
+                receipt(
+                    receipt_id="ssc-2026-09-12-other-skill", candidate_key=OTHER_KEY,
+                    reviewed_on=THIRD_ON, supersedes="ssc-2026-09-10-demo-skill-example-demo",
+                ),
+            ],
+        )
+        missing = self.report(
+            rows=[(UNIT, SOURCE, NEXT_ON, NEXT_REF), (OTHER_UNIT, OTHER_SOURCE, BASE_ON, BASE_REF)],
+            receipts=[receipt(supersedes="ssc-2026-01-01-absent")],
+        )
+
+        self.assertIn("supersede_reference_unrelated", self.codes(unrelated))
+        self.assertIn("supersede_reference_unknown", self.codes(missing))
+
+    def test_ambiguous_and_unmatched_candidate_keys_fail(self):
+        ambiguous = self.report(
+            rows=[(UNIT, SOURCE, BASE_ON, BASE_REF), (UNIT, SOURCE + "/", BASE_ON, BASE_REF)],
+            baselines=(BASELINE[0],),
+        )
+        unmatched = self.report(receipts=[receipt(candidate_key="ghost@github.com/example/ghost")])
+
+        self.assertIn("ambiguous_candidate_match", self.codes(ambiguous))
+        self.assertEqual(self.row(ambiguous)["reason"], "ambiguous_candidate_match")
+        self.assertIn("unmatched_candidate_key", self.codes(unmatched))
+
+    def test_unenrolled_and_stale_baseline_rows_fail(self):
+        unenrolled = self.report(baselines=(BASELINE[0],))
+        stale = self.report(
+            rows=[(UNIT, SOURCE, BASE_ON, BASE_REF)],
+            baselines=BASELINE,
+        )
+
+        self.assertIn("unenrolled_registry_row", self.codes(unenrolled))
+        self.assertEqual(self.row(unenrolled, OTHER_KEY)["reason"], "unenrolled_registry_row")
+        self.assertIn("stale_baseline_entry", self.codes(stale))
+
+    def test_ledger_entries_are_appended_in_review_order(self):
+        report = self.report(
+            rows=[(UNIT, SOURCE, BASE_ON, BASE_REF), (OTHER_UNIT, OTHER_SOURCE, BASE_ON, BASE_REF)],
+            receipts=[
+                receipt(reviewed_on=THIRD_ON),
+                receipt(receipt_id="ssc-2026-09-10-earlier", reviewed_on=NEXT_ON, candidate_key=OTHER_KEY),
+            ],
+        )
+
+        self.assertIn("ledger_order_violation", self.codes(report))
+
+    def test_malformed_receipt_fields_fail_before_any_chain_reasoning(self):
+        cases = {
+            "disposition": receipt(disposition="folded"),
+            "decision_ref": receipt(decision_ref="PR 1543"),
+            "reviewed_on": receipt(reviewed_on="10 September 2026"),
+            "receipt_id": receipt(receipt_id="SSC_Demo"),
+            "next_checkpoint": receipt(next_checkpoint=""),
+            "unknown_field": receipt(watch_evidence="upstream diff"),
+        }
+        for name, entry in cases.items():
+            with self.subTest(field=name):
+                report = self.report(receipts=[entry])
+
+                self.assertIn("receipt_field_invalid", self.codes(report))
+
+    def test_rationale_stays_bounded_and_keeps_watch_evidence_out_of_the_public_ledger(self):
+        cases = {
+            "too_long": receipt(rationale="x" * (MAX_RATIONALE_CHARS + 1)),
+            "multi_line": receipt(rationale="Adopted.\nUpstream diff attached."),
+            "link": receipt(rationale="Adopted per https://github.com/example/demo/commit/abc"),
+        }
+        for name, entry in cases.items():
+            with self.subTest(case=name):
+                report = self.report(receipts=[entry])
+
+                self.assertIn("rationale_over_budget", self.codes(report))
+
+    def test_unreadable_or_undeclared_ledger_fails(self):
+        broken = self.report(ledger_text="{not json")
+        undeclared = self.report(ledger_text=json.dumps({"receipts": []}))
+
+        self.assertIn("ledger_unreadable", self.codes(broken))
+        self.assertIn("ledger_unreadable", self.codes(undeclared))
+
+    def test_unparsable_registry_row_is_reported_rather_than_skipped(self):
+        text = registry_markdown([(UNIT, SOURCE, BASE_ON, BASE_REF)]) + "| `broken` | only | three |\n"
+
+        report = self.report(registry_text=text, baselines=(BASELINE[0],))
+
+        self.assertIn("registry_row_unparsed", self.codes(report))
+
+    def test_an_indented_row_is_audited_rather_than_silently_dropped(self):
+        # The row-shape trap. Selecting body rows by their opening characters
+        # dropped an indented row with no finding at all, so an unenrolled
+        # candidate passed the gate. Indentation is the expected accident in a
+        # hand-written table, so such a row must still reach the audit.
+        for label, prefix in (("space", " "), ("tab", "\t"), ("two spaces", "  ")):
+            with self.subTest(indent=label):
+                text = registry_markdown([(UNIT, SOURCE, BASE_ON, BASE_REF)]).replace(
+                    f"| `{UNIT}`", prefix + f"| `{UNIT}`", 1)
+
+                report = self.report(registry_text=text, baselines=())
+
+                self.assertEqual(report["summary"]["rows"], 1, "the indented row must still be seen")
+                self.assertIn("unenrolled_registry_row", self.codes(report))
+
+    def test_a_row_whose_skill_cell_has_no_backtick_is_a_finding_not_a_skip(self):
+        text = registry_markdown([(UNIT, SOURCE, BASE_ON, BASE_REF)]).replace(f"| `{UNIT}` (PR #1) |", "| plain prose |", 1)
+
+        report = self.report(registry_text=text, baselines=())
+
+        self.assertEqual(report["summary"]["rows"], 0)
+        self.assertIn("registry_row_unparsed", self.codes(report))
+        self.assertFalse(report["ok"])
+
+    def test_parsing_stops_at_the_end_of_the_shipped_table(self):
+        # Prose and a later candidate-rows section must not be read as rows.
+        text = (
+            registry_markdown([(UNIT, SOURCE, BASE_ON, BASE_REF)])
+            + "\nNote on the row: prose that mentions `other-skill`.\n"
+            + "\n## Candidate rows (researched, not yet shipped)\n\nNone open.\n"
+        )
+
+        report = self.report(registry_text=text, baselines=(BASELINE[0],))
+
+        self.assertTrue(report["ok"], report["findings"])
+        self.assertEqual(report["summary"]["rows"], 1)
+
+    def test_a_candidate_row_is_not_read_as_a_shipped_row(self):
+        # The registry tells contributors to record a researched lead in the
+        # candidate section before it ships. Such a lead has no checkpoint for
+        # a receipt to bind to, so it must neither enter the audit nor be
+        # rejected as a malformed shipped row. Both shapes the section invites
+        # are pinned: the 6-cell form its instructions describe, and a 7-cell
+        # form with em-dash placeholders.
+        section = "\n## Candidate rows (researched, not yet shipped)\n\n"
+        shapes = {
+            "six cells": "| `new-thing` (issue #1600) | planning | https://github.com/example/new-thing | `SKILL.md` | MIT | #1600 |\n",
+            "seven cells": "| `new-thing` (issue #1600) | planning | https://github.com/example/new-thing | `SKILL.md` | MIT | — | — |\n",
+        }
+        for label, row in shapes.items():
+            with self.subTest(shape=label):
+                text = (
+                    registry_markdown([(UNIT, SOURCE, BASE_ON, BASE_REF)])
+                    + section
+                    + "| OMH unit | Category | Upstream repo | Paths studied | License | Issue |\n"
+                    + "| --- | --- | --- | --- | --- | --- |\n" + row
+                )
+
+                report = self.report(registry_text=text, baselines=(BASELINE[0],))
+
+                self.assertTrue(report["ok"], report["findings"])
+                self.assertEqual(report["summary"]["rows"], 1)
+                self.assertEqual([r["candidate_key"] for r in report["rows"]], [KEY])
+
+    def test_a_cell_may_carry_an_escaped_pipe(self):
+        # `Paths studied` cells are dense with backticked paths; the first one
+        # that needs a literal pipe must not be unwritable.
+        text = registry_markdown([(UNIT, SOURCE, BASE_ON, BASE_REF)]).replace(
+            "| `README.md` |", r"| `src/a.py` \| `src/b.py` |", 1)
+
+        rows, findings = parse_registry(text)
+
+        self.assertEqual(findings, [])
+        self.assertEqual([row["candidate_key"] for row in rows], [KEY])
+
+    def test_the_candidate_key_is_indifferent_to_url_casing(self):
+        # The scheme is stripped before the key is lowercased, so the strip has
+        # to be case-insensitive or the same source mints two candidates.
+        self.assertEqual(
+            candidate_key("Demo-Skill", "HTTPS://GitHub.com/Example/Demo/"),
+            candidate_key("demo-skill", "https://github.com/example/demo"),
+        )
+        self.assertEqual(candidate_key(UNIT, "HTTP://Example.COM/X/"), "demo-skill@example.com/x")
+
+
+class WatchBoundaryTests(ClosureFixture):
+    """`scan_from` on each row is the next run's starting boundary.
+
+    The repository publishes the boundary and nothing more. Filtering a sweep
+    belongs to the external tracker, which lives outside this repository, so no
+    filter helper ships here for a caller that does not exist. These fixtures
+    do the filtering themselves against the published field, which is what
+    proves the published field is sufficient for it.
+    """
+
+    @staticmethod
+    def still_open(report, observed: list[dict[str, str]]) -> list[str]:
+        boundary = {row["candidate_key"]: row["scan_from"] for row in report["rows"]}
+        return [
+            item["candidate_key"] for item in observed
+            if boundary.get(item["candidate_key"]) is None
+            or item["observed_ref"] != boundary[item["candidate_key"]]
+        ]
+
+    def test_a_later_sweep_does_not_re_emit_a_candidate_resolved_at_that_checkpoint(self):
+        # Success criterion: the next run starts after the accepted checkpoint.
+        report = self.report(
+            rows=[(UNIT, SOURCE, NEXT_ON, NEXT_REF), (OTHER_UNIT, OTHER_SOURCE, BASE_ON, BASE_REF)],
+            receipts=[receipt()],
+        )
+        observed = [
+            {"candidate_key": KEY, "observed_ref": NEXT_REF},
+            {"candidate_key": OTHER_KEY, "observed_ref": BASE_REF},
+        ]
+
+        self.assertTrue(report["ok"], report["findings"])
+        self.assertEqual(self.row(report)["scan_from"], NEXT_REF)
+        self.assertEqual(self.still_open(report, observed), [])
+
+    def test_a_moved_upstream_and_a_held_row_both_stay_in_the_sweep(self):
+        report = self.report(receipts=[receipt()])
+        observed = [
+            {"candidate_key": KEY, "observed_ref": NEXT_REF},
+            {"candidate_key": OTHER_KEY, "observed_ref": THIRD_REF},
+        ]
+
+        # KEY is held, so it publishes no boundary and its finding must keep
+        # being emitted; OTHER_KEY settled earlier but upstream has moved on.
+        self.assertIsNone(self.row(report)["scan_from"])
+        self.assertEqual(self.still_open(report, observed), [KEY, OTHER_KEY])
+
+
+class ShippedRegistryTests(unittest.TestCase):
+    def test_the_shipped_registry_parses_into_unambiguous_candidates(self):
+        rows, findings = parse_registry((REPO_ROOT / "docs" / "SKILL-SOURCES.md").read_text(encoding="utf-8"))
+        keys = [row["candidate_key"] for row in rows]
+
+        self.assertEqual(findings, [])
+        self.assertEqual(len(keys), len(set(keys)), "one candidate key per registry row")
+
+    def test_every_enrolment_names_one_live_row_and_carries_a_reason(self):
+        # Enrolment is not a blanket exemption: each baseline names exactly one
+        # live registry row. It deliberately does not assert that the baseline
+        # equals that row's current values; the settled-row test below says why.
+        rows = {row["candidate_key"]: row for row in parse_registry(
+            (REPO_ROOT / "docs" / "SKILL-SOURCES.md").read_text(encoding="utf-8"))[0]}
+        baselines = {entry.candidate_key: entry for entry in pre_receipt_baselines()}
+
+        self.assertEqual(len(baselines), len(pre_receipt_baselines()), "one enrolment per candidate")
+        self.assertEqual(sorted(set(baselines) - set(rows)), [], "every enrolment names a live row")
+        for key, entry in baselines.items():
+            with self.subTest(candidate=key):
+                self.assertTrue(entry.reason, "every enrolment carries a reason")
+                self.assertTrue(entry.owner, "every enrolment carries an owner")
+
+    def test_a_baseline_tracks_an_unsettled_row_and_is_frozen_once_receipts_exist(self):
+        # The invariant the first real closure used to break. A baseline is the
+        # chain's origin, not a mirror of the row: while a row is still
+        # `not_applicable` the two agree, and once a receipt chain exists the
+        # row moves and the baseline stays put on purpose. Asserting equality
+        # for every row made the documented closure path turn CI red.
+        report = skill_source_closure_report(root=REPO_ROOT)
+        rows = {row["candidate_key"]: row for row in report["rows"]}
+        baselines = {entry.candidate_key: entry for entry in pre_receipt_baselines()}
+
+        for key, entry in baselines.items():
+            with self.subTest(candidate=key):
+                row = rows[key]
+                if row["state"] == "not_applicable":
+                    self.assertEqual((entry.reviewed_on, entry.reviewed_ref), (row["reviewed_on"], row["checkpoint"]))
+                else:
+                    # A settled row is proved by its chain, whose first prior
+                    # checkpoint the gate itself pins to this baseline through
+                    # `checkpoint_prior_stale`.
+                    self.assertEqual(row["state"], "closed", row["reason"])
+                    self.assertTrue(row["receipt_ids"], "a moved row is settled by receipts")
+
+    def test_the_census_digest_is_pinned_independently_of_the_shipped_constant(self):
+        # Pinned here as a literal, in a second file, so recomputing the
+        # constant to match an edited baseline is not enough to pass.
+        self.assertEqual(
+            pre_receipt_census_digest(),
+            "2962833b9d96de0e6174441d194b0a6ebc1d057053a7528b2f22bcafe9216686",
+        )
+        self.assertEqual(pre_receipt_census_digest(), PRE_RECEIPT_CENSUS_DIGEST)
+        self.assertEqual(len(pre_receipt_baselines()), 38)
+
+    def test_editing_a_baseline_instead_of_writing_a_receipt_fails_the_gate(self):
+        # The bypass this contract must not have: relabel a moved row as
+        # `not_applicable` by editing its enrolment, and write no receipt.
+        module = importlib.import_module("omh.maintenance.skill_source_closure")
+        moved = tuple(
+            entry._replace(reviewed_on="2026-09-15", reviewed_ref="0" * 40)
+            if entry.candidate_key == "codebase-uml@github.com/plantuml/plantuml" else entry
+            for entry in pre_receipt_baselines()
+        )
+        original = module.pre_receipt_baselines
+        module.pre_receipt_baselines = lambda: moved
+        try:
+            report = skill_source_closure_report(root=REPO_ROOT)
+        finally:
+            module.pre_receipt_baselines = original
+
+        # Asserted on the finding, not on how many receipts the shipped ledger
+        # happens to hold: pinning "the ledger is empty" would be the same
+        # mistake as pinning "the baseline equals the row", and would come due
+        # on the first real closure.
+        self.assertFalse(report["ok"])
+        self.assertIn("baseline_census_modified", [item["failure_class"] for item in report["findings"]])
+        self.assertNotIn("baseline_census_modified",
+                         [item["failure_class"] for item in skill_source_closure_report(root=REPO_ROOT)["findings"]])
+
+    def test_the_census_digest_ignores_wording_but_not_checkpoints(self):
+        baselines = pre_receipt_baselines()
+        reworded = tuple(entry._replace(reason="Reworded enrolment note.") for entry in baselines)
+        moved = (baselines[0]._replace(reviewed_ref="deadbeef"),) + baselines[1:]
+
+        self.assertEqual(census_digest(reworded), census_digest(baselines))
+        self.assertNotEqual(census_digest(moved), census_digest(baselines))
+
+    def test_the_repository_passes_its_own_closure_gate(self):
+        report = skill_source_closure_report(root=REPO_ROOT)
+
+        self.assertTrue(report["ok"], report["findings"])
+        self.assertEqual(report["schema_version"], CLOSURE_SCHEMA)
+        self.assertEqual(report["summary"]["held"], 0)
+        self.assertFalse(report["bounds"]["network"])
+        self.assertFalse(report["bounds"]["subprocess"])
+
+    def test_the_registry_documents_the_atomic_rule_and_the_migration_path(self):
+        registry = (REPO_ROOT / "docs" / "SKILL-SOURCES.md").read_text(encoding="utf-8")
+
+        for anchor in ("docs/skill-source-receipts.json", "docs skill-sources --check", "pre_receipt_baselines"):
+            with self.subTest(anchor=anchor):
+                self.assertTrue(anchor in registry, f"{anchor} is not documented in the registry")
+
+
+class ClosureVocabularyTests(ClosureFixture):
+    def test_every_emitted_reason_code_is_declared_in_the_vocabulary(self):
+        # The codes are the contract. A finding carrying an undeclared class
+        # would be unsearchable, so the declaration is what gates a new one.
+        report = self.report(receipts=[receipt(disposition="folded")])
+        declared = set(FAILURE_CLASSES) | set(PASS_REASONS)
+
+        self.assertEqual(set(report["failure_classes"]), set(FAILURE_CLASSES))
+        for finding in report["findings"]:
+            with self.subTest(code=finding["failure_class"]):
+                self.assertIn(finding["failure_class"], FAILURE_CLASSES)
+        for row in report["rows"]:
+            with self.subTest(row=row["candidate_key"]):
+                self.assertIn(row["state"], ROW_STATES)
+                self.assertIn(row["reason"], declared)
+
+    def test_findings_are_deterministically_ordered_and_diagnostics_are_bounded(self):
+        report = self.report(
+            rows=[(UNIT, SOURCE, NEXT_ON, NEXT_REF), (OTHER_UNIT, OTHER_SOURCE, THIRD_ON, THIRD_REF)],
+            receipts=[receipt(prior_checkpoint="ffffffffffff")],
+        )
+        codes = self.codes(report)
+
+        self.assertEqual(codes, sorted(codes))
+        for finding in report["findings"]:
+            with self.subTest(code=finding["failure_class"]):
+                self.assertNotIn("\n", finding["detail"])
+
+    def test_the_text_report_names_every_state_and_the_boundary(self):
+        rendered = format_skill_source_closure(self.report())
+
+        self.assertIn("Skill-source closure: PASS", rendered)
+        self.assertIn("not_applicable", rendered)
+        self.assertIn("never fetches a watched repository", rendered)
+
+
+class ClosureCommandTests(unittest.TestCase):
+    def test_the_check_command_passes_on_the_repository_and_prints_the_payload(self):
+        status, stdout, _ = run_cli(["docs", "skill-sources", "--check", "--json", "--root", str(REPO_ROOT)])
+        payload = json.loads(stdout)
+
+        self.assertEqual(status, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["schema_version"], CLOSURE_SCHEMA)
+        self.assertEqual(payload["registry"], "docs/SKILL-SOURCES.md")
+        self.assertEqual(payload["ledger"], "docs/skill-source-receipts.json")
+
+    def test_the_check_command_exits_one_on_a_broken_tree_and_never_reports_success(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "docs").mkdir()
+            (root / "docs" / "SKILL-SOURCES.md").write_text(
+                registry_markdown([(UNIT, SOURCE, NEXT_ON, NEXT_REF)]), encoding="utf-8",
+            )
+            (root / "docs" / "skill-source-receipts.json").write_text(
+                json.dumps({"schema_version": RECEIPT_SCHEMA, "receipts": []}), encoding="utf-8",
+            )
+            status, stdout, _ = run_cli(["docs", "skill-sources", "--check", "--json", "--root", str(root)])
+            payload = json.loads(stdout)
+
+        self.assertEqual(status, 1)
+        self.assertFalse(payload["ok"])
+        self.assertIn("unenrolled_registry_row", [item["failure_class"] for item in payload["findings"]])
+
+    def test_without_check_the_command_reports_findings_and_still_exits_zero(self):
+        # The report is readable outside CI. Only `--check` is the gate, so a
+        # maintainer can list held rows without a non-zero status.
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "docs").mkdir()
+            (root / "docs" / "SKILL-SOURCES.md").write_text(
+                registry_markdown([(UNIT, SOURCE, NEXT_ON, NEXT_REF)]), encoding="utf-8",
+            )
+            (root / "docs" / "skill-source-receipts.json").write_text(
+                json.dumps({"schema_version": RECEIPT_SCHEMA, "receipts": []}), encoding="utf-8",
+            )
+            status, stdout, _ = run_cli(["docs", "skill-sources", "--root", str(root)], output_json=False)
+
+        self.assertEqual(status, 0)
+        self.assertIn("NEEDS ATTENTION", stdout)
+        self.assertIn("unenrolled_registry_row", stdout)
+
+
+if __name__ == "__main__":
+    _ = unittest.main()

@@ -205,7 +205,12 @@ export default function register(sdk) {
     const env = sessionRef ? { ...READER_ENV, OMH_HUD_TUI_SESSION_REF: sessionRef } : READER_ENV
     execFile(
       __OMH_PYTHON_EXECUTABLE__,
-      ['-I', '-c', READER],
+      // `-B`, not PYTHONDONTWRITEBYTECODE: `-I` implies `-E`, so this child
+      // ignores every PYTHON* variable and only the flag reaches it. Without
+      // it the spawn writes `__pycache__` into the Hermes plugins directory,
+      // which is manifest-managed install content, and into the temp copy the
+      // widget tests drive, where it raced their teardown (issue #1550).
+      ['-I', '-B', '-c', READER],
       {
         encoding: 'utf8',
         env,
@@ -1143,7 +1148,9 @@ export default function register(sdk) {
   const runPickerScript = (script, stdinText) => new Promise(resolve => {
     const child = execFile(
       __OMH_PYTHON_EXECUTABLE__,
-      ['-I', '-c', script],
+      // `-B` for the same reason as the HUD reader above: `-I` implies `-E`,
+      // so no environment variable can stop this child writing bytecode.
+      ['-I', '-B', '-c', script],
       { encoding: 'utf8', env: READER_ENV, maxBuffer: 262144, timeout: 8000 },
       (error, stdout, stderr) => {
         if (error) return resolve({ error: sanitizeText(stderr).trim().slice(-160) || 'omh picker script failed' })

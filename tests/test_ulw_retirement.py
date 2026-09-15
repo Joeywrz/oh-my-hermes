@@ -92,6 +92,25 @@ class AliasRoutingTests(unittest.TestCase):
         self.assertEqual(report["semantic_change_count"], 0, report["semantic_changes"])
         self.assertTrue(report["baseline_checked"])
 
+    def test_the_baseline_cue_order_is_the_sorted_corpus_order(self) -> None:
+        """The 732-line baseline is only readable while its keys stay sorted.
+
+        `ulw_alias_corpus_report(baseline=...)` compares dicts, so key order
+        cannot fail it, and the size test below compares sets. The order is
+        held instead by one `sorted()` inside `ulw_alias_corpus()` -- over a
+        set, so dropping it makes the cue order hash-dependent, leaves every
+        existing assertion green, and turns the next re-capture into a
+        full-file rewrite with the moved cue buried in it."""
+        cues = list(json.loads(
+            (FIXTURES / "ulw_alias_baseline.json").read_text(encoding="utf-8")
+        )["cues"])
+        self.assertEqual(cues, sorted(cues), "re-capture the baseline with sorted cue keys")
+        self.assertEqual(
+            cues,
+            list(ulw_alias_corpus()),
+            "ulw_alias_corpus() must stay sorted -- it is what orders the baseline",
+        )
+
     def test_corpus_size_is_catalog_derived_and_set_deduplicated(self) -> None:
         """Plan §9.6: 84 cues (74 triggers with `ulr`/`ulg`/`ulp` deduped by
         set semantics + 6 historical labels + 4 display labels), 23 Korean.

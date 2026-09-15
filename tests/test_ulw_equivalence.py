@@ -423,6 +423,26 @@ class RoutingInertnessTests(unittest.TestCase):
         ).hexdigest()
         self.assertEqual(digest, fixture["digest"])
 
+    def test_the_pinned_case_ids_stay_in_sorted_order(self):
+        """Sorted ids are what keeps a re-pin a readable diff.
+
+        Both consumers turn `case_ids` into a set, so the order in the file
+        cannot fail either of them: a re-pin that walks
+        `build_routing_precision_demo()` in producer order rewrites all 237
+        lines, buries whichever rows actually moved, and still passes. Producer
+        order is corpus order, so it re-shuffles whenever a case is inserted
+        above a pinned one. The fixture has been re-pinned four times and
+        nothing told any of those authors which order to write."""
+        fixture = json.loads(
+            (FIXTURES / "routing_precision_subset_at_c.json").read_text(encoding="utf-8")
+        )
+        case_ids = fixture["case_ids"]
+        self.assertEqual(
+            case_ids,
+            sorted(case_ids),
+            "re-pin `case_ids` as sorted(...), not in build_routing_precision_demo() order",
+        )
+
     def test_added_controls_are_outside_the_pinned_subset(self):
         fixture = json.loads(
             (FIXTURES / "routing_precision_subset_at_c.json").read_text(encoding="utf-8")

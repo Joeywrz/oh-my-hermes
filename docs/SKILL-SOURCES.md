@@ -99,7 +99,12 @@ A row in the table that cannot be read as a candidate is reported
 `registry_row_unparsed`, never skipped. This is a hand-written table, so an
 indented row, or a skill cell that forgets its backticks, is the expected
 accident; a row quietly leaving the audit is the one failure this gate must not
-have.
+have. A cell may carry a literal pipe written as `\|`.
+
+Only the **Shipped skills** table is audited. Parsing stops where that table
+ends, so the candidate-rows section below is neither enrolled nor rejected: a
+researched lead carries no checkpoint for a receipt to bind to, and recording
+one must never fail the build.
 
 ### Rows that predate receipts
 

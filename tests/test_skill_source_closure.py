@@ -8,9 +8,11 @@ not the sentence next to it.
 
 Fixtures build their own registry and their own enrolment baseline rather than
 leaning on the 38 live rows, whose checkpoints move whenever a real review
-lands. Two tests deliberately read the real repository: one proves the shipped
-registry still parses into unambiguous candidates, the other proves the shipped
-enrolment matches it row for row.
+lands. That separation is load-bearing: an earlier version asserted the shipped
+baseline equalled each row's current values, which the first legitimate closure
+would have broken, because a baseline is the chain's origin and a closed row has
+moved past it. Assertions against the real repository therefore pin invariants
+that survive a closure, never the state of the tree on the day they were written.
 """
 
 from __future__ import annotations
@@ -44,8 +46,6 @@ from omh.maintenance.skill_source_closure import (
     format_skill_source_closure,
     parse_registry,
     skill_source_closure_report,
-    unresolved_watch_candidates,
-    watch_scan_plan,
 )
 
 
@@ -394,8 +394,73 @@ class ClosureContractTests(ClosureFixture):
         self.assertTrue(report["ok"], report["findings"])
         self.assertEqual(report["summary"]["rows"], 1)
 
+    def test_a_candidate_row_is_not_read_as_a_shipped_row(self):
+        # The registry tells contributors to record a researched lead in the
+        # candidate section before it ships. Such a lead has no checkpoint for
+        # a receipt to bind to, so it must neither enter the audit nor be
+        # rejected as a malformed shipped row. Both shapes the section invites
+        # are pinned: the 6-cell form its instructions describe, and a 7-cell
+        # form with em-dash placeholders.
+        section = "\n## Candidate rows (researched, not yet shipped)\n\n"
+        shapes = {
+            "six cells": "| `new-thing` (issue #1600) | planning | https://github.com/example/new-thing | `SKILL.md` | MIT | #1600 |\n",
+            "seven cells": "| `new-thing` (issue #1600) | planning | https://github.com/example/new-thing | `SKILL.md` | MIT | — | — |\n",
+        }
+        for label, row in shapes.items():
+            with self.subTest(shape=label):
+                text = (
+                    registry_markdown([(UNIT, SOURCE, BASE_ON, BASE_REF)])
+                    + section
+                    + "| OMH unit | Category | Upstream repo | Paths studied | License | Issue |\n"
+                    + "| --- | --- | --- | --- | --- | --- |\n" + row
+                )
+
+                report = self.report(registry_text=text, baselines=(BASELINE[0],))
+
+                self.assertTrue(report["ok"], report["findings"])
+                self.assertEqual(report["summary"]["rows"], 1)
+                self.assertEqual([r["candidate_key"] for r in report["rows"]], [KEY])
+
+    def test_a_cell_may_carry_an_escaped_pipe(self):
+        # `Paths studied` cells are dense with backticked paths; the first one
+        # that needs a literal pipe must not be unwritable.
+        text = registry_markdown([(UNIT, SOURCE, BASE_ON, BASE_REF)]).replace(
+            "| `README.md` |", r"| `src/a.py` \| `src/b.py` |", 1)
+
+        rows, findings = parse_registry(text)
+
+        self.assertEqual(findings, [])
+        self.assertEqual([row["candidate_key"] for row in rows], [KEY])
+
+    def test_the_candidate_key_is_indifferent_to_url_casing(self):
+        # The scheme is stripped before the key is lowercased, so the strip has
+        # to be case-insensitive or the same source mints two candidates.
+        self.assertEqual(
+            candidate_key("Demo-Skill", "HTTPS://GitHub.com/Example/Demo/"),
+            candidate_key("demo-skill", "https://github.com/example/demo"),
+        )
+        self.assertEqual(candidate_key(UNIT, "HTTP://Example.COM/X/"), "demo-skill@example.com/x")
+
 
 class WatchBoundaryTests(ClosureFixture):
+    """`scan_from` on each row is the next run's starting boundary.
+
+    The repository publishes the boundary and nothing more. Filtering a sweep
+    belongs to the external tracker, which lives outside this repository, so no
+    filter helper ships here for a caller that does not exist. These fixtures
+    do the filtering themselves against the published field, which is what
+    proves the published field is sufficient for it.
+    """
+
+    @staticmethod
+    def still_open(report, observed: list[dict[str, str]]) -> list[str]:
+        boundary = {row["candidate_key"]: row["scan_from"] for row in report["rows"]}
+        return [
+            item["candidate_key"] for item in observed
+            if boundary.get(item["candidate_key"]) is None
+            or item["observed_ref"] != boundary[item["candidate_key"]]
+        ]
+
     def test_a_later_sweep_does_not_re_emit_a_candidate_resolved_at_that_checkpoint(self):
         # Success criterion: the next run starts after the accepted checkpoint.
         report = self.report(
@@ -408,8 +473,8 @@ class WatchBoundaryTests(ClosureFixture):
         ]
 
         self.assertTrue(report["ok"], report["findings"])
-        self.assertEqual(watch_scan_plan(report)[KEY]["scan_from"], NEXT_REF)
-        self.assertEqual(unresolved_watch_candidates(report, observed), [])
+        self.assertEqual(self.row(report)["scan_from"], NEXT_REF)
+        self.assertEqual(self.still_open(report, observed), [])
 
     def test_a_moved_upstream_and_a_held_row_both_stay_in_the_sweep(self):
         report = self.report(receipts=[receipt()])
@@ -418,11 +483,10 @@ class WatchBoundaryTests(ClosureFixture):
             {"candidate_key": OTHER_KEY, "observed_ref": THIRD_REF},
         ]
 
-        # KEY is held, so its finding must keep being emitted; OTHER_KEY moved.
-        self.assertEqual(
-            [item["candidate_key"] for item in unresolved_watch_candidates(report, observed)],
-            [KEY, OTHER_KEY],
-        )
+        # KEY is held, so it publishes no boundary and its finding must keep
+        # being emitted; OTHER_KEY settled earlier but upstream has moved on.
+        self.assertIsNone(self.row(report)["scan_from"])
+        self.assertEqual(self.still_open(report, observed), [KEY, OTHER_KEY])
 
 
 class ShippedRegistryTests(unittest.TestCase):

@@ -206,11 +206,3 @@ def census_digest(baselines: tuple[PreReceiptBaseline, ...]) -> str:
 def pre_receipt_census_digest() -> str:
     """The digest the shipped census currently hashes to."""
     return census_digest(_PRE_RECEIPT_BASELINES)
-
-
-def closure_failure_classes() -> tuple[str, ...]:
-    return FAILURE_CLASSES
-
-
-def closure_dispositions() -> tuple[str, ...]:
-    return DISPOSITIONS

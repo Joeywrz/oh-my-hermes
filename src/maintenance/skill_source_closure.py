@@ -57,18 +57,34 @@ from ..catalogs.skill_source_closure import (
 
 _HEADER_PREFIX = "| OMH skill |"
 _UNIT = re.compile(r"`([^`\n]+)`")
-_SCHEME = re.compile(r"^https?://")
+# Case-insensitive: the scheme is stripped before the key is lowercased, so a
+# case-sensitive match would leave `HTTPS://` in the key and mint a second
+# candidate for the source the lowercased URL already names.
+_SCHEME = re.compile(r"^https?://", re.IGNORECASE)
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 _RECEIPT_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _DECISION_REF = re.compile(r"^#[1-9][0-9]*$")
 _REVIEW_DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
-_LINK = re.compile(r"https?://|www\.")
+_LINK = re.compile(r"https?://|www\.", re.IGNORECASE)
 _DELIMITER_ROW = re.compile(r"^\|(?:\s*:?-{3,}:?\s*\|)+$")
+# Markdown escapes a literal pipe inside a cell as `\|`. Splitting on raw pipes
+# makes the first `Paths studied` cell that needs one unwritable, and those
+# cells are already dense with backticked paths and prose.
+_CELL_SPLIT = re.compile(r"(?<!\\)\|")
 
 
 def _table_cells(line: str) -> list[str]:
-    """Split one Markdown table row into trimmed cells, ignoring indentation."""
-    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+    """Split one Markdown table row into trimmed cells.
+
+    Indentation is ignored and `\\|` is honoured as an escaped literal pipe, so
+    a cell may contain one without destroying the row's cell count.
+    """
+    parts = _CELL_SPLIT.split(line.strip())
+    if parts and not parts[0].strip():
+        parts = parts[1:]
+    if parts and not parts[-1].strip():
+        parts = parts[:-1]
+    return [part.replace("\\|", "|").strip() for part in parts]
 
 
 _REQUIRED_RECEIPT_FIELDS = (
@@ -660,40 +676,6 @@ def skill_source_closure_report(
             "A closed row proves the decision and the checkpoint moved together, not that the decision was right."
         ),
     }
-
-
-def watch_scan_plan(report: ClosureReport) -> dict[str, dict[str, str | None]]:
-    """Where the next watch run starts for each candidate.
-
-    A settled row hands back its current checkpoint as the starting boundary. A
-    held row hands back nothing, because its finding is still open and must
-    keep being emitted until the atomic contract is satisfied.
-    """
-    return {
-        row["candidate_key"]: {"scan_from": row["scan_from"], "state": row["state"]}
-        for row in report["rows"]
-    }
-
-
-def unresolved_watch_candidates(
-    report: ClosureReport, observed: list[dict[str, str]],
-) -> list[dict[str, str]]:
-    """Filter an observed watch sweep down to candidates that are still open.
-
-    `observed` carries `candidate_key` and `observed_ref` pairs produced
-    elsewhere. A candidate whose observed reference equals the boundary its row
-    already settled at is dropped, which is what stops a later run re-emitting
-    a finding this repository has already resolved. Nothing here reads the
-    upstream: the caller supplies what it saw.
-    """
-    plan = watch_scan_plan(report)
-    remaining: list[dict[str, str]] = []
-    for item in observed:
-        entry = plan.get(item["candidate_key"])
-        if entry is not None and entry["scan_from"] is not None and item["observed_ref"] == entry["scan_from"]:
-            continue
-        remaining.append(item)
-    return remaining
 
 
 def format_skill_source_closure(report: ClosureReport) -> str:

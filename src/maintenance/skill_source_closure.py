@@ -45,10 +45,12 @@ from ..catalogs.skill_source_closure import (
     MAX_RATIONALE_CHARS,
     MAX_RECEIPTS,
     PRE_RECEIPT_BASELINE,
+    PRE_RECEIPT_CENSUS_DIGEST,
     PreReceiptBaseline,
     RECEIPT_SCHEMA,
     REGISTRY_PATH,
     SETTLED_BY_RECEIPT,
+    census_digest,
     pre_receipt_baselines,
 )
 
@@ -61,6 +63,13 @@ _RECEIPT_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _DECISION_REF = re.compile(r"^#[1-9][0-9]*$")
 _REVIEW_DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 _LINK = re.compile(r"https?://|www\.")
+_DELIMITER_ROW = re.compile(r"^\|(?:\s*:?-{3,}:?\s*\|)+$")
+
+
+def _table_cells(line: str) -> list[str]:
+    """Split one Markdown table row into trimmed cells, ignoring indentation."""
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
 
 _REQUIRED_RECEIPT_FIELDS = (
     "receipt_id",
@@ -139,25 +148,41 @@ def candidate_key(unit: str, source: str) -> str:
 def parse_registry(text: str) -> tuple[list[dict[str, str]], list[ClosureFinding]]:
     """Parse the hand-written registry table into candidate rows.
 
-    Only the shipped table is parsed. The candidate section below it holds
-    researched leads that have not shipped and carry no checkpoint yet.
+    The table body is delimited structurally -- header, delimiter, then every
+    consecutive line that is a table row -- rather than by matching a row's
+    expected opening characters. That distinction is the whole point here. This
+    is a hand-written Markdown table, so a row that is indented, or whose skill
+    cell opens with prose instead of a backtick, is the expected accident. An
+    earlier version selected rows with a `startswith` on the exact opening
+    characters, and such a row was skipped with no finding at all: the row
+    vanished from the audit and the gate went green over an unenrolled
+    candidate. Every line inside the body now either yields a candidate or
+    produces `registry_row_unparsed`, and nothing in between.
+
+    Only the shipped table is parsed, and parsing stops at its end. The
+    candidate section below it holds researched leads that have not shipped and
+    carry no checkpoint for a receipt to bind to.
     """
     lines = text.splitlines()
-    header = next((line for line in lines if line.startswith(_HEADER_PREFIX)), None)
-    if header is None:
+    header_index = next((index for index, line in enumerate(lines)
+                         if line.strip().startswith(_HEADER_PREFIX)), None)
+    if header_index is None:
         finding: ClosureFinding = {
             "failure_class": "registry_row_unparsed", "candidate_key": None,
             "receipt_id": None, "owner": DEFAULT_OWNER,
             "detail": f"{REGISTRY_PATH} has no shipped-skills table header.",
         }
         return [], [finding]
-    columns = [cell.strip() for cell in header.strip().strip("|").split("|")]
+    columns = _table_cells(lines[header_index])
     rows: list[dict[str, str]] = []
     findings: list[ClosureFinding] = []
-    for line in lines:
-        if not line.startswith("| `"):
-            continue
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+    body = header_index + 1
+    if body < len(lines) and _DELIMITER_ROW.match(lines[body].strip()):
+        body += 1
+    for line in lines[body:]:
+        if not line.strip().startswith("|"):
+            break
+        cells = _table_cells(line)
         if len(cells) != len(columns):
             findings.append({
                 "failure_class": "registry_row_unparsed", "candidate_key": None,
@@ -172,7 +197,10 @@ def parse_registry(text: str) -> tuple[list[dict[str, str]], list[ClosureFinding
             findings.append({
                 "failure_class": "registry_row_unparsed", "candidate_key": None,
                 "receipt_id": None, "owner": DEFAULT_OWNER,
-                "detail": f"Row has no backticked OMH unit or no upstream source: {_safe(line)}",
+                "detail": (
+                    "Row has no backticked OMH unit or no upstream source, so no candidate key "
+                    f"can be derived for it: {_safe(line)}"
+                ),
             })
             continue
         rows.append({
@@ -506,7 +534,20 @@ def skill_source_closure_report(
             "detail": f"Candidate key {_safe(key)} matches {len(by_key[key])} registry rows; it must match exactly one.",
         })
 
-    enrolled = {entry.candidate_key: entry for entry in (baselines if baselines is not None else pre_receipt_baselines())}
+    census = baselines if baselines is not None else pre_receipt_baselines()
+    if baselines is None and census_digest(census) != PRE_RECEIPT_CENSUS_DIGEST:
+        # Only the shipped census is frozen; an injected fixture states its own
+        # starting point and is not subject to a digest it never declared.
+        findings.append({
+            "failure_class": "baseline_census_modified", "candidate_key": None,
+            "receipt_id": None, "owner": DEFAULT_OWNER,
+            "detail": (
+                "The pre-receipt census no longer matches PRE_RECEIPT_CENSUS_DIGEST. It records where "
+                "rows stood once, not where they stand now: a row that moved needs a closure receipt, "
+                "not an edited baseline."
+            ),
+        })
+    enrolled = {entry.candidate_key: entry for entry in census}
     for key in sorted(set(enrolled) - set(by_key)):
         findings.append({
             "failure_class": "stale_baseline_entry", "candidate_key": key,

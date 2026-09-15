@@ -21,6 +21,7 @@ resolves or orders.
 
 from __future__ import annotations
 
+import hashlib
 from typing import NamedTuple
 
 
@@ -88,6 +89,12 @@ FAILURE_CLASSES = (
     "registry_row_unparsed",
     # The ledger file is absent or is not the declared receipt document.
     "ledger_unreadable",
+    # The frozen pre-receipt census no longer hashes to its declared digest.
+    # Without this the contract has a one-line bypass: editing a baseline entry
+    # to a moved row's new values turns `closure_receipt_missing` into
+    # `not_applicable` with no receipt written at all, and the gate goes green
+    # over a checkpoint that advanced unrecorded.
+    "baseline_census_modified",
 )
 
 # A rationale is a bounded sentence about the OMH decision. Watch evidence --
@@ -106,6 +113,11 @@ class PreReceiptBaseline(NamedTuple):
     and no receipt is fabricated for it. The first time it moves, the move
     needs a receipt whose prior checkpoint equals `reviewed_ref` here, which is
     what makes the migration a one-way door rather than a permanent exemption.
+
+    A baseline is the chain's origin, never a mirror of the row's current
+    state. Once a candidate has receipts, its row moves and this entry does
+    not: the two are meant to disagree, and the receipt chain is what spans
+    the gap.
     """
 
     candidate_key: str
@@ -116,9 +128,23 @@ class PreReceiptBaseline(NamedTuple):
 
 
 # Captured from docs/SKILL-SOURCES.md at the commit that introduced this gate.
-# Adding a row here is a reviewed act with a reason, not a way around the
-# contract: it declares a starting point, and every later move needs a receipt.
+# This census is closed and frozen. It is not a running record of where rows
+# stand; it is where they stood once, so a receipt has something to start from.
+#
+# `PRE_RECEIPT_CENSUS_DIGEST` is what makes that a rule rather than an
+# intention. Editing an entry's checkpoint to match a row that moved would
+# otherwise relabel an unrecorded advance as `not_applicable` and pass, which
+# is precisely the failure this whole contract exists to stop -- and a comment
+# asking contributors not to do it is the same prose-only enforcement the
+# registry already had. `reason` is deliberately outside the digest so wording
+# stays free to improve; identity and checkpoint values are not.
 _BASELINE_REASON = "Row predates the closure-receipt contract; enrolled at its reviewed state."
+
+# sha256 over "<candidate_key>|<reviewed_on>|<reviewed_ref>" for every entry,
+# sorted. Recomputing this to match an edit defeats the freeze, so
+# `tests/test_skill_source_closure.py` pins this literal independently: the
+# bypass then needs two deliberate edits in two files that both say not to.
+PRE_RECEIPT_CENSUS_DIGEST = "2962833b9d96de0e6174441d194b0a6ebc1d057053a7528b2f22bcafe9216686"
 
 _PRE_RECEIPT_BASELINES: tuple[PreReceiptBaseline, ...] = (
     PreReceiptBaseline("codebase-uml@github.com/plantuml/plantuml", "2026-09-04", "b2392e6230a1782e477a45d250b7cb9a569f95da", _BASELINE_REASON),
@@ -165,6 +191,21 @@ _PRE_RECEIPT_BASELINES: tuple[PreReceiptBaseline, ...] = (
 def pre_receipt_baselines() -> tuple[PreReceiptBaseline, ...]:
     """Rows enrolled at their pre-contract reviewed state."""
     return _PRE_RECEIPT_BASELINES
+
+
+def census_digest(baselines: tuple[PreReceiptBaseline, ...]) -> str:
+    """Hash the identity and checkpoint of every enrolled row.
+
+    Order-independent, so reordering the table for readability is free while
+    changing any candidate key, review date, or checkpoint is not.
+    """
+    lines = sorted(f"{entry.candidate_key}|{entry.reviewed_on}|{entry.reviewed_ref}" for entry in baselines)
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def pre_receipt_census_digest() -> str:
+    """The digest the shipped census currently hashes to."""
+    return census_digest(_PRE_RECEIPT_BASELINES)
 
 
 def closure_failure_classes() -> tuple[str, ...]:

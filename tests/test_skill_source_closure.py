@@ -15,6 +15,7 @@ enrolment matches it row for row.
 
 from __future__ import annotations
 
+import importlib
 import json
 import unittest
 from pathlib import Path
@@ -30,10 +31,13 @@ from omh.catalogs.skill_source_closure import (
     FAILURE_CLASSES,
     MAX_RATIONALE_CHARS,
     PASS_REASONS,
+    PRE_RECEIPT_CENSUS_DIGEST,
     RECEIPT_SCHEMA,
     ROW_STATES,
     PreReceiptBaseline,
+    census_digest,
     pre_receipt_baselines,
+    pre_receipt_census_digest,
 )
 from omh.maintenance.skill_source_closure import (
     candidate_key,
@@ -353,6 +357,43 @@ class ClosureContractTests(ClosureFixture):
 
         self.assertIn("registry_row_unparsed", self.codes(report))
 
+    def test_an_indented_row_is_audited_rather_than_silently_dropped(self):
+        # The row-shape trap. Selecting body rows by their opening characters
+        # dropped an indented row with no finding at all, so an unenrolled
+        # candidate passed the gate. Indentation is the expected accident in a
+        # hand-written table, so such a row must still reach the audit.
+        for label, prefix in (("space", " "), ("tab", "\t"), ("two spaces", "  ")):
+            with self.subTest(indent=label):
+                text = registry_markdown([(UNIT, SOURCE, BASE_ON, BASE_REF)]).replace(
+                    f"| `{UNIT}`", prefix + f"| `{UNIT}`", 1)
+
+                report = self.report(registry_text=text, baselines=())
+
+                self.assertEqual(report["summary"]["rows"], 1, "the indented row must still be seen")
+                self.assertIn("unenrolled_registry_row", self.codes(report))
+
+    def test_a_row_whose_skill_cell_has_no_backtick_is_a_finding_not_a_skip(self):
+        text = registry_markdown([(UNIT, SOURCE, BASE_ON, BASE_REF)]).replace(f"| `{UNIT}` (PR #1) |", "| plain prose |", 1)
+
+        report = self.report(registry_text=text, baselines=())
+
+        self.assertEqual(report["summary"]["rows"], 0)
+        self.assertIn("registry_row_unparsed", self.codes(report))
+        self.assertFalse(report["ok"])
+
+    def test_parsing_stops_at_the_end_of_the_shipped_table(self):
+        # Prose and a later candidate-rows section must not be read as rows.
+        text = (
+            registry_markdown([(UNIT, SOURCE, BASE_ON, BASE_REF)])
+            + "\nNote on the row: prose that mentions `other-skill`.\n"
+            + "\n## Candidate rows (researched, not yet shipped)\n\nNone open.\n"
+        )
+
+        report = self.report(registry_text=text, baselines=(BASELINE[0],))
+
+        self.assertTrue(report["ok"], report["findings"])
+        self.assertEqual(report["summary"]["rows"], 1)
+
 
 class WatchBoundaryTests(ClosureFixture):
     def test_a_later_sweep_does_not_re_emit_a_candidate_resolved_at_that_checkpoint(self):
@@ -392,18 +433,85 @@ class ShippedRegistryTests(unittest.TestCase):
         self.assertEqual(findings, [])
         self.assertEqual(len(keys), len(set(keys)), "one candidate key per registry row")
 
-    def test_the_shipped_enrolment_matches_the_shipped_registry_row_for_row(self):
-        # Enrolment is not a blanket exemption: each baseline names one live row
-        # at the exact state it stood in, so the first move needs a receipt.
+    def test_every_enrolment_names_one_live_row_and_carries_a_reason(self):
+        # Enrolment is not a blanket exemption: each baseline names exactly one
+        # live registry row. It deliberately does not assert that the baseline
+        # equals that row's current values; the settled-row test below says why.
         rows = {row["candidate_key"]: row for row in parse_registry(
             (REPO_ROOT / "docs" / "SKILL-SOURCES.md").read_text(encoding="utf-8"))[0]}
         baselines = {entry.candidate_key: entry for entry in pre_receipt_baselines()}
 
-        self.assertEqual(set(baselines), set(rows))
+        self.assertEqual(len(baselines), len(pre_receipt_baselines()), "one enrolment per candidate")
+        self.assertEqual(sorted(set(baselines) - set(rows)), [], "every enrolment names a live row")
         for key, entry in baselines.items():
             with self.subTest(candidate=key):
-                self.assertEqual((entry.reviewed_on, entry.reviewed_ref), (rows[key]["reviewed_on"], rows[key]["checkpoint"]))
                 self.assertTrue(entry.reason, "every enrolment carries a reason")
+                self.assertTrue(entry.owner, "every enrolment carries an owner")
+
+    def test_a_baseline_tracks_an_unsettled_row_and_is_frozen_once_receipts_exist(self):
+        # The invariant the first real closure used to break. A baseline is the
+        # chain's origin, not a mirror of the row: while a row is still
+        # `not_applicable` the two agree, and once a receipt chain exists the
+        # row moves and the baseline stays put on purpose. Asserting equality
+        # for every row made the documented closure path turn CI red.
+        report = skill_source_closure_report(root=REPO_ROOT)
+        rows = {row["candidate_key"]: row for row in report["rows"]}
+        baselines = {entry.candidate_key: entry for entry in pre_receipt_baselines()}
+
+        for key, entry in baselines.items():
+            with self.subTest(candidate=key):
+                row = rows[key]
+                if row["state"] == "not_applicable":
+                    self.assertEqual((entry.reviewed_on, entry.reviewed_ref), (row["reviewed_on"], row["checkpoint"]))
+                else:
+                    # A settled row is proved by its chain, whose first prior
+                    # checkpoint the gate itself pins to this baseline through
+                    # `checkpoint_prior_stale`.
+                    self.assertEqual(row["state"], "closed", row["reason"])
+                    self.assertTrue(row["receipt_ids"], "a moved row is settled by receipts")
+
+    def test_the_census_digest_is_pinned_independently_of_the_shipped_constant(self):
+        # Pinned here as a literal, in a second file, so recomputing the
+        # constant to match an edited baseline is not enough to pass.
+        self.assertEqual(
+            pre_receipt_census_digest(),
+            "2962833b9d96de0e6174441d194b0a6ebc1d057053a7528b2f22bcafe9216686",
+        )
+        self.assertEqual(pre_receipt_census_digest(), PRE_RECEIPT_CENSUS_DIGEST)
+        self.assertEqual(len(pre_receipt_baselines()), 38)
+
+    def test_editing_a_baseline_instead_of_writing_a_receipt_fails_the_gate(self):
+        # The bypass this contract must not have: relabel a moved row as
+        # `not_applicable` by editing its enrolment, and write no receipt.
+        module = importlib.import_module("omh.maintenance.skill_source_closure")
+        moved = tuple(
+            entry._replace(reviewed_on="2026-09-15", reviewed_ref="0" * 40)
+            if entry.candidate_key == "codebase-uml@github.com/plantuml/plantuml" else entry
+            for entry in pre_receipt_baselines()
+        )
+        original = module.pre_receipt_baselines
+        module.pre_receipt_baselines = lambda: moved
+        try:
+            report = skill_source_closure_report(root=REPO_ROOT)
+        finally:
+            module.pre_receipt_baselines = original
+
+        # Asserted on the finding, not on how many receipts the shipped ledger
+        # happens to hold: pinning "the ledger is empty" would be the same
+        # mistake as pinning "the baseline equals the row", and would come due
+        # on the first real closure.
+        self.assertFalse(report["ok"])
+        self.assertIn("baseline_census_modified", [item["failure_class"] for item in report["findings"]])
+        self.assertNotIn("baseline_census_modified",
+                         [item["failure_class"] for item in skill_source_closure_report(root=REPO_ROOT)["findings"]])
+
+    def test_the_census_digest_ignores_wording_but_not_checkpoints(self):
+        baselines = pre_receipt_baselines()
+        reworded = tuple(entry._replace(reason="Reworded enrolment note.") for entry in baselines)
+        moved = (baselines[0]._replace(reviewed_ref="deadbeef"),) + baselines[1:]
+
+        self.assertEqual(census_digest(reworded), census_digest(baselines))
+        self.assertNotEqual(census_digest(moved), census_digest(baselines))
 
     def test_the_repository_passes_its_own_closure_gate(self):
         report = skill_source_closure_report(root=REPO_ROOT)

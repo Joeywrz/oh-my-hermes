@@ -91,9 +91,15 @@ read: `closure_checkpoint_missing` (the decision landed, the row did not move),
 `ambiguous_candidate_match`, `unmatched_candidate_key`, `receipt_id_reused`,
 `supersede_reference_unknown`, `supersede_reference_unrelated`,
 `receipt_field_invalid`, `rationale_over_budget`, `ledger_order_violation`,
-`unenrolled_registry_row`, `stale_baseline_entry`, `registry_row_unparsed`, and
-`ledger_unreadable`. Passing rows carry a code too: `receipt_chain_settled` or
-`pre_receipt_baseline`.
+`unenrolled_registry_row`, `stale_baseline_entry`, `registry_row_unparsed`,
+`ledger_unreadable`, and `baseline_census_modified`. Passing rows carry a code
+too: `receipt_chain_settled` or `pre_receipt_baseline`.
+
+A row in the table that cannot be read as a candidate is reported
+`registry_row_unparsed`, never skipped. This is a hand-written table, so an
+indented row, or a skill cell that forgets its backticks, is the expected
+accident; a row quietly leaving the audit is the one failure this gate must not
+have.
 
 ### Rows that predate receipts
 
@@ -103,12 +109,24 @@ row in the table below is enrolled at the state it stood in, by an entry in
 reports `not_applicable` while it stays there, and already hands the next run a
 starting boundary.
 
+That census is closed and frozen. It records where rows stood **once**, so that
+a receipt has somewhere to start. It is not a running mirror of where they stand
+now: after a candidate has receipts its row moves and its baseline does not, and
+the two are then supposed to disagree.
+
 The migration is a one-way door. The first time an enrolled row moves, the move
 needs a receipt whose `prior_checkpoint` equals the baseline value, or the check
-fails `closure_receipt_missing`. A new row added to the table needs either a
-receipt or a baseline entry with its own reason, or it fails
-`unenrolled_registry_row`; adding a baseline is a reviewed act visible in the
-diff, not a way around the contract.
+fails `closure_receipt_missing`. Editing the baseline instead would relabel that
+unrecorded advance as `not_applicable` and pass, so the census is pinned by
+`PRE_RECEIPT_CENSUS_DIGEST` and any change to a candidate key, review date, or
+checkpoint fails `baseline_census_modified`. The digest is pinned a second time
+as a literal in `tests/test_skill_source_closure.py`, so recomputing the
+constant to match an edit does not clear the gate either. Entry wording sits
+outside the digest and stays free to improve.
+
+A new row added to the table needs either a receipt with a null
+`prior_checkpoint` or a new baseline entry carrying its own reason, or it fails
+`unenrolled_registry_row`.
 
 ## Shipped skills
 

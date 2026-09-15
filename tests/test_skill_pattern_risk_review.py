@@ -894,6 +894,15 @@ class SkillPatternRiskReviewCommandTests(unittest.TestCase):
             self.assertIn("undetermined_hook_contract", stderr)
 
     def test_a_malformed_resolution_flag_names_the_shape_it_wanted(self) -> None:
+        """Deliberately not gated on secure dir IO: this one never scans.
+
+        The two cases above assert on what the scan reported, so they cannot run
+        where `read_static_plugin_sources` refuses for want of `O_NOFOLLOW`. This
+        one asserts the shape of an argument, which is decidable without touching
+        the filesystem, so it runs everywhere -- gating the whole class would
+        have taken Windows coverage away from the case that passes there. The
+        directory is still real, so the only thing wrong is the flag.
+        """
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve() / "third-party-skill"
             root.mkdir()

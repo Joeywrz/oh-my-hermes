@@ -65,6 +65,13 @@ def cmd_ops_skill_pattern_risk_review(args: argparse.Namespace) -> int:
         if args.decided_by or args.decision
         else None
     )
+    # Parse the flag before the scan. The shape of `--resolve` is decidable from
+    # the argument alone, and a caller who mistyped it should be told that
+    # rather than made to wait on directory I/O that will be discarded. It also
+    # keeps the refusal identical everywhere: `read_static_plugin_sources`
+    # refuses outright where `O_NOFOLLOW` is absent, so a scan-first order made
+    # an argument error unreportable on that platform.
+    resolutions = _resolutions(args.resolve)
     try:
         audit = audit_plugin_risk(Path(args.skill_root))
         review = build_skill_pattern_risk_review(
@@ -75,7 +82,7 @@ def cmd_ops_skill_pattern_risk_review(args: argparse.Namespace) -> int:
             required_authority=args.authority,
             required_data=args.data,
             side_effects=args.side_effect,
-            risk_resolutions=_resolutions(args.resolve),
+            risk_resolutions=resolutions,
             confidence_level=args.confidence_level,
             confidence_basis=args.confidence_basis,
             evidence_limits=args.evidence_limit,

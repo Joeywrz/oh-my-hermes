@@ -82,7 +82,7 @@ def add_setup_profile_commands(sub: argparse._SubParsersAction) -> None:
     export.add_argument(
         "--output",
         default=None,
-        help="Write the pack to this local file. Without it the pack is printed for piping.",
+        help="Write the pack to this local file. Without it, --json carries the pack under `pack` for piping.",
     )
     export.add_argument("--json", action="store_true", help="Print the full machine-readable export report.")
     export.set_defaults(func=cmd_setup_profile_export)
@@ -144,7 +144,8 @@ def _print_export(report: dict[str, object]) -> None:
     if output_path:
         print(f"  Written to {output_path}")
     else:
-        print("  Re-run with --output <pack.json> to write the pack to a file.")
+        print("  Nothing was written. Re-run with --output <pack.json> to write the pack to a file,")
+        print("  or with --json to read it under `pack`.")
     print(f"  {report.get('apply_command', '')}")
     print(f"  {report.get('transport_boundary', '')}")
 

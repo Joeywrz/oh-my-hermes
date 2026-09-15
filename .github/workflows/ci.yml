@@ -127,6 +127,13 @@ jobs:
       - name: Documentation navigation check
         if: matrix.shard == 0
         run: python -m omh.cli docs navigation --check
+      # Continuity, not structure: the source registry can be well-formed and
+      # still carry a row whose checkpoint never moved with the change that
+      # resolved its finding. This gate fails on half an atomic close from
+      # either side, and names the row and the stable reason code.
+      - name: Skill-source closure check
+        if: matrix.shard == 0
+        run: python -m omh.cli docs skill-sources --check
       - name: Whitespace and conflict-marker check
         if: matrix.python-version == '3.11' && matrix.shard == 0 && github.event_name == 'pull_request'
         run: git diff --check "origin/${{ github.base_ref }}...HEAD"

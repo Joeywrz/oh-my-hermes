@@ -131,7 +131,11 @@ class TodoReconciliationReminderTest(unittest.TestCase):
         # claim is a detector; `omh_todo` exists to carry a goal across turns.
         self.assertIn(TODO_CONTINUATION_RULE, line)
         self.assertIn("advance the next item in this turn", line)
-        self.assertIn("every item is done or an item is recorded blocked", line)
+        # The stop condition names the field that carries it. It used to read
+        # "recorded blocked with its reason", which a model could satisfy only
+        # by writing prose into the item text -- and prose is what the turn-end
+        # driver proved unreadable in both directions.
+        self.assertIn("every item is done or an item carries an omh_todo blocked_reason", line)
 
     def test_a_plan_that_stops_moving_while_calls_run_is_still_a_finding(self):
         # The correction that matters most. Liveness excuses a short pause and

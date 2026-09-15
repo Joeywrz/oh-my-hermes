@@ -170,7 +170,10 @@ HOOK_REVIEWS: dict[str, dict[str, Any]] = {
         "source_path": "hooks/verify_hooks.py",
         "event_scope": ("pre_verify",),
         "reviewed_timeout_ms": 1000,
-        "capability": "the OMH served-surface verification nudge before a Hermes coding verification",
+        "capability": (
+            "the OMH served-surface verification nudge and the open-plan "
+            "continuation directive before a Hermes coding verification"
+        ),
     },
     "transform_tool_result": {
         "source_path": "hooks/result_transforms.py",

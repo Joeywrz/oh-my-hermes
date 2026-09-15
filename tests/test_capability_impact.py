@@ -93,6 +93,26 @@ class RepresentativeRoutingTests(unittest.TestCase):
 
 
 class PreVerifyHookTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # The hook also reads the session's plan (see
+        # test_plan_continuation_driver), and these tests call it with no
+        # explicit home, so it reads whatever OMH_HOME points at. The
+        # developer's real `~/.omh` is NOT the risk -- `_local_package`
+        # redirects both home variables to a temp root at import, before any
+        # test runs. The risk is that that temp root is shared by the whole
+        # test PROCESS: a sibling test writing a plan through `omh_todo` with
+        # no home of its own leaves it exactly where this hook looks. Pin a
+        # private root so the silences below hold by construction rather than
+        # by test order.
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        env = patch.dict(
+            "os.environ",
+            {"OMH_HOME": str(Path(tmp.name) / "omh"), "HERMES_HOME": str(Path(tmp.name) / "hermes")},
+        )
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_pre_verify_is_registered_and_scoped_to_served_surface_risks(self) -> None:
         context = FakeHermesContext()
         register(context)

@@ -36,6 +36,7 @@ from .metadata import (
     TOOLS_REQUIRING_ROLE_CATALOG,
 )
 from .todo_store import (
+    MAX_TODO_BLOCKED_REASON_CHARS,
     MAX_TODO_DEPTH,
     MAX_TODO_ITEMS,
     MAX_TODO_PHASE_CHARS,
@@ -1936,12 +1937,17 @@ def _todo_summary(
             if isinstance(raw_depth, int) and not isinstance(raw_depth, bool) and raw_depth > 0
             else 0
         )
+        blocked_reason = strip_control_characters(raw.get("blocked_reason", ""))[
+            :MAX_TODO_BLOCKED_REASON_CHARS
+        ]
         if text and state in TODO_ITEM_STATES:
             entry: dict[str, Any] = {"text": text, "state": state}
             if phase:
                 entry["phase"] = phase
             if depth:
                 entry["depth"] = depth
+            if blocked_reason:
+                entry["blocked_reason"] = blocked_reason
             items.append(entry)
         if len(items) >= MAX_TODO_ITEMS:
             break

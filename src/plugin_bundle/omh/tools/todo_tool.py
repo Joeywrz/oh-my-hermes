@@ -68,6 +68,21 @@ OMH_TODO_SCHEMA = {
                                 "phase's checklist."
                             ),
                         },
+                        "blocked_reason": {
+                            "type": "string",
+                            "description": (
+                                "Omit this field. Send it only for an item that CANNOT "
+                                "proceed, naming what it is waiting on (a review, an "
+                                "approval, a missing credential, another item). Any value "
+                                "here stops the plan advancing past this item, so an item "
+                                "that is merely unstarted, slow, or mid-work carries no "
+                                "blocked_reason -- and neither does one whose text happens to "
+                                "discuss blocking. Remove the field once the thing it names "
+                                "arrives. Adding or clearing it goes through action=set like "
+                                "any other item edit, which replaces the whole list: send "
+                                "every item back, or the ones you leave out are dropped."
+                            ),
+                        },
                         "depth": {
                             "type": "integer",
                             "minimum": 0,

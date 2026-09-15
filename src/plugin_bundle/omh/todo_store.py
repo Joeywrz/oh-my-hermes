@@ -56,6 +56,17 @@ MAX_TODO_SESSION_REF_CHARS = 160
 # phase-structured plan declared BEFORE engine work bounds the run: progress
 # is a checklist walked phase by phase, not an open-ended reasoning loop.
 MAX_TODO_PHASE_CHARS = 60
+# Optional reason an item cannot proceed. It is a FIELD rather than a fourth
+# item state so the counts, the HUD projection and the widget keep reading
+# three states; an item is still pending or active while it carries one.
+#
+# It exists because the plan's own stop criterion ("an item is recorded
+# blocked with its reason") was previously inferred from the item text, and
+# inference was wrong in both directions on ordinary input: "verify the retry
+# is not blocked on the session limit" read as blocked, while "차단됨: 소유자
+# 승인 대기" and "waiting on the owner's review" did not. A reader that
+# decides whether work stops must read a record, not a substring.
+MAX_TODO_BLOCKED_REASON_CHARS = 200
 # Optional nesting depth per item: 0 is a top-level task, 1..3 are subtask
 # levels rendered indented beneath it (e.g. "검증작업하기" with usability /
 # UI / load-verification children). Three levels is the owner's declared
@@ -105,6 +116,11 @@ def validate_todo_items(items: object) -> list[dict[str, Any]]:
         phase = strip_control_characters(item.get("phase", ""))
         if len(phase) > MAX_TODO_PHASE_CHARS:
             raise TodoValidationError(f"todo item phase is capped at {MAX_TODO_PHASE_CHARS} characters")
+        blocked_reason = strip_control_characters(item.get("blocked_reason", ""))
+        if len(blocked_reason) > MAX_TODO_BLOCKED_REASON_CHARS:
+            raise TodoValidationError(
+                f"todo item blocked_reason is capped at {MAX_TODO_BLOCKED_REASON_CHARS} characters"
+            )
         depth = item.get("depth", 0)
         if isinstance(depth, bool) or not isinstance(depth, int) or not 0 <= depth <= MAX_TODO_DEPTH:
             raise TodoValidationError(f"todo item depth must be an integer from 0 to {MAX_TODO_DEPTH}")
@@ -113,6 +129,8 @@ def validate_todo_items(items: object) -> list[dict[str, Any]]:
             entry["phase"] = phase
         if depth:
             entry["depth"] = depth
+        if blocked_reason:
+            entry["blocked_reason"] = blocked_reason
         validated.append(entry)
     return validated
 

@@ -4,12 +4,31 @@ import hashlib
 import hmac
 import json
 from pathlib import Path
+import threading
 
 from omh.coding.routing_observation import (
     authenticate_child_observation,
     build_routing_observation,
 )
 from omh.quality.paired_run_values import exposure_digest
+
+# One OMH home holds one integrity key, shared by every run directory under it.
+# `execute_paired_run_plan` runs sibling cells on threads, so two cells of the
+# same wave write receipts into one home at once. Rewriting the key on each
+# receipt truncates it to zero for as long as the write takes, and a sibling
+# reading it in that window gets a short key, fails verification, and reaches
+# its caller as a crashed cell with no receipt. Create it once instead, and
+# sign with whatever key the home already holds.
+_KEY_FILENAME = ".observation-hmac-key"
+_KEY_LOCK = threading.Lock()
+
+
+def _shared_observation_key(root: Path) -> bytes:
+    key_path = root / _KEY_FILENAME
+    with _KEY_LOCK:
+        if not key_path.exists():
+            key_path.write_bytes(b"k" * 32)
+    return key_path.read_bytes()
 
 
 def paired_evaluation_binding(
@@ -71,8 +90,7 @@ def write_observed_receipt(
         ensure_ascii=True,
         allow_nan=False,
     ).encode("ascii")
-    key = b"k" * 32
-    (root / ".observation-hmac-key").write_bytes(key)
+    key = _shared_observation_key(root)
     (run_dir / "observation.json").write_text(json.dumps(observation), encoding="utf-8")
     signature = hmac.new(key, canonical, hashlib.sha256).hexdigest()
     (run_dir / "observation.signature.json").write_text(

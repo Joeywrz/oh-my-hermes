@@ -37,6 +37,7 @@ from .metadata import (
 )
 from .todo_store import (
     MAX_TODO_BLOCKED_REASON_CHARS,
+    MAX_TODO_DEFERRED_REASON_CHARS,
     MAX_TODO_DEPTH,
     MAX_TODO_ITEMS,
     MAX_TODO_PHASE_CHARS,
@@ -48,6 +49,7 @@ from .todo_store import (
     TODO_SCHEMA_VERSION,
     TODO_STALE_SECONDS,
     strip_control_characters,
+    todo_items_digest,
     todo_path,
 )
 
@@ -1910,6 +1912,7 @@ def _todo_summary(
         "items": [],
         "display_items": [],
         "display_phase": "",
+        "deferred_reason": "",
         "more_count": 0,
         "stall": _todo_stall(None, None),
     }
@@ -1965,6 +1968,15 @@ def _todo_summary(
     summary["source"] = strip_control_characters(record.get("source", ""))[:MAX_TODO_SOURCE_CHARS]
     summary["updated_at"] = strip_control_characters(record.get("updated_at", ""))[:40]
     summary["items"] = items
+    # The deferral verdict is decided here, once, for the same reason `stall`
+    # is: the TUI panel, the text HUD line, the per-turn reminder, the turn-end
+    # directive and `omh runtime todo show` all read one projection, and a
+    # second copy of the digest comparison would let two of them disagree about
+    # whether the same plan is deferred. The projected field is the LIVE
+    # reason and nothing else -- a deferral whose digest no longer matches the
+    # items is indistinguishable from no deferral, which is exactly what
+    # lapsing means.
+    summary["deferred_reason"] = _live_deferred_reason(record, items)
     phases: list[str] = []
     item_phases: list[str] = []
     inherited_phase = ""
@@ -2049,6 +2061,32 @@ def _todo_summary(
         activity if activity is not None else tool_call_activity(str(home)), age
     )
     return summary
+
+
+def _live_deferred_reason(record: dict[str, Any], items: list[dict[str, Any]]) -> str:
+    """The plan-level deferral, projected only while it still describes ``items``.
+
+    Three ways to be absent, and each of them is the same answer on purpose:
+    no reason recorded, a reason that is not a string (a hand-written record
+    can carry anything, and a number is not a declaration), or a digest that no
+    longer matches the item list. The third is the lapse: the person's
+    redirection was recorded against a plan that has since moved, so it is over
+    and the plan asks to advance again with nobody having cleared anything.
+
+    A record carrying a reason but no digest -- impossible from `todo_store`,
+    possible by hand -- lapses immediately for the same reason. Malformed data
+    fails toward the plan continuing, never toward a silent stop.
+    """
+    reason = record.get("deferred_reason", "")
+    if not isinstance(reason, str):
+        return ""
+    reason = strip_control_characters(reason)[:MAX_TODO_DEFERRED_REASON_CHARS]
+    if not reason:
+        return ""
+    digest = record.get("deferred_items_digest", "")
+    if not isinstance(digest, str) or digest != todo_items_digest(items):
+        return ""
+    return reason
 
 
 def _own_todo_record(home: Path, session_id: str) -> tuple[dict[str, Any], bool]:

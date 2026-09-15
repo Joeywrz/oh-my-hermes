@@ -33,6 +33,17 @@ plan record says and asserts nothing about what the next turn does. It also
 hands back the plan's write stamp, which is how the hook decides whether the
 run is still moving and therefore whether more of the host's turn-end budget
 may be spent on it (`hooks/nudge_budget.py`).
+
+Both surfaces were right when the session stalled and wrong when the PERSON
+steered: "unless something is blocking it, advance the next item" argues with
+the person while the session does what they just asked for, and the person is
+what is blocking it. A plan-level `deferred_reason` is where that gets
+recorded, and `plan_deferral_reason` is the single place either surface asks
+whether it holds. Nothing here reads the conversation to decide it -- the
+record declares it, the way the item-level block does, and for the same reason
+(`recorded_blocked_reason`). Its liveness is decided in `runtime_reader`
+against a digest of the items, so resuming the plan lapses it; a blocked next
+item still wins over it, being the stronger statement about why nothing moved.
 """
 from __future__ import annotations
 
@@ -93,6 +104,19 @@ TODO_CONTINUATION_RULE = (
 PLAN_CONTINUATION_BOUNDARY = (
     "This directive reports what the plan record says; it is not evidence that "
     "any item ran, passed, or was verified."
+)
+
+# What the plan line says INSTEAD of the continuation rule while the record
+# says the person steered elsewhere. It replaces the whole ask rather than
+# softening it: a line that both reports a redirection and asks to advance the
+# next item is the argument this field exists to end. The stall half goes with
+# it -- a deferred plan standing still is the expected state, not a finding.
+TODO_DEFERRED_RULE = (
+    "The person redirected this session and the plan records it, so this line "
+    "is not asking you to advance the next item. Do what they asked for. The "
+    "deferral lapses by itself the moment the item list changes, so resuming "
+    "the plan needs no clearing step -- and if an item genuinely cannot "
+    "proceed, that is an omh_todo blocked_reason on the item, not this."
 )
 
 TODO_RECONCILIATION_RULE = (
@@ -247,6 +271,28 @@ def recorded_blocked_reason(item: dict[str, Any] | None) -> str:
     return reason.strip() if isinstance(reason, str) else ""
 
 
+def plan_deferral_reason(todo: dict[str, Any]) -> str:
+    """The reason the person steered this plan elsewhere, while it still holds.
+
+    The projection has already decided liveness: `runtime_reader` fills this
+    field only while the recorded digest still matches the items it read, so a
+    deferral that has lapsed arrives here as absence and nothing downstream has
+    to know the difference. That split is deliberate -- the digest comparison
+    lives with the items it compares, and this stays the one question both
+    surfaces ask.
+
+    A non-string is read as absent, the same call `recorded_blocked_reason`
+    makes and for the same reason: a hand-written record can carry anything,
+    `7` stringifies to something truthy, and reading corruption as a
+    declaration would stop a plan silently. Malformed data fails toward the
+    plan continuing.
+    """
+    if not isinstance(todo, dict):
+        return ""
+    reason = todo.get("deferred_reason", "")
+    return reason.strip() if isinstance(reason, str) else ""
+
+
 # Everything the runtime read below can raise, enumerated rather than
 # described, because the one thing this function may not do is raise into a
 # host that swallows exceptions: Hermes wraps the whole `pre_verify` call in
@@ -308,8 +354,11 @@ def plan_continuation_reading(
     # The blocked item stops the PLAN line and nothing else. A finished
     # dispatch nobody wrote down is a separate obligation -- it is frequently
     # the thing that unblocks the item -- so gating both on one item's state
-    # would bury the event that ends the wait.
-    if position is not None and not recorded_blocked_reason(item):
+    # would bury the event that ends the wait. A live deferral stops the same
+    # half on the same terms: the directive arrives as a synthetic user turn,
+    # so issuing one while the person is being served would interrupt them
+    # with the plan they just stepped away from.
+    if position is not None and not recorded_blocked_reason(item) and not plan_deferral_reason(todo):
         done, total = position
         head = f"[OMH plan todo] {done}/{total} done"
         text = item_display_text(item)
@@ -347,6 +396,18 @@ def _open_plan_line(*, omh_home: str, hermes_home: str, session_ref: str) -> str
     head = f"[OMH plan todo] {done}/{total} done"
     if active:
         head = f"{head} · active: {active}"
+    # A blocked next item wins over a deferral, so the line it produces is
+    # unchanged here: the block is the stronger statement about why the plan is
+    # not moving, and reporting a redirection over it would hide the thing the
+    # reader has to act on. Only an unblocked plan reads as deferred.
+    deferred = plan_deferral_reason(todo)
+    if deferred and not recorded_blocked_reason(next_open_item(todo)):
+        # The reason is rendered whole, not truncated to the item display
+        # window: it is the entire content of this variant of the line and is
+        # already bounded twice, by the write cap and by the reader's
+        # projection of it. Cutting a reason mid-clause can invert what the
+        # person asked for, which an item's text cannot do.
+        return f"{head} · deferred: {deferred}. {TODO_DEFERRED_RULE} {TODO_RECONCILIATION_RULE}"
     unchanged = todo_unchanged_text(todo)
     if not unchanged:
         return f"{head}. {TODO_CONTINUATION_RULE} {TODO_RECONCILIATION_RULE}"

@@ -87,8 +87,17 @@ still has open work, or a finished dispatch is unacknowledged, the message also
 names the plan position and the next item. This is the only moment a host lets
 a plugin start the next turn, so it is where a run that would otherwise end its
 turn on a status report is told to advance instead. It stops on the plan's own
-stop criterion — every item done, or the next item recorded blocked with its
-reason. Its reach is bounded by when the host fires the hook at all: Hermes
+stop criterion — every item done, the next item recorded blocked with its
+reason, or the plan recording that the person steered the session elsewhere.
+That last one is a plan-level `deferred_reason`, and it is stored with a digest
+of the item list it was written against: a reader honours it only while that
+digest still matches, so marking an item done or re-scoping the list lapses the
+deferral and the plan resumes with nobody having cleared anything. A writer
+that deliberately re-sends the reason with a changed list has declared a new
+deferral for that list, the way an item's `blocked_reason` is re-declared on
+every write. Nothing infers a redirection from the conversation; the record
+declares it.
+Its reach is bounded by when the host fires the hook at all: Hermes
 gates `pre_verify` on the turn having made at least one landed `write_file` or
 `patch` call, so a turn that only read, searched, ran tests, or reported never
 reaches it, and neither does a turn whose file edits went through the shell.

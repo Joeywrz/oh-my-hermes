@@ -2021,6 +2021,25 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         'maestro the migration with two executors',
         'dispatch', 'maestro', 'forward_plan_to_selected_workflow', 'plan',
     ),
+    # The approval matcher's word boundaries, pinned where they are
+    # load-bearing. Both of these contain `this approved`, which the folded
+    # helper's compact arm reads as `is approved` (`th|isapproved`), and in
+    # both the winner rests on its own name -- so the name-shaped condition
+    # does NOT release them and the boundary is the only thing keeping them
+    # routing. Without these two, reverting the matcher leaves the corpus
+    # green.
+    RoutingInterventionCase(
+        'engine-entry-approval-boundary-plan',
+        'A request mentioning an approved thing is not an approval',
+        'write the plan for this approved lifecycle experiment',
+        'dispatch', 'plan', 'forward_plan_to_selected_workflow', 'plan',
+    ),
+    RoutingInterventionCase(
+        'engine-entry-approval-boundary-frontend',
+        'The same boundary holds for a route-mode skill',
+        'add a retry to the frontend for this approved rollout',
+        'dispatch', 'frontend', 'prepare_frontend_handoff', 'frontend_handoff',
+    ),
     RoutingInterventionCase(
         'engine-entry-approval-carrying-a-real-request',
         'An approval carrying work with its own evidence still routes to that work',

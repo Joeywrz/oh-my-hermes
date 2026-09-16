@@ -9,7 +9,41 @@ from pathlib import Path
 import uuid
 
 from ..degradation import runtime_binding_degradation
+from ..engagement_nudges import record_engagement_observer_failure
 from ..host_observation import observe_plugin_hook_call
+from .nudge_budget import note_delegated_session
+
+
+def subagent_start(**kwargs) -> None:
+    """Record that ``child_session_id`` names a delegated lane, not an orchestrator.
+
+    The one thing OMH takes from this hook. A delegated child runs under its
+    own session id, and the tool-result seam the engagement nudges ride carries
+    no agent identity, so without this record those nudges cannot tell a
+    subagent from the session that spawned it -- and would ask a subagent to
+    declare the parent's checklist.
+
+    Observation only: it writes no file, reads no runtime state, returns
+    nothing, and never blocks a spawn. A host that does not call it is a host
+    with no children to mistake for orchestrators, because the same
+    `tools/delegate_tool.py` that creates a child emits this.
+
+    Nothing here raises. The caller already wraps the invocation in its own
+    quiet block, so a raise would be swallowed and this would simply stop
+    recording -- invisibly, which is the failure worth avoiding. So the swallow
+    writes a line: otherwise a failure here is observable ONLY as an absence
+    (the `delegated_session` decline that never happens), and an absence needs a
+    reader who already knew to expect it.
+    """
+    try:
+        observe_plugin_hook_call("subagent_start", kwargs)
+        note_delegated_session(kwargs.get("child_session_id"))
+    except Exception as exc:  # noqa: BLE001 - swallowed upstream either way;
+        # failing to record one child must not interrupt that child's spawn.
+        # Recorded rather than silent: see `record_engagement_observer_failure`.
+        record_engagement_observer_failure(type(exc).__name__)
+        return None
+    return None
 
 
 def on_session_end(**kwargs) -> dict[str, object] | None:

@@ -264,7 +264,15 @@ class EfficiencyContractTests(unittest.TestCase):
         # method detail is a reference file, counted below rather than here. The
         # ceiling restores the ~13k standing headroom; the exact value stays
         # ratcheted in `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
-        self.assertLess(full["skill_body"]["bytes"], 990_000)
+        # 990,000 -> 1,005,000: `todo-checklist` (#1642) takes the full profile
+        # to 991,599 bytes on the rebased tree -- one new body, plus its lane
+        # name on the automation_and_status skills' Workflow Lane lines. Its
+        # shaping rules and the `blocked_reason`/`deferred_reason` distinction
+        # are a reference file, counted below rather than here. The ceiling
+        # restores the ~13k standing headroom this gate is meant to carry rather
+        # than clearing the measurement by a hair; the exact value stays
+        # ratcheted in `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
+        self.assertLess(full["skill_body"]["bytes"], 1_005_000)
         self.assertLess(full["repeated"]["share_percent"], 38.0)
 
         # References are progressive disclosure, counted outside the always-loaded body.

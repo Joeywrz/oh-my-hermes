@@ -1110,7 +1110,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(review_payload["candidate"]["status"], "accepted")
             self.assertEqual(review_payload["candidate"]["human_gate"]["decision"], "approve")
             self.assertEqual(review_payload["next_action"], f"omh learning proposal {candidate_id}")
-            self.assertIn("review_note_sha262", review_payload["candidate"]["human_gate"])
+            self.assertIn("review_note_sha256", review_payload["candidate"]["human_gate"])
             self.assertNotIn("private approval note", json.dumps(review_payload))
 
             status, stdout, stderr = run_cli(base + ["learning", "proposal", candidate_id])
@@ -1373,7 +1373,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(reviewed_route["status"], "changed")
             self.assertEqual(reviewed_route["destination_review"]["current_destination"], "memory_candidate")
             self.assertEqual(reviewed_route["destination_review"]["next_action"], "prepare_memory_new")
-            self.assertIn("review_note_sha262", reviewed_route["review_gate"])
+            self.assertIn("review_note_sha256", reviewed_route["review_gate"])
             self.assertFalse(reviewed_route["review_gate"]["review_note_stored"])
             self.assertFalse(reviewed_route["writes_observed"])
             self.assertNotIn("private note", stdout)
@@ -1466,7 +1466,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(payload["schema_version"], "learning_missed_route_result/v1")
             self.assertEqual(payload["status"], "needs_regression_fixture")
             self.assertFalse(payload["regression_case"]["replay_ready"])
-            self.assertEqual(payload["regression_case"]["fixture_sha262"], "")
+            self.assertEqual(payload["regression_case"]["fixture_sha256"], "")
             self.assertEqual(payload["regression_case"]["privacy"]["mode"], "missing_fixture")
             self.assertEqual(payload["next_action"], "add_regression_fixture")
             self.assertNotIn(message, stdout)
@@ -6227,7 +6227,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 "generate",
                 "--artifact-ref",
                 "art-1",
-                "--content-sha262",
+                "--content-sha256",
                 digest,
                 "--mime-type",
                 "image/png",
@@ -6287,7 +6287,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(status, 0, stderr)
             observation = json.loads(stdout)
             self.assertEqual(observation["generation_receipt"]["receipt_id"], receipt_id)
-            self.assertEqual(observation["artifact"]["content_sha262"], digest)
+            self.assertEqual(observation["artifact"]["content_sha256"], digest)
             self.assertNotIn("generation_route_attested", observation["does_not_prove"])
 
             status, stdout, stderr = run_cli(
@@ -8880,7 +8880,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             )
             self.assertEqual(status, 0, stderr)
             goal_driver = json.loads(stdout)["goal_driver_handoff"]
-            digest = hashlib.sha262(goal_driver["goal_command"].encode()).hexdigest()
+            digest = hashlib.sha256(goal_driver["goal_command"].encode()).hexdigest()
             observation_path = root / "native-goal-observation.json"
             observation_path.write_text(
                 json.dumps(
@@ -8889,7 +8889,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                         "observation_id": "native-goal-cli-turns-1-2",
                         "loop_id": "loop-native-observed",
                         "session_ref": "hermes-session-cli",
-                        "goal_command_sha262": digest,
+                        "goal_command_sha256": digest,
                         "observation_source": "operator",
                         "observed_at": "2026-08-24T12:00:00Z",
                         "activation": {
@@ -8913,7 +8913,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                                 "to_phase": "research",
                                 "phase_gate": "plan_observed",
                                 "turn_ended_evidence_refs": ["hermes:session-cli:turn-2-ended"],
-                                "phase_gate_evidence_refs": ["artifact:bounded-plan:sha262:abc123"],
+                                "phase_gate_evidence_refs": ["artifact:bounded-plan:sha256:abc123"],
                             },
                         ],
                         "summary": "Hermes continued two observed turns.",

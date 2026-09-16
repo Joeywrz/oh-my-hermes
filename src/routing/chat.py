@@ -163,7 +163,6 @@ _ENGINE_ENTRY_APPROVAL_PHRASES: tuple[str, ...] = (
     "lgtm",
     "looks right",
     "is approved",
-    "approved, ",
     "go ahead with",
     "ship it",
     "let's go with",
@@ -7143,11 +7142,36 @@ def _engine_entry_approval_reason(message: str, skill: str) -> str:
     `plan` when the name is stripped -- so (a) is what separates an approval
     from a request, and (b) is what lets a genuine request survive inside one.
     """
-    if not skill or not contains_cue_phrase(message, _ENGINE_ENTRY_APPROVAL_PHRASES):
+    if not skill or not _message_approves(message):
         return ""
     if not _skill_case_rests_on_its_own_name(message, skill):
         return ""
     return f"{_ENGINE_ENTRY_APPROVAL_REASON_PREFIX} `{skill}`: approval is planning evidence, not permission to start it."
+
+
+def _message_approves(message: str) -> bool:
+    """Whether `message` contains an approval phrase at word boundaries.
+
+    Not `contains_cue_phrase`, and the reason is measured rather than stylistic.
+    That helper matches its folded phrase and then, as a second arm, the phrase
+    with every non-alphanumeric character removed against the message treated
+    the same way -- which is right for the cue text it was written for and
+    wrong here, because it joins across word boundaries. `is approved` matched
+    `this approved lifecycle experiment` (`th|isapproved`), `is fine` matches
+    any `this fine`, and a phrase written with trailing punctuation to anchor it
+    (`approved, `) compacts to a bare `approved` and matches the adjective.
+    Condition (b) caught all three, but a first condition that fires on
+    ordinary requests is leaning on the second to be correct.
+
+    So: normalize once, fold punctuation to spaces, pad, and require the phrase
+    to sit between spaces. `승인` then stops matching `승인된`, which is the
+    same boundary rule doing the same work in a language without word breaks
+    inside the phrase.
+    """
+    folded = normalized_phrase(message)
+    spaced = "".join(character if character.isalnum() else " " for character in folded)
+    padded = f" {' '.join(spaced.split())} "
+    return any(f" {normalized_phrase(phrase).strip()} " in padded for phrase in _ENGINE_ENTRY_APPROVAL_PHRASES)
 
 
 def _skill_case_rests_on_its_own_name(message: str, skill: str) -> bool:

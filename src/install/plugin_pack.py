@@ -541,13 +541,18 @@ def _enforcement_smoke(plugin_dir: Path) -> dict[str, Any]:
         if package is None:
             return _enforcement_unknown("could not load plugin spec for the enforcement probe")
         # The rules module by FILE, through the same loader the register tier
-        # uses, never `importlib.import_module`. INVARIANT 1 of
-        # `tests/test_handoff_safety_contract_enforcement.py` forbids reaching
-        # a module by name: a name resolves against the interpreter's search
-        # path, so `import_module` could reach `subprocess` and no static gate
-        # in that file would see it. A path reaches exactly the file named
-        # here -- one hash-pinned file of the managed bundle, under the
-        # directory the manifest covers -- and reaches nothing else.
+        # uses. INVARIANT 1 of
+        # `tests/test_handoff_safety_contract_enforcement.py` allowlists both
+        # spellings, and this file is on its path-load allowlist for the reason
+        # recorded there: the path is COMPUTED, never caller-supplied. It is
+        # `paths.hermes_plugin_dir` -- the managed directory OMH writes itself
+        # -- plus a literal filename. Not because a path is inherently safer
+        # than a name: a path load executes the file it names, and that file is
+        # outside `src/`, so no static gate sees what it imports either. Note
+        # also what this does not claim. The tiers run against the installed
+        # bundle even when the manifest was already recorded invalid, which is
+        # the point of a readiness probe, so these bytes are not
+        # manifest-verified first.
         rules_module = _load_installed_module(
             f"{module_name}.toolcall_rules", plugin_dir / "toolcall_rules.py"
         )

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import importlib.resources as resources
 import importlib.util
 import json
@@ -534,17 +533,29 @@ def _enforcement_smoke(plugin_dir: Path) -> dict[str, Any]:
     module_name = "_omh_plugin_enforcement_smoke"
     _clear_smoke_modules(module_name)
     try:
-        spec = importlib.util.spec_from_file_location(
+        package = _load_installed_module(
             module_name,
             plugin_dir / "__init__.py",
-            submodule_search_locations=[str(plugin_dir)],
+            search_locations=[str(plugin_dir)],
         )
-        if spec is None or spec.loader is None:
+        if package is None:
             return _enforcement_unknown("could not load plugin spec for the enforcement probe")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
-        rules_module = importlib.import_module(f"{module_name}.toolcall_rules")
+        # The rules module by FILE, through the same loader the register tier
+        # uses, never `importlib.import_module`. INVARIANT 1 of
+        # `tests/test_handoff_safety_contract_enforcement.py` forbids reaching
+        # a module by name: a name resolves against the interpreter's search
+        # path, so `import_module` could reach `subprocess` and no static gate
+        # in that file would see it. A path reaches exactly the file named
+        # here -- one hash-pinned file of the managed bundle, under the
+        # directory the manifest covers -- and reaches nothing else.
+        rules_module = _load_installed_module(
+            f"{module_name}.toolcall_rules", plugin_dir / "toolcall_rules.py"
+        )
+        if rules_module is None:
+            return _enforcement_unknown(
+                "the installed bundle has no loadable toolcall_rules module, so no decision "
+                "could be requested"
+            )
         directive_for = getattr(rules_module, "toolcall_rule_directive", None)
         if not callable(directive_for):
             return _enforcement_unknown(
@@ -600,6 +611,32 @@ def _enforcement_smoke(plugin_dir: Path) -> dict[str, Any]:
             f"expected scoped=block unscoped=proceed, observed {decision}"
         ),
     }
+
+
+def _load_installed_module(
+    module_name: str,
+    path: Path,
+    *,
+    search_locations: list[str] | None = None,
+) -> Any | None:
+    """Execute one named file of the installed bundle as `module_name`, or None.
+
+    The primitive `_register_smoke` already uses, factored out so the
+    enforcement probe reaches the rules module the same way and by the same
+    rule: a file path, never a module name. `sys.modules` is populated before
+    execution so the loaded file's own relative imports (`from . import
+    runtime_paths`) resolve against the package already registered under
+    `module_name`'s parent.
+    """
+    spec = importlib.util.spec_from_file_location(
+        module_name, path, submodule_search_locations=search_locations
+    )
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _enforcement_probe_rules(rules_module: Any) -> dict[str, Any]:

@@ -621,6 +621,24 @@ All notable changes will be documented here.
   every surface was inspected and none leaked. The ordinary `omh doctor` run is
   unchanged: the sub-check fires only for the operators who pass the flag.
   (#1562)
+- **A crashed paired-run cell now records what raised it.** `_execute_cell`
+  contains an exception so one cell's failure cannot take the matrix down, and
+  the containment is correct -- but it discarded the reason. A
+  `ReceiptVerificationError` naming a short integrity key reached the caller as
+  an opaque CRASHED cell, and the fan-in blocker then described the shape of
+  the result (`crashed execution state`) rather than the cause. On #1592 that
+  cost a full diagnosis cycle: the first hypothesis drawn from the surviving
+  evidence was coherent and wrong. The `except` clauses are unchanged; what
+  they record is wider. Every contained failure -- workspace, runner, unexpected
+  runner error, and cleanup -- now carries a `PairedRunCrashReason` on the
+  outcome, and the fan-in blocker reads `crashed execution state:
+  ReceiptVerificationError: Hermes child observation integrity key is invalid`.
+  A runner that already crashed owns the cause, so a later cleanup failure does
+  not overwrite it. The record reaches a metadata artifact, so it carries a
+  bounded exception type and a message that is path-redacted, control-stripped,
+  capped at 200 characters, and withheld whole when it matches a secret marker;
+  `withheld` and `empty` stay distinct states so a reader can tell a screened
+  message from an exception that carried none. (#1619)
 
 ## 2.0.3 - 2026-09-12
 

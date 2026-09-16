@@ -28,8 +28,8 @@ class HermesUxQualityTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["context_brief_cases"], 12)
         self.assertEqual(payload["summary"]["context_brief_passing_count"], 12)
         # Includes the measured omh-docs and github-issue-intake cases.
-        self.assertEqual(payload["summary"]["routing_precision_cases"], 237)
-        self.assertEqual(payload["summary"]["routing_precision_passing_count"], 237)
+        self.assertEqual(payload["summary"]["routing_precision_cases"], 239)
+        self.assertEqual(payload["summary"]["routing_precision_passing_count"], 239)
         self.assertEqual(payload["summary"]["routing_precision_overroute_count"], 0)
         self.assertEqual(payload["summary"]["routing_precision_catalog_picker_count"], 0)
         self.assertEqual(payload["summary"]["routing_precision_generic_ack_count"], 0)

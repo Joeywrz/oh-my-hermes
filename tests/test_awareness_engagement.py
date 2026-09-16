@@ -24,13 +24,17 @@ widens a surface that overrouting is the standing risk on.
 
 from __future__ import annotations
 
+import os
 import unittest
+from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 from _local_package import load_local_package
 
 load_local_package()
 from omh.plugin_bundle.omh import awareness as awareness_module
+from omh.plugin_bundle.omh.hooks import llm_hooks
 from omh.plugin_bundle.omh.awareness import (
     awareness_primer_context,
     awareness_route_hint,
@@ -40,6 +44,8 @@ from omh.plugin_bundle.omh.awareness import (
 from omh.plugin_bundle.omh.awareness_delivery import read_awareness_delivery
 from omh.plugin_bundle.omh.hooks.llm_hooks import pre_llm_call
 from omh.routing.chat import public_chat_route_payload
+from test_kanban_board_reader import build_board, task
+from test_plugin_hermes_delegation import PARENT_ID, _build_state_db
 
 
 def _hinted_workflow(message: str) -> str:
@@ -256,6 +262,85 @@ class FirstTurnCarriesAwarenessTests(unittest.TestCase):
             delivery = read_awareness_delivery(omh_home)
             self.assertEqual(delivery["delivery_count"], 2)
             self.assertEqual(delivery["route_hint_count"], 1)
+
+
+class BoardReentryCardTests(unittest.TestCase):
+    """Open board lanes this chat created are named once, on re-entry.
+
+    A Hermes Kanban task outlives the session that queued it, and nothing in
+    the replayed history says the board still holds it. The first turn that
+    finds lanes stamped with this conversation's identity carries one line
+    naming them; every later turn of the same session carries nothing.
+    """
+
+    CARD = "[OMH board] 3 board lanes from this chat: 1 running, 1 queued, 1 blocked; read back with kanban_list"
+
+    def setUp(self) -> None:
+        self.temp = TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.hermes = root / ".hermes"
+        self.hermes.mkdir()
+        self.omh = str(root / ".omh")
+        _build_state_db(self.hermes, [])
+        env = mock.patch.dict(os.environ, {"HERMES_KANBAN_HOME": ""})
+        env.start()
+        self.addCleanup(env.stop)
+        llm_hooks._reset_board_card_state()
+        self.addCleanup(llm_hooks._reset_board_card_state)
+
+    def board(self, tasks: list[dict]) -> None:
+        build_board(self.hermes / "kanban.db", tasks)
+
+    def own_lanes(self) -> list[dict]:
+        return [
+            task("t_aaaa0001", "running", session_id=PARENT_ID),
+            task("t_aaaa0002", "ready", session_id=PARENT_ID),
+            task("t_aaaa0003", "blocked", session_id=PARENT_ID),
+        ]
+
+    def turn(self, *, first: bool, session_id: str = PARENT_ID) -> str:
+        result = pre_llm_call(
+            user_message="where were we",
+            is_first_turn=first,
+            session_id=session_id,
+            omh_home=self.omh,
+            hermes_home=str(self.hermes),
+        )
+        return str(result.get("context", "")) if result else ""
+
+    def test_the_card_is_shown_once_across_two_turns(self) -> None:
+        self.board(self.own_lanes())
+        first = self.turn(first=True)
+        self.assertIn(self.CARD, first)
+        self.assertEqual(first.count("[OMH board]"), 1)
+        self.assertLessEqual(len(self.CARD), 160)
+        self.assertNotIn("[OMH board]", self.turn(first=False))
+        self.assertNotIn("[OMH board]", self.turn(first=True))
+
+    def test_a_session_whose_lanes_appear_later_is_still_named_once(self) -> None:
+        self.board([])
+        self.assertNotIn("[OMH board]", self.turn(first=True))
+        with self.subTest("lanes queued during the session"):
+            (self.hermes / "kanban.db").unlink()
+            self.board(self.own_lanes())
+            self.assertIn(self.CARD, self.turn(first=False))
+            self.assertNotIn("[OMH board]", self.turn(first=False))
+
+    def test_a_board_with_no_open_rows_carries_no_card(self) -> None:
+        self.board([task("t_aaaa0009", "done", session_id=PARENT_ID, completed_at=1)])
+        self.assertNotIn("[OMH board]", self.turn(first=True))
+
+    def test_a_missing_board_carries_no_card(self) -> None:
+        self.assertFalse((self.hermes / "kanban.db").exists())
+        self.assertNotIn("[OMH board]", self.turn(first=True))
+
+    def test_another_conversations_lanes_are_never_named_as_this_chats(self) -> None:
+        self.board([task("t_bbbb0001", "running", session_id="some-other-session")])
+        with self.subTest("mapped conversation, foreign rows project as global"):
+            self.assertNotIn("[OMH board]", self.turn(first=True))
+        with self.subTest("unmapped session reference has no identity to own with"):
+            self.assertNotIn("[OMH board]", self.turn(first=True, session_id="not-in-state-db"))
 
 
 if __name__ == "__main__":

@@ -359,10 +359,12 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
         INTENTIONAL,
         "An observer the host already invokes inside its own quiet block "
         "(`tools/delegate_tool.py`), so a raise is swallowed there and would only stop a "
-        "child being recorded. Failing to record one child must not interrupt that child's "
-        "spawn, and the consequence is surfaced where it matters: an unrecorded child reads "
-        "as an orchestrator, which the nudge path reports as a `delegated_session` decline "
-        "not being counted. It returns None, which is this hook's only valid return.",
+        "child being recorded; failing to record one child must not interrupt that child's "
+        "spawn. The failure is surfaced by a positive record, not by an absence: the handler "
+        "calls `engagement_nudges.record_engagement_observer_failure`, which tallies "
+        "`observer_error:<Type>` in the same readout every other decline on this path uses. "
+        "Without that the only evidence would be a `delegated_session` decline that never "
+        "happens, which cancels against the failure that caused it and leaves no trace.",
     ),
 )
 

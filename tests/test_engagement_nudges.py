@@ -38,6 +38,7 @@ from omh.plugin_bundle.omh.engagement_nudges import (
     reset_engagement_declines,
 )
 from omh.plugin_bundle.omh.hooks.nudge_budget import reset_nudge_budget
+from omh.plugin_bundle.omh.hooks import session_hooks
 from omh.plugin_bundle.omh.hooks.result_transforms import transform_tool_result
 from omh.plugin_bundle.omh.hooks.session_hooks import subagent_start
 from omh.plugin_bundle.omh.todo_store import build_todo_record, write_todo
@@ -193,6 +194,19 @@ class DelegatedLaneIsNotNudgedTests(EngagementNudgeTestCase):
         self.assertIsNone(subagent_start())
         self.assertIsNone(subagent_start(child_session_id=None))
         self.assertIsNone(subagent_start(child_session_id=object()))
+
+    def test_a_swallowed_observer_failure_leaves_a_positive_record(self) -> None:
+        """An absence is not a trace.
+
+        Without this, the only evidence that the observer broke is a
+        `delegated_session` decline that never happens -- and if the same
+        failure keeps the nudge path away from that session, the two cancel
+        and nothing is left to read. The report is widened, not the `except`.
+        """
+        with patch.object(session_hooks, "note_delegated_session", side_effect=RuntimeError("boom")):
+            self.assertIsNone(subagent_start(parent_session_id="s1", child_session_id="child-1"))
+
+        self.assertEqual(engagement_nudge_declines().get("observer_error:RuntimeError"), 1)
 
 
 class NudgeCannotRaiseTests(EngagementNudgeTestCase):

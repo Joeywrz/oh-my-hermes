@@ -144,6 +144,25 @@ def reset_engagement_declines() -> None:
     _declines.clear()
 
 
+def record_engagement_observer_failure(error_type: str) -> None:
+    """Record that the delegated-session observer swallowed a failure.
+
+    `subagent_start` is the only feed for the delegated-session set, and its
+    swallow is right: the host already calls it inside its own quiet block, and
+    failing to record one child must not interrupt that child's spawn. But a
+    swallow with nothing written is observable only as an ABSENCE -- the
+    `delegated_session` decline that never happens, which nobody notices
+    without already expecting it and counting. Worse, if whatever broke the
+    observer also keeps the nudge path away from that session, the two cancel
+    and the trace is empty.
+
+    So the REPORT is widened rather than the `except`: one tally entry, in the
+    same readout as every other reason this path declined to act, because the
+    observer exists only to feed it.
+    """
+    _declines[f"observer_error:{error_type or 'Unknown'}"] += 1
+
+
 def annotate_engagement_nudge(
     *,
     tool_name: object,

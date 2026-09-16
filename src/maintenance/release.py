@@ -300,7 +300,17 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # discipline, and the role table are in that reference, counted outside this
 # budget; the capability row carries only the pointer. Re-derived from the
 # producer.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 430123
+# 430123 -> 430308: the three sibling engines learn the board lane on the same
+# substrate, one quality-bar clause each (2026-09-17). `loop` points an
+# iteration that must outlive the session at `references/board-iteration.md`,
+# `ultraqa` points a probe that must run in isolation at
+# `references/board-fanin.md`, and `ralplan` lists every accepted lane in
+# node-prompt shape with `depends_on` so `ultrawork` prepares rows without
+# re-planning. The iteration chain, the stop rule, the resume readback, the
+# probe rows, the fan-in, and the review-lane re-verification are in the two
+# references, counted outside this budget; the capability rows carry only the
+# pointers and the lane shape. Re-derived from the producer.
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 430308
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -1164,7 +1174,20 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # the role table are `skills/ulw-work/references/kanban-lane.md`, measured
 # outside this budget. Re-derived from the full-profile
 # skill_context_cost_payload() producer, never by adding deltas.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 991791
+# 991791 -> 992659: the three sibling engines learn the board lane on the same
+# substrate, one quality-bar clause each (2026-09-17). `loop` gains the
+# pointer at `skills/ulw-loop/references/board-iteration.md` for an iteration
+# that must outlive the session, `ultraqa` the pointer at
+# `skills/ulw-qa/references/board-fanin.md` for a probe that must run in
+# Hermes-owned isolation, and `ralplan` the rule that the accepted plan lists
+# every lane in node-prompt shape with `depends_on`, so `ultrawork` can prepare
+# board rows from it without re-planning. The bodies carry only the pointers
+# and the lane shape; the builder/verifier chain, the `needs_input` stop rule,
+# the resume readback, the probe rows, the single fixer fan-in, and the
+# review-lane re-verification are in the two references, measured outside this
+# budget. Re-derived from the full-profile skill_context_cost_payload()
+# producer, never by adding deltas.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 992659
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

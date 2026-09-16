@@ -4,6 +4,38 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **There is now a skill for the plan checklist itself, for people who are not
+  running a delivery engine.** `omh_todo` is registered on every session, and
+  until now nothing in the skill surface named it: 131 skills, none with `todo`
+  in the name, and 2 of 126 rendered bodies mentioning the tool at all — both
+  delivery engines. A user who wanted a checklist went looking for `/omh-todo`
+  and found nothing. `omh-todo-checklist` answers that, in an ordinary session,
+  with the body carrying only what is wrong to discover late: items are
+  declarations and never execution evidence, exactly one item stays active, and
+  `action=set` replaces the whole list so a partial write silently drops what it
+  leaves out. The shaping rules, the `blocked_reason` versus `deferred_reason`
+  distinction — an item that cannot proceed, versus a person steering the
+  session elsewhere — and the guidance on when a checklist is not worth
+  declaring live in an on-demand reference, outside the always-loaded budget.
+
+  It is not called `omh-todo`, and the reason is measured. A one-word name
+  matches any sentence containing that word through the scorer's `name:` credit,
+  and `todo` is among the commonest words in a coding session. A two-word name
+  needs both words, which is what makes holding the bare token in
+  `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS` sufficient rather than decorative. Typing
+  `/omh-todo` still finds it, because Hermes slash completion is prefix-based.
+  Holding the tokens then cost the complete phrases their edge — "declare a plan
+  checklist" routed to the planning workflow — so the phrases that name the
+  checklist carry an explicit-phrase boost, with the bare nouns `todo` and
+  `checklist` deliberately excluded from it.
+
+  `docs/ADDING-A-SKILL.md` gained the two required surfaces it was missing.
+  Without a `_WORKFLOW_OPERATIONS_CHAT_CARDS` entry a new skill has no card of
+  its own; without `_DIRECT_WORKFLOW_SKILLS` membership the router selects it
+  correctly and then renders a generic plan card, which reads as a routing bug
+  and is not one. It also gained the rule that a `do_not_use_when` line must not
+  repeat the deferring skill's own trigger vocabulary — otherwise the sentence
+  written to send work to a sibling makes the deferrer outrank it.
 - **Saying a plan is fine no longer starts the plan again.** `the plan is
   fine, just ship it` dispatched `plan` and emitted a 10,572-character planning
   artifact -- goals, non-goals, decision drivers, options, rejection rationale,

@@ -172,9 +172,9 @@ NON_SKILL_BACKTICKS = frozenset(
 # capacity-planning example it now carries answers whether to hire and stops
 # there (#1580). One case, one pair, no new owner: `strategy-brief` already
 # defers to `product-discovery-validation`.
-EXPECTED_DEFERENCE_CASES = 250
-EXPECTED_DEFERENCE_PAIRS = 263
-EXPECTED_DEFERRING_OWNERS = 72
+EXPECTED_DEFERENCE_CASES = 253
+EXPECTED_DEFERENCE_PAIRS = 266
+EXPECTED_DEFERRING_OWNERS = 73
 
 # The ratchet. Recording a new inversion must be a visible edit to this number,
 # not one more dict line with a plausible sentence attached.

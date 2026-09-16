@@ -284,6 +284,7 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # `people-ops` and six resourcing triggers, which also render into the router's
 # workflow registry (#1580). The worked figures are
 # `references/capacity-planning.md`, outside this budget; warranted growth.
+# 427563 -> 430048: `todo-checklist` (#1642). `omh_todo` is registered on every
 # session and no skill named it, so a user looking for `/omh-todo` found
 # nothing and only the two delivery engines mentioned the tool at all. The
 # always-loaded body carries only what is wrong to discover late -- items are
@@ -293,7 +294,7 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # `deferred_reason` distinction, and the when-not-to-declare guidance are in
 # `skills/omh-todo-checklist/references/checklist-discipline.md`, which loads on
 # demand and is counted outside this budget. Re-derived from the producer.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 427563
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 430048
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -330,6 +331,7 @@ FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 118167 -> 119140: one standalone capability row for the new
 # `live-incident-response` skill (#1563); warranted growth.
 # 119140 -> 120089: `todo-checklist` (#1642). `omh_todo` is registered on every
+# 984912 -> 991599: `todo-checklist` (#1642). `omh_todo` is registered on every
 # session and no skill named it, so a user looking for `/omh-todo` found
 # nothing and only the two delivery engines mentioned the tool at all. The
 # always-loaded body carries only what is wrong to discover late -- items are
@@ -1137,6 +1139,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # unplanned-work caveat are `skills/omh-decide/references/capacity-planning.md`,
 # measured outside this budget. Re-derived from the full-profile
 # skill_context_cost_payload() producer, never by adding deltas.
+# 984912 -> 991599: `todo-checklist` (#1642). `omh_todo` is registered on every
 # session and no skill named it, so a user looking for `/omh-todo` found
 # nothing and only the two delivery engines mentioned the tool at all. The
 # always-loaded body carries only what is wrong to discover late -- items are
@@ -1146,7 +1149,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # `deferred_reason` distinction, and the when-not-to-declare guidance are in
 # `skills/omh-todo-checklist/references/checklist-discipline.md`, which loads on
 # demand and is counted outside this budget. Re-derived from the producer.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 984912
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 991599
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

@@ -91,6 +91,7 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
     RoutingPrecisionCase(
         'engine-entry-approval-korean-mid', 'A Korean approval mid-sentence is still an approval',
         '이 plan 괜찮습니다, 그대로 진행', 'answer_clarification', '',
+    ),
     # `todo-checklist` is assembled entirely from everyday words. These pin the
     # sentences that must NOT reach it; the guard that makes them pass is the
     # `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS` entry plus a two-word name, since a

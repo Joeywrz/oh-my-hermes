@@ -263,7 +263,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # what a war room is), a military rank, severity as a bug-tracker
             # field, a manufacturing line down for maintenance, and a
             # figurative outage.
-            expected=256,
+            expected=262,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -314,7 +314,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # same phrase inside a question at clarify/medium. They record the
             # tokenisation tier gap as intended so a scoring change has to
             # move them deliberately (#1607).
-            expected=414,
+            expected=417,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -327,7 +327,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             describe="Installable workflow skills quoted in reference surfaces",
             live=_installable_skill_count,
             # The current workflow additions are part of the installable catalog.
-            expected=126,
+            expected=127,
             sites=(
                 "docs/README.md",
                 # The docs index quotes the count in prose and

@@ -1275,6 +1275,7 @@ def _feature_surface_skill(
     recovery_notes: tuple[str, ...] | None = None,
     extra_safety_rules: tuple[str, ...] = (),
     extra_quality_bar: tuple[str, ...] = (),
+    extra_do_not_use_when: tuple[str, ...] = (),
 ) -> SkillDefinition:
     return SkillDefinition(
         name,
@@ -1314,6 +1315,7 @@ def _feature_surface_skill(
             "The request is already handled by a narrower explicit skill with stronger evidence.",
             "The user asks OMH to secretly run external platforms, connectors, schedulers, file exports, or runtime agents.",
             "The only safe answer is to ask for missing authority, credentials, target, or observed evidence first.",
+            *extra_do_not_use_when,
         ),
         good_example=SkillExample(
             prompt=good_prompt,

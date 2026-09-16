@@ -294,7 +294,13 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # `deferred_reason` distinction, and the when-not-to-declare guidance are in
 # `skills/omh-todo-checklist/references/checklist-discipline.md`, which loads on
 # demand and is counted outside this budget. Re-derived from the producer.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 430048
+# 430048 -> 430123: `ultrawork` gains one clause on its dependency-topology
+# quality bar pointing a lane that must outlive the session at
+# `references/kanban-lane.md`. The board create recipe, the readback
+# discipline, and the role table are in that reference, counted outside this
+# budget; the capability row carries only the pointer. Re-derived from the
+# producer.
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 430123
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -1149,7 +1155,16 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # `deferred_reason` distinction, and the when-not-to-declare guidance are in
 # `skills/omh-todo-checklist/references/checklist-discipline.md`, which loads on
 # demand and is counted outside this budget. Re-derived from the producer.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 991599
+# 991599 -> 991791: `ultrawork` gains one clause on its dependency-topology
+# quality bar pointing a lane that must outlive the session at
+# `references/kanban-lane.md`, and `agent-board` gains one `do_not_use_when`
+# line handing a multi-lane implementation back to `ultrawork`. The body
+# carries only the pointer and the boundary; the board create recipe, the
+# main-session-only rule, the readback discipline, the provenance words, and
+# the role table are `skills/ulw-work/references/kanban-lane.md`, measured
+# outside this budget. Re-derived from the full-profile
+# skill_context_cost_payload() producer, never by adding deltas.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 991791
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

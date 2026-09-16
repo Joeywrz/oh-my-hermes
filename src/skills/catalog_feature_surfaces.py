@@ -112,6 +112,9 @@ _FEATURE_SURFACE_SKILLS = (
             "If a receipt is `failed` or `requires_reconciliation`, run an observed `show` on the same task before the next mutation; never retry a `create` automatically. Repeating a `create` with the same `request_id` returns the already observed task.",
             "No native `kanban_dispatch` tool exists: dispatch stays `unavailable` and an operator claim is the observed path. A positive `request_changes` needs a review-claimed run from the host's own review dispatcher.",
         ),
+        extra_do_not_use_when=(
+            "A multi-lane implementation of an accepted plan is ultrawork, which prepares its durable lanes through this board.",
+        ),
     ),
     _feature_surface_skill(
         "memory-new",

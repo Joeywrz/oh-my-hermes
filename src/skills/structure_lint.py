@@ -45,7 +45,15 @@ STRUCTURE_LINT_RULE_IDS = (
 # and two checklist lines. The sibling FULL_PROFILE_SKILL_BODY_CHAR_LIMIT pin in
 # src/maintenance/release.py was re-derived from its own producer on the same
 # branch. Warranted always-loaded growth, not drift.
-STRUCTURE_LINT_SKILL_BODY_BYTE_CEILING = 25_900
+# 25_900 held until 2026-09-17, when the ultrawork body measured 25_911 bytes.
+# Its dependency-topology quality bar gained one clause pointing a lane that
+# must outlive the session at the new `references/kanban-lane.md`; the create
+# recipe, the readback discipline, and the role table live in that reference,
+# outside this budget, and the always-loaded text carries only the pointer.
+# The sibling FULL_PROFILE_SKILL_BODY_CHAR_LIMIT pin in
+# src/maintenance/release.py was re-derived from its own producer on the same
+# branch. Warranted always-loaded growth, not drift.
+STRUCTURE_LINT_SKILL_BODY_BYTE_CEILING = 26_000
 _PICKER_SAFE_TRIGGER = re.compile(r"^[0-9A-Za-z\uac00-\ud7a3][0-9A-Za-z\uac00-\ud7a3 _.-]*$")
 _FRONTMATTER = re.compile(r'^---\nname: (.+)\ndescription: (.+)\nmetadata:\n(.*?)\n---\n', re.DOTALL)
 _JSON_STRING = re.compile(r'"(?:[^"\\\x00-\x1f]|\\["\\/bfnrt]|\\u[0-9A-Fa-f]{4})*"')

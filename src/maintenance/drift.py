@@ -314,7 +314,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # same phrase inside a question at clarify/medium. They record the
             # tokenisation tier gap as intended so a scoring change has to
             # move them deliberately (#1607).
-            expected=392,
+            expected=407,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",

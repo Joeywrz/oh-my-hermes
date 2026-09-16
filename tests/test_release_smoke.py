@@ -462,8 +462,8 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertEqual(payload["summary"]["context_brief_route_hint_count"], 11)
             self.assertEqual(payload["summary"]["context_brief_catalog_question_count"], 1)
             # Includes the measured omh-docs negative/intervention cases.
-            self.assertEqual(payload["summary"]["routing_precision_passing"], 242)
-            self.assertEqual(payload["summary"]["routing_precision_total"], 242)
+            self.assertEqual(payload["summary"]["routing_precision_passing"], 243)
+            self.assertEqual(payload["summary"]["routing_precision_total"], 243)
             self.assertEqual(payload["summary"]["routing_precision_overroute_count"], 0)
             self.assertEqual(payload["summary"]["routing_precision_catalog_picker_count"], 0)
             self.assertEqual(payload["summary"]["routing_precision_generic_ack_count"], 0)

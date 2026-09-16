@@ -27,7 +27,9 @@ from . import CaseResult, JsonValue, unavailable_case
 
 # Frozen researched schema subset. Shared fixtures, not capability authority.
 FIELDS = {
-    "create": ("title assignee", "parents idempotency_key initial_status model provider completion_contract"),
+    "create": ("title assignee",
+               "body parents skills workspace_kind workspace_path priority max_runtime_seconds "
+               "idempotency_key initial_status model provider completion_contract"),
     "link": ("parent_id child_id", ""), "comment": ("task_id body", ""),
     "heartbeat": ("", "task_id note"),
     "request_review": ("summary", "task_id reviewer metadata"),
@@ -38,9 +40,16 @@ FIELDS = {
 }
 
 
+# Non-string property types the researched schemas declare; everything else is a string.
+TYPED_FIELDS = {"parents": "array", "skills": "array", "created_cards": "array", "metadata": "object",
+                "limit": "integer", "priority": "integer", "max_runtime_seconds": "integer",
+                "include_archived": "boolean"}
+WORKSPACE_KINDS = ["scratch", "dir", "worktree"]
+
+
 class SuppliedSchema(TypedDict):
     type: str
-    properties: dict[str, dict[str, str]]
+    properties: dict[str, dict[str, object]]
     required: list[str]
 
 
@@ -48,16 +57,9 @@ def supplied_schemas() -> dict[str, SuppliedSchema]:
     schemas: dict[str, SuppliedSchema] = {}
     for operation, (required, optional) in FIELDS.items():
         fields = (required + " " + optional + " board").split()
-        properties = {name: {"type": "string"} for name in fields}
-        for name in ("parents", "created_cards"):
-            if name in properties:
-                properties[name] = {"type": "array"}
-        if "metadata" in properties:
-            properties["metadata"] = {"type": "object"}
-        if "limit" in properties:
-            properties["limit"] = {"type": "integer"}
-        if "include_archived" in properties:
-            properties["include_archived"] = {"type": "boolean"}
+        properties: dict[str, dict[str, object]] = {name: {"type": TYPED_FIELDS.get(name, "string")} for name in fields}
+        if "workspace_kind" in properties:
+            properties["workspace_kind"] = {"type": "string", "enum": list(WORKSPACE_KINDS)}
         schemas["kanban_" + operation] = {
             "type": "object", "properties": properties, "required": required.split(),
         }
@@ -337,6 +339,10 @@ def run_case(case_id: str) -> CaseResult:
                     assertions += 3
                 elif case_id in {"K1", "K6"}:
                     cases: list[tuple[str, dict[str, object], dict[str, object]]] = [
+                        ("create", {"title": "lane-task", "assignee": "qa-profile", "body": "PRIVATE-SENTINEL",
+                                    "skills": ["ulw-work"], "parents": ["T1"], "workspace_kind": "worktree",
+                                    "workspace_path": "/qa/worktree", "priority": 5, "max_runtime_seconds": 600},
+                         {"ok": True, "task_id": "T2", "status": "todo"}),
                         ("link", {"parent_id": "T1", "child_id": "T2"}, {"ok": True, "parent_id": "T1", "child_id": "T2"}),
                         ("comment", {"body": "PRIVATE-SENTINEL"}, {"ok": True, "task_id": "T1", "comment_id": 1}),
                         ("heartbeat", {}, {"ok": True, "task_id": "T1"}),
@@ -350,7 +356,7 @@ def run_case(case_id: str) -> CaseResult:
                         ("list", {"limit": 1}, {"tasks": [{"id": "T1"}], "count": 1, "limit": 1, "truncated": False, "next_limit": None, "promoted": 0}),
                     ]
                     for operation, args, reply in cases:
-                        extra = {} if operation in {"link", "list"} else {"task_id": "T1"}
+                        extra = {} if operation in {"create", "link", "list"} else {"task_id": "T1"}
                         action = loop.prepare(request(operation, operation, args, **extra))
                         assert loop.native(action, reply)
                         observed = _receipt(loop.status(operation))

@@ -49,7 +49,9 @@ infer support from a version or schema field.
 
 Kanban has task-local model/provider/effort columns. `bind` observes existing
 rows and exact dependency edges through a read-only database connection. It
-also inspects an explicit worker profile. However, the actual installed host
+also inspects an explicit worker profile. The per-task lane overlay a prepared
+`create` may carry and the profile-as-envelope rule are recorded in
+[`docs/AGENT-BOARD.md`](AGENT-BOARD.md#lane-fields-on-create). However, the actual installed host
 resolver adds `kanban` even to a profile listing only `file`. A profile setting
 does not prove a scoped leaf sandbox or authenticated verification capture.
 The shipped CLI therefore reports `prepared_binding_observed`, **not running**.

@@ -23,7 +23,7 @@ load_local_package()
 
 # Preserve helper exports while sharing the exact fixture with component QA.
 from five_issue_cases.kanban import (
-    FIELDS as FIELDS, SuppliedSchema as SuppliedSchema,
+    FIELDS as FIELDS, SuppliedSchema as SuppliedSchema, TYPED_FIELDS, WORKSPACE_KINDS,
     request as request, supplied_schemas as supplied_schemas,
 )
 from omh.coding.fanout_failure_diagnostics import is_object_list, is_string_map
@@ -178,6 +178,85 @@ class AgentBoardFoundation(unittest.TestCase):
                 self.assertEqual(prepared["observed_receipts"], [])
                 self.assertIsNone(board.status("qa-create-1")["native_action"])
                 self.assertNotIn("ephemeral", json.dumps(board.snapshot()))
+
+    def test_k1_fixture_schema_mirrors_the_admitted_operations(self):
+        # The fixture host's schema is a hand mirror of the admitted argument
+        # tables; a field admitted in agent_board.py but absent here would
+        # make the K1/K6 create degrade to `schema:kanban_create`, a fixture
+        # drift that reads like a host capability gap.
+        from omh.workflows import agent_board
+        self.assertEqual(set(FIELDS), set(agent_board._OPERATIONS))
+        for operation, (required, optional, _) in agent_board._OPERATIONS.items():
+            with self.subTest(operation=operation):
+                self.assertEqual(FIELDS[operation], (required, optional))
+        argument_names = {name for required, optional in FIELDS.values() for name in (required + " " + optional).split()}
+        for name in argument_names:
+            with self.subTest(argument=name):
+                self.assertEqual(TYPED_FIELDS.get(name, "string"), agent_board._TYPES.get(name, "string"))
+        self.assertEqual(set(TYPED_FIELDS), set(agent_board._TYPES) & argument_names)
+        self.assertEqual(set(WORKSPACE_KINDS), set(agent_board._WORKSPACE_KINDS))
+
+    def test_k1_lane_fields_on_create_round_trip_prepared_to_observed(self):
+        lane: dict[str, object] = {"title": "lane-task", "assignee": "worker-profile", "body": "ephemeral-node-prompt",
+                                   "skills": ["ulw-work", "tdd-red-green"], "parents": ["T1"],
+                                   "workspace_kind": "worktree", "workspace_path": "/repo/.worktrees/lane-1",
+                                   "priority": 10, "max_runtime_seconds": 3600}
+        board = self.board()
+        prepared = self.prepare(board, request("create", "lane-1", lane))
+        self.assertEqual(prepared["state"], "prepared")
+        arguments = self.action(prepared)["arguments"]
+        self.assertEqual(arguments, dict(lane, board="qa-board", idempotency_key="lane-1"))
+        self.assertTrue(self.begin(board, prepared))
+        receipt = self.observe(board, prepared, {"ok": True, "task_id": "T2", "status": "todo"})
+        assert receipt is not None
+        self.assertEqual((receipt["state"], receipt["fact"], receipt["task_id"]), ("observed", "create", "T2"))
+        self.assertEqual(board.status("lane-1")["state"], "observed")
+        self.assertNotIn("ephemeral", json.dumps(board.snapshot()))
+
+    def test_k5_lane_fields_on_create_are_bounded(self):
+        base: dict[str, object] = {"title": "lane-task", "assignee": "worker-profile"}
+        refused: list[tuple[dict[str, object], str]] = [
+            ({"workspace_kind": "container"}, "invalid_workspace_kind"),
+            ({"skills": [f"skill-{i}" for i in range(9)]}, "too_many_skills"),
+            ({"skills": ["not a reference"]}, "invalid_reference"),
+            ({"max_runtime_seconds": 59}, "invalid_integer"),
+            ({"max_runtime_seconds": 86_401}, "invalid_integer"),
+            ({"priority": 101}, "invalid_integer"),
+            ({"priority": True}, "invalid_integer"),
+            ({"workspace_path": "/repo"}, "workspace_path_requires_kind"),
+            ({"workspace_kind": "scratch", "workspace_path": "/repo"}, "workspace_path_requires_kind"),
+            ({"body": "x" * 16_001}, "body_limit_exceeded"),
+            ({"body": ""}, "invalid_text"),
+        ]
+        for extra, reason in refused:
+            with self.subTest(reason=reason, extra=extra), self.assertRaises(ValueError) as caught:
+                _ = self.prepare(self.board(), request("create", "lane-1", dict(base, **extra)))
+            self.assertEqual(str(caught.exception), reason)
+        admitted: list[dict[str, object]] = [
+            {"max_runtime_seconds": 60}, {"max_runtime_seconds": 86_400}, {"priority": 0}, {"priority": 100},
+            {"skills": [f"skill-{i}" for i in range(8)]}, {"body": "x" * 16_000},
+            {"workspace_kind": "dir", "workspace_path": "/repo"}, {"workspace_kind": "scratch"},
+        ]
+        for extra in admitted:
+            with self.subTest(extra=extra):
+                prepared = self.prepare(self.board(), request("create", "lane-1", dict(base, **extra)))
+                self.assertEqual(prepared["state"], "prepared")
+        # A comment body keeps its own intake ceiling; the create limit is lane-specific.
+        long_comment = self.prepare(self.board(), request("comment", "note-1", {"body": "x" * 16_001}, task_id="T1"))
+        self.assertEqual(long_comment["state"], "prepared")
+
+    def test_k2_older_host_schema_without_skills_is_unavailable(self):
+        lane: dict[str, object] = {"title": "lane-task", "assignee": "worker-profile", "skills": ["ulw-work"]}
+        schemas = supplied_schemas()
+        _ = schemas["kanban_create"]["properties"].pop("skills")
+        result = self.prepare(self.board(), request("create", "lane-1", lane), schemas=schemas)
+        self.assertEqual((result["state"], result["reason"]), ("unavailable", "missing_capability"))
+        self.assertEqual(result["missing_capabilities"], ["schema:kanban_create"])
+        self.assertIsNone(result["native_action"])
+        # The same host still admits a create that does not name the missing field.
+        plain = self.prepare(self.board(), request("create", "lane-2", {"title": "t", "assignee": "worker-profile"}),
+                             schemas=schemas)
+        self.assertEqual(plain["state"], "prepared")
 
     def test_k2_foundation_capability_schema_hooks_identity_unavailable(self):
         cases: list[tuple[PrepareOptions, str]] = [({"schemas": {}}, "kanban_create"),

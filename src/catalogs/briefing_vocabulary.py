@@ -205,6 +205,18 @@ LINE_LABELS: Final[Mapping[str, Mapping[str, str]]] = {
         "en": "none", "ko": "불필요", "ja": "不要", "zh": "无需处理",
         "es": "ninguna", "fr": "aucune", "de": "keine",
     },
+    # A whole sentence rather than a `label: value` pair like its neighbours,
+    # because it reports the absence of the things those pairs list. There is no
+    # value to put after a colon; the point is that the lists are empty.
+    "nothing_left": {
+        "en": "Nothing left to do — this run is finished",
+        "ko": "남은 작업 없음 — 이 실행은 끝났습니다",
+        "ja": "残作業なし — この実行は完了しました",
+        "zh": "没有待办事项 — 本次运行已结束",
+        "es": "No queda nada por hacer: esta ejecución ha terminado",
+        "fr": "Plus rien à faire — cette exécution est terminée",
+        "de": "Nichts mehr zu tun — dieser Lauf ist abgeschlossen",
+    },
     # The team-path line reports the RUNTIME LADDER, which is a different set
     # from the progress steps the `Remaining:` line reports. Without a word
     # naming which one it is, the two lines read as one contradicting itself.

@@ -51,12 +51,15 @@ def build_coding_briefing(
     progress = _progress_steps(session, runtime_status, executor_status, runtime_observation)
     runtime_milestones = _runtime_milestones(_active_handoff(session, runtime_status), runtime_observation)
     blockers = _blockers(executor_status, runtime_observation)
-    signal = _signal(progress, blockers)
+    pending_gaps = _pending_gaps(progress, runtime_status, executor_status, runtime_observation)
+    runtime_milestone_gaps = [
+        str(step["id"]) for step in runtime_milestones if step.get("state") in {"pending", "blocked", "in_progress"}
+    ]
+    signal = _signal(progress, blockers, pending_gaps, runtime_milestone_gaps)
     headline = _headline(
-        selected_executor, lifecycle_status, next_action, executor_status, runtime_status, runtime_observation, blockers
+        selected_executor, lifecycle_status, next_action, executor_status, runtime_status, runtime_observation, blockers, signal
     )
     evidence = _evidence_summary(progress, runtime_status, executor_status)
-    pending_gaps = _pending_gaps(progress, runtime_status, executor_status, runtime_observation)
     work_summary = _work_summary(session, runtime_status)
     user_facing_lines = _user_facing_lines(
         headline=headline,
@@ -96,16 +99,19 @@ def build_coding_briefing(
         "work_summary": work_summary,
         "progress": progress,
         "runtime_milestones": runtime_milestones,
-        "runtime_milestone_gaps": [str(step["id"]) for step in runtime_milestones if step.get("state") in {"pending", "blocked", "in_progress"}],
+        "runtime_milestone_gaps": runtime_milestone_gaps,
         "evidence_summary": evidence,
         "pending_gaps": pending_gaps,
         # Beside `pending_gaps`, not inside it: the two answer different
         # questions ("what has not happened yet" and "what stopped"), and a
         # consumer that has only ever read the first keeps reading it unchanged.
         "blockers": blockers,
-        # One of three values, so an adapter that renders its own chrome can ask
+        # One of four values, so an adapter that renders its own chrome can ask
         # "does this need the user" without parsing a sentence or re-deriving
-        # the answer from `progress[]`.
+        # the answer from `progress[]`. A reader that only knows the original
+        # three keeps working: `complete` is the case they previously received
+        # as `running`, and `signal_glyph` already falls back to the running
+        # mark for any value it does not recognize.
         "signal": signal,
         "next_action": next_action,
         "user_facing_lines": user_facing_lines,
@@ -190,6 +196,7 @@ def _headline(
     runtime_status: dict[str, Any],
     runtime_observation: dict[str, Any],
     blockers: list[dict[str, str]],
+    signal: str,
 ) -> str:
     # A standing stop outranks every other headline. The ladder branches below
     # describe a run that is moving through it; saying "reported completion"
@@ -216,6 +223,21 @@ def _headline(
         return f"{_label(selected_executor)} work is merge-ready with recorded evidence."
     if lifecycle_status == "merged" or next_action == "report_merged":
         return f"{_label(selected_executor)} work is recorded as merged."
+    # Last, not first -- the opposite of the blockers rule above, and for the
+    # opposite reason. A stop CONTRADICTS the branches above, so it has to
+    # outrank them. A finished run agrees with them, and they say more: "work is
+    # recorded as merged" names what happened, while this sentence only reports
+    # that nothing is outstanding. So the specific branches keep their headline
+    # and this one catches the fall-through.
+    #
+    # It is needed because those branches learn about a merge only from a
+    # runtime OBSERVATION event or a lifecycle token, never from
+    # `runtime_status["merge"]`, which is what the progress ladder reads. A run
+    # whose every step was complete on that evidence alone still reached "is
+    # handling the coding work" -- present tense, under a ✅ mark, above a line
+    # saying nothing was left.
+    if signal == SIGNAL_COMPLETE:
+        return f"{_label(selected_executor)} work is finished; nothing is outstanding."
     if str(executor_status.get("dispatch")) == "observed":
         return f"{_label(selected_executor)} is handling the coding work."
     if selected_executor == "choose":
@@ -505,33 +527,57 @@ _BLOCKER_KINDS: Final[tuple[tuple[str, str], ...]] = (
 BLOCKER_EXECUTOR_SESSION: Final[str] = "executor_session_error"
 
 
-# The three signals, and the one fact that decides each. Deliberately read from
+# The four signals, and the one fact that decides each. Deliberately read from
 # observed state rather than from `next_action`: the action token is free text
 # from an open set of producers, and a reader's "do I have to move" must not
 # depend on a string someone else chose the wording of.
 SIGNAL_STOPPED: Final[str] = "stopped"
 SIGNAL_WAITING: Final[str] = "waiting_on_you"
 SIGNAL_RUNNING: Final[str] = "running"
+# The state this briefing could not say. `running` used to carry both "still
+# moving" and "finished", so a reader who had nothing left to do saw the same
+# green mark as one whose run was mid-flight, and the only way to tell them
+# apart was to notice that the `Remaining:` line had gone missing -- an absence,
+# which is the one thing a glance does not register.
+SIGNAL_COMPLETE: Final[str] = "complete"
 
 _SIGNAL_GLYPHS: Final[dict[str, str]] = {
     SIGNAL_STOPPED: "🔴",
     SIGNAL_WAITING: "🟡",
     SIGNAL_RUNNING: "🟢",
+    SIGNAL_COMPLETE: "✅",
 }
 
 
-def _signal(progress: list[dict[str, Any]], blockers: list[dict[str, str]]) -> str:
-    """Whether the reader has to move, in one of three values.
+def _signal(
+    progress: list[dict[str, Any]],
+    blockers: list[dict[str, str]],
+    pending_gaps: list[str],
+    runtime_milestone_gaps: list[str],
+) -> str:
+    """Whether the reader has to move, in one of four values.
 
     A stopped step wins: it is the only state where doing nothing leaves the
     work where it is. Otherwise, a run that was never dispatched is waiting on
-    a person -- nothing downstream happens until someone starts it -- and
-    everything else is moving or done, which a reader can skip.
+    a person -- nothing downstream happens until someone starts it.
+
+    Past those, the question is whether anything is still outstanding, and
+    `complete` is a claim about the whole run, so it is withheld unless every
+    outstanding list this briefing knows about is empty. `pending_gaps` alone is
+    not enough: it carries the progress steps and the wrapper's unobserved
+    evidence, while the runtime ladder reports separately in
+    `runtime_milestone_gaps`, and a prepared team path can sit at "worker not
+    yet observed" with no progress step pending. Reading only the first would
+    announce a finished run while the ladder was still climbing.
     """
     if blockers:
         return SIGNAL_STOPPED
     dispatched = any(str(step.get("id")) == "dispatch" and step.get("state") == "complete" for step in progress)
-    return SIGNAL_RUNNING if dispatched else SIGNAL_WAITING
+    if not dispatched:
+        return SIGNAL_WAITING
+    if pending_gaps or runtime_milestone_gaps:
+        return SIGNAL_RUNNING
+    return SIGNAL_COMPLETE
 
 
 def signal_glyph(signal: str) -> str:
@@ -655,9 +701,21 @@ def _user_facing_lines(
     if remaining:
         names = ", ".join(step_label(gap, locale=locale) for gap in remaining[:5])
         lines.append(f"{line_label('remaining', locale=locale)}: {names}.")
+    # Said out loud, because the alternative is an absence. When a run finishes,
+    # every line above this one drops out -- no stopped list, no remaining list
+    # -- and a reader is left inferring "done" from a briefing that got shorter.
+    # The state is in `signal` for anything parsing the payload; this is the
+    # sentence for the person reading it.
+    if signal == SIGNAL_COMPLETE:
+        lines.append(f"{line_label('nothing_left', locale=locale)}.")
     # The action the reader takes, not the token the wrapper routes on. The
     # token is still in `next_action` for anything that parses this payload.
-    lines.append(f"{line_label('action', locale=locale)}: {action_text(next_action, locale=locale)}.")
+    # In the complete state it is deliberately not consulted: `next_action` is
+    # supplied by an open set of producers and nothing requires one to clear it
+    # on the way out, so the last token written would otherwise ask for a step
+    # that every outstanding list just agreed was finished.
+    action = line_label("action_none", locale=locale) if signal == SIGNAL_COMPLETE else action_text(next_action, locale=locale)
+    lines.append(f"{line_label('action', locale=locale)}: {action}.")
     return _dedupe(lines)
 
 

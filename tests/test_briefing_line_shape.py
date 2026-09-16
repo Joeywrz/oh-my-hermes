@@ -14,8 +14,9 @@ import unittest
 from _local_package import load_local_package
 
 load_local_package()
-from omh.catalogs.briefing_vocabulary import ACTION_LABELS, action_text  # noqa: E402
+from omh.catalogs.briefing_vocabulary import ACTION_LABELS, LINE_LABELS, action_text  # noqa: E402
 from omh.wrapper.briefing import (  # noqa: E402
+    SIGNAL_COMPLETE,
     SIGNAL_RUNNING,
     SIGNAL_STOPPED,
     SIGNAL_WAITING,
@@ -61,8 +62,38 @@ def _briefing(**kwargs: object) -> dict[str, object]:
     )
 
 
+# A run with every rung of the ladder behind it. Spelled out rather than built
+# from a loop because each key is a DIFFERENT producer's evidence, and the point
+# of the finished state is that it is withheld until all of them agree: dropping
+# any one line below puts a name back in `pending_gaps` and the signal returns
+# to `running`, which is what the negative cases here assert.
+_FINISHED_RUNTIME: dict[str, object] = {
+    "run_id": "run",
+    "prepared": {"handoff_available": True},
+    "execution": {"observed": True, "status": "completed"},
+    "verification": {"observed": True},
+    "review": {"status": "passed", "satisfied": True},
+    "ci": {"status": "passed", "satisfied": True},
+    "merge_readiness": {"status": "ready", "satisfied": True},
+    "merge": {"status": "merged", "satisfied": True},
+}
+_FINISHED_EXECUTOR: dict[str, object] = {
+    "selected_executor_profile": "codex",
+    "dispatch": "observed",
+    "result": "completed",
+    "verification": "satisfied",
+    "workspace_isolation": {"status": "observed"},
+}
+
+
+def _finished(**overrides: object) -> dict[str, object]:
+    runtime = {**_FINISHED_RUNTIME, **overrides}
+    return _briefing(runtime_status=runtime, executor_status=dict(_FINISHED_EXECUTOR))
+
+
 _CASES: tuple[tuple[str, dict[str, object]], ...] = (
     ("not started", {}),
+    ("finished", {"runtime_status": dict(_FINISHED_RUNTIME), "executor_status": dict(_FINISHED_EXECUTOR)}),
     ("ci failed", {"runtime_observation": {"failed_events": ["ci"], "next_action": "surface_runtime_failure:ci"}}),
     ("worktree blocked", {"runtime_observation": {"blocked_events": ["worktree_creation"], "next_action": "surface_runtime_blocker:worktree_creation"}}),
     ("run cancelled", {"runtime_observation": {"cancelled_events": ["worker_result"], "next_action": "surface_runtime_cancellation:worker_result"}}),
@@ -128,8 +159,120 @@ class SignalTests(unittest.TestCase):
                     self.assertNotIn("merged", briefing["headline"])
 
     def test_every_signal_has_a_distinct_glyph(self) -> None:
-        glyphs = {signal_glyph(signal) for signal in (SIGNAL_STOPPED, SIGNAL_WAITING, SIGNAL_RUNNING)}
-        self.assertEqual(len(glyphs), 3)
+        glyphs = {signal_glyph(signal) for signal in (SIGNAL_STOPPED, SIGNAL_WAITING, SIGNAL_RUNNING, SIGNAL_COMPLETE)}
+        self.assertEqual(len(glyphs), 4)
+
+
+class NothingLeftTests(unittest.TestCase):
+    """A finished run says so, and an unfinished one never does.
+
+    The state this covers used to be spelled `running`, so the only evidence a
+    reader had that a run was over was that the `Remaining:` line had stopped
+    appearing. These assert the positive claim and, more importantly, the two
+    ways it must be withheld.
+    """
+
+    def test_a_finished_run_reports_complete_and_says_so(self) -> None:
+        briefing = _finished()
+        self.assertEqual(briefing["signal"], SIGNAL_COMPLETE)
+        self.assertEqual(briefing["pending_gaps"], [])
+        lines = [str(line) for line in briefing["user_facing_lines"]]
+        self.assertTrue(lines[0].startswith("✅"))
+        self.assertIn(LINE_LABELS["nothing_left"]["en"], "\n".join(lines))
+
+    def test_the_headline_agrees_with_the_finished_mark(self) -> None:
+        """A ✅ over "is handling the coding work" is what this prevents."""
+        headline = str(_finished()["headline"])
+        self.assertIn("finished", headline)
+        self.assertNotIn("is handling", headline)
+
+    def test_a_more_specific_finished_headline_is_not_replaced(self) -> None:
+        """The finished headline catches a fall-through; it does not outrank.
+
+        Unlike a stop, a finished run does not contradict the ladder branches,
+        and "recorded as merged" names what happened where this sentence only
+        reports that nothing is outstanding. Putting the check first cost that
+        distinction, which is how this case was found.
+        """
+        briefing = _briefing(
+            runtime_status=dict(_FINISHED_RUNTIME),
+            executor_status=dict(_FINISHED_EXECUTOR),
+            runtime_observation={"observed_events": ["merge"]},
+        )
+        self.assertEqual(briefing["signal"], SIGNAL_COMPLETE)
+        self.assertIn("merged", str(briefing["headline"]))
+        self.assertNotIn("nothing is outstanding", str(briefing["headline"]))
+
+    def test_one_unfinished_rung_withholds_the_claim(self) -> None:
+        """Any single rung still open wins over all the others being closed.
+
+        `verification` is cleared on BOTH producers: `_progress_steps` reads it
+        from `runtime_status["verification"]["observed"]` OR from
+        `executor_status["verification"]`, so emptying one leaves the step
+        complete on the strength of the other. That is not a quirk of the
+        fixture -- a rung with two independent sources is exactly where a
+        "withhold until everything agrees" rule is easiest to get wrong.
+        """
+        # The evidence key and the step id it feeds are different vocabularies
+        # -- `merge_readiness` reports as `merge_ready`, `merge` as `merged` --
+        # so both are named rather than assumed equal.
+        rungs: tuple[tuple[str, dict[str, object], dict[str, object]], ...] = (
+            ("review", {"review": {}}, {}),
+            ("ci", {"ci": {}}, {}),
+            ("merge_ready", {"merge_readiness": {}}, {}),
+            ("merged", {"merge": {}}, {}),
+            ("verification", {"verification": {}}, {"verification": "not_observed"}),
+            ("workspace_isolation", {}, {"workspace_isolation": {"status": "prepared_not_observed"}}),
+        )
+        for rung, runtime_override, executor_override in rungs:
+            briefing = _briefing(
+                runtime_status={**_FINISHED_RUNTIME, **runtime_override},
+                executor_status={**_FINISHED_EXECUTOR, **executor_override},
+            )
+            with self.subTest(rung=rung):
+                self.assertIn(rung, briefing["pending_gaps"])
+                self.assertEqual(briefing["signal"], SIGNAL_RUNNING)
+                rendered = "\n".join(str(line) for line in briefing["user_facing_lines"])
+                self.assertNotIn(LINE_LABELS["nothing_left"]["en"], rendered)
+
+    def test_a_climbing_runtime_ladder_withholds_the_claim(self) -> None:
+        """The case `pending_gaps` alone cannot see.
+
+        The runtime ladder reports in `runtime_milestone_gaps`, a separate list
+        built from the handoff contract's `status_ladder`. Every progress step
+        here is complete and `pending_gaps` is empty, so a signal derived from
+        that list alone would announce a finished run while the ladder still had
+        unobserved rungs.
+        """
+        briefing = _briefing(
+            runtime_status={
+                **_FINISHED_RUNTIME,
+                "handoff_contract": {"hermes_coding_team_path": {"status_ladder": ["runtime_start", "merge"]}},
+            },
+            executor_status=dict(_FINISHED_EXECUTOR),
+        )
+        self.assertEqual(briefing["pending_gaps"], [])
+        self.assertEqual(briefing["runtime_milestone_gaps"], ["runtime_start", "merge"])
+        self.assertEqual(briefing["signal"], SIGNAL_RUNNING)
+
+    def test_the_action_line_does_not_ask_for_a_finished_step(self) -> None:
+        """`next_action` is an open set and nothing clears it on the way out."""
+        briefing = _finished(next_action="accept_or_revise_plan")
+        self.assertEqual(briefing["signal"], SIGNAL_COMPLETE)
+        self.assertEqual(briefing["next_action"], "accept_or_revise_plan")
+        rendered = "\n".join(str(line) for line in briefing["user_facing_lines"])
+        self.assertNotIn(ACTION_LABELS["accept_or_revise_plan"]["en"], rendered)
+        self.assertIn(f"{LINE_LABELS['action']['en']}: {LINE_LABELS['action_none']['en']}.", rendered)
+
+    def test_the_sentence_is_translated_everywhere_the_table_goes(self) -> None:
+        for locale, expected in LINE_LABELS["nothing_left"].items():
+            with self.subTest(locale=locale):
+                rendered = "\n".join(str(line) for line in _briefing(
+                    runtime_status=dict(_FINISHED_RUNTIME),
+                    executor_status=dict(_FINISHED_EXECUTOR),
+                    locale=locale,
+                )["user_facing_lines"])
+                self.assertIn(expected, rendered)
 
     def test_the_signal_ignores_the_action_token(self) -> None:
         """Read from observed state, not from free text a producer chose.

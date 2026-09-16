@@ -32,6 +32,29 @@ All notable changes will be documented here.
   guessed at. The corpus gained 8 negative controls and 6 interventions, a case
   shape it had never contained.
 
+- **The briefing now says when there is nothing left to do.** Reported as "할 일
+  없다고 유저한테 공지해주는 게 부족함": a finished run announced itself only by
+  going quiet. `signal` carried three values and `running` meant both "still
+  moving" and "done", so the sole evidence a run was over was that the
+  `Remaining:` line had stopped appearing — an absence, which is the one thing
+  a glance does not register. A fourth value, `complete`, is withheld until
+  every outstanding list the briefing keeps is empty: `pending_gaps` alone is
+  not enough, because the runtime ladder reports separately in
+  `runtime_milestone_gaps` and a prepared team path can sit at an unobserved
+  rung with no progress step pending. The finished state also catches the
+  headline's fall-through: those branches learn about a merge only from a
+  runtime observation event or a lifecycle token, never from
+  `runtime_status["merge"]`, so a run whose every step was complete could still
+  be headed "is handling the coding work" — present tense, under a ✅ mark. It
+  catches rather than outranks, which is the opposite of the standing rule for
+  a stop and deliberate: a stop contradicts those branches, while a finished
+  run agrees with them and they say more, so "work is recorded as merged" keeps
+  its headline. The `Action:` line reads `none` in that state rather than
+  echoing whatever `next_action` was written last, since nothing requires a producer to
+  clear it on the way out. The sentence is translated in all seven locales the
+  table carries, and an adapter that only knows the original three values keeps
+  working: `complete` is the case it previously received as `running`.
+
 - **OMH now engages on an ordinary prompt, and the trigger is what the model
   does rather than what the user typed.** Four measured causes of one report
   ("거의 todo나 에이전트 호출을 하지 않더라"). The plugin bundle's invocation

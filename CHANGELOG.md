@@ -4,6 +4,34 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **Saying a plan is fine no longer starts the plan again.** `the plan is
+  fine, just ship it` dispatched `plan` and emitted a 10,572-character planning
+  artifact -- goals, non-goals, decision drivers, options, rejection rationale,
+  acceptance criteria -- for a sentence whose content is "yes, go", while
+  `the design is fine, just ship it` one word away clarified.
+  `ENGINE_ENTRY_CONFIRMATION_RULE` already said an accepted plan is planning
+  evidence and not permission; the router contradicted it. It was never a
+  `plan` problem: 18 of the catalog's 19 single-word names dispatch on their
+  own name in that sentence shape, from `loop` at 45 to `maestro` at 9, because
+  a name is at once the skill's name phrase, its phase, its metadata and a
+  trigger. The gate keys on the SENTENCE instead of the name, which is what
+  makes it finishable -- a list of which catalog names are ordinary words in
+  every language the router accepts cannot be completed, and a word missing
+  from it would leave the defect live inside a fix that claimed to handle it,
+  where an approval phrasing this misses simply leaves today's behaviour. Two
+  conditions gate it: the message approves, matched at word boundaries, and the
+  winning skill's whole case rests on its own name -- computed by erasing the
+  name and re-scoring rather than by listing which evidence labels count.
+  Sigilled invocations (`$plan`, `/plan`, `use omh plan`) stay outside it; a
+  bare leading name does not, since `plan is fine, ship it` is one article from
+  the reported sentence. A compound approval clarifies rather than routing its
+  remainder: re-scoring those remainders was measured, and the one that would
+  have dispatched confidently is `ultrawork` on "now implement the retry
+  handler", which is exactly the automatic continuation the rule forbids.
+  English and Korean; Japanese and Chinese are deliberately absent rather than
+  guessed at. The corpus gained 8 negative controls and 6 interventions, a case
+  shape it had never contained.
+
 - **OMH now engages on an ordinary prompt, and the trigger is what the model
   does rather than what the user typed.** Four measured causes of one report
   ("거의 todo나 에이전트 호출을 하지 않더라"). The plugin bundle's invocation

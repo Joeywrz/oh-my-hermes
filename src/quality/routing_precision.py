@@ -45,6 +45,53 @@ class RoutingInterventionCase:
 # helpful but should not hijack the answer into workflow selection, catalog
 # pickers, coding handoffs, or generic workflow acknowledgements.
 ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
+    # Engine-entry approvals (#1638). Accepting something is the most common
+    # thing a person says in the seconds after a planning workflow finishes,
+    # and the corpus had no sentence of this shape at all -- 235 negative
+    # controls reporting `overroute_count: 0` over a case it never contained.
+    # Each of these carries a skill name inside an approval; none of them asks
+    # for that skill. The set spans the score range the survey found (`loop`
+    # 45, `plan` 17, `maestro` 9), both article forms, and Korean, because the
+    # leading-position form reached explicit invocation and the two halves
+    # failed differently.
+    #
+    # No `forbidden_candidate`: that field reads `route.candidate_skill`,
+    # which records what scoring found and stays set through a clarify --
+    # the same reason the chain-models-concept cases below leave it unset.
+    # The claim here is that the ACTION is not a dispatch, which the case
+    # already fails on.
+    RoutingPrecisionCase(
+        'engine-entry-approval-plan-article', 'An accepted plan is not a request to plan',
+        'the plan is fine, just ship it', 'answer_clarification', '',
+    ),
+    RoutingPrecisionCase(
+        'engine-entry-approval-plan-bare', 'A leading skill name in an approval is still an approval',
+        'plan looks good, go ahead', 'answer_clarification', '',
+    ),
+    RoutingPrecisionCase(
+        'engine-entry-approval-plan-compound', 'An approval carrying a fresh request does not re-plan',
+        'the plan is fine, now write the migration', 'answer_clarification', '',
+    ),
+    RoutingPrecisionCase(
+        'engine-entry-approval-loop', 'A guard-boosted name in an approval is still an approval',
+        'the loop is fine, ship it', 'answer_clarification', '',
+    ),
+    RoutingPrecisionCase(
+        'engine-entry-approval-maestro', 'The lowest-scoring name in an approval is still an approval',
+        'the maestro is fine, just ship it', 'answer_clarification', '',
+    ),
+    RoutingPrecisionCase(
+        'engine-entry-approval-ultrawork', 'A coined name in an approval is still an approval',
+        'the ultrawork is fine, ship it', 'answer_clarification', '',
+    ),
+    RoutingPrecisionCase(
+        'engine-entry-approval-korean', 'A Korean approval naming a skill is still an approval',
+        'plan 승인, 배포하자', 'answer_clarification', '',
+    ),
+    RoutingPrecisionCase(
+        'engine-entry-approval-korean-mid', 'A Korean approval mid-sentence is still an approval',
+        '이 plan 괜찮습니다, 그대로 진행', 'answer_clarification', '',
+    ),
     RoutingPrecisionCase(
         'recall-apology-control', 'An apology is not a recall incident',
         'Apologize for forgetting.', 'answer_clarification', '', 'memory-sync',
@@ -1950,6 +1997,55 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
 # Positive-intervention corpus. These are real OMH-shaped turns where the router
 # should still step in after the direct-answer fallback was added.
 ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
+    # The other half of #1638. A guard measured only on what it suppresses is
+    # "improved" until nothing routes, so the same names that must not dispatch
+    # inside an approval must still dispatch when they are actually asked for
+    # -- including the sigilled form, which stays outside the gate by design.
+    RoutingInterventionCase(
+        'engine-entry-request-plan', 'Naming plan in a request still reaches plan',
+        'plan the database migration for the billing service',
+        'dispatch', 'plan', 'forward_plan_to_selected_workflow', 'plan',
+    ),
+    RoutingInterventionCase(
+        'engine-entry-request-plan-sigil', 'A sigilled invocation stays outside the approval gate',
+        '$plan the rollout even though the draft looks good',
+        'dispatch', 'plan', 'forward_plan_to_selected_workflow', 'plan',
+    ),
+    RoutingInterventionCase(
+        'engine-entry-request-ultrawork', 'Naming ultrawork in a request still reaches it',
+        'ultrawork the auth refactor across the service',
+        'dispatch', 'ultrawork', 'present_plan', 'plan',
+    ),
+    RoutingInterventionCase(
+        'engine-entry-request-maestro', 'Naming maestro in a request still reaches it',
+        'maestro the migration with two executors',
+        'dispatch', 'maestro', 'forward_plan_to_selected_workflow', 'plan',
+    ),
+    # The approval matcher's word boundaries, pinned where they are
+    # load-bearing. Both of these contain `this approved`, which the folded
+    # helper's compact arm reads as `is approved` (`th|isapproved`), and in
+    # both the winner rests on its own name -- so the name-shaped condition
+    # does NOT release them and the boundary is the only thing keeping them
+    # routing. Without these two, reverting the matcher leaves the corpus
+    # green.
+    RoutingInterventionCase(
+        'engine-entry-approval-boundary-plan',
+        'A request mentioning an approved thing is not an approval',
+        'write the plan for this approved lifecycle experiment',
+        'dispatch', 'plan', 'forward_plan_to_selected_workflow', 'plan',
+    ),
+    RoutingInterventionCase(
+        'engine-entry-approval-boundary-frontend',
+        'The same boundary holds for a route-mode skill',
+        'add a retry to the frontend for this approved rollout',
+        'dispatch', 'frontend', 'prepare_frontend_handoff', 'frontend_handoff',
+    ),
+    RoutingInterventionCase(
+        'engine-entry-approval-carrying-a-real-request',
+        'An approval carrying work with its own evidence still routes to that work',
+        'the plan is fine, now do a workspace audit of the repo',
+        'dispatch', 'workspace-audit', 'prepare_workspace_audit', 'workspace_audit',
+    ),
     RoutingInterventionCase(
         'recall-saved-preference-incident', 'Expected saved memory enters evidence diagnosis',
         'Why was my saved response preference not used?',

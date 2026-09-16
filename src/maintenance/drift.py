@@ -263,7 +263,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # what a war room is), a military rank, severity as a bug-tracker
             # field, a manufacturing line down for maintenance, and a
             # figurative outage.
-            expected=248,
+            expected=256,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -314,7 +314,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # same phrase inside a question at clarify/medium. They record the
             # tokenisation tier gap as intended so a scoring change has to
             # move them deliberately (#1607).
-            expected=407,
+            expected=414,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",

@@ -417,6 +417,163 @@ OS_SPAWN_FUNCTIONS = frozenset(
 )
 
 
+# --------------------------------------------------------------------------
+# Dynamic module loads (issue #1637)
+# --------------------------------------------------------------------------
+#
+# A normal `import` statement is a node `_imported_modules` can read, so the
+# subprocess allowlist above sees it. Every other way of turning something into
+# a live module is invisible to that reader, and the two families below are the
+# ways this repo can actually spell it.
+#
+# The distinction the issue asked about -- name versus path -- is real but it is
+# NOT the distinction between forbidden and permitted. A name resolves against
+# the interpreter search path, so `import_module("subprocess")` reaches a spawn
+# capability. A path does not resolve against anything, but
+# `spec_from_file_location` + `exec_module` EXECUTES the file it names, and that
+# file lives outside `src/`, so `_source_modules()` never parses it: the loaded
+# file may `import subprocess` and no gate here sees that either. Both families
+# put code beyond the reach of every static gate in this module. Neither is
+# self-limiting.
+#
+# What actually makes the live call sites acceptable is confinement, and
+# confinement is a property of each call site, not of the spelling it uses. So
+# each family gets an allowlist whose entries say HOW that file confines what it
+# loads -- a closed literal table, a computed managed directory, a root check.
+# That is the same escape hatch PROCESS_SPAWN_ALLOWLIST uses and for the same
+# stated reason: adding an entry is a decision someone has to write down.
+
+# `from importlib import import_module` then a bare `import_module(...)` is the
+# spelling this repo actually uses; matching only the `importlib.import_module`
+# attribute form would have made this check fire on nothing at all.
+DYNAMIC_NAME_IMPORT_FUNCTIONS = frozenset({"__import__", "import_module"})
+
+# Reaching a module through a filesystem path instead of a name. `exec` and
+# `eval` are here because `exec(compile(source, path, "exec"), module.__dict__)`
+# is a module load written out longhand -- without them the gate would simply
+# move to that spelling. `runpy` and the `imp`/`SourceFileLoader` spellings are
+# absent from the tree today and listed so they stay absent.
+PATH_MODULE_LOAD_FUNCTIONS = frozenset(
+    {
+        "spec_from_file_location",
+        "module_from_spec",
+        "exec_module",
+        "SourceFileLoader",
+        "SourcelessFileLoader",
+        "ExtensionFileLoader",
+        "load_source",
+        "load_compiled",
+        "load_dynamic",
+        "load_module",
+        "run_path",
+        "run_module",
+        "exec",
+        "eval",
+    }
+)
+
+# Deliberately NOT inspected, so the gate's reach is written down rather than
+# inferred from what it happens to match:
+#
+#   * string indirection -- `getattr(builtins, "__import__")`, `globals()["exec"]`,
+#     an operator taken from a dict. No AST gate can follow a name that only
+#     exists as a string at runtime. This is the floor of a static check, the
+#     same floor the module docstring already claims for the import gates, and
+#     pretending otherwise would be the more dangerous error.
+#   * `importlib.reload` -- reloads a module that a visible `import` statement
+#     already brought in, so it can reach no capability the allowlists above did
+#     not already see and clear.
+#   * `sys.path` mutation -- it changes which file a name resolves to, but the
+#     name itself still arrives as an `ast.Import` node that `_imported_modules`
+#     reads. It is a different question (which bytes answer to a name) from the
+#     one here (can a module be loaded without any name being visible).
+
+DYNAMIC_NAME_IMPORT_ALLOWLIST: dict[str, str] = {
+    "src/plugin_bundle/omh/__init__.py": (
+        "the shipped plugin's own entry point, executing inside the Hermes process: it binds to "
+        "the host modules `hermes_cli` and `hermes_cli.plugins`, which a normal `import` cannot "
+        "reach because omh declares no dependency on Hermes and the host is absent at omh's own "
+        "import time. Both names are string literals at the call site; neither is caller-supplied, "
+        "and neither names a stdlib capability."
+    ),
+    "src/plugin_bundle/omh/runtime_paths.py": (
+        "the same in-Hermes binding lane: `agent.secret_scope`, `agent.runtime_cwd`, "
+        "`hermes_cli.config`, and `hermes_cli.managed_scope`, all host modules. Every name is a "
+        "literal. The one call taking a variable is the shared `_optional_module(name)` helper, "
+        "whose five callers in this same file each pass a host-module literal, and which "
+        "re-raises anything that is not the named module going missing."
+    ),
+    "src/plugin_bundle/omh/agent_board_bridge.py": (
+        "the same in-Hermes binding lane for the kanban surface: `tools.registry`, "
+        "`hermes_cli.lifecycle`, and `hermes_cli.kanban_db`, all host modules, all literals."
+    ),
+    "src/coding/fanout_confinement.py": (
+        "one literal in-repo name, `omh.coding.fanout_dispatch`, imported at call time rather than "
+        "module scope to break an import cycle between the confinement helper and the dispatch "
+        "bridge that calls it. Both files are already named in PROCESS_SPAWN_ALLOWLIST above, so "
+        "this reaches no capability that INVARIANT 1 has not already seen and cleared."
+    ),
+    "src/workflows/operations_contracts.py": (
+        "the artifact-contract consumer resolver. The call takes a variable, but the variable is "
+        "read out of `_CONSUMER_IMPORTS`, a closed four-entry module-level table of `omh.*` "
+        "literals keyed by consumer id; an id absent from the table raises LookupError before any "
+        "import happens, so a caller chooses among four repo-owned modules and cannot name a "
+        "fifth."
+    ),
+}
+
+PATH_MODULE_LOAD_ALLOWLIST: dict[str, str] = {
+    "src/install/plugin_pack.py": (
+        "the `omh doctor` / `omh setup` plugin readiness tiers, which must execute the bundle that "
+        "is actually installed to report whether it imports, registers, and enforces -- reading "
+        "this repo's copy would answer a different question. Confinement is by construction: both "
+        "entry points, `_register_smoke` and `_enforcement_smoke`, are reached only with "
+        "`paths.hermes_plugin_dir`, the managed install directory OMH computes and writes itself, "
+        "and every file under it is named by a literal (`__init__.py`, `toolcall_rules.py`). "
+        "`_load_installed_module` takes `path` as a parameter, so the confinement there belongs to "
+        "its two callers, both in this file, both passing `plugin_dir / <literal>`. Note what this "
+        "does NOT claim: `inspect_plugin_bundle` records an invalid or locally-modified manifest as "
+        "an error but still runs the smoke, so the bytes executed are not manifest-verified first. "
+        "What holds is that the path is computed, never caller-supplied."
+    ),
+    "src/maintenance/documentation_claims_worker.py": (
+        "the documentation-claims prober behind `omh docs claims --check`, which loads named source "
+        "files of the checkout under audit to test a claim against the code rather than against a "
+        "transcription of it. Not a plugin path and not a bundle. Confinement is explicit rather "
+        "than by construction: `checked_path(root, relative)` resolves the path and refuses one "
+        "that is not `is_relative_to(root.resolve())`, `bounded_read` caps it at 512 KiB, and all "
+        "four `_load_module` call sites pass a hardcoded repo-relative literal. The module states "
+        "in its own first line that it is not a sandbox for hostile Python and audits trusted trees "
+        "only; the whole probe runs in a killable `multiprocessing` child with an output cap."
+    ),
+}
+
+
+def _calls_to(tree: ast.Module, functions: frozenset[str]) -> list[tuple[str, int]]:
+    """(called name, lineno) for every call in `tree` whose callee is in `functions`.
+
+    Both spellings count. `import_module(...)` after `from importlib import
+    import_module` is an `ast.Name`; `importlib.util.spec_from_file_location(...)`
+    is an `ast.Attribute`. Reading only the attribute form is what let fifteen
+    bare-name dynamic imports sit in `src/` under a gate that claimed to forbid
+    them (#1637).
+    """
+    found: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            name = func.id
+        elif isinstance(func, ast.Attribute):
+            name = func.attr
+        else:
+            continue
+        if name in functions:
+            found.append((name, node.lineno))
+    return found
+
+
 class NoHiddenProcessSpawn(unittest.TestCase):
     """INVARIANT 1 (GENUINE NEW COVERAGE): only named bridges may spawn.
 
@@ -427,6 +584,13 @@ class NoHiddenProcessSpawn(unittest.TestCase):
     Decided by AST: an `ast.Import`/`ast.ImportFrom` node naming `subprocess`,
     at any scope. A comment or docstring mentioning `subprocess` is a token the
     parser discards, so it can neither add nor clear a module here.
+
+    That reading only holds while every module load is a node it can read, so
+    the two dynamic families -- by name and by path -- are allowlisted rather
+    than inspected for their spelling. The scope is written down above the two
+    allowlists, including what is deliberately left uninspected, because a gate
+    whose reach a reader has to infer from what it happens to match is how this
+    check came to fire on nothing at all (#1637).
     """
 
     def test_only_allowlisted_modules_import_subprocess(self) -> None:
@@ -480,23 +644,64 @@ class NoHiddenProcessSpawn(unittest.TestCase):
                     f"route the call through an allowlisted bridge module using `subprocess`, or remove it.",
                 )
 
-    def test_no_module_reaches_a_spawn_capability_by_dynamic_import(self) -> None:
+    def test_only_allowlisted_modules_load_a_module_by_name(self) -> None:
         """`__import__("subprocess")` would satisfy no static import check."""
         for relative_path, tree in _source_modules():
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Call):
-                    continue
-                func = node.func
-                is_builtin = isinstance(func, ast.Name) and func.id == "__import__"
-                is_importlib = isinstance(func, ast.Attribute) and func.attr == "import_module"
-                if not (is_builtin or is_importlib):
-                    continue
-                self.fail(
-                    f"INVARIANT 1 (no hidden process spawn): {relative_path} line {node.lineno} imports "
-                    f"a module dynamically. A dynamic import is invisible to every static gate in "
-                    f"{THIS_TEST}, so it can reach `subprocess`, a network client, or anything else "
-                    f"without tripping any of them. Use a normal `import` statement, which the "
-                    f"allowlists can see.",
+            for name, lineno in _calls_to(tree, DYNAMIC_NAME_IMPORT_FUNCTIONS):
+                self.assertIn(
+                    relative_path,
+                    DYNAMIC_NAME_IMPORT_ALLOWLIST,
+                    f"INVARIANT 1 (no hidden process spawn): {relative_path} line {lineno} calls "
+                    f"`{name}`, reaching a module by name. A name resolves against the interpreter "
+                    f"search path, so it can reach `subprocess`, a network client, or anything else "
+                    f"without tripping any static gate in {THIS_TEST}. Use a normal `import` "
+                    f"statement, which the allowlists can see -- or, if the module genuinely cannot "
+                    f'be imported normally, add "{relative_path}" to DYNAMIC_NAME_IMPORT_ALLOWLIST '
+                    f"in {THIS_TEST} stating what confines the names it can reach.",
+                )
+
+    def test_only_allowlisted_modules_load_a_module_by_path(self) -> None:
+        """A path load executes a file `_source_modules()` never parses."""
+        for relative_path, tree in _source_modules():
+            for name, lineno in _calls_to(tree, PATH_MODULE_LOAD_FUNCTIONS):
+                self.assertIn(
+                    relative_path,
+                    PATH_MODULE_LOAD_ALLOWLIST,
+                    f"INVARIANT 1 (no hidden process spawn): {relative_path} line {lineno} calls "
+                    f"`{name}`, loading and executing a module from a filesystem path. The file it "
+                    f"runs lives outside `src/`, so `_source_modules()` never parses it and it may "
+                    f"`import subprocess` without tripping any static gate in {THIS_TEST}. A path is "
+                    f"not safer than a name here; what makes the existing sites acceptable is that "
+                    f"each confines which path it can reach. If this one does too, add "
+                    f'"{relative_path}" to PATH_MODULE_LOAD_ALLOWLIST in {THIS_TEST} stating how -- '
+                    f"a closed literal table, a computed managed directory, or a checked root.",
+                )
+
+    def test_every_dynamic_load_allowlist_entry_still_needs_it(self) -> None:
+        """A stale allowlist is a silently widened allowlist.
+
+        Each allowlist under its own `subTest`, so a stale name entry cannot
+        mask a stale path entry: a plain loop stops at the first failing
+        assertion and never reads the second allowlist at all.
+        """
+        for label, allowlist, functions in (
+            ("DYNAMIC_NAME_IMPORT_ALLOWLIST", DYNAMIC_NAME_IMPORT_ALLOWLIST, DYNAMIC_NAME_IMPORT_FUNCTIONS),
+            ("PATH_MODULE_LOAD_ALLOWLIST", PATH_MODULE_LOAD_ALLOWLIST, PATH_MODULE_LOAD_FUNCTIONS),
+        ):
+            with self.subTest(allowlist=label):
+                loading = {
+                    relative_path
+                    for relative_path, tree in _source_modules()
+                    if _calls_to(tree, functions)
+                }
+                stale = sorted(set(allowlist) - loading)
+                self.assertEqual(
+                    stale,
+                    [],
+                    f"INVARIANT 1 (no hidden process spawn): {stale} are listed in {label} in "
+                    f"{THIS_TEST} but no longer load a module dynamically. Delete those entries so "
+                    f"the allowlist keeps describing the real surface instead of pre-authorising a "
+                    f"future one.",
                 )
 
 

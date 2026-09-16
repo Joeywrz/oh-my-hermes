@@ -78,6 +78,42 @@ All notable changes will be documented here.
   is "improved" until it swallows every sentence starting with those three
   letters.
 
+- **The gate against hidden dynamic imports was matching nothing at all.**
+  INVARIANT 1 of the handoff safety contract claimed to forbid reaching a
+  module by name, on the grounds that a name resolves against the interpreter
+  search path and could reach `subprocess` invisibly. It inspected two AST
+  shapes, `__import__` as a bare name and `import_module` as an attribute, and
+  neither occurs anywhere in `src/`. The spelling this repo actually uses is
+  `from importlib import import_module` followed by a bare call, which is an
+  `ast.Name` the check never looked at: 15 such calls across 5 files, two of
+  them passing a variable rather than a literal. The same mutation — a bare
+  `import_module(name)` dropped into an unrelated module — passes on `main` and
+  fails now. Issue #1637 asked whether the check's silence about
+  `importlib.util.spec_from_file_location` was deliberate scope or a gap, and
+  the answer turned out to be that the premise was wrong on both sides. A path
+  is not the bounded alternative to a name: `spec_from_file_location` plus
+  `exec_module` executes a file that lives outside `src/`, so
+  `_source_modules()` never parses it and the loaded file may import whatever
+  it likes — which is verbatim what the invariant's own failure message says
+  makes a dynamic import dangerous. What actually makes the live call sites
+  acceptable is that each confines which module it can reach, and confinement
+  is a property of the call site, not of the spelling. So both families are now
+  allowlisted the way `subprocess` already was, each entry naming the
+  confinement: a closed four-entry literal table, host modules that a wrapper
+  declaring no dependency on Hermes cannot import normally, a computed managed
+  plugin directory, a `checked_path` root refusal. Coverage extends past
+  `spec_from_file_location` to `module_from_spec`, `exec_module`, the
+  `SourceFileLoader` and `runpy` spellings, and builtin `exec`/`eval`, so the
+  gate does not simply move to the next spelling; what stays deliberately
+  uninspected — string indirection, `importlib.reload`, `sys.path` mutation —
+  is written down with its reason rather than left to be inferred. Three path
+  sites, not the four the issue counted, and one of them is the documentation
+  claims prober, which is not a plugin path at all. No path load was reaching a
+  spawn capability, and the existing plugin readiness tiers are unchanged; the
+  comment in `plugin_pack.py` that justified them dropped its claim that the
+  loaded file is hash-pinned, because the doctor tier runs against the
+  installed bundle even when the manifest was already recorded invalid.
+
 - **Saying a plan is fine no longer starts the plan again.** `the plan is
   fine, just ship it` dispatched `plan` and emitted a 10,572-character planning
   artifact -- goals, non-goals, decision drivers, options, rejection rationale,

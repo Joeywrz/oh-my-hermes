@@ -138,6 +138,71 @@ _HEAVY_LANE_VAGUENESS_FILLER_SUBSTRINGS: tuple[str, ...] = (
     "修复", "搞定", "把", "这个", "那个", "这些", "那些",
 )
 _HEAVY_LANE_VAGUENESS_REASON_PREFIX = "Heavy-lane request names no concrete target for"
+
+# Approval vocabulary for the engine-entry gate (#1638). Phrases only, never
+# bare tokens: `fine`, `good` and `좋아` are ordinary words that appear
+# throughout requests, and it is the ACT of approving that has to be
+# recognized, not the sentiment.
+#
+# Languages: English and Korean. Both are validated against sentences a person
+# in this repository actually sends -- the report that opened #1638 is Korean.
+# Japanese and Chinese are deliberately absent rather than guessed at: an
+# approval phrasing that reads naturally is not something to invent, and a
+# phrase list nobody has checked would fire on requests. An approval in ja/zh
+# therefore still over-routes exactly as it does today, which is the safe
+# direction for a missing entry and is recorded as follow-up rather than
+# silently absent.
+_ENGINE_ENTRY_APPROVAL_PHRASES: tuple[str, ...] = (
+    # English: the plan/design/spec is accepted, with or without a go-ahead.
+    "is fine",
+    "looks fine",
+    "looks good",
+    "sounds good",
+    "seems fine",
+    "seems good",
+    "lgtm",
+    "looks right",
+    "is approved",
+    "approved, ",
+    "go ahead with",
+    "ship it",
+    "let's go with",
+    "lets go with",
+    "happy with",
+    "no objections",
+    "no changes needed",
+    "fine by me",
+    "good to go",
+    # Korean: acceptance and the go-ahead that follows it. `좋아` alone is
+    # excluded for the reason above -- it opens ordinary requests too -- so
+    # every entry carries the approving verb or its sentence-final form.
+    "좋아요",
+    "좋습니다",
+    "괜찮아요",
+    "괜찮습니다",
+    "동의합니다",
+    "승인",
+    "확정",
+    "이대로",
+    "그대로 진행",
+    "그대로 가",
+    "진행해",
+    "진행하자",
+    "진행합시다",
+    "문제없어",
+    "문제없습니다",
+    "이의 없",
+    "수정할 것 없",
+)
+_ENGINE_ENTRY_APPROVAL_REASON_PREFIX = "Approval-shaped message named"
+# Deliberately names no skill. Offering the one the person just approved is the
+# defect restated as a question, and the rule this gate enforces asks for a
+# restatement of what would start plus an explicit go-ahead -- not a picker.
+_ENGINE_ENTRY_APPROVAL_CLARIFICATION = (
+    "This message accepts something rather than asking for work. Do not start a "
+    "workflow on it: say in one line what would start next and what it would "
+    "cover, and wait for the user to say go."
+)
 _HEAVY_LANE_VAGUENESS_CLARIFICATION_TEMPLATES: dict[str, str] = {
     "ultrawork": (
         "Before starting `ultrawork`, name the concrete target (file, module, or "
@@ -2175,6 +2240,40 @@ def _route_chat_message_cached(
             reason = heavy_vagueness_reason
             ambiguous = False
 
+    # Engine-entry gate (#1638): a message whose content is "yes, go" must not
+    # start the thing it just approved. `ENGINE_ENTRY_CONFIRMATION_RULE` says
+    # so in prose and the router contradicted it -- `the plan is fine, just
+    # ship it` dispatched `plan` and emitted a full planning artifact.
+    #
+    # It clarifies rather than routing the remainder of a compound approval
+    # ("the plan is fine, now write the migration"), and that is the decision
+    # rather than a limitation. Re-scoring those remainders was measured: they
+    # come back low or medium and would clarify anyway, except one --
+    # `ultrawork` at 9/high on "now implement the retry handler in upload.py"
+    # -- and starting an execution engine off an accepted plan is precisely the
+    # automatic continuation the rule forbids. So the one case where routing
+    # the remainder would have done something is the one case it must not.
+    #
+    # A SIGILLED invocation stays outside the gate: `$plan`, `/plan`, `@plan`
+    # and `use omh plan` are deliberate choices, not heuristics, and the router
+    # already treats them as the one thing guards do not touch.
+    #
+    # A BARE leading name is inside it, and that is the difference between
+    # fixing the reported sentence and fixing the class. `the plan is fine,
+    # ship it` and `plan is fine, ship it` are one article apart, and only the
+    # first lacks a leading-position match; excluding every `explicit_skill`
+    # would have left the second dispatching, along with its Korean twin
+    # `plan 승인, 배포하자`. The router already distrusts this form on its own
+    # account -- `_bare_first_word_reads_as_a_verb` exists because a bare first
+    # word is the weakest evidence of intent in the explicit family.
+    if action == "dispatch" and not _has_explicit_invocation_prefix(routing_message):
+        approval_reason = _engine_entry_approval_reason(routing_message, candidate_skill)
+        if approval_reason:
+            selected_skill = _ROUTER_SKILL
+            action = "clarify"
+            reason = approval_reason
+            ambiguous = False
+
     selected_harness = primary_harness_for_skill(selected_skill)
     learning_candidate_card = None
     if detect_learning_signal(routing_message) is not None:
@@ -2607,6 +2706,16 @@ def _explicit_skill_fast_path_decision(
     if selected_skill == "meta-router" and _meta_router_remainder_is_catalog_question(routing_message):
         return None
     if not _has_explicit_invocation_prefix(routing_message) and is_missed_route_feedback(routing_message):
+        return None
+    # Same shape, same reason, for an approval that happens to open with the
+    # skill's own name (#1638). `plan is fine, ship it` reaches leading-position
+    # invocation and would otherwise short-circuit past the engine-entry gate
+    # below, leaving the class half-fixed one article away from the reported
+    # sentence. Declining the fast path hands the message to ordinary scoring,
+    # where that gate decides; a sigilled `$plan` never gets here.
+    if not _has_explicit_invocation_prefix(routing_message) and _engine_entry_approval_reason(
+        routing_message, selected_skill
+    ):
         return None
     task_card = classify_task(routing_message)
     if _task_card_overrides_explicit_invocation(
@@ -6993,6 +7102,89 @@ def _heavy_lane_has_concrete_anchor(message: str) -> bool:
     return False
 
 
+def _engine_entry_approval_reason(message: str, skill: str) -> str:
+    """Return a reason when `message` only APPROVES something and the winning
+    skill earned its place solely by being named in that approval, else "".
+
+    The observed defect (#1638): `the plan is fine, just ship it` dispatches
+    `plan` at score 17 and emits a 10,572-character planning artifact -- goals,
+    non-goals, decision drivers, options, rejection rationale, acceptance
+    criteria -- for a sentence whose content is "yes, go". One word away,
+    `the design is fine, just ship it` clarifies. That is not a `plan` problem:
+    18 of the catalog's 19 single-word names dispatch on their own name in this
+    sentence shape, from `loop` at 45 down to `maestro` at 9.
+
+    `ENGINE_ENTRY_CONFIRMATION_RULE` already states the policy in prose -- an
+    accepted plan is planning evidence, not permission -- and the router
+    contradicted it in behaviour. This is that rule at the routing layer.
+
+    Why the test is the SENTENCE and not the name. A name-based fix needs a
+    list of which catalog names are ordinary words, in every language the
+    router accepts, and that list cannot be completed; worse, a word missing
+    from it leaves the defect live inside a fix that claims to have handled it.
+    The approval vocabulary below is also an incomplete list, but it fails the
+    other way: a phrasing it misses simply leaves today's behaviour. Only one
+    of the two failure directions is safe, which is what decides it.
+
+    Two conditions, both required.
+
+    (a) The message approves. Matched through `contains_cue_phrase`, the
+        router's own folded-phrase helper, never a raw substring test.
+
+    (b) The winning skill's whole case rests on its own name being present.
+        Computed, not enumerated: strip the tokens carrying the skill's name
+        and re-score. Every one of the 18 loses its match entirely -- including
+        `loop`, whose 45 comes from a guard, and `ultraqa`, whose `phase:qa`
+        fired on the `qa` inside `ultraqa`. A skill that still matches without
+        its name has real evidence and keeps its dispatch.
+
+    (b) is what makes this safe rather than merely quiet: it is far too broad
+    alone -- `plan the database migration for the billing service` also loses
+    `plan` when the name is stripped -- so (a) is what separates an approval
+    from a request, and (b) is what lets a genuine request survive inside one.
+    """
+    if not skill or not contains_cue_phrase(message, _ENGINE_ENTRY_APPROVAL_PHRASES):
+        return ""
+    if not _skill_case_rests_on_its_own_name(message, skill):
+        return ""
+    return f"{_ENGINE_ENTRY_APPROVAL_REASON_PREFIX} `{skill}`: approval is planning evidence, not permission to start it."
+
+
+def _skill_case_rests_on_its_own_name(message: str, skill: str) -> bool:
+    """Whether `skill` still matches `message` once its own name is taken out.
+
+    Token-level removal via `routing_tokens`, the same technique the heavy-lane
+    gate uses on its trigger stems, so a fused or inflected form
+    (`achievements` for `achievement`) goes with it.
+    """
+    stem = normalized_phrase(skill).replace("-", " ")
+    remainder_tokens = [
+        token
+        for token in routing_tokens(normalized_phrase(message), stopwords=set())
+        if stem not in token and token not in stem
+    ]
+    if not remainder_tokens:
+        return True
+    from .recommend import recommend_skills
+
+    remainder = " ".join(remainder_tokens)
+    # Evidence, not presence. With nothing left to match on, the recommender
+    # still answers -- `_fallback_recommendations` hands back default
+    # candidates, `plan` among them, at score 0 with an empty `matched`. Reading
+    # that as "the skill survives without its name" let every Korean approval
+    # through: `plan 승인, 배포하자` strips to `승인 배포하자`, which matches
+    # nothing, and the fallback row then vouched for the skill it was standing
+    # in for.
+    return not any(
+        item.get("skill") == skill and (item.get("matched") or int(item.get("score", 0) or 0) > 0)
+        for item in recommend_skills(remainder, limit=12)
+    )
+
+
+def _is_engine_entry_approval_reason(reason: str) -> bool:
+    return reason.startswith(_ENGINE_ENTRY_APPROVAL_REASON_PREFIX)
+
+
 def _heavy_lane_vagueness_reason(message: str, skill: str) -> str:
     """Return a reason string when `skill` is a heavy lane and `message` is too
     vague to act on, else "".
@@ -7034,6 +7226,15 @@ def _clarification(action: str, candidate_skill: str, candidate_confidence: str,
         return "Ask which workflow or outcome the user wants before choosing a specialist skill."
     if _is_heavy_lane_vagueness_reason(reason) and candidate_skill in _HEAVY_LANE_VAGUENESS_CLARIFICATION_TEMPLATES:
         return _HEAVY_LANE_VAGUENESS_CLARIFICATION_TEMPLATES[candidate_skill]
+    if _is_engine_entry_approval_reason(reason):
+        # Purpose-written, because the generic line is wrong twice here. It
+        # offers the skill the person just approved -- "Ask whether to use
+        # `plan`" answers an acceptance by proposing to plan again -- and it
+        # reports "confidence was high, below threshold high", which is a
+        # contradiction: this route was suppressed on its shape, not on its
+        # score. What the rule asks for instead is a restatement of what would
+        # start, and a wait.
+        return _ENGINE_ENTRY_APPROVAL_CLARIFICATION
     return f"Ask whether to use `{candidate_skill}`; confidence was {candidate_confidence}, below threshold {threshold}."
 
 

@@ -98,7 +98,8 @@ dc9a474dfc063984b84ae5d1a5d28a9ba1f0bb2b77292245b703b20b0fbe27e7  omh-idea-to-de
 da5b5950a621d7eedc5333721de4d23651439d06bdd2d9e9661461d1bef9ac5e  omh-inference-serving/references/serving-runbooks.md
 e634f25e8c8127238cceff1451f9e63a0fe728522a9f2661cf16d0b40993b2e8  omh-instinct-ledger/SKILL.md
 c479d49564032fee7a1f0ebf59f179ccf91f8e68e20465fc73bed674c1fb8bfc  omh-jit-learn/SKILL.md
-4303648ab3d9dde56d75272f4fae9d256d6ed03ddca3a51cd003220d033f94a8  omh-legal-compliance-review/SKILL.md
+b46818e18b56d17eb7f26897040e39bde5693c25ae32ec9532680eb87d3fe0cb  omh-legal-compliance-review/SKILL.md
+a0952b301dc12976606e979590da1f01c9b71d4cd5892f6b2f453536b2e4b4c1  omh-legal-compliance-review/references/negotiation-preparation.md
 c10ad1043a6c021c9840987aa80f0a48d7984ef884891b4b5d722453f09de5a0  omh-legal-compliance-review/references/procedure.md
 5f57de1e990136cbc5ea23a7b2f47bd3601f2a071a066d69f46e981f02aa2345  omh-lifecycle-growth/SKILL.md
 7a26968cd2e4d46a536fe28d93dd7adc2f89c01ca59ab042d5d6ff205b5762de  omh-lifecycle-growth/references/procedure.md
@@ -318,7 +319,8 @@ $receipt = @'
     "omh-inference-serving/references/serving-runbooks.md": "da5b5950a621d7eedc5333721de4d23651439d06bdd2d9e9661461d1bef9ac5e",
     "omh-instinct-ledger/SKILL.md": "e634f25e8c8127238cceff1451f9e63a0fe728522a9f2661cf16d0b40993b2e8",
     "omh-jit-learn/SKILL.md": "c479d49564032fee7a1f0ebf59f179ccf91f8e68e20465fc73bed674c1fb8bfc",
-    "omh-legal-compliance-review/SKILL.md": "4303648ab3d9dde56d75272f4fae9d256d6ed03ddca3a51cd003220d033f94a8",
+    "omh-legal-compliance-review/SKILL.md": "b46818e18b56d17eb7f26897040e39bde5693c25ae32ec9532680eb87d3fe0cb",
+    "omh-legal-compliance-review/references/negotiation-preparation.md": "a0952b301dc12976606e979590da1f01c9b71d4cd5892f6b2f453536b2e4b4c1",
     "omh-legal-compliance-review/references/procedure.md": "c10ad1043a6c021c9840987aa80f0a48d7984ef884891b4b5d722453f09de5a0",
     "omh-lifecycle-growth/SKILL.md": "5f57de1e990136cbc5ea23a7b2f47bd3601f2a071a066d69f46e981f02aa2345",
     "omh-lifecycle-growth/references/procedure.md": "7a26968cd2e4d46a536fe28d93dd7adc2f89c01ca59ab042d5d6ff205b5762de",

@@ -31,6 +31,7 @@ from ..routing.catalog_questions import is_skill_catalog_question as _is_skill_c
 from ..routing.chat import public_chat_route_payload, route_explanation_payload
 from ..routing.coding_route_actions import coding_route_decision_payload, resolve_coding_route_decision
 from ..routing.localization import normalized_phrase
+from ..routing.route_plan import public_workflow_identifier, with_public_skill_names
 from ..routing.policy import POINT_IN_TIME_WEB_GUARD
 from ..workflows.realtime_voice_trial_receipts import build_prepared_realtime_voice_chat_state
 from ..workflows.temporal_source_receipts import (
@@ -8629,6 +8630,7 @@ def _chat_response_with_route_explanation(
         workflow_explanation["why_this_workflow"] = reason
         state["workflow_explanation_reason"] = reason
     for source_key, target_key in (
+        ("selected_workflow", "route_selected_workflow"),
         ("action", "route_action"),
         ("next_action", "route_next_action"),
         ("recommended_reply", "route_recommended_reply"),
@@ -8640,6 +8642,37 @@ def _chat_response_with_route_explanation(
             workflow_explanation[target_key] = value
     state["workflow_explanation"] = workflow_explanation
     updated["state"] = state
+    return _usage_trace_naming_the_routed_workflow(updated, route_explanation)
+
+
+def _usage_trace_naming_the_routed_workflow(
+    response: dict[str, object], route_explanation: dict[str, object]
+) -> dict[str, object]:
+    """Make the visible prefix name the workflow the router chose.
+
+    A workflow can be dispatched and still answer with the card it starts
+    with: `ultrawork` on a request that names no target keeps its plan card by
+    design (`_route_response_mode`). The response state then says `plan`, and
+    the prefix -- the first line, and the whole of a notification preview --
+    said `plan` too, so a user who typed `ulw-work` saw no trace of the
+    workflow they named. The card is right; dropping the name is not.
+
+    Only on `dispatch`, and only the two display fields: `state` keeps its own
+    `selected_workflow` because that is what the response actually rendered,
+    and a consumer reading it must keep getting the answer it has always got.
+    """
+    routed = str(route_explanation.get("selected_workflow") or "").strip()
+    if not routed or str(route_explanation.get("action") or "") != "dispatch":
+        return response
+    trace = response.get("usage_trace")
+    if not isinstance(trace, dict) or str(trace.get("label") or "") == routed:
+        return response
+    updated = dict(response)
+    updated_trace = dict(trace)
+    updated_trace["label"] = routed
+    updated_trace["visible_prefix"] = f"[omh] {routed}"
+    updated_trace["selected_workflow"] = routed
+    updated["usage_trace"] = updated_trace
     return updated
 
 
@@ -9643,21 +9676,33 @@ def workflow_explanation_payload(
     claim_boundary: str,
 ) -> dict[str, object]:
     workflow = _usage_workflow(state)
-    label = workflow or _usage_label(state, kind=kind, phase=phase, next_action=next_action)
+    # The catalog key and the name a reader can invoke are not the same string
+    # for the ULW family: the catalog keeps `ralplan`/`ultrawork`/`ultraqa`
+    # because triggers and capability maps are built from them, while the
+    # installed skills answer to `ulw-plan`/`ulw-work`/`ulw-qa`. Emitting the
+    # catalog key hands the user a name nothing responds to (#1249), which
+    # `public_workflow_identifier` exists to prevent -- and which every field
+    # below used to reach around. `primary_harness_for_skill` still takes the
+    # catalog key, because that lookup is keyed on it.
+    public_workflow = public_workflow_identifier(workflow) if workflow else ""
+    label = public_workflow or _usage_label(state, kind=kind, phase=phase, next_action=next_action)
     harness = primary_harness_for_skill(workflow) if workflow else ""
-    next_action_label = next_action.replace("_", " ")
+    # Some action tokens embed the skill they belong to
+    # (`prepare_ultraperf_loop`), so spelling one out puts the catalog key back
+    # into a sentence every other field here just had it taken out of.
+    next_action_label = with_public_skill_names(next_action.replace("_", " "))
     not_evidence_yet = _workflow_explanation_not_evidence(state, claim_boundary=claim_boundary)
     payload: dict[str, object] = {
         "schema_version": WORKFLOW_EXPLANATION_SCHEMA_VERSION,
-        "selected_workflow": workflow,
+        "selected_workflow": public_workflow,
         "label": label,
         "selected_harness": harness,
-        "why_this_workflow": _workflow_explanation_reason(state, workflow=workflow, label=label),
+        "why_this_workflow": _workflow_explanation_reason(state, workflow=public_workflow, label=label),
         "next_action": next_action,
         "next_action_label": next_action_label,
-        "recommended_reply": _workflow_recommended_reply(workflow, label, next_action_label, not_evidence_yet),
-        "primary_action_label": _workflow_primary_action_label(workflow, label),
-        "primary_action_hint": _workflow_primary_action_hint(workflow, label, next_action_label, not_evidence_yet),
+        "recommended_reply": _workflow_recommended_reply(public_workflow, label, next_action_label, not_evidence_yet),
+        "primary_action_label": _workflow_primary_action_label(public_workflow, label),
+        "primary_action_hint": _workflow_primary_action_hint(public_workflow, label, next_action_label, not_evidence_yet),
         "not_evidence_yet": not_evidence_yet,
         "claim_boundary": claim_boundary,
         "rendering_hint": "Show this as a compact why/next/not-evidence card in chat surfaces.",
@@ -9744,14 +9789,18 @@ def _workflow_explanation_not_evidence(state: dict[str, object], *, claim_bounda
 def usage_trace_payload(*, kind: str, phase: str, next_action: str, state: dict[str, object]) -> dict[str, object]:
     workflow = _usage_workflow(state)
     harness = primary_harness_for_skill(workflow) if workflow else ""
-    label = workflow or _usage_label(state, kind=kind, phase=phase, next_action=next_action)
+    # `visible_prefix` is the most-read string OMH emits -- it leads every chat
+    # reply -- so it carries the invocable name, not the catalog key.
+    label = public_workflow_identifier(workflow) if workflow else _usage_label(
+        state, kind=kind, phase=phase, next_action=next_action
+    )
     trace: dict[str, object] = {
         "schema_version": USAGE_TRACE_SCHEMA_VERSION,
         "brand": "omh",
         "visibility": "visible_prefix",
         "visible_prefix": f"[omh] {label}",
         "label": label,
-        "selected_workflow": workflow,
+        "selected_workflow": public_workflow_identifier(workflow) if workflow else workflow,
         "selected_harness": harness,
         "phase": phase,
         "next_action": next_action,

@@ -75,6 +75,7 @@ from .route_plan import (
     build_workflow_route_plan,
     compact_workflow_route_plan,
     public_workflow_identifier,
+    with_public_skill_names,
 )
 from .task_cards import classify_task, task_card_recommendation
 from .ulw_alias import resolve_codex_owner_choice_cue, resolve_ulw_alias
@@ -6648,16 +6649,22 @@ def route_explanation_payload(route: dict[str, object]) -> dict[str, object]:
     claim_boundary = _route_claim_boundary(route, recommendation)
     why = _route_explanation_reason(route)
     not_evidence_yet = _not_evidence_from_boundary(claim_boundary)
-    headline = _route_explanation_headline(action, selected, next_action)
-    next_action_label = _route_next_action_label(next_action)
-    summary = _route_explanation_summary(action, selected, next_action, next_action_label, why)
+    # `selected` keys the harness and recommendation lookups above; `public` is
+    # the name a reader is shown and can type back. Everything below this line
+    # is prose for a person, so it takes `public` -- the comment on
+    # `selected_workflow` said as much while five sibling fields still printed
+    # the catalog key.
+    public = public_workflow_identifier(selected)
+    headline = _route_explanation_headline(action, public, next_action)
+    next_action_label = with_public_skill_names(_route_next_action_label(next_action))
+    summary = _route_explanation_summary(action, public, next_action, next_action_label, why)
     return {
         "schema_version": ROUTE_EXPLANATION_SCHEMA_VERSION,
         # The public identifier, not the catalog key: `selected` still drives
         # the harness and recommendation lookups above, which resolve against
         # catalog names, but what a wrapper renders has to be a name the user
         # can actually invoke (#1249).
-        "selected_workflow": public_workflow_identifier(selected),
+        "selected_workflow": public,
         "selected_harness": harness,
         "action": action,
         "confidence": str(route.get("confidence", "low")),
@@ -6665,11 +6672,11 @@ def route_explanation_payload(route: dict[str, object]) -> dict[str, object]:
         "why_this_workflow": why,
         "next_action": next_action,
         "next_action_label": next_action_label,
-        "recommended_reply": _route_recommended_reply(action, selected, next_action, next_action_label, not_evidence_yet),
-        "primary_action_label": _route_primary_action_label(action, selected, next_action),
+        "recommended_reply": _route_recommended_reply(action, public, next_action, next_action_label, not_evidence_yet),
+        "primary_action_label": _route_primary_action_label(action, public, next_action),
         "primary_action_hint": _route_primary_action_hint(
             action,
-            selected,
+            public,
             next_action,
             next_action_label,
             not_evidence_yet,

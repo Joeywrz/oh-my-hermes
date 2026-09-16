@@ -179,7 +179,11 @@ class DelegatedLaneIsNotNudgedTests(EngagementNudgeTestCase):
         subagent_start(parent_session_id="s1", child_session_id="child-1", child_role="explore")
         fired = self.nudged("write_file", "child-1", PLAN_NUDGE_FILE_MUTATION_THRESHOLD + 3)
         self.assertNotIn(True, fired)
-        self.assertGreater(engagement_nudge_declines().get("delegated_session", 0), 0)
+        self.assertGreater(
+            engagement_nudge_declines().get("delegated_session", 0),
+            0,
+            f"tally was {engagement_nudge_declines()}",
+        )
 
     def test_the_parent_that_spawned_it_is_still_nudged(self) -> None:
         subagent_start(parent_session_id="s1", child_session_id="child-1")
@@ -206,7 +210,17 @@ class DelegatedLaneIsNotNudgedTests(EngagementNudgeTestCase):
         with patch.object(session_hooks, "note_delegated_session", side_effect=RuntimeError("boom")):
             self.assertIsNone(subagent_start(parent_session_id="s1", child_session_id="child-1"))
 
-        self.assertEqual(engagement_nudge_declines().get("observer_error:RuntimeError"), 1)
+        # The whole tally, not just the count. This guard fails two ways -- the
+        # handler never recorded, or it recorded under a different key because
+        # something upstream of `note_delegated_session` raised first -- and
+        # only the first means the production path is missing. `None != 1`
+        # reads identically for both, and reading it as the second cost an hour
+        # once already.
+        self.assertEqual(
+            engagement_nudge_declines().get("observer_error:RuntimeError"),
+            1,
+            f"tally was {engagement_nudge_declines()}",
+        )
 
 
 class NudgeCannotRaiseTests(EngagementNudgeTestCase):
@@ -220,7 +234,11 @@ class NudgeCannotRaiseTests(EngagementNudgeTestCase):
             fired = self.nudged("write_file", "s1", PLAN_NUDGE_FILE_MUTATION_THRESHOLD)
 
         self.assertNotIn(True, fired)
-        self.assertEqual(engagement_nudge_declines().get("error:RuntimeError"), 1)
+        self.assertEqual(
+            engagement_nudge_declines().get("error:RuntimeError"),
+            1,
+            f"tally was {engagement_nudge_declines()}",
+        )
 
     def test_every_decline_leaves_a_reason_behind(self) -> None:
         _ = self.nudged("write_file", "s1")

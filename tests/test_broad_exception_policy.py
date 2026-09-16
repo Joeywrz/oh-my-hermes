@@ -341,14 +341,37 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
         "cleanup of this invocation's new directories, then re-raises the original failure. "
         "It never returns a completed import or hides a failed image verification as success.",
     ),
+    ClassifiedSite(
+        "src/plugin_bundle/omh/engagement_nudges.py",
+        "annotate_engagement_nudge",
+        INTENTIONAL,
+        "Hermes wraps this seam in its own `except Exception` and logs at debug "
+        "(`model_tools._apply_transform_tool_result_hook`), so a raise here disappears "
+        "instead of failing loudly -- the exact silence #637 is about. The handler records "
+        "the failure by type in the decline tally `engagement_nudge_declines()` reads, so a "
+        "broken nudge is distinguishable from a session that had nothing to say, and returns "
+        "None, which the seam contract defines as 'leave the tool result alone' rather than "
+        "as a delivered nudge.",
+    ),
+    ClassifiedSite(
+        "src/plugin_bundle/omh/hooks/session_hooks.py",
+        "subagent_start",
+        INTENTIONAL,
+        "An observer the host already invokes inside its own quiet block "
+        "(`tools/delegate_tool.py`), so a raise is swallowed there and would only stop a "
+        "child being recorded. Failing to record one child must not interrupt that child's "
+        "spawn, and the consequence is surfaced where it matters: an unrecorded child reads "
+        "as an orchestrator, which the nudge path reports as a `delegated_session` decline "
+        "not being counted. It returns None, which is this hook's only valid return.",
+    ),
 )
 
 # Ruff reports one hit per handler; the inventory is keyed per enclosing
 # function. `_write_candidate_batch`, `_is_catalog_question`, `pre_llm_call`,
 # `_resume_unlocked`, and `_execute_cell` each hold two handlers, so the handler
 # count is five above the anchor count.
-EXPECTED_HANDLER_COUNT = 37
-EXPECTED_ANCHOR_COUNT = 32
+EXPECTED_HANDLER_COUNT = 39
+EXPECTED_ANCHOR_COUNT = 34
 
 
 class DerivedSite(NamedTuple):

@@ -4,6 +4,34 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **OMH now engages on an ordinary prompt, and the trigger is what the model
+  does rather than what the user typed.** Four measured causes of one report
+  ("거의 todo나 에이전트 호출을 하지 않더라"). The plugin bundle's invocation
+  vocabulary had drifted behind the router's: a bare `ulw` was a clean explicit
+  dispatch on `public_chat_route_payload` and a zero-length context from
+  `awareness_route_hint`, and so were the historical `omh-loop` and
+  `omh-research` labels, because the pre-ULW alias was only added inside the
+  display-name override branch. The bundle runs in a live session while the
+  routing corpora measure `src/routing/`, so every routing test stayed green
+  over a dead surface; a parity test now re-derives both vocabularies and fails
+  on divergence. A route hint for a workflow whose run *is* a checklist now
+  says to declare one — six workflows, not `ulw-context` or `ulw-interview`,
+  which are engines that produce one card or one question. Awareness was gated
+  on the user's message already containing OMH vocabulary, so six of eight
+  ordinary work requests got nothing; the session's first turn now carries the
+  primer unconditionally (897 characters, once), deliberately not on a task-size
+  test, since the largest request in that set was one of the misses.
+  None of that makes a plain session declare a plan, so two behaviour-triggered
+  nudges ride `transform_tool_result`: one on the third `write_file`/`patch`
+  result with no plan record, one on the fifth direct search/read with nothing
+  routed. Both latch off permanently on a record — the plan record, or the tool
+  name the host handed the hook — never on a string the model wrote, and both
+  are bounded at two per session (worst case 1,418 characters). `subagent_start`
+  is registered so a delegated child, which runs under its own session id on a
+  seam carrying no agent identity, is never asked to declare its parent's
+  checklist. Known boundary shared with #1549: the gate is `write_file`/`patch`,
+  not "edited code", so a session that edits through the shell is never nudged.
+
 - **An `ultrawork` run now meets its "declare the plan first" instruction
   before it starts, not after it has finished.** The one sentence telling the
   engine to initialize its phase todo was the sixth bullet of a ninety-line

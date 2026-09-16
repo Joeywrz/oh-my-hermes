@@ -142,7 +142,8 @@ e827fadf56437016fb69516db1b903b7c830c3c57ebb250113384ecd7986bb41  omh-product-di
 c4b545ab2472299450aa8279f3d15a64afbfada6e14314f083d3f905aa52a19a  omh-product-discovery-validation/references/procedure.md
 5547ba0eb3674741c8fc949ef7a1b13b5c3f1d968c1605a63393a71cd29daa3f  omh-production-audit/SKILL.md
 9fb1ff6f17175c7ce7dfa3c4686acbe2a3e0ff87d9a560265f02be25119ef4ae  omh-provider-profile-posture/SKILL.md
-96c77a0d51a3a714c2799b2d2e84c89f2c2cb5c661de4e27d93076307fd6b7aa  omh-refactor-plan/SKILL.md
+d14d24391366ccd6ef0765d9229d831a8ee3049c3ed0ff6e442299b71c514f2a  omh-refactor-plan/SKILL.md
+b754550de95896a85e541b5e8f7d46a45696dfa1f73afe57bf7de4df114ebac0  omh-refactor-plan/references/dependency-upgrade.md
 492cfcd81b1b44ffb54bcb16b6dc319549a7ee868d95b21176fa9cc0fa06f035  omh-refactor-plan/references/refactor-phases.md
 323407ddfc6847cf7864007c0f1778a5c368e4a84e331f6d8835a9515d3f269a  omh-reliability-review/SKILL.md
 edf909644bf7457f4e23e2abdae670962222318840d0816fae2d5c8adf40b113  omh-report-package/SKILL.md
@@ -309,6 +310,7 @@ omh-product-discovery-validation/references/procedure.md
 omh-production-audit/SKILL.md
 omh-provider-profile-posture/SKILL.md
 omh-refactor-plan/SKILL.md
+omh-refactor-plan/references/dependency-upgrade.md
 omh-refactor-plan/references/refactor-phases.md
 omh-reliability-review/SKILL.md
 omh-report-package/SKILL.md
@@ -502,7 +504,8 @@ cat > "$target/.omh-agent-skills-manifest.json" <<'OMH_RECEIPT'
     "omh-product-discovery-validation/references/procedure.md": "c4b545ab2472299450aa8279f3d15a64afbfada6e14314f083d3f905aa52a19a",
     "omh-production-audit/SKILL.md": "5547ba0eb3674741c8fc949ef7a1b13b5c3f1d968c1605a63393a71cd29daa3f",
     "omh-provider-profile-posture/SKILL.md": "9fb1ff6f17175c7ce7dfa3c4686acbe2a3e0ff87d9a560265f02be25119ef4ae",
-    "omh-refactor-plan/SKILL.md": "96c77a0d51a3a714c2799b2d2e84c89f2c2cb5c661de4e27d93076307fd6b7aa",
+    "omh-refactor-plan/SKILL.md": "d14d24391366ccd6ef0765d9229d831a8ee3049c3ed0ff6e442299b71c514f2a",
+    "omh-refactor-plan/references/dependency-upgrade.md": "b754550de95896a85e541b5e8f7d46a45696dfa1f73afe57bf7de4df114ebac0",
     "omh-refactor-plan/references/refactor-phases.md": "492cfcd81b1b44ffb54bcb16b6dc319549a7ee868d95b21176fa9cc0fa06f035",
     "omh-reliability-review/SKILL.md": "323407ddfc6847cf7864007c0f1778a5c368e4a84e331f6d8835a9515d3f269a",
     "omh-report-package/SKILL.md": "edf909644bf7457f4e23e2abdae670962222318840d0816fae2d5c8adf40b113",

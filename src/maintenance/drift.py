@@ -263,7 +263,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # what a war room is), a military rank, severity as a bug-tracker
             # field, a manufacturing line down for maintenance, and a
             # figurative outage.
-            expected=241,
+            expected=242,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",

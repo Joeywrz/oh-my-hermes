@@ -10,6 +10,7 @@ from _local_package import load_local_package
 load_local_package()
 
 from omh.plugin_bundle.omh.runtime_reader import read_omh_hud  # noqa: E402
+from test_kanban_board_reader import NOW, build_board, task  # noqa: E402
 
 
 class HudPayloadBudgetTests(unittest.TestCase):
@@ -41,3 +42,22 @@ class HudPayloadBudgetTests(unittest.TestCase):
             )
             self.assertEqual(payload["privacy"], "metadata_only")
             self.assertIn("graph", payload)
+
+    def test_a_full_kanban_board_stays_below_the_widget_buffer(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hermes_home = root / ".hermes"
+            hermes_home.mkdir()
+            build_board(hermes_home / "kanban.db", [
+                task(f"t_{index:08d}", "ready", title="x" * 400, assignee="a" * 100,
+                     skills='["' + "s" * 200 + '"]', model_override="m" * 200, created_at=NOW - index)
+                for index in range(100)
+            ])
+
+            payload = read_omh_hud(root / ".omh", hermes_home, status={"runs": []})
+            encoded = json.dumps(payload).encode("utf-8") + b"\n"
+
+            self.assertLess(len(encoded), 65_536)
+            self.assertEqual(len(payload["subagents"]["rows"]), 8)
+            self.assertEqual(payload["kanban"]["rows_total"], 64)
+            self.assertEqual(payload["subagents"]["hidden_rows"], 56)

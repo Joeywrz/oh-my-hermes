@@ -14,6 +14,7 @@ from unittest import mock
 
 from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
 from omh.tui_widget_pack import widget_payload
+from test_kanban_board_reader import build_board, task
 from test_plugin_hermes_delegation import NOW, PARENT_ID, _build_state_db, _write_manifest
 
 
@@ -133,6 +134,39 @@ class HudConversationScopeTests(unittest.TestCase):
         self.assertEqual(result['subagents']['scope'], 'mixed')
         self.assertEqual(result['runtime']['scope'], 'global')
         self.assertNotEqual(result['graph'].get('reason'), 'session_ownership_unavailable')
+
+    def test_kanban_rows_are_owned_by_the_same_conversation_identities(self):
+        # The board stamps a task with the originating HERMES_SESSION_ID, the
+        # durable id state.db names, so board rows scope exactly like the
+        # delegate rows: owned for a mapped conversation, explicitly global
+        # for an unmapped one, and never borrowed across owners.
+        self.build()
+        build_board(self.hermes / 'kanban.db', [
+            task('t_mine0001', 'running', title='Own board task', started_at=int(NOW) - 5, session_id=PARENT_ID),
+            task('t_other001', 'ready', title='Other board task', session_id='other-owner'),
+        ])
+        with mock.patch('omh.plugin_bundle.omh.kanban_board_reader.time.time', return_value=NOW):
+            own = self.hud(session_ref=PARENT_ID)
+            other = self.hud(session_ref='other-owner')
+            unmapped = self.hud(tui_session_ref='unmapped')
+            nobody = self.hud(session_ref='empty-owner')
+        board_rows = [row for row in own['subagents']['rows'] if row.get('lane_backend') == 'kanban']
+        self.assertEqual([row['task_id'] for row in board_rows], ['mine0001'])
+        self.assertEqual(board_rows[0]['scope'], 'session')
+        self.assertEqual(own['subagents']['scope'], 'session')
+        self.assertEqual((own['subagents']['active'], own['subagents']['running']), (2, 2))
+        self.assertEqual(own['kanban']['rows_total'], 1)
+        self.assertEqual(
+            [row['task_id'] for row in other['subagents']['rows'] if row.get('lane_backend') == 'kanban'],
+            ['other001'],
+        )
+        self.assertEqual(sorted(row['task_id'] for row in unmapped['subagents']['rows'] if row.get('lane_backend') == 'kanban'),
+                         ['mine0001', 'other001'])
+        self.assertEqual(unmapped['subagents']['scope'], 'global')
+        # A mapped conversation that owns no board task sees the whole board
+        # as explicitly global, and the header says both scopes are on screen.
+        self.assertEqual(nobody['subagents']['scope'], 'global')
+        self.assertTrue(all(row['scope'] == 'global' for row in nobody['subagents']['rows']))
 
     def test_widget_unknown_identity_preserves_existing_todo_fallback(self):
         self.build()

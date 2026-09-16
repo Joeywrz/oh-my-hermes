@@ -16,6 +16,7 @@ from typing import Any, Callable
 
 from .approval_bypass import effective_approval_bypass
 from .hermes_delegation import read_hermes_native_subagents
+from .kanban_board_reader import conversation_session_ids, kanban_db_path, read_kanban_lanes
 from .live_session import LIVE_TUI_SESSION_FRESH_SECONDS, live_tui_session_rows
 from .subagent_graph import project_subagent_graph
 from .subagent_graph_contract import (
@@ -786,6 +787,19 @@ def _ordered_activity_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return running + blocked + done
 
 
+def _hud_kanban_lanes(hermes: Path, session_ref: str) -> dict[str, Any]:
+    """Board lanes for the HUD, scoped like the native delegate rows.
+
+    The existence check comes first so an install with no board never opens
+    state.db a second time per poll just to compute owners it cannot use.
+    """
+    db = kanban_db_path(hermes)
+    if db is None or not db.is_file():
+        return read_kanban_lanes(hermes, session_ids=set(), limit=ACTIVITY_ROW_LIMIT)
+    owners = conversation_session_ids(hermes, session_ref) if session_ref else set()
+    return read_kanban_lanes(hermes, session_ids=owners, limit=ACTIVITY_ROW_LIMIT)
+
+
 def read_omh_hud(
     omh_home: str | Path | None = None,
     hermes_home: str | Path | None = None,
@@ -908,6 +922,38 @@ def read_omh_hud(
         # payload that may hold none.
         if native.get("attestation_coverage"):
             merged["attestation_coverage"] = native["attestation_coverage"]
+        if merged.get("status") == "idle":
+            merged["status"] = "observed"
+    # Hermes Kanban lanes are a third source of work the HUD must show: board
+    # tasks a dispatcher runs as detached workers, which neither the OMH
+    # runtime store nor state.db's delegate rows describe. Read-only, and
+    # owned by the same conversation identities the native reader owns
+    # delegate_task children with; see kanban_board_reader.
+    kanban = _hud_kanban_lanes(hermes, reference if scoped else "")
+    payload["kanban"] = {
+        "board": kanban["board"],
+        "dispatcher_presence": kanban["dispatcher_presence"],
+        "rows_total": len(kanban["rows"]) + int(kanban["hidden"]),
+        "queued": kanban["queued"],
+        "running": kanban["running"],
+        "blocked": kanban["blocked"],
+        "done": kanban["completed"],
+    }
+    if kanban["rows"]:
+        merged = payload["subagents"]
+        if merged["scope"] != kanban["scope"]:
+            merged["scope"] = "mixed"
+        combined = _ordered_activity_rows(list(merged["rows"]) + list(kanban["rows"]))
+        merged["hidden_rows"] = (
+            max(0, len(combined) - ACTIVITY_ROW_LIMIT)
+            + int(merged.get("hidden_rows", 0))
+            + int(kanban["hidden"])
+        )
+        merged["rows"] = combined[:ACTIVITY_ROW_LIMIT]
+        merged["active"] = int(merged.get("active", 0)) + int(kanban["active"])
+        merged["running"] = int(merged.get("running", 0)) + int(kanban["running"])
+        merged["blocked"] = int(merged.get("blocked", 0)) + int(kanban["blocked"])
+        merged["completed"] = int(merged.get("completed", 0)) + int(kanban["completed"])
         if merged.get("status") == "idle":
             merged["status"] = "observed"
     payload["graph"] = _hud_subagent_graph(

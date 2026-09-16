@@ -351,6 +351,37 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("layout.routeKind === 'route-fallback' || layout.routeKind === 'maestro'", widget)
         self.assertIn("|| segment.kind === 'maestro'", widget)
 
+    def test_kanban_lane_rows_render_an_accent_colored_board_identity(self) -> None:
+        # A Hermes Kanban task (reader: kanban_board_reader) is board work a
+        # dispatcher runs as a detached worker, not a delegate_task child.
+        # Its identity names the assignee profile and the per-task model
+        # override, `(kanban miku gpt-5.6-sol)`, in the theme's accent tone --
+        # the one token the widget had no other use for -- so the board lane
+        # is told apart from the native (label) and Maestro (warn) lanes by
+        # colour alone, still never a literal.
+        widget = resources.files("omh.tui_widgets").joinpath("omh-status.mjs").read_text(encoding="utf-8")
+
+        self.assertIn("if (safeText(row.lane_backend) === 'kanban') {", widget)
+        self.assertIn("return metricSegment('kanban', `(kanban ${assignee}${modelName ? ` ${modelName}` : ''})`)", widget)
+        self.assertIn("layout.routeKind === 'kanban'", widget)
+        self.assertEqual(widget.count("t.color.accent"), 1)
+        # Board verdicts the reader projects: a queued task has no worker and
+        # must not spin (a muted static dot), a stale one has a worker that
+        # stopped heartbeating (a warn bang). The tail keeps the board's own
+        # status word (`ready`, `review`, `archived`) rather than the verdict.
+        self.assertIn("const queued = row.state === 'queued'", widget)
+        self.assertIn("const stale = row.state === 'stale'", widget)
+        self.assertIn("queued ? '·' : stale ? '!'", widget)
+        self.assertIn("queued ? t.color.muted : stale ? t.color.warn : t.color.ok", widget)
+        self.assertIn("? safeText(row.native_status) || safeText(row.state) || 'running'", widget)
+        self.assertIn("scheduled: 'sched', archived: 'arch', review: 'rev'", widget)
+        # The header keeps its count line and appends the board tally only
+        # while the board has rows, plus the reader's dispatcher verdict.
+        self.assertIn("const board = payload.kanban || {}", widget)
+        self.assertIn("` · board ${Number(board.queued) || 0}q ${Number(board.running) || 0}r ${Number(board.blocked) || 0}b`", widget)
+        self.assertIn("board.dispatcher_presence === 'not_observed'", widget)
+        self.assertIn("' · dispatcher not observed'", widget)
+
     def test_hud_liveness_signal_drives_the_status_line_todo_and_shot_badge(self) -> None:
         # 2026-08 HUD liveness fix: exact in-flight tool-call state (paired
         # from pre_tool_call/post_tool_call by tool_call_id) replaces three

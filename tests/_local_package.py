@@ -27,6 +27,11 @@ def _redirect_home_env_to_temp_root() -> None:
     root = Path(holder.name)
     os.environ["OMH_HOME"] = str(root / "omh")
     os.environ["HERMES_HOME"] = str(root / "hermes")
+    # The Kanban board reader honours these over the redirected home, so a
+    # developer's live board would otherwise leak into every temp-home HUD
+    # and hook test that does not patch them itself.
+    os.environ["HERMES_KANBAN_HOME"] = ""
+    os.environ["HERMES_KANBAN_BOARD"] = ""
 
 
 _redirect_home_env_to_temp_root()

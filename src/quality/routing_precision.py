@@ -2031,6 +2031,34 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
 # Positive-intervention corpus. These are real OMH-shaped turns where the router
 # should still step in after the direct-answer fallback was added.
 ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
+    # `docs/INSTALLATION.md` tells users to type `ulw work …`, and only the
+    # hyphenated label routed: `ulw` alone is an `ultrawork` trigger at score
+    # 12, so it took the whole request and the second word was never read.
+    # `ulw plan` reached `ultrawork` and `ulw qa` did too -- the opposite of
+    # what was asked, silently. One case per suffix whose target differs from
+    # `ultrawork`, because a suffix that happens to agree proves nothing.
+    RoutingInterventionCase(
+        'ulw-spaced-plan', 'The spaced ULW form reaches the plan engine',
+        'ulw plan', 'dispatch', 'ralplan', 'forward_plan_to_selected_workflow', 'plan',
+    ),
+    RoutingInterventionCase(
+        'ulw-spaced-qa', 'The spaced ULW form reaches the QA engine',
+        'ulw qa', 'dispatch', 'ultraqa', 'dispatch_to_workflow', 'qa_review',
+    ),
+    # The other side: joining must not widen `ulw` itself. Alone it is still
+    # the delivery engine, and a second word the catalog does not render as a
+    # `ulw-` label is not joined into a skill name that does not exist.
+    RoutingInterventionCase(
+        'ulw-bare-stays-ultrawork', 'ULW alone still means the delivery engine',
+        # The sigilled spelling, which is what the installation doc tells a
+        # user to type. Bare `ulw` is three characters and trips the
+        # raw-message-echo check by coincidence rather than by leaking.
+        '$ulw', 'dispatch', 'ultrawork', 'forward_plan_to_selected_workflow', 'plan',
+    ),
+    RoutingInterventionCase(
+        'ulw-unknown-suffix-not-joined', 'An unrendered second word is not joined',
+        'ulw something', 'dispatch', 'ultrawork', 'ask_clarification', 'clarification',
+    ),
     # The other half of #1638. A guard measured only on what it suppresses is
     # "improved" until nothing routes, so the same names that must not dispatch
     # inside an approval must still dispatch when they are actually asked for

@@ -1795,6 +1795,38 @@ def _canonical_skill_by_display_name() -> dict[str, str]:
     return mapping
 
 
+@lru_cache(maxsize=1)
+def _ulw_label_suffixes() -> frozenset[str]:
+    """The second word of every `ulw-` label the catalog renders.
+
+    Derived, not listed, so a new `ulw-` skill joins without a second edit.
+    """
+    return frozenset(
+        label.split("-", 1)[1]
+        for label in _canonical_skill_by_display_name()
+        if label.startswith("ulw-") and "-" in label
+    )
+
+
+def _joined_ulw_invocation(routing_message: str) -> str:
+    """`ulw plan` means `ulw-plan`, the same invocation written with a space.
+
+    `docs/INSTALLATION.md` tells users to type `ulw work …`, and only the
+    hyphenated spelling routed: `ulw` on its own is an `ultrawork` trigger, so
+    it took the whole request at score 12 and the second word was never read.
+    `ulw plan` reached `ultrawork` and `ulw qa` did too, which is the opposite
+    of what the reader asked for and silent about it.
+
+    Only suffixes the catalog actually renders are joined, so `ulw something`
+    keeps whatever it matched before and `ulw` alone still means `ultrawork`.
+    """
+    suffixes = _ulw_label_suffixes()
+    if not suffixes:
+        return routing_message
+    pattern = rf"\bulw[ \t]+({'|'.join(sorted(map(re.escape, suffixes), key=len, reverse=True))})\b"
+    return re.sub(pattern, r"ulw-\1", routing_message, flags=re.IGNORECASE)
+
+
 def _with_canonical_display_names(routing_message: str) -> str:
     """Accept the `omh-` labels wrapper bodies render as input to routing matching.
 
@@ -1807,6 +1839,9 @@ def _with_canonical_display_names(routing_message: str) -> str:
         contains_cue_phrase(routing_message, ("omh-docs",)) and not is_omh_docs_question(routing_message)
     ):
         routing_message = canonical_display_mentions(routing_message, {"omh-docs": ""})
+    # Join the spaced form first: the mapping below is keyed on the rendered
+    # labels, which are hyphenated.
+    routing_message = _joined_ulw_invocation(routing_message)
     return canonical_display_mentions(routing_message, _canonical_skill_by_display_name())
 
 

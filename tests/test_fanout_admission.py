@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Iterable
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -161,6 +162,37 @@ class AdaptiveAdmissionReceiptTests(unittest.TestCase):
         self.assertEqual(receipt["adjustments"][0]["unit_id"], "[redacted]")
         self.assertNotIn(sensitive_unit_id, str(receipt))
 
+    def test_a_result_that_is_neither_clean_nor_pressure_leaves_the_window_alone(self) -> None:
+        """The `else: return` branch of the rule, pinned as a contract.
+
+        `FanoutRecoveredPressureIntegrationTests` builds its fixture on this:
+        a unit that exists only to occupy a slot returns an inert result so
+        the order it reaches the collector in cannot change another unit's
+        adjustment row. If the rule ever starts acting on these, that fixture
+        silently goes back to depending on completion order -- which is what
+        issue #1639 was.
+        """
+        from omh.coding.fanout_admission import AdaptiveFanoutAdmission
+
+        admission = AdaptiveFanoutAdmission(ceiling=4)
+        admission.observe(
+            "clean",
+            {"status": "completed", "exit_code": 0, "process_succeeded": True},
+        )
+        self.assertEqual(admission.window, 3)
+        for failure_kind in ("auth_shaped", "timeout", "binary_missing", "crash"):
+            admission.observe(
+                f"other-{failure_kind}",
+                {"status": "failed", "exit_code": 1, "failure_kind": failure_kind},
+            )
+            self.assertEqual(admission.window, 3, failure_kind)
+        receipt = admission.receipt()
+        # Counted as observed completions, but never as adjustments: the
+        # dispatch saw them, and the window did not move.
+        self.assertEqual(receipt["observed_completion_count"], 5)
+        self.assertEqual(receipt["adjustment_count"], 1)
+        self.assertEqual([row["unit_id"] for row in receipt["adjustments"]], ["clean"])
+
     def test_receipt_bounds_provider_pressure_and_recovered_retry_adjustments(self) -> None:
         from omh.coding.fanout_admission import AdaptiveFanoutAdmission
 
@@ -229,8 +261,11 @@ class AdaptiveAdmissionReceiptTests(unittest.TestCase):
 
 
 class _RetryControlledRunner:
-    def __init__(self, pressure_unit: str) -> None:
+    def __init__(self, pressure_unit: str, inert_units: Iterable[str] = ()) -> None:
         self.pressure_unit = pressure_unit
+        # Units whose result must not move the admission window, whatever
+        # order they reach the collector in. See `_FakeInertCompleted`.
+        self.inert_units = frozenset(inert_units)
         self.attempts: dict[str, int] = {}
         self.started: list[tuple[str, int]] = []
         self._released: set[tuple[str, int]] = set()
@@ -255,6 +290,8 @@ class _RetryControlledRunner:
             raise AssertionError(f"timed out waiting to release {key}")
         if key == (self.pressure_unit, 1):
             return _FakeLimitCompleted()
+        if unit_id in self.inert_units:
+            return _FakeInertCompleted()
         return _FakeCompleted()
 
     def wait_for_distinct_units(self, count: int, timeout: float = _PROGRESS_WAIT_SECONDS) -> bool:
@@ -288,7 +325,48 @@ class _FakeLimitCompleted:
     stderr = ""
 
 
+class _FakeInertCompleted:
+    """A process result `AdaptiveFanoutAdmission.observe` deliberately ignores.
+
+    The rule moves the window for exactly two classes -- a clean completion
+    and provider-limit pressure -- and returns without touching it for
+    anything else. A fixture unit whose only job is to occupy a slot returns
+    this, so WHEN it reaches the collector cannot change what another unit's
+    adjustment row records.
+    """
+
+    returncode = 1
+    stdout = "unit failed for a reason unrelated to provider capacity"
+    stderr = ""
+
+
 class FanoutRecoveredPressureIntegrationTests(unittest.TestCase):
+    """Pressure shrinks the window before the next queued unit is admitted.
+
+    Every unit but `a-clean` and `b-pressure` exists only to occupy or queue
+    behind the grown window, and each returns an inert result: the window
+    this test asserts on must be decided by those two alone.
+
+    That is not tidiness. The collector accounts results in completion
+    order, and `release_all()` below unblocks the held units on a 0.2s
+    NEGATIVE wait -- a bound that exists to prove no fifth unit starts, not
+    to prove `b-pressure` was accounted first. If `b-pressure`'s result is
+    still in flight when that bound elapses, a held unit can reach the
+    collector first; a clean one would grow the window 3 -> 4 and the
+    pressure row would read `(4, 2)`, which is what CI observed once
+    (issue #1639). An inert result cannot, so the ordering stops mattering.
+
+    Holding back only `c-hold` and `d-hold` is not enough, and the measured
+    reason is worth keeping: once those two complete, the frontier reopens
+    and `e-later`/`f-later` are admitted and return at once, so a clean
+    result from either reaches the collector by the same route. Measured at
+    a 0.5s lag on `b-pressure`, that alone reproduced `(4, 2)`.
+
+    The rule that a clean completion grows the window by one is still
+    exercised here by `a-clean`'s own row, and pinned directly and without
+    threads by `test_fanout_capacity.CapacityCompatibilityTests`.
+    """
+
     def test_recovered_limit_pressure_reduces_admission_before_the_next_queued_unit(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -333,7 +411,9 @@ class FanoutRecoveredPressureIntegrationTests(unittest.TestCase):
                     },
                 ),
             )
-            runner = _RetryControlledRunner("b-pressure")
+            runner = _RetryControlledRunner(
+                "b-pressure", inert_units=("c-hold", "d-hold", "e-later", "f-later")
+            )
 
             with ThreadPoolExecutor(max_workers=1) as caller:
                 future = caller.submit(

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import importlib.resources as resources
 import importlib.util
+import json
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from ..version import __version__
 from ..hashutil import sha256_file, sha256_text
@@ -18,6 +20,16 @@ PLUGIN_NAME = "omh"
 PLUGIN_SCHEMA_VERSION = "plugin_distribution/v1"
 PLUGIN_MANAGED_MANIFEST = ".omh-plugin-manifest.json"
 PLUGIN_ENABLE_HINT = "Hermes may require `hermes plugins enable omh` after the bundle is installed."
+
+# The enforcement probe's vocabulary (issue #1561). Every name here is
+# fabricated: no host serves a tool by either name and `PROVIDED_TOOLS` lists
+# neither, so the probe cannot be mistaken for a real call by anything that
+# sees it. The marker is the only content the probe's arguments carry.
+ENFORCEMENT_PROBE_SCOPED_TOOL = "omh_enforcement_probe_scoped"
+ENFORCEMENT_PROBE_UNSCOPED_TOOL = "omh_enforcement_probe_unscoped"
+ENFORCEMENT_PROBE_MARKER = "omh-doctor-enforcement-smoke"
+ENFORCEMENT_PROBE_SESSION = "omh-doctor-enforcement-smoke"
+ENFORCEMENT_PROBE_RULES_FILE = "toolcall-rules.json"
 
 
 class PluginPackError(Exception):
@@ -182,6 +194,14 @@ def inspect_plugin_bundle(paths: OmhPaths) -> dict[str, Any]:
     smoke = _register_smoke(target) if target.exists() and plugin_yaml.exists() and init_py.exists() else {}
     import_smoke = bool(smoke.get("import_smoke", False))
     register_smoke = bool(smoke.get("register_smoke", False))
+    # Only after the bundle has been proven to import. A probe against a
+    # bundle that does not load would report `unknown` for a reason the import
+    # tier already named, which is noise, not a second finding.
+    enforcement = (
+        _enforcement_smoke(target)
+        if import_smoke
+        else _enforcement_unknown("the installed plugin bundle has not passed local import smoke")
+    )
     if target.exists() and smoke.get("error"):
         errors.append(str(smoke["error"]))
     missing_tools = [str(item) for item in smoke.get("missing_registered_tools", [])]
@@ -213,6 +233,10 @@ def inspect_plugin_bundle(paths: OmhPaths) -> dict[str, Any]:
         "plugin_manifest_conformance": conformance,
         "plugin_import_smoke": import_smoke,
         "plugin_register_smoke": register_smoke,
+        "plugin_enforcement_smoke": bool(enforcement["enforcement_smoke"]),
+        "plugin_enforcement_status": str(enforcement["enforcement_status"]),
+        "plugin_enforcement_decision": str(enforcement["enforcement_decision"]),
+        "plugin_enforcement_detail": str(enforcement["enforcement_detail"]),
         "registered_tools": smoke.get("registered_tools", []),
         "registered_hooks": smoke.get("registered_hooks", []),
         "missing_registered_tools": missing_tools,
@@ -478,6 +502,175 @@ def _register_smoke(plugin_dir: Path) -> dict[str, Any]:
         return {"import_smoke": False, "register_smoke": False, "error": f"plugin smoke failed: {exc}"}
     finally:
         _clear_smoke_modules(module_name)
+
+
+def _enforcement_smoke(plugin_dir: Path) -> dict[str, Any]:
+    """Ask the INSTALLED bundle for a decision and report the one it gave.
+
+    The third tier proves `register()` is callable. It says nothing about
+    whether the registered `pre_tool_call` seam still decides anything: a
+    bundle whose rule matcher returns `None` for every call registers exactly
+    as well as one that enforces, and every check that existed before this one
+    passed it.
+
+    Two probes, because one cannot tell enforcement from a stuck answer. The
+    first names a tool the probe rule scopes and carries the rule's marker, so
+    a working matcher must return the host's block directive. The second names
+    a tool the same rule does not scope, so a working matcher must let it
+    proceed. A bundle that blocks both is refusing indiscriminately, and a
+    bundle that blocks neither is not enforcing; both are `no_decision`, and
+    both still pass the import and register tiers, which is the distinction
+    the issue asks the report to keep.
+
+    Harmless by construction, not by choice of a realistic command. The tool
+    names exist nowhere -- not in `PROVIDED_TOOLS`, not in any host -- and the
+    arguments carry one marker string and no path, command, or content. The
+    rules file is written into a temporary directory that is this probe's
+    entire OMH home, so the operator's own rules are neither read nor claimed
+    (a `repeat="always"` rule never touches the once-per-session ledger) and
+    nothing outside the temporary directory is written.
+    """
+    module_name = "_omh_plugin_enforcement_smoke"
+    _clear_smoke_modules(module_name)
+    try:
+        package = _load_installed_module(
+            module_name,
+            plugin_dir / "__init__.py",
+            search_locations=[str(plugin_dir)],
+        )
+        if package is None:
+            return _enforcement_unknown("could not load plugin spec for the enforcement probe")
+        # The rules module by FILE, through the same loader the register tier
+        # uses, never `importlib.import_module`. INVARIANT 1 of
+        # `tests/test_handoff_safety_contract_enforcement.py` forbids reaching
+        # a module by name: a name resolves against the interpreter's search
+        # path, so `import_module` could reach `subprocess` and no static gate
+        # in that file would see it. A path reaches exactly the file named
+        # here -- one hash-pinned file of the managed bundle, under the
+        # directory the manifest covers -- and reaches nothing else.
+        rules_module = _load_installed_module(
+            f"{module_name}.toolcall_rules", plugin_dir / "toolcall_rules.py"
+        )
+        if rules_module is None:
+            return _enforcement_unknown(
+                "the installed bundle has no loadable toolcall_rules module, so no decision "
+                "could be requested"
+            )
+        directive_for = getattr(rules_module, "toolcall_rule_directive", None)
+        if not callable(directive_for):
+            return _enforcement_unknown(
+                "installed bundle exposes no toolcall_rule_directive(); it predates the "
+                "enforcement seam, so no decision could be requested"
+            )
+        with tempfile.TemporaryDirectory(prefix="omh-enforcement-smoke-") as probe_home:
+            rules_path = Path(probe_home) / "rules" / ENFORCEMENT_PROBE_RULES_FILE
+            rules_path.parent.mkdir(parents=True, exist_ok=True)
+            rules_path.write_text(
+                json.dumps(_enforcement_probe_rules(rules_module), ensure_ascii=False),
+                encoding="utf-8",
+            )
+            scoped = directive_for(
+                tool_name=ENFORCEMENT_PROBE_SCOPED_TOOL,
+                tool_input={"probe": ENFORCEMENT_PROBE_MARKER},
+                session_id=ENFORCEMENT_PROBE_SESSION,
+                omh_home=probe_home,
+            )
+            unscoped = directive_for(
+                tool_name=ENFORCEMENT_PROBE_UNSCOPED_TOOL,
+                tool_input={"probe": ENFORCEMENT_PROBE_MARKER},
+                session_id=ENFORCEMENT_PROBE_SESSION,
+                omh_home=probe_home,
+            )
+    except Exception as exc:  # noqa: BLE001 - classified below, never a pass
+        # Classified and surfaced: the tier reports `unknown` with the error,
+        # which is distinct from both `enforced` and `no_decision`. A probe
+        # that cannot run has not observed a decision, and reporting it as a
+        # pass is the exact failure this tier exists to prevent.
+        return _enforcement_unknown(f"plugin enforcement probe failed: {exc}")
+    finally:
+        _clear_smoke_modules(module_name)
+    scoped_action = str(scoped.get("action", "")) if isinstance(scoped, Mapping) else ""
+    unscoped_action = str(unscoped.get("action", "")) if isinstance(unscoped, Mapping) else ""
+    decision = f"scoped={scoped_action or 'proceed'} unscoped={unscoped_action or 'proceed'}"
+    if scoped_action == "block" and not unscoped_action:
+        return {
+            "enforcement_smoke": True,
+            "enforcement_status": "enforced",
+            "enforcement_decision": decision,
+            "enforcement_detail": (
+                "the installed bundle returned the host block directive for the scoped probe "
+                "and let the unscoped probe proceed"
+            ),
+        }
+    return {
+        "enforcement_smoke": False,
+        "enforcement_status": "no_decision",
+        "enforcement_decision": decision,
+        "enforcement_detail": (
+            "the installed bundle imports and registers, but its rule matcher did not decide: "
+            f"expected scoped=block unscoped=proceed, observed {decision}"
+        ),
+    }
+
+
+def _load_installed_module(
+    module_name: str,
+    path: Path,
+    *,
+    search_locations: list[str] | None = None,
+) -> Any | None:
+    """Execute one named file of the installed bundle as `module_name`, or None.
+
+    The primitive `_register_smoke` already uses, factored out so the
+    enforcement probe reaches the rules module the same way and by the same
+    rule: a file path, never a module name. `sys.modules` is populated before
+    execution so the loaded file's own relative imports (`from . import
+    runtime_paths`) resolve against the package already registered under
+    `module_name`'s parent.
+    """
+    spec = importlib.util.spec_from_file_location(
+        module_name, path, submodule_search_locations=search_locations
+    )
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _enforcement_probe_rules(rules_module: Any) -> dict[str, Any]:
+    """The one-rule probe document, versioned by the INSTALLED bundle's own constant.
+
+    Read off the loaded module rather than this package's copy: a document
+    stamped with the repo's schema version would be refused whole by an
+    installed bundle at a different one, and the tier would report a matcher
+    fault where the real finding is a stale bundle the freshness tier already
+    names.
+    """
+    return {
+        "schema_version": getattr(rules_module, "TOOLCALL_RULES_SCHEMA_VERSION", ""),
+        "rules": [
+            {
+                "name": "omh-doctor-enforcement-probe",
+                "pattern": ENFORCEMENT_PROBE_MARKER,
+                "message": "OMH doctor enforcement probe; nothing was executed.",
+                "tools": [ENFORCEMENT_PROBE_SCOPED_TOOL],
+                # Always, never once: a once-rule claims a fire against a
+                # session id, and this probe must leave no claim behind.
+                "repeat": "always",
+            }
+        ],
+    }
+
+
+def _enforcement_unknown(detail: str) -> dict[str, Any]:
+    return {
+        "enforcement_smoke": False,
+        "enforcement_status": "unknown",
+        "enforcement_decision": "",
+        "enforcement_detail": detail,
+    }
 
 
 def _clear_smoke_modules(module_name: str) -> None:

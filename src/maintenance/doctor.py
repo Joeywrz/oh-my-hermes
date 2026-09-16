@@ -296,6 +296,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
                     remediation="" if plugin["plugin_register_smoke"] else _plugin_bridge_remediation(plugin),
                     next_action="" if plugin["plugin_register_smoke"] else _plugin_bridge_next_action(plugin),
                 ),
+                _plugin_enforcement_check(plugin),
                 _plugin_loader_observation_check(loader_observation),
                 Check(
                     "plugin_runtime_observed",
@@ -910,6 +911,50 @@ def _plugin_ulw_lifecycle_check(paths: OmhPaths) -> Check:
         "plugin_ulw_lifecycle",
         True,
         "plugin bundle ULW lifecycle table matches the catalog",
+    )
+
+
+def _plugin_enforcement_check(plugin: dict[str, object]) -> Check:
+    """The fourth smoke tier: what the installed bundle actually decided.
+
+    The first three tiers prove the bundle is there, imports, and registers.
+    None of them asks it to decide anything, so a bundle whose rule matcher
+    answers `None` for every call passes all three. This tier asks, and
+    reports the decision it got back rather than that the call completed.
+
+    Three outcomes, kept apart on purpose. `enforced` observed a block on the
+    scoped probe and a proceed on the unscoped one. `no_decision` got an
+    answer that is not enforcement -- the import and register tiers still pass
+    beside it, and that contrast is the finding. `unknown` could not obtain a
+    decision at all; it does not pass, because a check that cannot tell must
+    not return the safe-looking answer.
+    """
+    status = str(plugin.get("plugin_enforcement_status", "unknown"))
+    detail = str(plugin.get("plugin_enforcement_detail", ""))
+    decision = str(plugin.get("plugin_enforcement_decision", ""))
+    if status == "enforced":
+        return Check(
+            "plugin_enforcement_smoke",
+            True,
+            f"installed plugin decided a benign probe: {decision}; {detail}",
+        )
+    remediation = "Run `omh setup --force` to reinstall the managed plugin bundle, then `omh doctor` again."
+    if status == "unknown":
+        return Check(
+            "plugin_enforcement_smoke",
+            False,
+            f"no enforcement decision could be observed: {detail}",
+            severity="warning",
+            remediation=remediation,
+            next_action="Run `omh setup --force`, then `omh doctor` again.",
+            observed=False,
+        )
+    return Check(
+        "plugin_enforcement_smoke",
+        False,
+        f"installed plugin loads and registers but does not enforce: {detail}",
+        remediation=remediation,
+        next_action="Run `omh setup --force`, then `omh doctor` again.",
     )
 
 

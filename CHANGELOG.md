@@ -561,6 +561,67 @@ All notable changes will be documented here.
   "production" and "war room", and eight interventions pin the live phrasings
   plus the three siblings keeping their own requests. (#1563)
 
+- **Sensitive work can be kept off models whose data policy nobody has read.**
+  Nothing recorded how a model's provider handles the data sent to it, so the
+  only exclusion available was `excluded_providers` at provider granularity and
+  a per-machine reorder of `model-chains.json` — neither grounded in a policy.
+  `MODEL_CONTRACTS` now carries a `data_handling` axis with two closed
+  vocabularies (`training_use`, `retention`) plus the account scope that keeps
+  it out of account-level claims, exactly as `rollout` already does: the value
+  is the vendor's documented default for the surface the contract was read
+  from, and tier, region, and a negotiated agreement move it in both
+  directions. `omh model-chains show --sensitive` declares the work sensitive
+  as a field — never inferred from message text, which
+  `src/quality/safety_preflight.py` forbids outright — and drops every model
+  whose contract does not document a permitting default, naming each exclusion
+  with its own reason: the policy conflicts, the axis is undeclared, the policy
+  was never read, or no contract resolves at all. A model of unknown policy is
+  excluded and named, never silently kept and never silently omitted; the
+  command exits 1 when a category is left with nothing to route to. Both
+  shipped contracts declare the axis as `not_recorded`, because neither
+  vendor's data-usage page is among their sources and inventing a value there
+  would be the claim this axis exists to stop — so every shipped chain empties
+  today, which is the honest state and is now visible rather than assumed. The
+  coverage audit reports the axis as its own dimension, derived from the same
+  verdict the gate acts on so the two cannot disagree. (#1560)
+
+- **`doctor` now proves the plugin enforces, not only that it registered.**
+  The checklist already refused to collapse install, import/register smoke, and
+  Hermes runtime load into one claim, but nothing asked the installed bundle to
+  decide anything: a plugin that loads, registers every tool and hook, and
+  returns `None` for every tool call passed all three tiers. A fourth tier,
+  `plugin_enforcement_smoke`, calls the installed bundle's own
+  `toolcall_rule_directive` in-process against a temporary rules home and
+  reports the decision it got back. Two probes, because one cannot tell
+  enforcement from a stuck answer: a scoped probe the rule names must come back
+  blocked, an unscoped one must proceed. A bundle that decides neither, or
+  blocks both, fails this tier while the import and register tiers keep
+  passing, and the report says so in those words. A bundle whose seam cannot be
+  reached at all reports `unknown` and still does not pass. The probe is
+  harmless by construction rather than by choice of a realistic command: both
+  tool names are fabricated, appear in no host and in `PROVIDED_TOOLS`, the
+  arguments carry one marker and no path, command, or content, the rule is
+  `repeat: always` so no once-per-session claim is consumed, and the rules file
+  lives in a temporary directory that is the probe's entire OMH home. (#1561)
+
+- **Two profiles can be checked for isolation instead of discovered to leak.**
+  `CONTEXT.md` states "Exactly one home is active per invocation" as an
+  invariant and nothing verified it, so a leak between two profiles surfaced as
+  behaviour rather than as a finding. `omh doctor --profile-isolation
+  '<omh-home>[,<hermes-home>]' '<omh-home>[,<hermes-home>]'` compares two
+  profile references across config, cache, plugin state, files, and env, one
+  verdict per surface over named artifacts rather than a tree diff. It reports
+  a shared path as leaked and names the path, catches the two shapes a string
+  comparison misses — two homes symlinked to one target, and one home nested
+  inside the other — and reports `unknown`, never `isolated`, for a surface it
+  could not inspect, which is what a profile reference with no Hermes home
+  produces. The env surface names the ambient `OMH_HOME` or `HERMES_HOME` that
+  pins one of the two profiles for every invocation that forgets a flag. Exit 1
+  on a leak, 3 when nothing leaked but a surface was not inspected, 0 only when
+  every surface was inspected and none leaked. The ordinary `omh doctor` run is
+  unchanged: the sub-check fires only for the operators who pass the flag.
+  (#1562)
+
 ## 2.0.3 - 2026-09-12
 
 Everything merged since the 2.0.2 tag (2026-09-07). Highlights, grouped:

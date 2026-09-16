@@ -115,6 +115,7 @@ from ..team_profiles import (
 )
 from .common import _action_label, _paths, _print_json, _wants_json
 from .language import LANGUAGE_CODES, language_from_env, normalize_language, tr
+from .profile_isolation import add_doctor_profile_isolation_argument
 from .model_setup_flow import (
     ModelSetupFlowDependencies,
     model_activation_result,
@@ -2020,6 +2021,14 @@ def _print_skill_profile_reconcile_summary(payload: dict[str, object]) -> None:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
+    # The pairwise sub-check replaces the checklist rather than appending to
+    # it: it answers a question about two profiles that are not the one this
+    # invocation resolved, and folding its verdicts into the local health
+    # count would make `passing/total` mean two different things at once.
+    if getattr(args, "profile_isolation", None):
+        from .profile_isolation import run_profile_isolation
+
+        return run_profile_isolation(args)
     language = _resolve_language(args)
     payload = _doctor_result(args)
     if _wants_json(args):
@@ -5188,6 +5197,7 @@ def _add_top_level_commands(sub) -> None:
     doctor = sub.add_parser("doctor", help="Check local OMH install health and Hermes skill registration.")
     doctor.add_argument("--json", action="store_true", help="Print the full machine-readable doctor payload.")
     doctor.add_argument("--language", default=None, help=f"Human output language ({', '.join(LANGUAGE_CODES)}).")
+    add_doctor_profile_isolation_argument(doctor)
     doctor.set_defaults(func=cmd_doctor)
 
     recommend = sub.add_parser("recommend", help="Map a task description to likely OMH workflow skills.")

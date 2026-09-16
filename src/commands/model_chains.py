@@ -28,6 +28,10 @@ import re
 import sys
 
 from ..catalogs.model_chain_table import CHAIN_SURFACE_PURPOSES, MODEL_DISPLAY_LABELS
+from ..coding.data_handling_policy import (
+    SENSITIVE_WORK_CHAIN_CLAIM_BOUNDARY,
+    data_handling_filtered_chain,
+)
 from ..local_store import atomic_write_text
 from ..plugin_bundle.omh.hermes_delegation import (
     APPROX_PRICE_PER_MTOK,
@@ -197,14 +201,101 @@ def _print_state(state: dict[str, object]) -> None:
     print("walk all of them with `omh model-chains interview`, or edit the JSON directly.")
 
 
+def _sensitive_state(state: dict[str, object]) -> dict[str, object]:
+    """Re-shape the chain state for declared-sensitive work.
+
+    Sensitivity arrives as the caller's `--sensitive` flag and nothing else;
+    the gate never reads a message, a path, or a category name to decide it.
+    Every category keeps its row even when nothing survives, because a
+    category that vanished would read as one with no chain configured.
+    """
+    categories = state["categories"]
+    assert isinstance(categories, list)
+    shaped: list[dict[str, object]] = []
+    for row in categories:
+        chain = row["chain"]
+        assert isinstance(chain, list)
+        report = data_handling_filtered_chain(
+            [str(entry["model"]) for entry in chain],
+            work_is_sensitive=True,
+        )
+        permitted = set(report["chain"])
+        kept = [entry for entry in chain if str(entry["model"]) in permitted]
+        shaped.append(
+            {
+                **row,
+                "chain": kept,
+                "chain_text": chain_text(
+                    tuple((str(entry["model"]), str(entry["reasoning_effort"])) for entry in kept)
+                ),
+                "data_handling": report,
+            }
+        )
+    empty = [str(row["category"]) for row in shaped if not row["chain"]]
+    return {
+        **state,
+        "categories": shaped,
+        "work_is_sensitive": True,
+        "categories_with_no_permitted_model": empty,
+        "claim_boundary": SENSITIVE_WORK_CHAIN_CLAIM_BOUNDARY,
+    }
+
+
+def _print_sensitive_state(state: dict[str, object]) -> None:
+    print("Model chains for work declared sensitive (category -> permitted order):")
+    categories = state["categories"]
+    assert isinstance(categories, list)
+    for row in categories:
+        report = row["data_handling"]
+        assert isinstance(report, dict)
+        summary = report["summary"]
+        assert isinstance(summary, dict)
+        text = row["chain_text"] or "(no model in this chain has a permitting documented policy)"
+        print(f"  {row['category']}: {text}")
+        for excluded in report["excluded"]:
+            print(f"    excluded {excluded['model']}: {excluded['verdict']} ({excluded['reason']})")
+    empty = state["categories_with_no_permitted_model"]
+    assert isinstance(empty, list)
+    if empty:
+        print("Categories with nothing left to route sensitive work to: " + ", ".join(empty))
+    print(str(state["claim_boundary"]))
+
+
+def _sensitive_chain_exit_code(state: object) -> int:
+    """0 only when every category still has a model declared-sensitive work may use.
+
+    1 when at least one category was emptied. A wrapper reading only the
+    status must not start declared-sensitive work against a chain the gate
+    emptied, and an empty chain is the concrete finding: there is no
+    recoverable lane in which "nothing is permitted" is a normal result. A
+    plain `show` never sets the key, so it keeps returning 0.
+
+    Generic failure signals -- a refused or interrupted run, or a unit
+    carrying a failure kind -- are never success either, so this mapper
+    cannot be passed by ignoring them.
+    """
+    summary = state if isinstance(state, dict) else {}
+    if summary.get("refused") or summary.get("interrupted"):
+        return 1
+    units = summary.get("units")
+    if isinstance(units, list) and any(isinstance(unit, dict) and unit.get("failure_kind") for unit in units):
+        return 1
+    return 1 if summary.get("categories_with_no_permitted_model") else 0
+
+
 def cmd_model_chains_show(args: argparse.Namespace) -> int:
     paths = _paths(args)
     state = _state(paths.omh_home, paths.hermes_home)
+    sensitive = bool(getattr(args, "sensitive", False))
+    if sensitive:
+        state = _sensitive_state(state)
     if getattr(args, "json", False):
         print(json.dumps(state, ensure_ascii=True, separators=(",", ":"), sort_keys=True))
+    elif sensitive:
+        _print_sensitive_state(state)
     else:
         _print_state(state)
-    return 0
+    return _sensitive_chain_exit_code(state)
 
 
 def cmd_model_chains_set(args: argparse.Namespace) -> int:
@@ -393,6 +484,15 @@ def _add_model_chains_commands(sub) -> None:
 
     show = chains_sub.add_parser("show", help="Show the effective chain per category and its origin.")
     show.add_argument("--json", action="store_true", help="Print the machine-readable state payload.")
+    show.add_argument(
+        "--sensitive",
+        action="store_true",
+        help=(
+            "Declare the work sensitive: drop every model whose contract does not document a "
+            "permitting data-handling default, naming each exclusion (a model of unknown policy "
+            "is excluded, never silently kept). Exits 1 if a category is left with no model."
+        ),
+    )
     show.set_defaults(func=cmd_model_chains_show)
 
     set_cmd = chains_sub.add_parser("set", help="Replace one category's chain (or --clear it back to the default).")

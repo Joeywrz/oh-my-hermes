@@ -658,6 +658,24 @@ All notable changes will be documented here.
   deliberately not taken here: lifting CJK credit would move roughly 165 pack
   phrases in one change, and it now has cases to move deliberately. (#1607)
 
+- **The judge agreement bands now say they are unverified here.**
+  `agent-evaluation`'s `references/self-evaluation-loops.md` tells a reader
+  where an LLM judge's usable thresholds sit -- unmeasured is unqualified,
+  below 0.4 unusable, 0.4 to 0.6 relative comparison only, above 0.6 absolute
+  scoring. Those bands are the conventional reading of a chance-corrected
+  agreement statistic and were measured on no judge this repository uses, so a
+  reader who applied the section's own rule correctly still read their figure
+  against a table nobody checked. Measuring them here needs a judge already
+  used in an OMH evaluation lane and a hand-labeled sample from its own
+  distribution, and neither exists: OMH's evaluation lanes score with
+  deterministic predicates against frozen corpora, there is no grader model,
+  and there is no human-labeled sample. So the table now states its own
+  provenance rather than carrying an invented measurement or losing the
+  guidance: the bands are the starting default, the first row is a rule rather
+  than a calibration and holds whatever a measurement shows, and a sample too
+  small to separate 0.4 from 0.6 is itself the reportable result. The
+  measurement remains open. (#1612)
+
 ## 2.0.3 - 2026-09-12
 
 Everything merged since the 2.0.2 tag (2026-09-07). Highlights, grouped:

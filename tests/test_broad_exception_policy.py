@@ -181,6 +181,14 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
         "exception text, so a failed smoke run is never readable as a passing one.",
     ),
     ClassifiedSite(
+        "src/install/plugin_pack.py",
+        "_enforcement_smoke",
+        INTENTIONAL,
+        "Returns enforcement_status='unknown' with the exception text in enforcement_detail, a "
+        "third outcome distinct from both 'enforced' and 'no_decision', so a probe that could "
+        "not run is never readable as a plugin that enforced.",
+    ),
+    ClassifiedSite(
         "src/mcp/bridge.py",
         "run_stdio_mcp_server",
         INTENTIONAL,
@@ -339,8 +347,8 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
 # function. `_write_candidate_batch`, `_is_catalog_question`, `pre_llm_call`,
 # `_resume_unlocked`, and `_execute_cell` each hold two handlers, so the handler
 # count is five above the anchor count.
-EXPECTED_HANDLER_COUNT = 36
-EXPECTED_ANCHOR_COUNT = 31
+EXPECTED_HANDLER_COUNT = 37
+EXPECTED_ANCHOR_COUNT = 32
 
 
 class DerivedSite(NamedTuple):

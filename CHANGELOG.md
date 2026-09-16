@@ -515,6 +515,25 @@ All notable changes will be documented here.
   coverage audit reports the axis as its own dimension, derived from the same
   verdict the gate acts on so the two cannot disagree. (#1560)
 
+- **`doctor` now proves the plugin enforces, not only that it registered.**
+  The checklist already refused to collapse install, import/register smoke, and
+  Hermes runtime load into one claim, but nothing asked the installed bundle to
+  decide anything: a plugin that loads, registers every tool and hook, and
+  returns `None` for every tool call passed all three tiers. A fourth tier,
+  `plugin_enforcement_smoke`, calls the installed bundle's own
+  `toolcall_rule_directive` in-process against a temporary rules home and
+  reports the decision it got back. Two probes, because one cannot tell
+  enforcement from a stuck answer: a scoped probe the rule names must come back
+  blocked, an unscoped one must proceed. A bundle that decides neither, or
+  blocks both, fails this tier while the import and register tiers keep
+  passing, and the report says so in those words. A bundle whose seam cannot be
+  reached at all reports `unknown` and still does not pass. The probe is
+  harmless by construction rather than by choice of a realistic command: both
+  tool names are fabricated, appear in no host and in `PROVIDED_TOOLS`, the
+  arguments carry one marker and no path, command, or content, the rule is
+  `repeat: always` so no once-per-session claim is consumed, and the rules file
+  lives in a temporary directory that is the probe's entire OMH home. (#1561)
+
 ## 2.0.3 - 2026-09-12
 
 Everything merged since the 2.0.2 tag (2026-09-07). Highlights, grouped:

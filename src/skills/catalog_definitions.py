@@ -7055,6 +7055,83 @@ _DEFINITIONS = [
         ),
     ),
     SkillDefinition(
+        "todo-checklist",
+        "Hermes adaptation for declaring and advancing the metadata-only plan todo checklist the OMH HUD renders above the prompt input, in an ordinary session with no delivery engine running.",
+        (
+            "todo-checklist",
+            # The bare `todo` token is held in `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS`
+            # (`src/routing/recommend.py`) because it is an everyday word in a
+            # coding session -- "add a TODO comment", "todo: fix this later".
+            # Holding it is only sufficient because the skill's name_phrase is
+            # two words: a one-word name would credit +5 through `name:` on any
+            # sentence containing the word, which no trigger lever can reach
+            # (#1638). `$todo` and the labeled form stay unambiguous.
+            "$todo",
+            "plan checklist",
+            "todo checklist",
+            "phase checklist",
+            "declare a plan checklist",
+            "declare the plan todo",
+            "show the plan todo",
+            "clear the plan todo",
+        ),
+        (
+            "Use when the user wants a declared, HUD-visible plan checklist for the work at hand, or wants to read, "
+            "advance, or clear one, without starting a delivery engine."
+        ),
+        category="operator",
+        phase="observability",
+        hermes_role="retained-operator",
+        handoff_policy="Declare and update the checklist directly with `omh_todo`; a checklist item is a plan declaration and never dispatches, executes, or verifies anything.",
+        required_inputs=("the work to be tracked",),
+        expected_outputs=("a declared checklist with exactly one active item", "explicit states as work completes"),
+        artifact_expectations=("metadata-only `omh_todo/v1` plan todo owned by the declaring session",),
+        safety_rules=(
+            "Do not present checklist states as execution, verification, review, CI, or merge evidence; an item marked done records a declaration, not an observed result.",
+            "Do not declare a checklist for work that is one step, already finished, or answerable directly; the checklist costs a tool call and a panel, and buys nothing on work that does not span turns.",
+        ),
+        quality_bar=(
+            "Items are plan declarations and never execution evidence: marking one done records that you say it is done, which is not an observed result and never substitutes for one.",
+            "Keep exactly one item active. Two active items make the HUD unable to say where the run is, which is the only thing the panel exists to answer.",
+            "`action=set` replaces the whole list: send every item back on every write, including the ones that did not change, or the omitted ones are silently dropped. There is no partial update.",
+            "The checklist belongs to the session that declared it -- another TUI, Slack, or Discord session neither sees nor overwrites it -- so do not tell a user their checklist is visible somewhere it is not.",
+            "Two different things stop a plan advancing and they are not interchangeable: an item that cannot proceed carries `blocked_reason`, and a person steering the session elsewhere is `deferred_reason` on the write. Load `references/checklist-discipline.md` before using either.",
+        ),
+        why_this_exists=(
+            "`todo-checklist` exists because `omh_todo` is registered on every session while nothing in the skill "
+            "surface named it: a user who wanted a plan checklist searched for one and found no skill on the "
+            "subject. The delivery engines declare a checklist as part of starting work, which serves someone "
+            "running an engine and nobody else."
+        ),
+        do_not_use_when=(
+            "The work is one step, already finished, or answerable in this turn; a checklist that never advances is a panel of noise.",
+            "The user wants an accepted implementation plan split into parallel lanes with owners and verification commands; use `ultrawork`.",
+            "The user wants the planning content itself -- options, risks, acceptance criteria before execution; use `ralplan`.",
+            "The user is asking what coding work is running right now rather than what the plan says; use `running-work-board`.",
+        ),
+        good_example=SkillExample(
+            prompt="declare a plan checklist for this migration so I can see where you are",
+            expected="Declare numbered phases in delivery order with one task per observable outcome, exactly one active, and update states as work completes.",
+            why="The user wants the HUD checklist itself, for work that spans turns, without starting a delivery engine.",
+        ),
+        bad_example=SkillExample(
+            prompt="add a TODO comment above this function",
+            expected="Edit the code; the plan todo panel has nothing to do with a source comment.",
+            why="`todo` is an everyday word in a coding session and this use of it is not a plan checklist.",
+        ),
+        final_checklist=(
+            "Exactly one item is active, or the list is complete and every item is done.",
+            "Every write sent the whole list back, so no item was dropped by omission.",
+            "Item states are described as declarations; observed results are cited separately or named as missing.",
+            "A stopped plan names which of the two reasons applies -- an item that cannot proceed, or a person steering elsewhere.",
+        ),
+        recovery_notes=(
+            "If items disappeared after a write, the write sent a partial list; re-send every item, since `action=set` replaces rather than merges.",
+            "If the panel shows nothing, read the current projection with `action=show` before re-declaring, so an existing checklist is not overwritten.",
+            "If the user redirects the session away from the plan, record that on the write rather than deleting the checklist or marking its items done.",
+        ),
+    ),
+    SkillDefinition(
         "model-setup",
         "Hermes Model Setup workflow: diagnose role-slot model configuration, guide provider connection, and apply changes only after diff approval.",
         (

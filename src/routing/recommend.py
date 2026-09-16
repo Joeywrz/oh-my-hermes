@@ -246,6 +246,35 @@ _ADVERSARIAL_CONSENSUS_EXPLICIT_PHRASES = tuple(
 # "delete the golden set fixture" -- ordinary code edits that name an LLM
 # component and belong to the coding lane. Left at the +6 phrase credit those
 # sentences route on their verb, while "build a rag pipeline" still lands here.
+# `todo-checklist` is built entirely from everyday words, so every one of its
+# tokens is held back by `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS` below. That leaves
+# its complete phrases at the bare +6 phrase credit, which loses to the `plan`
+# skill's 17 on any sentence containing the word "plan" -- `plan` is its own
+# name, phase, metadata and trigger, which is the open defect in #1638. Without
+# this boost "declare a plan checklist" and "show the plan todo" route to the
+# planning workflow, which is the opposite of what the user asked for.
+#
+# Only phrases that name the checklist itself are listed. The bare subject nouns
+# `todo` and `checklist` are deliberately absent: boosted, they would take "add
+# a TODO comment" and "make a checklist of the files you changed" back again,
+# which is what the token guard exists to prevent.
+_TODO_CHECKLIST_EXPLICIT_PHRASES = tuple(
+    normalized_phrase(phrase)
+    for phrase in (
+        "todo-checklist",
+        "$todo",
+        "plan checklist",
+        "todo checklist",
+        "phase checklist",
+        "declare a plan checklist",
+        "declare the plan todo",
+        "show the plan todo",
+        "clear the plan todo",
+        "plan todo",
+    )
+)
+
+
 _LLM_APP_DEV_EXPLICIT_PHRASES = tuple(
     normalized_phrase(phrase)
     for phrase in (
@@ -1165,6 +1194,18 @@ _SKILL_POLICIES.update(
                 "was observed. Never estimate a token count or claim an unfinished unit is still alive."
             ),
         ),
+        "todo-checklist": RecommendationPolicy(
+            next_action="declare_plan_checklist",
+            evidence_boundary=(
+                "A checklist item is a plan declaration; an item marked done records what the writer says "
+                "happened, and is not execution, verification, review, CI, merge-readiness, or merge evidence."
+            ),
+            wrapper_guidance=(
+                "Declare numbered phases in delivery order with one task per observable outcome, keep exactly one "
+                "item active, and send the whole list on every write because `action=set` replaces rather than "
+                "merges. Never present an item state as an observed result."
+            ),
+        ),
         "github-event-ops": RecommendationPolicy(
             next_action="prepare_github_event_ops_card",
             evidence_boundary="A GitHub event ops card is not webhook delivery, API mutation, label application, review completion, CI rerun, or fix execution evidence.",
@@ -1981,6 +2022,17 @@ _SIBLING_POINTER_METADATA_TOKENS = {
 # `models` and `work` look like observed-work inventory requests.
 _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS = {
     "running-work-board": frozenset({"board", "models", "running", "units", "what", "which", "work"}),
+    # Every word this skill is built from is an everyday word in a coding
+    # session, and the scorer credits a multi-word trigger as its separate
+    # tokens too. Left as bare tokens they took "add a TODO comment",
+    # "todo: fix this later", "the plan is fine", "show me the diff" and
+    # "clear the cache" -- ordinary sentences that have nothing to do with the
+    # HUD checklist. `plan` is the worst of them: it is already the token that
+    # over-routes the `plan` skill (#1638), and a second skill crediting it
+    # would widen an open defect rather than only risking its own. The intent
+    # lives in the complete phrases, which already score +6 each, and the
+    # two-word name means no bare token can reach the +5 `name:` credit either.
+    "todo-checklist": frozenset({"checklist", "clear", "declare", "phase", "plan", "show", "todo"}),
     # The overflow phrasings `context-budget-review` needs -- "context window",
     # "running out of context", "hand off to a new session" -- are built from
     # words that mean nothing on their own. Credited as bare tokens they took
@@ -2739,6 +2791,9 @@ def _score_definition(
     if definition.name == "llm-app-dev" and _llm_app_dev_explicit_match(normalized_query):
         score += 30
         matched.add("direct:llm_app_dev")
+    if definition.name == "todo-checklist" and _todo_checklist_explicit_match(normalized_query):
+        score += 30
+        matched.add("direct:todo_checklist")
     if definition.name == "llm-app-dev" and _llm_app_dev_public_board_match(normalized_query):
         score += 30
         matched.add("direct:llm_app_dev_public_board")
@@ -3376,6 +3431,10 @@ def _adversarial_consensus_explicit_match(normalized_query: str) -> bool:
         _explicit_phrase_match(normalized_query, phrase)
         for phrase in _ADVERSARIAL_CONSENSUS_EXPLICIT_PHRASES
     )
+
+
+def _todo_checklist_explicit_match(normalized_query: str) -> bool:
+    return any(_explicit_phrase_match(normalized_query, phrase) for phrase in _TODO_CHECKLIST_EXPLICIT_PHRASES)
 
 
 def _llm_app_dev_explicit_match(normalized_query: str) -> bool:

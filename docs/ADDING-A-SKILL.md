@@ -54,9 +54,39 @@ paste-ready guidance:
 | Next-action label | `NEXT_ACTION_LABELS` in `src/routing/action_copy.py` | `tests/test_wrapper_contract.py` (curated-label gate) |
 | Dedicated non-ack chat card | a `*_CHAT_CARDS` entry or bespoke renderer in `src/wrapper/contract.py` | intervention harness + coverage-case gate |
 | Coverage case | `ChatCardCoverageCase` in `src/quality/chat_card_coverage.py` or `RoutingInterventionCase` in `src/quality/routing_precision.py` | `tests/test_wrapper_contract.py` (coverage-case gate) |
+| Dedicated card config | `_WORKFLOW_OPERATIONS_CHAT_CARDS` in `src/wrapper/contract.py` | rendered-card assertions in the intervention corpus |
+| Direct-workflow membership | `_DIRECT_WORKFLOW_SKILLS` in `src/wrapper/contract.py` | intervention corpus `expected response kind` |
 
 The curated-label and coverage-case gates carry frozen legacy allowlists; do
 not extend the allowlists for a new skill — register the skill instead.
+
+The last two rows are the ones that cost an afternoon, because their failure
+does not look like a missing registration:
+
+- Without a `_WORKFLOW_OPERATIONS_CHAT_CARDS` entry the skill has no card of its
+  own to render.
+- Without `_DIRECT_WORKFLOW_SKILLS` membership, `_resolve_mode()` falls through
+  to `"plan"` — so the router **selects your skill correctly** and then renders
+  a generic plan card. The routing is right and the response is wrong, which
+  reads as a routing bug and is not one. The intervention corpus reports it as
+  `expected response kind <yours>, observed plan`.
+
+Registering a new `next_action` means all three of `NEXT_ACTION_LABELS`
+(`src/routing/action_copy.py`), `VISIBLE_ACTIONS`, and
+`_ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION` (both `src/wrapper/contract.py`). Compare
+against a sibling skill rather than trusting a green `tests/test_wrapper_contract.py`
+run: that suite validates the actions that *are* registered, so an action
+registered in none of the three does not fail it.
+
+### A deference line must not repeat the deferring skill's own trigger vocabulary
+
+A `do_not_use_when` line that hands a request to a sibling is itself routed
+text. If it repeats the words your own skill triggers on, your skill outranks
+the sibling on the very sentence meant to send the work away, and
+`tests/test_catalog_deference_policy.py` reports the inversion. Name the
+sibling's territory in the sibling's vocabulary. Reword the boundary rather than
+recording the pair in `KNOWN_INVERSIONS`; an entry there preserves the defect
+and documents it as intended.
 
 ## 3. Exact-count fixtures (contracts, updated in the same commit)
 

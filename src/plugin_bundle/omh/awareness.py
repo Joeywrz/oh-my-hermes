@@ -1271,6 +1271,7 @@ _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "achievements": "automation_and_status",
     "capability-toggle": "automation_and_status",
     "running-work-board": "automation_and_status",
+    "todo-checklist": "automation_and_status",
     "workspace-audit": "automation_and_status",
     "production-audit": "automation_and_status",
     "automation-blueprint": "automation_and_status",
@@ -1709,6 +1710,30 @@ _ROUTE_HINT_RULES = (
         # lanes; whole phrases only.
         "tokens": (),
         "adjacent_workflows": ("agent-ops-review", "ultrawork", "doctor"),
+    },
+    {
+        "id": "todo_checklist",
+        "workflow": "todo-checklist",
+        "lane": "automation_and_status",
+        "next_action": "declare_plan_checklist",
+        "reason": "The user wants the HUD plan checklist itself, not a delivery engine that declares one on the way to doing the work.",
+        "fallback_action": "declare_plan_checklist",
+        "phrases": (
+            "plan checklist",
+            "todo checklist",
+            "phase checklist",
+            "declare a plan checklist",
+            "declare the plan todo",
+            "show the plan todo",
+            "clear the plan todo",
+        ),
+        # No bare `todo`, `plan`, `list` or `checklist`. Each is an everyday word
+        # in a coding session -- "add a TODO comment", "the plan is fine" -- and
+        # a lone token here would pull ordinary chatter into the panel. The
+        # sibling guard is `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS` in
+        # `src/routing/recommend.py`; whole phrases only, both places.
+        "tokens": (),
+        "adjacent_workflows": ("ultrawork", "ralplan", "running-work-board"),
     },
     {
         "id": "missed_workflow",
@@ -6260,6 +6285,7 @@ def awareness_primer_payload() -> dict[str, object]:
                 "harness-session-inventory",
                 "ops-observability-card",
                 "running-work-board",
+                "todo-checklist",
                 "agent-ops-review",
                 "agent-debug",
                 "failure-signal-audit",

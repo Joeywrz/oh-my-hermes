@@ -443,6 +443,7 @@ VISIBLE_ACTIONS = (
     "run_local_operator_check",
     "apply_capability_toggle",
     "show_running_work_board",
+    "declare_plan_checklist",
     "run_setup_guide",
     "prepare_operating_workflow",
     "prepare_memory_review",
@@ -634,6 +635,7 @@ _DIRECT_WORKFLOW_SKILLS = {
     # off got a planning card instead of the toggle.
     "capability-toggle",
     "running-work-board",
+    "todo-checklist",
     *_RETAINED_DELEGATION_SKILLS,
 } - (_CLARIFICATION_SKILLS | {"cancel"})
 _CODING_OWNER_NEXT_ACTIONS = frozenset(
@@ -1017,6 +1019,7 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "run_local_operator_check": ("run_local_operator_check", "Show local check"),
     "apply_capability_toggle": ("apply_capability_toggle", "Show capability policy"),
     "show_running_work_board": ("show_running_work_board", "Show running work"),
+    "declare_plan_checklist": ("declare_plan_checklist", "Declare checklist"),
     "run_setup_guide": ("run_setup_guide", "Start setup guide"),
     "prepare_operating_workflow": ("prepare_operating_workflow", "Prepare workflow"),
     "prepare_memory_review": ("prepare_memory_review", "Review memory"),
@@ -3799,6 +3802,31 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS.update(
             ),
             "actions": [
                 {"id": "show_running_work_board", "label": "Show running work", "style": "primary"},
+            ],
+        },
+        "todo-checklist": {
+            "kind": "todo_checklist",
+            "headline": "I can declare the plan checklist the HUD shows above your prompt.",
+            "body": (
+                "I will declare numbered phases in delivery order with one task per observable outcome, keep exactly "
+                "one item active, and update states as work completes. Items are plan declarations: an item marked "
+                "done records that I say it is done, which is not an observed result. The checklist belongs to this "
+                "session, so no other TUI, Slack, or Discord session sees or overwrites it."
+            ),
+            "phase": "todo_checklist_prepared",
+            "next_action": "declare_plan_checklist",
+            "artifact_schema": "omh_todo/v1",
+            "evidence_not_observed": [
+                "whether a task marked done actually happened",
+                "test, build, review, CI, or merge outcome",
+                "work in any session other than this one",
+            ],
+            "claim_boundary_suffix": (
+                "A checklist state is a declaration, not execution, verification, review, CI, "
+                "merge-readiness, or merge evidence."
+            ),
+            "actions": [
+                {"id": "declare_plan_checklist", "label": "Declare checklist", "style": "primary"},
             ],
         },
         "ultraperf": {

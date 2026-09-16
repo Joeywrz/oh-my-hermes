@@ -91,6 +91,39 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
     RoutingPrecisionCase(
         'engine-entry-approval-korean-mid', 'A Korean approval mid-sentence is still an approval',
         '이 plan 괜찮습니다, 그대로 진행', 'answer_clarification', '',
+    # `todo-checklist` is assembled entirely from everyday words. These pin the
+    # sentences that must NOT reach it; the guard that makes them pass is the
+    # `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS` entry plus a two-word name, since a
+    # one-word name would credit `name:` on every one of them.
+    RoutingPrecisionCase(
+        'todo-checklist-source-comment-control',
+        'A TODO source comment is not a plan checklist',
+        'add a TODO comment in the code', 'answer_clarification', '', 'todo-checklist',
+    ),
+    RoutingPrecisionCase(
+        'todo-checklist-inline-marker-control',
+        'A todo marker left for a later reader is not a plan checklist',
+        'todo: fix this later', 'answer_clarification', '', 'todo-checklist',
+    ),
+    RoutingPrecisionCase(
+        'todo-checklist-file-listing-control',
+        'A checklist of changed files is ordinary output, not the HUD panel',
+        'make a checklist of the files you changed', 'answer_clarification', '', 'todo-checklist',
+    ),
+    RoutingPrecisionCase(
+        'todo-checklist-show-verb-control',
+        'The bare verb `show` does not reach the checklist',
+        'show me the diff', 'answer_clarification', '', 'todo-checklist',
+    ),
+    RoutingPrecisionCase(
+        'todo-checklist-clear-verb-control',
+        'The bare verb `clear` does not reach the checklist',
+        'clear the cache', 'answer_clarification', '', 'todo-checklist',
+    ),
+    RoutingPrecisionCase(
+        'todo-checklist-phase-word-control',
+        'Asking which phase the work is in is not a checklist declaration',
+        'which phase are we in', 'answer_clarification', '', 'todo-checklist',
     ),
     RoutingPrecisionCase(
         'recall-apology-control', 'An apology is not a recall incident',
@@ -3293,6 +3326,33 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "agent-ops-review",
         "refresh_agent_ops_status",
         "agent_ops_review",
+    ),
+    RoutingInterventionCase(
+        "todo-checklist-declare-request",
+        "An explicit plan-checklist request declares the HUD checklist",
+        "declare a plan checklist for this migration",
+        "dispatch",
+        "todo-checklist",
+        "declare_plan_checklist",
+        "todo_checklist",
+    ),
+    RoutingInterventionCase(
+        "todo-checklist-sigil-request",
+        "The `$todo` sigil reaches the checklist workflow",
+        "$todo",
+        "dispatch",
+        "todo-checklist",
+        "declare_plan_checklist",
+        "todo_checklist",
+    ),
+    RoutingInterventionCase(
+        "todo-checklist-show-request",
+        "Asking for the plan todo reads the checklist rather than replanning",
+        "show the plan todo",
+        "dispatch",
+        "todo-checklist",
+        "declare_plan_checklist",
+        "todo_checklist",
     ),
     RoutingInterventionCase(
         "running-work-board-natural-request",

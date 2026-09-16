@@ -284,6 +284,15 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # `people-ops` and six resourcing triggers, which also render into the router's
 # workflow registry (#1580). The worked figures are
 # `references/capacity-planning.md`, outside this budget; warranted growth.
+# session and no skill named it, so a user looking for `/omh-todo` found
+# nothing and only the two delivery engines mentioned the tool at all. The
+# always-loaded body carries only what is wrong to discover late -- items are
+# declarations and never execution evidence, exactly one item active, and
+# `action=set` replaces the whole list so a partial write silently drops the
+# items left out. The shaping rules, the `blocked_reason` versus
+# `deferred_reason` distinction, and the when-not-to-declare guidance are in
+# `skills/omh-todo-checklist/references/checklist-discipline.md`, which loads on
+# demand and is counted outside this budget. Re-derived from the producer.
 FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 427563
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
@@ -320,7 +329,17 @@ FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # `application-threat-model` skill (#1564); warranted growth.
 # 118167 -> 119140: one standalone capability row for the new
 # `live-incident-response` skill (#1563); warranted growth.
-STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 119140
+# 119140 -> 120089: `todo-checklist` (#1642). `omh_todo` is registered on every
+# session and no skill named it, so a user looking for `/omh-todo` found
+# nothing and only the two delivery engines mentioned the tool at all. The
+# always-loaded body carries only what is wrong to discover late -- items are
+# declarations and never execution evidence, exactly one item active, and
+# `action=set` replaces the whole list so a partial write silently drops the
+# items left out. The shaping rules, the `blocked_reason` versus
+# `deferred_reason` distinction, and the when-not-to-declare guidance are in
+# `skills/omh-todo-checklist/references/checklist-discipline.md`, which loads on
+# demand and is counted outside this budget. Re-derived from the producer.
+STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 120089
 STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # ULW fold context ceiling (issue #954, PR D). The limit is the pre-D measured
 # value of the full profile's `skill_body` chars on `main` @ acb9a060, in the
@@ -1118,6 +1137,15 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # unplanned-work caveat are `skills/omh-decide/references/capacity-planning.md`,
 # measured outside this budget. Re-derived from the full-profile
 # skill_context_cost_payload() producer, never by adding deltas.
+# session and no skill named it, so a user looking for `/omh-todo` found
+# nothing and only the two delivery engines mentioned the tool at all. The
+# always-loaded body carries only what is wrong to discover late -- items are
+# declarations and never execution evidence, exactly one item active, and
+# `action=set` replaces the whole list so a partial write silently drops the
+# items left out. The shaping rules, the `blocked_reason` versus
+# `deferred_reason` distinction, and the when-not-to-declare guidance are in
+# `skills/omh-todo-checklist/references/checklist-discipline.md`, which loads on
+# demand and is counted outside this budget. Re-derived from the producer.
 FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 984912
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 

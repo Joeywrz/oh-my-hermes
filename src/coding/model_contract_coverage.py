@@ -13,6 +13,11 @@ import json
 from typing import Final, Iterable, Mapping
 
 from ..system.metadata_safety import require_opaque_metadata_ref
+from .data_handling_policy import (
+    REASON_NO_DOCUMENTED_CONTRACT as DATA_HANDLING_REASON_NO_CONTRACT,
+    VERDICT_UNKNOWN as DATA_HANDLING_VERDICT_UNKNOWN,
+    model_data_handling_verdict,
+)
 from .model_contracts import contract_model_id, model_contract, model_contract_projection
 from .model_recommendations import SHIPPED_MODEL_RECOMMENDATIONS
 from .model_routing import model_family
@@ -413,6 +418,11 @@ def _covered_dimensions(
             "schema_version": str(contract.get("schema_version", "")),
             "status": "covered",
         },
+        # Covered means the axis is declared AND read from a vendor page. A
+        # contract carrying the axis with `not_recorded` values is reported
+        # `missing`, because for the sensitive-work gate it is exactly as
+        # usable as no axis at all -- see `data_handling_policy.py`.
+        "data_handling": _data_handling_dimension(requested_model),
         "docs": {
             "paths": docs,
             "sources": sources,
@@ -434,6 +444,23 @@ def _covered_dimensions(
     }
 
 
+def _data_handling_dimension(requested_model: str) -> dict[str, object]:
+    """The data-handling axis as a coverage dimension, from the shared verdict.
+
+    Derived from `model_data_handling_verdict` rather than re-read out of the
+    contract, so the dimension an audit reports and the verdict the
+    sensitive-work gate acts on can never disagree.
+    """
+    verdict = model_data_handling_verdict(requested_model)
+    return {
+        "retention": verdict["retention"],
+        "training_use": verdict["training_use"],
+        "verdict": verdict["verdict"],
+        "reason": verdict["reason"],
+        "status": "covered" if verdict["verdict"] != DATA_HANDLING_VERDICT_UNKNOWN else "missing",
+    }
+
+
 def _missing_dimensions(requested_model: str, *, excluded: bool) -> dict[str, object]:
     family = model_family(requested_model)
     status = "excluded" if excluded else "missing"
@@ -441,6 +468,16 @@ def _missing_dimensions(requested_model: str, *, excluded: bool) -> dict[str, ob
         "calibration": {"composition": "generic", "high_effort": "generic", "status": status},
         "category_projection": {"categories": [], "status": status},
         "contract": {"status": status},
+        # No contract resolves, so the verdict here is fixed: unknown policy
+        # for want of a contract. Stated with the row's own status word so an
+        # intentional exclusion still reads as excluded rather than missing.
+        "data_handling": {
+            "retention": "",
+            "training_use": "",
+            "verdict": DATA_HANDLING_VERDICT_UNKNOWN,
+            "reason": DATA_HANDLING_REASON_NO_CONTRACT,
+            "status": status,
+        },
         "docs": {"paths": [], "sources": [], "status": status},
         "effort": {"status": status},
         "family_recognition": {"family": family, "status": "recognized" if family not in ("", "unknown") else status},

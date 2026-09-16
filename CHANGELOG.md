@@ -491,6 +491,30 @@ All notable changes will be documented here.
   "production" and "war room", and eight interventions pin the live phrasings
   plus the three siblings keeping their own requests. (#1563)
 
+- **Sensitive work can be kept off models whose data policy nobody has read.**
+  Nothing recorded how a model's provider handles the data sent to it, so the
+  only exclusion available was `excluded_providers` at provider granularity and
+  a per-machine reorder of `model-chains.json` — neither grounded in a policy.
+  `MODEL_CONTRACTS` now carries a `data_handling` axis with two closed
+  vocabularies (`training_use`, `retention`) plus the account scope that keeps
+  it out of account-level claims, exactly as `rollout` already does: the value
+  is the vendor's documented default for the surface the contract was read
+  from, and tier, region, and a negotiated agreement move it in both
+  directions. `omh model-chains show --sensitive` declares the work sensitive
+  as a field — never inferred from message text, which
+  `src/quality/safety_preflight.py` forbids outright — and drops every model
+  whose contract does not document a permitting default, naming each exclusion
+  with its own reason: the policy conflicts, the axis is undeclared, the policy
+  was never read, or no contract resolves at all. A model of unknown policy is
+  excluded and named, never silently kept and never silently omitted; the
+  command exits 1 when a category is left with nothing to route to. Both
+  shipped contracts declare the axis as `not_recorded`, because neither
+  vendor's data-usage page is among their sources and inventing a value there
+  would be the claim this axis exists to stop — so every shipped chain empties
+  today, which is the honest state and is now visible rather than assumed. The
+  coverage audit reports the axis as its own dimension, derived from the same
+  verdict the gate acts on so the two cannot disagree. (#1560)
+
 ## 2.0.3 - 2026-09-12
 
 Everything merged since the 2.0.2 tag (2026-09-07). Highlights, grouped:

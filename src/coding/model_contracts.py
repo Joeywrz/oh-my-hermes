@@ -39,6 +39,63 @@ MODEL_CONTRACT_PROJECTION_CLAIM_BOUNDARY: Final[str] = (
 # Compatibility outcomes a contract can hand the route resolver.
 EFFORT_FLOOR_KIND: Final[str] = "floor_raised"
 
+# The data-handling axis (issue #1560): two closed vocabularies plus prose,
+# because a policy value outside a fixed set cannot be gated on.
+#
+# Every value here describes the VENDOR'S DOCUMENTED DEFAULT for the surface
+# the contract was read from, on `sources_read`. It is never an account-level
+# fact, for the same reason `rollout` is not: tier, region, and a negotiated
+# agreement all move it, in both directions. An enterprise agreement can
+# exclude data the default page includes, and an opted-in consumer tier can
+# include data the default excludes. So the axis carries what the vendor
+# publishes, the gate repeats that in its claim boundary, and neither ever
+# reports what THIS account agreed to.
+#
+# `not_recorded` is the honest value when the contract carries no reading of
+# a vendor data-usage page. It is neither permitting nor conflicting; it is
+# the case the gate exists to exclude, and it says so by name rather than by
+# an absent key.
+TRAINING_USE_EXCLUDED: Final[str] = "excluded_by_default"
+TRAINING_USE_INCLUDED: Final[str] = "included_by_default"
+TRAINING_USE_NOT_RECORDED: Final[str] = "not_recorded"
+DATA_HANDLING_TRAINING_USE_VALUES: Final[tuple[str, ...]] = (
+    TRAINING_USE_EXCLUDED,
+    TRAINING_USE_INCLUDED,
+    TRAINING_USE_NOT_RECORDED,
+)
+
+RETENTION_NONE: Final[str] = "none"
+RETENTION_BOUNDED: Final[str] = "bounded"
+RETENTION_INDEFINITE: Final[str] = "indefinite"
+RETENTION_NOT_RECORDED: Final[str] = "not_recorded"
+DATA_HANDLING_RETENTION_VALUES: Final[tuple[str, ...]] = (
+    RETENTION_NONE,
+    RETENTION_BOUNDED,
+    RETENTION_INDEFINITE,
+    RETENTION_NOT_RECORDED,
+)
+
+DATA_HANDLING_ACCOUNT_SCOPE: Final[str] = (
+    "vendor-documented default for the surface this contract was read from; account tier, "
+    "region, and a negotiated agreement all change it in both directions, so this is not "
+    "account-level evidence and never states what this account agreed to"
+)
+
+# The reading both shipped contracts carry today. Their `sources` are vendor
+# model, pricing, and capability pages; none is a data-usage or retention
+# page, so no data-handling value was read and none is invented here.
+# Replacing this on a contract means reading that vendor's data-usage page,
+# adding it to `sources`, and moving `sources_read`.
+_DATA_HANDLING_NOT_READ: Final[dict[str, object]] = {
+    "training_use": TRAINING_USE_NOT_RECORDED,
+    "retention": RETENTION_NOT_RECORDED,
+    "note": (
+        "no data-usage or retention page is among this contract's sources, so neither value "
+        "was read; add the vendor's data-usage page to `sources` before declaring one"
+    ),
+    "account_scope": DATA_HANDLING_ACCOUNT_SCOPE,
+}
+
 _GPT_6_ASTRA: Final[dict[str, object]] = {
     "schema_version": MODEL_CONTRACT_SCHEMA_VERSION,
     "model_id": "gpt-6-astra",
@@ -101,6 +158,7 @@ _GPT_6_ASTRA: Final[dict[str, object]] = {
         "output": 50.0,
         "long_context_over_272k_input": "2x input and cache rates, 1.5x output",
     },
+    "data_handling": _DATA_HANDLING_NOT_READ,
     "sources": (
         "https://openai.com/index/gpt-6-astra/",
         "https://developers.openai.com/api/docs/models/gpt-6-astra",
@@ -207,6 +265,7 @@ _DEEPSEEK_V41_FLASH: Final[dict[str, object]] = {
             "01:00-04:00 and 06:00-10:00 UTC, Monday through Friday"
         ),
     },
+    "data_handling": _DATA_HANDLING_NOT_READ,
     "sources": (
         "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash",
         "https://api-docs.deepseek.com/updates/",
@@ -448,10 +507,20 @@ def dynamic_effort_guidance(model_id: str, executor_profile: str) -> dict[str, o
 
 
 __all__ = [
+    "DATA_HANDLING_ACCOUNT_SCOPE",
+    "DATA_HANDLING_RETENTION_VALUES",
+    "DATA_HANDLING_TRAINING_USE_VALUES",
     "DECLARED_MODEL_CONTRACT_PROJECTIONS",
     "EFFORT_FLOOR_KIND",
     "EXACT_CONTRACT_POINTER_ALIASES",
     "MODEL_CONTRACTS",
+    "RETENTION_BOUNDED",
+    "RETENTION_INDEFINITE",
+    "RETENTION_NONE",
+    "RETENTION_NOT_RECORDED",
+    "TRAINING_USE_EXCLUDED",
+    "TRAINING_USE_INCLUDED",
+    "TRAINING_USE_NOT_RECORDED",
     "MODEL_CONTRACT_CLAIM_BOUNDARY",
     "MODEL_CONTRACT_PROJECTION_CLAIM_BOUNDARY",
     "MODEL_CONTRACT_PROJECTION_SCHEMA_VERSION",

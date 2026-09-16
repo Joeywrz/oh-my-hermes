@@ -1591,6 +1591,7 @@ def cmd_coding_complexity(args: argparse.Namespace) -> int:
 
 
 def cmd_coding_model_contract(args: argparse.Namespace) -> int:
+    from ..coding.data_handling_policy import model_data_handling_verdict
     from ..coding.model_contracts import (
         dynamic_effort_guidance,
         model_contract,
@@ -1614,6 +1615,7 @@ def cmd_coding_model_contract(args: argparse.Namespace) -> int:
         "projection": projection,
         "contract": dict(contract),
         "effort_policy": dynamic_effort_guidance(model, executor),
+        "data_handling": model_data_handling_verdict(model),
     }
     if _wants_json(args):
         _print_json(payload)
@@ -1641,6 +1643,14 @@ def cmd_coding_model_contract(args: argparse.Namespace) -> int:
         print(f"- effort policy ({policy['mode']}): {policy['mechanism']}")
         if policy.get("note"):
             print(f"  {policy['note']}")
+    data_handling = payload["data_handling"]
+    assert isinstance(data_handling, dict)
+    print(
+        f"- data handling: {data_handling['verdict']} for declared-sensitive work "
+        f"(training use `{data_handling['training_use'] or 'unknown'}`, "
+        f"retention `{data_handling['retention'] or 'unknown'}`)"
+    )
+    print(f"  {data_handling['reason_text']}")
     print(f"- sources ({contract['sources_read']}):")
     for source in contract["sources"]:
         print(f"  {source}")

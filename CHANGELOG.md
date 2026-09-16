@@ -54,6 +54,39 @@ All notable changes will be documented here.
   clear it on the way out. The sentence is translated in all seven locales the
   table carries, and an adapter that only knows the original three values keeps
   working: `complete` is the case it previously received as `running`.
+- **A chat reply now names the workflow you asked for, in the spelling you can
+  type back.** Two separate faults made the first line of a reply disagree with
+  the router that produced it.
+
+  The catalog keeps `ralplan`, `ultrawork`, `ultraqa`, `research`, `loop`,
+  `maestro`, `context`, `deep-interview` and `ultraperf` as internal keys
+  because triggers, capability maps and lifecycle rows are built from them,
+  while the installed skills answer to `ulw-plan`, `ulw-work`, `ulw-qa` and so
+  on. `public_workflow_identifier` exists to make that swap on the way out and
+  its docstring calls itself "the one place" it happens — but the wrapper's
+  explanation and usage-trace payloads never called it, so `ralplan` reached
+  `label`, `visible_prefix`, `route_recommended_reply`,
+  `route_primary_action_label` and `route_primary_action_hint` while
+  `why_this_workflow` on the same payload said `ulw-plan`. One reply named the
+  same workflow two ways. A `next_action` token that embeds its own skill
+  (`prepare_ultraperf_loop`) put the key back into the sentence even after
+  every field was corrected, so rendered prose now goes through
+  `with_public_skill_names`; the tokens and ids themselves are untouched.
+
+  Separately, a dispatched workflow that answers with the card it starts with
+  lost its name entirely. `ultrawork` on a request that names no target keeps
+  its plan card by design, and the prefix then read `[omh] plan` — so a user
+  who typed `ulw-work` saw no trace of what they asked for, while
+  `route.selected_skill` still said `ultrawork` two keys away. The prefix,
+  label and `usage_trace.selected_workflow` now name the routed workflow on a
+  `dispatch`; `state.selected_workflow` still reports the card that was
+  actually rendered, because that is what a consumer reading it has always
+  been told.
+
+  `tests/test_public_workflow_name_exposure.py` derives the legacy set from the
+  display rule rather than listing it, so a later relabel moves the guard with
+  it, and fails if that set is ever empty — a guard over nothing passes without
+  proving anything.
 
 - **OMH now engages on an ordinary prompt, and the trigger is what the model
   does rather than what the user typed.** Four measured causes of one report

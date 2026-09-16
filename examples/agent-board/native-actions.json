@@ -269,6 +269,7 @@
               ]
             },
             "workflow_context_id": "automation_and_status",
+            "route_selected_workflow": "agent-board",
             "route_action": "dispatch",
             "route_next_action": "prepare_agent_board_card",
             "route_recommended_reply": "I will use `agent-board` first and start by preparing an agent board card. This is still not evidence of target acceptance.",

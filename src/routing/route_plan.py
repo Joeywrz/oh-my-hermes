@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import re
+from typing import Final
+
 from collections.abc import Iterator
 from dataclasses import dataclass
+
 from functools import lru_cache
 
 from ..skills.catalog import routable_definitions
@@ -26,6 +30,45 @@ def public_workflow_identifier(skill: str) -> str:
     becomes the public name on the way out.
     """
     return omh_skill_display_name(skill) if skill in _ulw_public_renames() else skill
+
+
+# Catalog keys that are also ordinary English words. A rendered sentence can
+# contain any of them for its own meaning -- "the loop permission profile",
+# "research the repo", "keep the context" -- so `with_public_skill_names` leaves
+# them alone. The identifier fields still carry the public name; this is only
+# about not rewriting prose. A key belongs here when a reader could plausibly
+# mean the word rather than the workflow.
+_PROSE_AMBIGUOUS_KEYS: Final[frozenset[str]] = frozenset({"context", "loop", "research", "maestro"})
+
+
+def with_public_skill_names(text: str) -> str:
+    """Swap any catalog key inside prose for the name a reader can invoke.
+
+    Some `next_action` tokens embed the skill they belong to
+    (`prepare_ultraperf_loop`), so spelling one out reintroduces the catalog key
+    into a sentence even when every other field on the payload was corrected.
+    This operates on RENDERED prose only; the tokens and ids themselves stay
+    the machine-readable values consumers match on.
+
+    Whole words only, and only keys that are not ordinary English. A plain
+    substring replace rewrote `loopability` into `ulw-loopability` on its way
+    through `loop`; adding word boundaries fixed that and still rewrote "the
+    loop permission profile", where `loop` carries its own meaning. Both
+    outcomes are worse than the leak this exists to fix, because both produce
+    prose that is wrong rather than prose that is imprecise.
+
+    So `_PROSE_AMBIGUOUS_KEYS` is held back and only coined names are swapped.
+    `prepare_ultraperf_loop` still becomes "prepare ulw-perf loop", which is
+    the case this function was written for: the coined key is the one actually
+    embedded in the token.
+
+    Longest key first, so a key that is a prefix of another cannot shadow it.
+    """
+    rendered = str(text or "")
+    for key in sorted(_ulw_public_renames() - _PROSE_AMBIGUOUS_KEYS, key=len, reverse=True):
+        if key in rendered:
+            rendered = re.sub(rf"\b{re.escape(key)}\b", omh_skill_display_name(key), rendered)
+    return rendered
 
 
 @lru_cache(maxsize=1)

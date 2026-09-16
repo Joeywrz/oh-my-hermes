@@ -12,6 +12,7 @@ from _cli_harness import run_cli
 from _platform_support import requires_domain_intelligence_store
 
 load_local_package()
+from omh.routing.route_plan import public_workflow_identifier  # noqa: E402
 from omh.context_safety import CONTEXT_ARTIFACT_REF_SCHEMA_VERSION
 from omh.ingress import CHAT_SOURCES
 from omh.paths import OmhPaths, resolve_paths
@@ -2220,13 +2221,16 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(payload["mode"], "route")
         self.assertEqual(payload["route"]["selected_skill"], "research")
         self.assertEqual(trace["schema_version"], "omh_usage_trace/v1")
-        self.assertEqual(trace["visible_prefix"], "[omh] research")
+        # `route.selected_skill` above keeps the catalog key `research`; what a
+        # reader is shown is `ulw-research`, the installed name. `selected_harness`
+        # is a lookup key, not a name, so it does not move.
+        self.assertEqual(trace["visible_prefix"], "[omh] ulw-research")
         self.assertEqual(trace["selected_harness"], "research")
         self.assertEqual(trace["evidence_state"], "prepared_not_observed")
         self.assertEqual(response["kind"], "web_research")
         explanation = response["state"]["workflow_explanation"]
         self.assertEqual(explanation["schema_version"], "omh_workflow_explanation/v1")
-        self.assertEqual(explanation["selected_workflow"], "research")
+        self.assertEqual(explanation["selected_workflow"], "ulw-research")
         self.assertEqual(explanation["selected_harness"], "research")
         self.assertEqual(explanation["workflow_context_id"], "research_and_ops")
         self.assertEqual(explanation["workflow_context_card"]["id"], "research_and_ops")
@@ -2240,7 +2244,7 @@ class WrapperContractTests(unittest.TestCase):
         self.assertIn("source retrieval", explanation["not_evidence_yet"])
         self.assertIn("citation verification", explanation["not_evidence_yet"])
         self.assertNotIn("implementation", explanation["not_evidence_yet"])
-        self.assertTrue(response["headline"].startswith("[omh] research - "))
+        self.assertTrue(response["headline"].startswith("[omh] ulw-research - "))
         self.assertEqual(response["plain_headline"], "출처 기반 리서치로 근거를 만들 수 있습니다.")
         self.assertIn("조사 범위", response["body"])
         # The card speaks for the whole research engine, so the Korean copy has
@@ -2632,7 +2636,9 @@ class WrapperContractTests(unittest.TestCase):
     def test_route_mode_exposes_visible_omh_usage_trace_for_multiple_workflows(self) -> None:
         cases = (
             ("릴리즈 전에 README claim이 실제 코드와 맞는가 봐줘", "code-review"),
-            ("쿠버네티스 장애 상황에서 Cloudy가 적절히 진단하나?", "ultraqa"),
+            # The displayed name, not the catalog key: `ultraqa` installs as
+            # `ulw-qa` and is what a reader can type back (#1249).
+            ("쿠버네티스 장애 상황에서 Cloudy가 적절히 진단하나?", "ulw-qa"),
             ("결제 실패 이슈가 자주 나와", "feedback-triage"),
         )
 
@@ -2686,7 +2692,9 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(payload["mode"], "plan")
         self.assertEqual(payload["route"]["selected_skill"], "ralplan")
         self.assertEqual(response["kind"], "plan")
-        self.assertEqual(explanation["selected_workflow"], "ralplan")
+        # `route` keeps the catalog key it routes on; the explanation a
+        # reader sees carries the invocable name.
+        self.assertEqual(explanation["selected_workflow"], "ulw-plan")
         self.assertIn("safe feature-change language", explanation["why_this_workflow"])
         self.assertEqual(explanation["next_action"], "accept_or_revise_plan")
         self.assertEqual(explanation["route_next_action"], "present_plan")
@@ -3619,11 +3627,13 @@ class WrapperContractTests(unittest.TestCase):
                 self.assertEqual(payload["mode"], "route")
                 self.assertEqual(payload["next_action"], next_action)
                 self.assertEqual(payload["chat_response"]["kind"], "handoff")
+                # `state.selected_workflow` stays the catalog key -- it is the
+                # wrapper's own state, not a name shown to anyone.
                 self.assertEqual(payload["chat_response"]["state"]["selected_workflow"], "ultrawork")
                 self.assertEqual(payload["chat_response"]["state"]["executor_choice_required"], choice_required)
                 self.assertEqual(payload["delegation"]["executor_selection"]["choice_required"], choice_required)
                 explanation = payload["chat_response"]["state"]["workflow_explanation"]
-                self.assertEqual(explanation["selected_workflow"], "ultrawork")
+                self.assertEqual(explanation["selected_workflow"], "ulw-work")
                 # ULW fold (issue #954, PR D): ultraprocess's context card
                 # moved to the coding_handoff lane with the other folded
                 # contracts.
@@ -4033,10 +4043,16 @@ class WrapperContractTests(unittest.TestCase):
                 self.assertEqual(payload["route"]["selected_skill"], selected_workflow)
                 self.assertEqual(payload["next_action"], next_action)
                 self.assertEqual(payload["chat_response"]["kind"], response_kind)
-                self.assertIn(selected_workflow, payload["chat_response"]["headline"])
+                # The headline shows the installed name while `route` keeps the
+                # catalog key, so the expected string is derived from the
+                # producer rather than written beside the route expectation.
+                self.assertIn(
+                    public_workflow_identifier(selected_workflow),
+                    payload["chat_response"]["headline"],
+                )
                 self.assertEqual(
                     payload["chat_response"]["state"]["workflow_explanation"]["selected_workflow"],
-                    selected_workflow,
+                    public_workflow_identifier(selected_workflow),
                 )
                 self.assertIn(
                     "workflow_context_card",

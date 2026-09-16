@@ -18,6 +18,7 @@ from ..installer import OmhError
 from ..mission_control import build_mission_control
 from ..memory import read_handoff_context_pack_file
 from ..routing.action_copy import next_action_label
+from ..routing.route_plan import public_workflow_identifier
 from ..routing.chat import CONFIDENCE_LEVELS, public_route_payload, route_chat_event, routing_record_payload
 from ..runtime.artifacts import create_run, summarize_delegated_coding_status, write_routing_decision
 from ..targets import TARGET_METADATA_KEYS, build_target_change_notice, inspect_target_observation, record_target_observation
@@ -365,10 +366,13 @@ def _print_chat_interaction_summary(payload: dict[str, object]) -> None:
     state = _as_mapping(response.get("state"))
     route_explanation = _as_mapping(route.get("route_explanation"))
     source = _text(payload.get("source"), "generic")
+    # The explanation's `selected_workflow` is the public identifier; `state`
+    # and `route` hold catalog keys. A `Workflow:` line a person reads has to
+    # name something they can type back (#1249), so the public one leads.
     selected_workflow = _text(
-        state.get("selected_workflow")
+        route_explanation.get("selected_workflow")
+        or state.get("selected_workflow")
         or route.get("selected_skill")
-        or route_explanation.get("selected_workflow")
         or response.get("kind"),
         "unknown",
     )
@@ -432,7 +436,7 @@ def _print_chat_interaction_summary(payload: dict[str, object]) -> None:
 def _print_chat_route_summary(payload: dict[str, object]) -> None:
     route = _as_mapping(payload.get("route"))
     route_explanation = _as_mapping(route.get("route_explanation"))
-    selected_workflow = _text(route.get("selected_skill") or route_explanation.get("selected_workflow"), "unknown")
+    selected_workflow = _text(route_explanation.get("selected_workflow") or route.get("selected_skill"), "unknown")
     selected_harness = _text(route.get("selected_harness") or route_explanation.get("selected_harness"), "unknown")
     action = _text(route.get("action") or route_explanation.get("action"), "unknown")
     source = _text(route.get("source"), "generic")
@@ -475,7 +479,7 @@ def _print_chat_route_summary(payload: dict[str, object]) -> None:
         print()
         print("Top recommendations:")
         for item in recommendations[:5]:
-            skill = _text(item.get("skill"), "unknown")
+            skill = public_workflow_identifier(_text(item.get("skill"), "unknown"))
             item_next = _text(item.get("next_action"), "unknown")
             item_next_label = _text(item.get("next_action_label"), next_action_label(item_next))
             item_confidence = _text(item.get("confidence"), "unknown")

@@ -7797,7 +7797,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             json.loads(stdout)
         self.assertIn("OMH chat route", stdout)
         self.assertIn("Source: discord", stdout)
-        self.assertIn("Workflow: ralplan", stdout)
+        self.assertIn("Workflow: ulw-plan", stdout)
         self.assertIn("Harness: planning", stdout)
         self.assertIn("Action: routing to a workflow", stdout)
         self.assertIn("Next action: preparing a reviewed plan", stdout)
@@ -7807,11 +7807,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("Why:", stdout)
         self.assertIn("Matched safe feature-change language", stdout)
         self.assertIn("Reply:", stdout)
-        self.assertIn("I will use `ralplan` first and start by preparing a reviewed plan.", stdout)
+        self.assertIn("I will use `ulw-plan` first and start by preparing a reviewed plan.", stdout)
         self.assertIn("Action hint:", stdout)
-        self.assertIn("Route to `ralplan` and start by preparing a reviewed plan", stdout)
+        self.assertIn("Route to `ulw-plan` and start by preparing a reviewed plan", stdout)
         self.assertIn("Top recommendations:", stdout)
-        self.assertIn("- ralplan: preparing a reviewed plan (high, score 32)", stdout)
+        self.assertIn("- ulw-plan: preparing a reviewed plan (high, score 32)", stdout)
         self.assertIn("Route plan:", stdout)
         self.assertIn("- 1. triage: feedback-triage - not run", stdout)
         # Positive twin for the negative pin below: the raw token must be gone
@@ -7831,7 +7831,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(route["selected_skill"], "ralplan")
         self.assertEqual(route["route_explanation"]["next_action"], "present_plan")
         self.assertEqual(route["route_explanation"]["next_action_label"], "preparing a reviewed plan")
-        self.assertEqual(route["route_explanation"]["primary_action_label"], "Open ralplan")
+        self.assertEqual(route["route_explanation"]["primary_action_label"], "Open ulw-plan")
         self.assertIn("preparing a reviewed plan", route["route_explanation"]["recommended_reply"])
 
     def test_chat_route_defaults_to_operator_summary_for_terminal_users(self) -> None:
@@ -7843,7 +7843,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         with self.assertRaises(json.JSONDecodeError):
             json.loads(stdout)
         self.assertIn("OMH chat route", stdout)
-        self.assertIn("Workflow: ralplan", stdout)
+        self.assertIn("Workflow: ulw-plan", stdout)
         self.assertIn("Next action: preparing a reviewed plan", stdout)
         self.assertIn("Use --json for the full machine-readable route payload.", stdout)
 
@@ -8268,7 +8268,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(payload["plan"]["plan"]["planning_mode"], "review-gated")
         response = payload["chat_response"]
         self.assertEqual(response["kind"], "plan")
-        self.assertTrue(response["headline"].startswith("[omh] ralplan - "))
+        # The headline names the installed skill; `route.selected_skill` and
+        # `state.selected_workflow` above and below keep the catalog key.
+        self.assertTrue(response["headline"].startswith("[omh] ulw-plan - "))
         self.assertEqual(response["state"]["selected_workflow"], "ralplan")
         self.assertIn("because it needs a safe plan first", response["headline"])
         self.assertIn("not execution evidence", response["claim_boundary"])
@@ -8295,10 +8297,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             json.loads(stdout)
         self.assertIn("OMH chat interaction", stdout)
         self.assertIn("Source: discord", stdout)
-        self.assertIn("Workflow: ralplan", stdout)
+        self.assertIn("Workflow: ulw-plan", stdout)
         self.assertIn("Next action: preparing a reviewed plan", stdout)
         self.assertNotIn("(`present_plan`)", stdout)
-        self.assertIn("[omh] ralplan - I routed this to `ulw-plan`", stdout)
+        self.assertIn("[omh] ulw-plan - I routed this to `ulw-plan`", stdout)
         self.assertIn("Actions:", stdout)
         self.assertIn("- Accept plan - enabled", stdout)
         self.assertIn("- Prepare handoff - disabled", stdout)
@@ -8325,7 +8327,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         with self.assertRaises(json.JSONDecodeError):
             json.loads(stdout)
         self.assertIn("OMH chat interaction", stdout)
-        self.assertIn("Workflow: ralplan", stdout)
+        self.assertIn("Workflow: ulw-plan", stdout)
         self.assertIn("Next action: preparing a reviewed plan", stdout)
         self.assertIn("Use --json for the full machine-readable payload.", stdout)
 

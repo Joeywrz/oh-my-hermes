@@ -208,13 +208,21 @@ def _print_state(state: dict[str, object]) -> None:
         # model-providers.json can shape a chain past a gateway kind, and
         # then the reordering is not doing nothing, so the line stays off.
         #
-        # Both ways out are named. A `--yes`, `--json`, or non-TTY setup
-        # asks no provider question, so an agent-driven or scripted install
-        # -- which overlaps heavily with the machines that land here -- can
-        # never take advice that says only `omh setup`.
+        # The command is the only way out named, because for this reader it
+        # is the only one there is. Measured on a machine whose one provider
+        # is a `providers.custom` block with an unknown host: the interview
+        # ticks the row at its detected kind and writes `gateway`, and typing
+        # the same id at the add prompt is refused as already recorded, so
+        # neither path a person would take records a family. (Unticking it
+        # and then re-entering it by name does work, but naming that here
+        # would be teaching a workaround.) A `--yes`, `--json`, or non-TTY
+        # setup asks nothing at all, and that install path overlaps heavily
+        # with the machines that land here. `tests/test_custom_provider_hint`
+        # pins the measurement: if the interview ever gains a way to record a
+        # family for a detected row, revisit this sentence.
         if unplaced >= {str(row["id"]) for row in state.get("providers", [])} and not reordered:
-            print("  none of these names a model family, so no chain is reordered. Record what one serves with")
-            print("  `omh model-chains provider set <id> <kind>`, or answer `omh setup` on a terminal.")
+            print("  none of these names a model family, so no chain is reordered. Record what one serves")
+            print("  with `omh model-chains provider set <id> <kind>`.")
     else:
         print("Linked Hermes providers: none found (a `hermes auth` login, a config provider, or a key name counts)")
     routes_status = str(state.get("routes_status", ""))

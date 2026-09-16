@@ -115,6 +115,29 @@ class EndpointHostInferenceTests(unittest.TestCase):
         )
         self.assertEqual(kinds, {"zai": "zai", "openrouter": "openrouter"})
 
+    def test_a_recorded_entitlement_beats_an_inferred_one(self) -> None:
+        # The operator's own document outranks what the URL says. The
+        # precedence is `effective_provider_entitlements`' own -- a recorded
+        # row replaces a detected one wholesale -- but reading the endpoint
+        # gives that rule a second thing to outrank, so it is pinned here.
+        with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            root = Path(tmp)
+            _config(root, "providers:\n  custom:\n    base_url: https://openrouter.ai/api/v1\n")
+            _write(
+                provider_entitlements_path(root / "omh"),
+                json.dumps(
+                    {
+                        "schema_version": PROVIDER_ENTITLEMENTS_SCHEMA_VERSION,
+                        "providers": {"custom": "deepseek"},
+                        "subscription_clis": [],
+                    }
+                ),
+            )
+            entitlements, status, rows = effective_provider_entitlements(root / "omh", root / "hermes")
+        self.assertEqual(status, "applied")
+        self.assertEqual([(row["id"], row["kind"], row["source"]) for row in rows], [("custom", "deepseek", "recorded")])
+        self.assertEqual(provider_family_for("custom", entitlements), "deepseek")
+
     def test_a_loopback_block_is_still_left_out_entirely(self) -> None:
         # The host serves two questions now; the local one must not regress.
         kinds = self._kinds(
@@ -159,16 +182,20 @@ class ShowNamesTheInertCaseTests(unittest.TestCase):
         self.assertNotIn("(reordered by this machine's providers)", text)
         self.assertEqual(payload["unplaced_providers"], ["private"])
 
-    def test_the_hint_names_both_ways_out(self) -> None:
-        # A `--yes`, `--json`, or non-TTY setup asks no provider question, and
-        # that install path overlaps heavily with the machines that land here,
-        # so advice that said only `omh setup` would be advice they cannot take.
+    def test_the_hint_names_the_command_and_not_the_interview(self) -> None:
+        # The way out it names has to be one this reader has.
+        # `InterviewCannotRecordAFamilyForADetectedRowTests` below measures
+        # what the interview does for exactly this machine: neither path a
+        # person would take records a family, and a `--yes`, `--json`, or
+        # non-TTY setup asks nothing at all. Naming `omh setup` here would be
+        # this PR's own defect in miniature -- a sentence asserting something
+        # the code does not do, shown to the only people who read it.
         with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
             root = Path(tmp)
             _config(root, "providers:\n  private:\n    base_url: https://relay.mycorp.example/v1\n")
             text = _show(root)
         self.assertIn("`omh model-chains provider set <id> <kind>`", text)
-        self.assertIn("`omh setup`", text)
+        self.assertNotIn("omh setup", text)
 
     def test_a_block_pointed_at_a_known_vendor_is_not_told_anything(self) -> None:
         # Reading the host removes this machine from the hint's population:
@@ -378,6 +405,67 @@ class ProviderRecordCommandTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], "provider_entitlement_record/v1")
         self.assertEqual((payload["provider"], payload["kind"], payload["status"]), ("private", "deepseek", "recorded"))
         self.assertEqual(payload["providers"], {"private": "deepseek"})
+
+
+class InterviewCannotRecordAFamilyForADetectedRowTests(unittest.TestCase):
+    """Why the hint names the command and not `omh setup`.
+
+    Measured, not reasoned: on the machine the hint is shown to -- one
+    `providers.<id>` block with a host nothing can place -- neither path a
+    person would take through the interview records a family. The row arrives
+    ticked at its detected kind, and the add loop refuses the same id as
+    already recorded. This is a property of the interview, not of this change;
+    it is pinned here because the hint's wording depends on it.
+
+    If the interview ever gains a way to record a family for a detected row,
+    these fail -- and the fix is to revisit the hint's sentence, not to relax
+    the assertion.
+    """
+
+    _CONFIG = "providers:\n  custom:\n    base_url: https://relay.mycorp.example/v1\n"
+
+    def _drive(self, ticked: list[str], typed: list[str]) -> tuple[dict, list[str], str]:
+        with TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            root = Path(tmp)
+            args = argparse.Namespace(omh_home=str(root / ".omh"), hermes_home=str(root / ".hermes"), scope=None)
+            paths = setup_module._paths(args)
+            _write(paths.hermes_config_path, self._CONFIG)
+            typed_answers = iter([*typed, ""])
+            menus: list[str] = []
+            out = io.StringIO()
+            with patch.object(
+                setup_module,
+                "_detect_external_cli_profiles",
+                return_value={"claude-code": {"binary_present": False}, "codex": {"binary_present": False}},
+            ), patch.object(setup_module, "_ask_multi_choice", return_value=ticked), patch.object(
+                setup_module, "_ask_single_choice", side_effect=lambda title, *a, **k: (menus.append(title), "deepseek")[1]
+            ), patch.object(
+                setup_module, "_ask", side_effect=lambda *a, **k: next(typed_answers)
+            ), patch.object(setup_module, "_use_color", return_value=False), redirect_stdout(out):
+                setup_module._ask_provider_entitlements(argparse.Namespace(), paths, "en")
+            document = json.loads(provider_entitlements_path(paths.omh_home).read_text(encoding="utf-8"))
+        return document, menus, out.getvalue()
+
+    def test_accepting_the_default_records_the_placeholder_kind(self) -> None:
+        document, menus, _out = self._drive(ticked=["custom"], typed=[])
+        self.assertEqual(document["providers"], {"custom": "gateway"}, "the interview learned a family from somewhere")
+        self.assertEqual(menus, [])
+
+    def test_retyping_a_ticked_id_at_the_add_prompt_is_refused(self) -> None:
+        document, menus, out = self._drive(ticked=["custom"], typed=["custom"])
+        self.assertIn("already recorded", out)
+        self.assertEqual(document["providers"], {"custom": "gateway"})
+        self.assertEqual(menus, [])
+
+    def test_unticking_and_re_entering_does_work_and_is_not_what_the_hint_names(self) -> None:
+        # The one path that records a family. It is not named in the hint
+        # because "clear the row you have, then type its name back in" is a
+        # workaround, not an instruction, and a reader who followed it
+        # wrongly would end up with the provider excluded instead.
+        document, menus, _out = self._drive(ticked=[], typed=["custom"])
+        self.assertEqual(document["providers"], {"custom": "deepseek"})
+        self.assertEqual(menus, ["What kind of provider is `custom`?"])
+        self.assertNotIn("excluded_providers", document)
 
 
 class OneWriterTests(unittest.TestCase):

@@ -550,9 +550,12 @@ that neither side removes the other's providers. `omh model-chains show`,
 the CLI picker, and `/omh-model` list the providers counted, each with where
 it was found (`login`, `config`, `env`, or `recorded`).
 
-A private gateway is the case no host can answer, and a `--yes`, `--json`,
-or non-TTY `omh setup` asks no provider question at all — so there is a
-scriptable way to record one, for install scripts and agents:
+A private gateway is the case no host can answer, and the interview does not
+answer it either: a detected `providers.<id>` row arrives ticked at the kind
+detection gave it, and re-entering the same id after the list is refused as
+already recorded — while a `--yes`, `--json`, or non-TTY `omh setup` asks no
+provider question at all. So recording what such a provider serves is a
+command, for people and install scripts alike:
 
 ```sh
 omh model-chains provider set work-gateway openrouter   # record what it serves
@@ -563,8 +566,8 @@ It writes the same `providers.json` through the same validation the
 interview uses, refuses a kind outside the vocabulary by naming the accepted
 values, refuses to overwrite a record it cannot read, and is idempotent — so
 an install script can run it on every run. `omh model-chains show` says when
-a machine's providers all resolve to nothing, and names both of these ways
-out.
+a machine's providers all resolve to nothing, and names this command as the
+way out.
 
 With linked providers found or that document present, every chain is
 reordered so the entries such a provider can serve lead and the rest follow;

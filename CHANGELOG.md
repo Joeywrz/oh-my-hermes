@@ -72,10 +72,13 @@ All notable changes will be documented here.
   private relay of the operator's own stays unresolved rather than being
   renamed after a vendor whose name happens to appear in its URL. For that
   remaining case — a gateway no host can identify — `omh model-chains show`
-  adds one indented line naming both ways to record what it serves, and
-  `omh model-chains provider set <id> <kind>` / `clear <id>` is the way that
-  does not need a terminal, since a `--yes`, `--json`, or non-TTY `omh setup`
-  asks no provider question at all. It writes the same `providers.json`
+  says so and names the one way to record what it serves:
+  `omh model-chains provider set <id> <kind>` / `clear <id>`. It is the only
+  way, measured rather than assumed — a detected `providers.<id>` row arrives
+  ticked at the kind detection gave it, re-entering the same id after the list
+  is refused as already recorded, and a `--yes`, `--json`, or non-TTY
+  `omh setup` asks no provider question at all. It writes the same
+  `providers.json`
   through the same validation the interview now also routes through — one
   producer, `write_provider_entitlements` — refuses a kind outside the
   vocabulary by naming the accepted values, refuses to overwrite a record it

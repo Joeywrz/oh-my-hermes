@@ -4862,8 +4862,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(payload["summary"]["context_brief_coverage_passing"], 12)
             self.assertEqual(payload["summary"]["context_brief_coverage_total"], 12)
             # Includes the measured omh-docs and github-issue-intake cases.
-            self.assertEqual(payload["summary"]["routing_precision_passing"], 239)
-            self.assertEqual(payload["summary"]["routing_precision_total"], 239)
+            self.assertEqual(payload["summary"]["routing_precision_passing"], 241)
+            self.assertEqual(payload["summary"]["routing_precision_total"], 241)
             self.assertEqual(payload["summary"]["routing_precision_overroute_count"], 0)
             self.assertEqual(payload["summary"]["routing_precision_intervention_passing"], 392)
             self.assertEqual(payload["summary"]["routing_precision_intervention_total"], 392)

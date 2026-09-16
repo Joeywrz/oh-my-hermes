@@ -4231,19 +4231,10 @@ class WrapperContractTests(unittest.TestCase):
             **recommend._CATEGORY_POLICIES,
             **recommend._HERMES_ROLE_POLICIES,
         }
-        control_actions = {
-            "answer_clarification",
-            "ask_clarification",
-            "cancel",
-            "clarify_or_route",
-            "dispatch_to_workflow",
-            "show_workflow_guidance",
-        }
-
         missing: list[str] = []
         for name, policy in sorted(policies.items()):
             next_action = policy.next_action
-            if not next_action or next_action in control_actions:
+            if not next_action or next_action in self._CONTROL_NEXT_ACTIONS:
                 continue
             if next_action not in contract.VISIBLE_ACTIONS:
                 missing.append(
@@ -4367,6 +4358,266 @@ class WrapperContractTests(unittest.TestCase):
             {"brand-new-skill"}, set(), self._CARD_COVERAGE_LEGACY_SKILLS
         )
         self.assertEqual(detected, ["brand-new-skill"])
+
+    # --- next_action registration, derived from the producers (issue #1643) ---
+    #
+    # The gates above take their subject from a curated table and check the
+    # entries that are already there, so an action registered in NO table has
+    # nothing to fail against. The gate below takes its subject from the
+    # producers instead and fails on absence.
+    #
+    # "Register it in all three tables" is not one rule, because the three
+    # tables have three different readers:
+    #
+    #   NEXT_ACTION_LABELS (src/routing/action_copy.py) is read by
+    #     next_action_label(). EVERY producer's primary next_action reaches it:
+    #     the awareness route hints and generic-tool checkpoint routes render
+    #     `next_action_label` / `primary_next_action_label` into Hermes-facing
+    #     copy just as the chat cards do. Its "_" -> " " fallback is precisely
+    #     how an unregistered id renders, which is the condition this gate
+    #     exists to see, so a curated label is owed unconditionally.
+    #   VISIBLE_ACTIONS (src/wrapper/contract.py) is read by _action(), which
+    #     already raises on an unknown id. Only an id rendered as a chat button
+    #     reaches it, and a route hint does not render buttons.
+    #   _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION (src/wrapper/contract.py) is read by
+    #     _ack_actions_for_next_action(), and the generic ack card's next_action
+    #     is a _SKILL_POLICIES next_action (see contract.build_chat_interaction_
+    #     payload). Only a policy action can reach it.
+    #
+    # So a policy next_action owes all three; an awareness-only next_action owes
+    # the label. Forcing all three everywhere would demand 14 registrations that
+    # no reader would ever look up -- `record_missed_route` heading an ack card
+    # whose skill already acks as `audit_learning_readiness`, for one.
+    #
+    # Descriptive ids owe none of the three and are checked by the inverse
+    # assertion below: see _descriptive_action_ids().
+    _CONTROL_NEXT_ACTIONS = frozenset(
+        {
+            # Router control surfaces, not workflow actions: they never head a
+            # skill's ack card and never render as a workflow button.
+            "answer_clarification",
+            "ask_clarification",
+            "cancel",
+            "clarify_or_route",
+            "dispatch_to_workflow",
+            "show_workflow_guidance",
+        }
+    )
+
+    @staticmethod
+    def _producer_next_actions() -> dict[str, set[str]]:
+        """Map every catalog-reachable primary next_action to its producers."""
+        from omh.plugin_bundle.omh import awareness
+        from omh.routing import recommend
+        from omh.wrapper import contract
+
+        producers: dict[str, set[str]] = {}
+
+        def record(action: object, origin: str) -> None:
+            name = str(action or "").strip()
+            if name:
+                producers.setdefault(name, set()).add(origin)
+
+        for rule in awareness._ROUTE_HINT_RULES:
+            record(rule.get("next_action"), f"awareness route hint {rule.get('id')!r}")
+        for route in awareness.GENERIC_TOOL_CHECKPOINT_ROUTES:
+            record(
+                route.get("primary_next_action"),
+                f"awareness checkpoint route {route.get('tool_family')!r}",
+            )
+        for workflow, action in awareness._DIRECT_WORKFLOW_NEXT_ACTIONS.items():
+            record(action, f"awareness direct invocation of {workflow!r}")
+        policies = {
+            **recommend._SKILL_POLICIES,
+            **recommend._CATEGORY_POLICIES,
+            **recommend._HERMES_ROLE_POLICIES,
+        }
+        for name, policy in policies.items():
+            record(policy.next_action, f"routing policy {name!r}")
+        for cards in (
+            contract._OPERATING_BRIEF_CHAT_CARDS,
+            contract._META_ROUTER_CHAT_CARDS,
+            contract._REVIEW_QUALITY_CHAT_CARDS,
+            contract._DELIVERY_RUNTIME_CHAT_CARDS,
+            contract._WORKFLOW_OPERATIONS_CHAT_CARDS,
+        ):
+            for key, card in cards.items():
+                record(card.get("next_action"), f"chat card {key!r}")
+        return producers
+
+    @staticmethod
+    def _descriptive_action_ids() -> dict[str, set[str]]:
+        """Map every descriptive action id to its producers.
+
+        A route hint's / checkpoint route's `fallback_action` and a capability
+        family's `next_action` are snake_case sentences
+        (`confirm_url_allowed_actions_and_auth_boundary`) authored for the
+        "_" -> " " rendering, not action ids. They own no curated label on
+        purpose; what they must never do is appear in a table whose reader
+        treats them as a real action.
+        """
+        from omh.capabilities.families import capability_family_projection
+        from omh.plugin_bundle.omh import awareness
+
+        descriptive: dict[str, set[str]] = {}
+
+        def record(action: object, origin: str) -> None:
+            name = str(action or "").strip()
+            if name:
+                descriptive.setdefault(name, set()).add(origin)
+
+        for rule in awareness._ROUTE_HINT_RULES:
+            record(rule.get("fallback_action"), f"awareness route hint {rule.get('id')!r}")
+        for route in awareness.GENERIC_TOOL_CHECKPOINT_ROUTES:
+            record(
+                route.get("fallback_action"),
+                f"awareness checkpoint route {route.get('tool_family')!r}",
+            )
+        projection = capability_family_projection()
+        for family in projection.get("families", []):
+            record(family.get("next_action"), f"capability family {family.get('id')!r}")
+        return descriptive
+
+    @classmethod
+    def _unregistered_producer_actions(
+        cls,
+        producers: dict[str, set[str]],
+        *,
+        labels: dict[str, str],
+        visible: set[str],
+        ack: set[str],
+        policy_actions: set[str],
+        grandfathered_labels: frozenset[str],
+    ) -> list[str]:
+        problems: list[str] = []
+        for action, origins in sorted(producers.items()):
+            produced_by = ", ".join(sorted(origins))
+            if action not in labels and action not in grandfathered_labels:
+                problems.append(
+                    f"{action}: add '{action}': '<gerund phrase>' to NEXT_ACTION_LABELS "
+                    f"in src/routing/action_copy.py (produced by {produced_by})"
+                )
+            if action not in policy_actions or action in cls._CONTROL_NEXT_ACTIONS:
+                continue
+            if action not in visible:
+                problems.append(
+                    f'{action}: add "{action}" to VISIBLE_ACTIONS in '
+                    f"src/wrapper/contract.py (produced by {produced_by})"
+                )
+            if action not in ack:
+                problems.append(
+                    f'{action}: add "{action}": ("{action}", "<Short label>") to '
+                    "_ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION in src/wrapper/contract.py "
+                    f"(produced by {produced_by})"
+                )
+        return problems
+
+    def test_every_producer_next_action_is_registered_for_its_reader(self) -> None:
+        from omh.routing import recommend
+        from omh.routing.action_copy import NEXT_ACTION_LABELS
+        from omh.wrapper import contract
+
+        producers = self._producer_next_actions()
+        policy_actions = {
+            policy.next_action
+            for policy in (
+                *recommend._SKILL_POLICIES.values(),
+                *recommend._CATEGORY_POLICIES.values(),
+                *recommend._HERMES_ROLE_POLICIES.values(),
+            )
+            if policy.next_action
+        }
+
+        problems = self._unregistered_producer_actions(
+            producers,
+            labels=NEXT_ACTION_LABELS,
+            visible=set(contract.VISIBLE_ACTIONS),
+            ack=set(contract._ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION),
+            policy_actions=policy_actions,
+            grandfathered_labels=self._UNCURATED_LEGACY_NEXT_ACTIONS,
+        )
+        self.assertEqual(
+            problems,
+            [],
+            "next_action(s) reachable from the catalog but not registered where "
+            "their reader looks them up. Each line names the action, the table, "
+            "the file and the producer that reaches it.",
+        )
+
+    def test_registration_gate_detects_an_action_registered_nowhere(self) -> None:
+        detected = self._unregistered_producer_actions(
+            {"declare_plan_checklist": {"awareness route hint 'todo_checklist'"}},
+            labels={},
+            visible=set(),
+            ack=set(),
+            policy_actions={"declare_plan_checklist"},
+            grandfathered_labels=frozenset(),
+        )
+
+        self.assertEqual(len(detected), 3)
+        self.assertTrue(all("declare_plan_checklist" in line for line in detected))
+        self.assertTrue(all("todo_checklist" in line for line in detected))
+        self.assertIn("NEXT_ACTION_LABELS", detected[0])
+        self.assertIn("src/routing/action_copy.py", detected[0])
+        self.assertIn("VISIBLE_ACTIONS", detected[1])
+        self.assertIn("src/wrapper/contract.py", detected[1])
+        self.assertIn("_ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION", detected[2])
+        self.assertIn("src/wrapper/contract.py", detected[2])
+
+    def test_registration_gate_reports_each_missing_table_separately(self) -> None:
+        producers = {"prepare_brand_new_surface": {"routing policy 'brand-new'"}}
+        kwargs = {
+            "labels": {"prepare_brand_new_surface": "preparing a brand new surface"},
+            "visible": {"prepare_brand_new_surface"},
+            "ack": {"prepare_brand_new_surface"},
+            "policy_actions": {"prepare_brand_new_surface"},
+            "grandfathered_labels": frozenset(),
+        }
+        self.assertEqual(self._unregistered_producer_actions(producers, **kwargs), [])
+
+        for table, emptied in (
+            ("NEXT_ACTION_LABELS", {"labels": {}}),
+            ("VISIBLE_ACTIONS", {"visible": set()}),
+            ("_ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION", {"ack": set()}),
+        ):
+            with self.subTest(table=table):
+                detected = self._unregistered_producer_actions(
+                    producers, **{**kwargs, **emptied}
+                )
+                self.assertEqual(len(detected), 1)
+                self.assertIn(table, detected[0])
+
+    def test_descriptive_action_ids_are_not_wired_as_chat_actions(self) -> None:
+        from omh.wrapper import contract
+
+        visible = set(contract.VISIBLE_ACTIONS)
+        ack = set(contract._ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION)
+        primary = set(self._producer_next_actions())
+
+        wired: list[str] = []
+        for action, origins in sorted(self._descriptive_action_ids().items()):
+            if action in primary:
+                continue
+            produced_by = ", ".join(sorted(origins))
+            if action in visible:
+                wired.append(
+                    f'{action}: remove "{action}" from VISIBLE_ACTIONS in '
+                    f"src/wrapper/contract.py, or promote it to a real "
+                    f"next_action (produced by {produced_by})"
+                )
+            if action in ack:
+                wired.append(
+                    f'{action}: remove "{action}" from '
+                    "_ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION in src/wrapper/contract.py, "
+                    f"or promote it to a real next_action (produced by {produced_by})"
+                )
+        self.assertEqual(
+            wired,
+            [],
+            "Clarification-shape fallback/family id(s) registered as a real "
+            "chat action. A descriptive id renders through the '_' -> ' ' path "
+            "by design and must not be reachable as a button or an ack head.",
+        )
 
     def test_cancel_routes_to_control_action_without_plan_ui(self) -> None:
         payload = build_chat_interaction_payload("cancel", source="discord")

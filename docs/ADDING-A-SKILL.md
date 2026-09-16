@@ -71,12 +71,24 @@ does not look like a missing registration:
   reads as a routing bug and is not one. The intervention corpus reports it as
   `expected response kind <yours>, observed plan`.
 
-Registering a new `next_action` means all three of `NEXT_ACTION_LABELS`
-(`src/routing/action_copy.py`), `VISIBLE_ACTIONS`, and
-`_ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION` (both `src/wrapper/contract.py`). Compare
-against a sibling skill rather than trusting a green `tests/test_wrapper_contract.py`
-run: that suite validates the actions that *are* registered, so an action
-registered in none of the three does not fail it.
+Registering a new `next_action` means a curated label in `NEXT_ACTION_LABELS`
+(`src/routing/action_copy.py`) always, plus `VISIBLE_ACTIONS` and
+`_ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION` (both `src/wrapper/contract.py`) when the
+action is a `_SKILL_POLICIES` next_action. The split is not style, it is which
+reader looks the id up: `next_action_label()` reads the label table and every
+producer reaches it, `_action()` reads `VISIBLE_ACTIONS` and only a rendered
+button reaches it, and `_ack_actions_for_next_action()` reads the ack table for
+a generic ack card, whose next_action is always a policy action.
+
+`tests/test_wrapper_contract.py` derives that subject from the producers --
+awareness route hints, generic-tool checkpoint routes, direct-workflow
+invocations, routing policies and chat cards -- so an action registered in none
+of the three fails by name, with the table, the file and the producer that
+reaches it (issue #1643). A route hint's `fallback_action` and a capability
+family's `next_action` are descriptive snake_case sentences authored for the
+underscore-to-space rendering, not action ids: they are exempt from all three,
+and a separate assertion fails if one is wired into `VISIBLE_ACTIONS` or the
+ack table.
 
 ### A deference line must not repeat the deferring skill's own trigger vocabulary
 

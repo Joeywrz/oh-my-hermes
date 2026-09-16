@@ -2022,6 +2022,12 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         'dispatch', 'maestro', 'forward_plan_to_selected_workflow', 'plan',
     ),
     RoutingInterventionCase(
+        'engine-entry-approval-carrying-a-real-request',
+        'An approval carrying work with its own evidence still routes to that work',
+        'the plan is fine, now do a workspace audit of the repo',
+        'dispatch', 'workspace-audit', 'prepare_workspace_audit', 'workspace_audit',
+    ),
+    RoutingInterventionCase(
         'recall-saved-preference-incident', 'Expected saved memory enters evidence diagnosis',
         'Why was my saved response preference not used?',
         'dispatch', 'memory-sync', 'prepare_memory_sync', 'memory_curation',

@@ -534,6 +534,24 @@ All notable changes will be documented here.
   `repeat: always` so no once-per-session claim is consumed, and the rules file
   lives in a temporary directory that is the probe's entire OMH home. (#1561)
 
+- **Two profiles can be checked for isolation instead of discovered to leak.**
+  `CONTEXT.md` states "Exactly one home is active per invocation" as an
+  invariant and nothing verified it, so a leak between two profiles surfaced as
+  behaviour rather than as a finding. `omh doctor --profile-isolation
+  '<omh-home>[,<hermes-home>]' '<omh-home>[,<hermes-home>]'` compares two
+  profile references across config, cache, plugin state, files, and env, one
+  verdict per surface over named artifacts rather than a tree diff. It reports
+  a shared path as leaked and names the path, catches the two shapes a string
+  comparison misses — two homes symlinked to one target, and one home nested
+  inside the other — and reports `unknown`, never `isolated`, for a surface it
+  could not inspect, which is what a profile reference with no Hermes home
+  produces. The env surface names the ambient `OMH_HOME` or `HERMES_HOME` that
+  pins one of the two profiles for every invocation that forgets a flag. Exit 1
+  on a leak, 3 when nothing leaked but a surface was not inspected, 0 only when
+  every surface was inspected and none leaked. The ordinary `omh doctor` run is
+  unchanged: the sub-check fires only for the operators who pass the flag.
+  (#1562)
+
 ## 2.0.3 - 2026-09-12
 
 Everything merged since the 2.0.2 tag (2026-09-07). Highlights, grouped:

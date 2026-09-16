@@ -88,6 +88,20 @@ All notable changes will be documented here.
   it, and fails if that set is ever empty — a guard over nothing passes without
   proving anything.
 
+- **A minted memory id can no longer read back as a leaked credential.**
+  `secrets.token_urlsafe(18)` draws 24 characters from the base64url alphabet,
+  so a token occasionally comes out shaped like a real API key — `sk-`, `hf_`,
+  `gh[oprsu][_-]`, `AIza`, `xox-` and the separator-split variant all fire, at
+  a measured one id in 25,000. When such a token became a block's own
+  `review_id`, the admission walk classified the block's own identifier as a
+  secret and omitted the approved block from its own render with
+  `safety_blocked_in_admission.review_id`. Nothing was lost and nothing said
+  so; it surfaced as a CI failure costing a full diagnosis each time it landed.
+  `_opaque_id` now redraws until the token classifies safe, and `_validate_block`
+  checks the shape of `review_id` rather than only its presence — the guard its
+  sibling `_memory_review_path` has had all along. Pinned by forced colliding
+  draws, one per firing pattern, taken from real generator output (#1641).
+
 - **OMH now engages on an ordinary prompt, and the trigger is what the model
   does rather than what the user typed.** Four measured causes of one report
   ("거의 todo나 에이전트 호출을 하지 않더라"). The plugin bundle's invocation

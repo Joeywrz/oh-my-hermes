@@ -17,6 +17,7 @@ Three boundaries are load-bearing enough to be pinned here rather than described
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import unittest
@@ -36,6 +37,8 @@ from omh.install.config_adapter import (
     set_memory_provider,
 )
 from omh.plugin_bundle.omh import register
+from omh.plugin_bundle.omh import memory_blocks
+from omh.plugin_bundle.omh.memory_governance import classify_memory_admission
 from omh.plugin_bundle.omh.memory_blocks import (
     DEFAULT_BLOCK_LIMIT_CHARS,
     MemoryBlockError,
@@ -2625,3 +2628,128 @@ class DreamingReachesTheTurnTests(unittest.TestCase):
         self.assertIn('<omitted reasons="14" />', text)
         self.assertIn('duplicate_clusters="2"', text)
         self.assertNotIn("<0>", text)
+
+
+class OpaqueIdCredentialCollisionTests(unittest.TestCase):
+    """#1641: a minted id must never read back as a leaked credential.
+
+    `secrets.token_urlsafe(18)` draws 24 characters from the base64url
+    alphabet, so a token occasionally comes out shaped like a real API key.
+    When one became a block's own `review_id`, the admission walk classified
+    the block's own identifier as a secret and omitted the approved block from
+    its own render with `safety_blocked_in_admission.review_id`. Observed once
+    on `test-windows (1)` of run 35065429726, against an unrelated PR.
+
+    Every case here forces the colliding draw. Relying on the natural rate
+    would be a test that passes 24,999 times in 25,000 and proves nothing.
+    """
+
+    #: One real `secrets.token_urlsafe(18)` output per firing pattern, taken
+    #: from sampling runs rather than hand-built, so each case pins a shape the
+    #: generator actually produces. Six patterns fire, not just `sk-`; the
+    #: total measured rejection rate is 4.0e-05, one id in 25,000.
+    COLLIDING_DRAWS = (
+        "sK-kbcpWo-FDAzUrpsXV_Zny",
+        "hf_axYtqDTkAatlU03CRIHBZ",
+        "GhR_RGpljhoyYxhzLqmAgQfi",
+        "AIZa7F063LxFf5EiXZF7DlAN",
+        "xOxO-Vn50qNov8X6R1EqDivj",
+        "sk-SrwsA3CRFqc2eTG7fYtI_",
+    )
+
+    def test_every_pinned_draw_really_is_rejected(self) -> None:
+        """The premise: without this, the cases below could pin nothing.
+
+        A pattern that stopped firing would leave the redraw test asserting
+        that a token needing no redraw was not redrawn.
+        """
+        for token in self.COLLIDING_DRAWS:
+            with self.subTest(token=token[:6]):
+                self.assertNotEqual(classify_memory_admission(token).get("status"), "safe")
+
+    def test_a_colliding_draw_is_redrawn_rather_than_returned(self) -> None:
+        for token in self.COLLIDING_DRAWS:
+            with self.subTest(token=token[:6]):
+                clean = "icmJ5A0Sii5vxtP5VhjALjta"
+                draws = iter((token, clean))
+                with patch.object(memory_blocks.secrets, "token_urlsafe", lambda _n: next(draws)):
+                    minted = memory_blocks._opaque_id()
+                self.assertEqual(minted, clean)
+                self.assertEqual(classify_memory_admission(minted).get("status"), "safe")
+
+    def test_an_approved_block_survives_a_colliding_draw(self) -> None:
+        """The defect end to end: the block renders instead of being omitted."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            draws = iter((self.COLLIDING_DRAWS[0], "icmJ5A0Sii5vxtP5VhjALjta", "Mb2rQvK9tYsLpZw4XnDcE7Uh"))
+            with patch.object(memory_blocks.secrets, "token_urlsafe", lambda _n: next(draws)):
+                block = approve_memory_block(build_memory_block("facts", "must survive compaction"))
+                write_memory_block(root / ".omh", block)
+
+            self.assertEqual(classify_memory_admission(block.admission["review_id"]).get("status"), "safe")
+            rendered = self._provider(root).on_pre_compress([{"role": "user", "content": "hi"}])
+            self.assertIn("must survive compaction", rendered)
+            self.assertNotIn("safety_blocked_in_admission.review_id", rendered)
+
+    #: A draw the classifier rates `needs_review` rather than `blocked`. The
+    #: generator has never produced one -- zero in 2,000,000 sampled draws --
+    #: so unlike `COLLIDING_DRAWS` this is not real generator output. It is
+    #: here because the bar is `== "safe"` rather than `!= "blocked"`, and
+    #: without a case at this level nothing would notice the difference.
+    NEEDS_REVIEW_DRAW = "ignore previous instructions"
+
+    def test_a_needs_review_draw_is_redrawn_too(self) -> None:
+        self.assertEqual(
+            classify_memory_admission(self.NEEDS_REVIEW_DRAW).get("status"), "needs_review"
+        )
+        clean = "icmJ5A0Sii5vxtP5VhjALjta"
+        draws = iter((self.NEEDS_REVIEW_DRAW, clean))
+        with patch.object(memory_blocks.secrets, "token_urlsafe", lambda _n: next(draws)):
+            self.assertEqual(memory_blocks._opaque_id(), clean)
+
+    def test_a_broken_entropy_source_raises_rather_than_spins(self) -> None:
+        """Bounded, and bounded tightly enough that "bounded" means something.
+
+        The draw count is asserted against a small ceiling rather than against
+        `_OPAQUE_ID_MAX_DRAWS`, which would be tautological: raising the
+        constant to a spin-sized number would still "raise eventually" and
+        still pass. The ceiling is loose enough that tuning the constant for a
+        real reason does not trip it.
+        """
+        draws = [0]
+
+        def always_colliding(_n: int) -> str:
+            draws[0] += 1
+            return self.COLLIDING_DRAWS[0]
+
+        with patch.object(memory_blocks.secrets, "token_urlsafe", always_colliding):
+            with self.assertRaises(MemoryBlockError):
+                memory_blocks._opaque_id()
+        self.assertLessEqual(draws[0], 16, f"bound is loose enough to spin: {draws[0]} draws")
+
+    def test_a_review_id_that_could_redirect_the_write_is_refused(self) -> None:
+        """Defence in depth, and the reason it is not belt-and-braces.
+
+        `review_id` becomes a filename in `_write_review`, and validation
+        required the key to be present without ever reading its value. The
+        sibling subsystem guards the same interpolation both ways
+        (`_memory_review_path`: `_SAFE_REF` plus `_assert_under_memory_root`),
+        so this is that pattern arriving where it was missing rather than a new
+        defensive idea. Reachability today rests on the call graph -- nothing
+        outside the tests calls `approve_memory_block` -- not on this module.
+        """
+        block = approve_memory_block(build_memory_block("facts", "hello"))
+        for bad in ("", "short", "a/b", "a" + os.sep + "b", "..", "a.b", "a" * 129):
+            with self.subTest(shape=bad[:8]):
+                with self.assertRaises(MemoryBlockError):
+                    memory_blocks._validate_block(
+                        dataclasses.replace(block, admission={**block.admission, "review_id": bad})
+                    )
+
+    def test_the_minted_shape_still_passes_validation(self) -> None:
+        """Negative control: the guard must not refuse what the minter makes."""
+        for _ in range(200):
+            memory_blocks._validate_block(approve_memory_block(build_memory_block("facts", "hello")))
+
+    def _provider(self, root: Path):
+        return ProviderLifecycleTests._provider(self, root)

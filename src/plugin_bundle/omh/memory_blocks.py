@@ -20,6 +20,7 @@ from .memory_governance import (
     build_retention,
     canonical_memory_scope,
     canonical_payload_digest,
+    classify_memory_admission,
     stable_artifact_identity,
 )
 
@@ -29,6 +30,17 @@ BLOCK_TIERS = (SYSTEM_TIER, REFERENCE_TIER)
 DEFAULT_BLOCK_LIMIT_CHARS = 2000
 DEFAULT_SYSTEM_RENDER_BUDGET_CHARS = 6000
 _LABEL = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+# A review id reaches the filesystem as `<review_id>.json`, so it may hold only
+# characters that cannot redirect the write: no separator, no dot, no `..`.
+# `_opaque_id` mints 24 characters from the base64url alphabet, and the
+# `<prefix>_<token>` shape other review producers use also fits.
+_REVIEW_ID = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+# How many times `_opaque_id` may redraw before giving up. Each draw is
+# independent with a measured rejection rate of 4.0e-05, so the chance of
+# needing even a third is about 1.6e-09; a bound this loose can only be reached
+# by a broken entropy source, which is a condition to raise on rather than spin
+# on.
+_OPAQUE_ID_MAX_DRAWS = 8
 _DEFAULT_SCOPE = {"kind": "project", "ref": "default"}
 
 
@@ -394,6 +406,26 @@ def _validate_block(block: MemoryBlock) -> None:
         allowed = required | {"state", "reviewer_claim"}
         if block.source_class != "omh_local" or set(block.admission) - allowed or not required <= set(block.admission):
             raise MemoryBlockError("approved blocks require a local immutable review link")
+        # `review_id` becomes a filename in `_write_review`, and until now this
+        # check required the key to be present without ever looking at its
+        # value. The sibling subsystem guards the same interpolation both ways:
+        # `_memory_review_path` (`src/workflows/memory.py:4196`) matches
+        # `_SAFE_REF` AND calls `_assert_under_memory_root`. This is that guard
+        # pattern arriving in the module that did not have it.
+        #
+        # Defence in depth, not a live hole: `_write_review` is reached only
+        # from `write_memory_block`'s approved branch, the sole production
+        # caller (`cmd_memory_block_set`) supplies no admission and so writes a
+        # `pending_review` block, and `approve_memory_block` -- the only
+        # producer of an approved admission, which always mints the id itself
+        # -- has no caller outside the tests. The safety is a property of the
+        # call graph, not of the code here, and `approve_memory_block` presents
+        # as public API. A block deserialised from disk can already carry an
+        # arbitrary value into a `MemoryBlock` (`_block_from_data` copies
+        # `admission` verbatim): open at the deserialiser, closed at the
+        # writer. This closes the deserialiser half too.
+        if not _REVIEW_ID.fullmatch(str(block.admission["review_id"])):
+            raise MemoryBlockError("review id must be an opaque filename-safe token")
         _validate_identity(block.admission["artifact_identity"])
     elif set(block.admission) != {"state"}:
         raise MemoryBlockError("unapproved block admission must contain only state")
@@ -459,7 +491,32 @@ def _write_review(omh_home: str | Path, block: MemoryBlock) -> None:
 
 
 def _opaque_id() -> str:
-    return secrets.token_urlsafe(18)
+    """An opaque id that cannot be read back as a leaked credential (#1641).
+
+    `secrets.token_urlsafe(18)` draws 24 characters from the base64url
+    alphabet, so a token occasionally comes out shaped like a real API key --
+    `sk-`, `hf_`, `gh[oprsu][_-]`, `AIza`, `xox-` and the separator-split
+    variant all fire, at a measured 4.0e-05 across every pattern, or one id in
+    25,000. When such a token became a block's own `review_id`, the admission
+    walk classified the block's own identifier as a secret and omitted the
+    approved block from its own render with
+    `safety_blocked_in_admission.review_id`. Nothing was lost; the block simply
+    never appeared, and the CI failure that produced cost a full diagnosis.
+
+    Redrawing is the fix rather than exempting the field. An exemption is
+    implementable -- `evaluate_renderable_strings` holds the value path and
+    could special-case `admission.review_id` -- but `_validate_block` accepts
+    any string there, `build_memory_block` takes a caller-supplied `admission`,
+    and `_block_from_data` copies one verbatim off disk. So the exemption would
+    be a smuggling channel: the category argument ("the system minted this, it
+    is not user content") holds for how the field is used and fails for what it
+    accepts. The shape check in `_validate_block` closes that half.
+    """
+    for _ in range(_OPAQUE_ID_MAX_DRAWS):
+        candidate = secrets.token_urlsafe(18)
+        if classify_memory_admission(candidate).get("status") == "safe":
+            return candidate
+    raise MemoryBlockError("could not mint an opaque id that classifies as safe")
 
 
 def _utc_now() -> str:

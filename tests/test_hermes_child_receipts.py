@@ -4,12 +4,15 @@ import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import threading
 import unittest
 from unittest.mock import patch
 
+from omh.coding import hermes_child_receipts
 from omh.coding.hermes_child_receipts import (
     ReceiptVerificationError,
     load_hermes_child_receipt as _load_hermes_child_receipt,
+    load_or_create_observation_key,
     write_signed_observation,
 )
 from omh.coding.routing_observation import (
@@ -247,6 +250,73 @@ class HermesChildReceiptTests(unittest.TestCase):
                     key.symlink_to(outside)
                 with self.assertRaises(ReceiptVerificationError):
                     load_hermes_child_receipt(home, "run-1", "2026-08-27T00:00:00Z")
+
+
+class ObservationKeyCreationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = TemporaryDirectory(prefix="omh-observation-key-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def test_two_creators_at_one_home_read_the_same_whole_key(self) -> None:
+        # Park one creator between drawing its key bytes and publishing them,
+        # then run a second creator to completion at the same root. Within
+        # this function os.urandom is called once per creator, for the key.
+        #
+        # The two assertions below pin the two properties the key needs, and
+        # each catches a different wrong fix. Against the create-then-write
+        # shape the parked creator has already made the key path exist at
+        # length zero, so the second reads a short key and raises: the "whole
+        # key" assertion bites. Against a temporary published with os.replace
+        # the parked creator overwrites the key the second already returned
+        # and signed with, so the "same key" assertion bites.
+        parked = threading.Event()
+        release = threading.Event()
+        real_urandom = os.urandom
+        claim = threading.Lock()
+        claimed = False
+
+        def gated_urandom(size: int) -> bytes:
+            nonlocal claimed
+            with claim:
+                park, claimed = not claimed, True
+            if park:
+                parked.set()
+                release.wait(timeout=10.0)
+            return real_urandom(size)
+
+        outcomes: dict[str, bytes | BaseException] = {}
+
+        def create(name: str) -> None:
+            try:
+                outcomes[name] = load_or_create_observation_key(self.root)
+            except BaseException as exc:  # re-raised through the assertions below
+                outcomes[name] = exc
+
+        with patch.object(hermes_child_receipts.os, "urandom", gated_urandom):
+            parked_creator = threading.Thread(target=create, args=("parked",))
+            parked_creator.start()
+            self.assertTrue(parked.wait(timeout=10.0), "no creator drew key bytes")
+            create("second")
+            release.set()
+            parked_creator.join(timeout=10.0)
+            self.assertFalse(parked_creator.is_alive(), "parked creator never finished")
+
+        for name, outcome in sorted(outcomes.items()):
+            with self.subTest(creator=name):
+                self.assertIsInstance(outcome, bytes, f"{name} creator raised: {outcome!r}")
+                self.assertEqual(len(outcome), hermes_child_receipts._KEY_BYTES)
+        self.assertEqual(outcomes["parked"], outcomes["second"])
+
+    def test_creating_the_key_leaves_no_temporary_beside_it(self) -> None:
+        key = load_or_create_observation_key(self.root)
+        again = load_or_create_observation_key(self.root)
+
+        self.assertEqual(key, again)
+        self.assertEqual(
+            sorted(entry.name for entry in self.root.iterdir()),
+            [".observation-hmac-key"],
+        )
 
 
 if __name__ == "__main__":

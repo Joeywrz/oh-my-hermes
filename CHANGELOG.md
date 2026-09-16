@@ -4,6 +4,33 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A sibling cell no longer reads the receipt integrity key while it is
+  still empty.** One OMH home holds one key and every run directory under it
+  signs with that key, so `load_or_create_observation_key` was reached
+  concurrently: `execute_paired_run_plan` submits a wave's cells to a
+  `ThreadPoolExecutor`, and the lock each cell holds is a
+  `BoundedSemaphore(global_concurrency)` admitting N holders, not a mutex, so
+  two cells on different executors and providers ran the function at the same
+  moment. The key was created with `O_CREAT|O_EXCL` and filled by a separate
+  `os.write`, so between those two calls the key path existed at length zero
+  and a second caller read it short. What reached the reader was not a partial
+  key but `Hermes child observation integrity key is invalid` -- a message
+  naming the key when the key was whole and the reader had merely arrived
+  mid-write, which is the wrong diagnosis rather than only the wrong timing.
+  The key is now drawn into a private temporary file in the same directory and
+  published with `os.link`, so the key name appears only once it already holds
+  all 32 bytes. `os.link` was chosen over the `os.rename`/`os.replace` the
+  issue proposed because those publish atomically but overwrite: two creators
+  would each install a different key, and the one that had already signed a
+  receipt would stop verifying. `os.link` fails with `FileExistsError` for
+  every creator but the first, which is the same single-creator election
+  `O_EXCL` made on the key path itself, and the losers then read the key that
+  actually landed. A retry loop on a short read was rejected: it converts a
+  race into a slower race and leaves the failure mode intact. The two faults
+  that shared the `is invalid` message are now separate -- a key that cannot be
+  read says so, and a key of the wrong size reports the size it read, which
+  post-fix can only mean the file itself is damaged.
+
 - **There is now a skill for the plan checklist itself, for people who are not
   running a delivery engine.** `omh_todo` is registered on every session, and
   until now nothing in the skill surface named it: 131 skills, none with `todo`

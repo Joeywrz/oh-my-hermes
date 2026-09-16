@@ -36,6 +36,21 @@ All notable changes will be documented here.
   and is not one. It also gained the rule that a `do_not_use_when` line must not
   repeat the deferring skill's own trigger vocabulary — otherwise the sentence
   written to send work to a sibling makes the deferrer outrank it.
+- **`ulw plan` reaches the plan engine.** `docs/INSTALLATION.md` tells users to
+  invoke a workflow as `ulw work …`, and only the hyphenated label routed: `ulw`
+  on its own is an `ultrawork` trigger at score 12, so it took the whole request
+  and the second word was never read. `ulw plan` reached `ultrawork`, `ulw qa`
+  did too, and `ulw research` likewise -- the opposite of what the reader asked
+  for, with nothing on the reply to say so. Routing now joins `ulw <suffix>`
+  into the label it means before matching, for suffixes the catalog actually
+  renders as a `ulw-` skill; every spaced form now routes exactly where its
+  hyphenated twin does. `ulw` alone still means the delivery engine, and a
+  second word that is not a rendered label is left alone rather than joined
+  into a skill name that does not exist. Both halves are pinned in
+  `ROUTING_INTERVENTION_CASES`, because a join measured only on what it fixes
+  is "improved" until it swallows every sentence starting with those three
+  letters.
+
 - **Saying a plan is fine no longer starts the plan again.** `the plan is
   fine, just ship it` dispatched `plan` and emitted a 10,572-character planning
   artifact -- goals, non-goals, decision drivers, options, rejection rationale,

@@ -112,7 +112,7 @@ dc9a474dfc063984b84ae5d1a5d28a9ba1f0bb2b77292245b703b20b0fbe27e7  omh-idea-to-de
 da5b5950a621d7eedc5333721de4d23651439d06bdd2d9e9661461d1bef9ac5e  omh-inference-serving/references/serving-runbooks.md
 e634f25e8c8127238cceff1451f9e63a0fe728522a9f2661cf16d0b40993b2e8  omh-instinct-ledger/SKILL.md
 c479d49564032fee7a1f0ebf59f179ccf91f8e68e20465fc73bed674c1fb8bfc  omh-jit-learn/SKILL.md
-b46818e18b56d17eb7f26897040e39bde5693c25ae32ec9532680eb87d3fe0cb  omh-legal-compliance-review/SKILL.md
+5af45e06f2c32de0a782efc8f39aead53386263e9ecdfcd56d1c63804735c615  omh-legal-compliance-review/SKILL.md
 a0952b301dc12976606e979590da1f01c9b71d4cd5892f6b2f453536b2e4b4c1  omh-legal-compliance-review/references/negotiation-preparation.md
 670f501f3136c0f5456b82149ca24153f1b38d5151f539a9b1ab0df30e2f0b58  omh-legal-compliance-review/references/procedure.md
 5f57de1e990136cbc5ea23a7b2f47bd3601f2a071a066d69f46e981f02aa2345  omh-lifecycle-growth/SKILL.md
@@ -482,7 +482,7 @@ cat > "$target/.omh-agent-skills-manifest.json" <<'OMH_RECEIPT'
     "omh-inference-serving/references/serving-runbooks.md": "da5b5950a621d7eedc5333721de4d23651439d06bdd2d9e9661461d1bef9ac5e",
     "omh-instinct-ledger/SKILL.md": "e634f25e8c8127238cceff1451f9e63a0fe728522a9f2661cf16d0b40993b2e8",
     "omh-jit-learn/SKILL.md": "c479d49564032fee7a1f0ebf59f179ccf91f8e68e20465fc73bed674c1fb8bfc",
-    "omh-legal-compliance-review/SKILL.md": "b46818e18b56d17eb7f26897040e39bde5693c25ae32ec9532680eb87d3fe0cb",
+    "omh-legal-compliance-review/SKILL.md": "5af45e06f2c32de0a782efc8f39aead53386263e9ecdfcd56d1c63804735c615",
     "omh-legal-compliance-review/references/negotiation-preparation.md": "a0952b301dc12976606e979590da1f01c9b71d4cd5892f6b2f453536b2e4b4c1",
     "omh-legal-compliance-review/references/procedure.md": "670f501f3136c0f5456b82149ca24153f1b38d5151f539a9b1ab0df30e2f0b58",
     "omh-lifecycle-growth/SKILL.md": "5f57de1e990136cbc5ea23a7b2f47bd3601f2a071a066d69f46e981f02aa2345",

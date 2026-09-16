@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 from typing import Final, Mapping, TypeAlias, TypeVar
 
 from .hermes_child_dispatch import HermesChildObservation, is_dispatch_observation
@@ -21,7 +22,12 @@ from .hermes_child_evaluation import (
 from .routing_observation import validate_routing_observation
 from ..system.local_store import atomic_write_json
 from ..system.metadata_safety import require_opaque_metadata_ref
-from ..system.secure_regular_file import SecureFileError, open_regular_read, read_bounded
+from ..system.secure_regular_file import (
+    SecureFileError,
+    append_bytes,
+    open_regular_read,
+    read_bounded,
+)
 
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -112,17 +118,40 @@ def hermes_child_run_dir(omh_home: Path, run_id: str, *, create_root: bool) -> P
 
 
 def load_or_create_observation_key(root: Path) -> bytes:
+    """Return the integrity key one OMH home shares, creating it if absent.
+
+    Every run directory under one home signs with this key, and a paired run
+    executes sibling cells on threads, so two creators reach here at once. The
+    key is therefore filled in a private temporary file and published with
+    ``os.link``, which makes the key name appear only once it already holds
+    every byte: a concurrent reader cannot observe it short. ``os.link`` also
+    fails with ``FileExistsError`` for every creator but the first, which is
+    the same single-creator election ``O_EXCL`` made on the key path itself.
+    ``os.replace`` publishes atomically too, but it would let a late creator
+    overwrite a key an earlier one has already signed a receipt with.
+    """
     key_path = root / ".observation-hmac-key"
+    if not key_path.exists():
+        _publish_observation_key(key_path)
+    return _read_observation_key(key_path)
+
+
+def _publish_observation_key(key_path: Path) -> None:
+    temporary = key_path.with_name(f"{key_path.name}.{os.getpid()}-{secrets.token_hex(8)}.tmp")
+    descriptor = os.open(temporary, observation_key_open_flags(), 0o600)
     try:
-        descriptor = os.open(key_path, observation_key_open_flags(), 0o600)
-    except FileExistsError:
-        descriptor = None
-    if descriptor is not None:
         try:
-            os.write(descriptor, os.urandom(_KEY_BYTES))
+            append_bytes(descriptor, os.urandom(_KEY_BYTES))
         finally:
             os.close(descriptor)
-    return _read_observation_key(key_path)
+        try:
+            os.link(temporary, key_path)
+        except FileExistsError:
+            # Another creator published first. Its key is the home's key, and
+            # receipts already signed with it have to keep verifying.
+            pass
+    finally:
+        os.unlink(temporary)
 
 
 def write_signed_observation(
@@ -264,7 +293,15 @@ def _read_observation_key(path: Path) -> bytes:
         with open_regular_read(path) as descriptor:
             key = read_bounded(descriptor, _KEY_BYTES)
     except (SecureFileError, OSError) as exc:
-        raise ReceiptVerificationError("Hermes child observation integrity key is invalid") from exc
+        raise ReceiptVerificationError(
+            "Hermes child observation integrity key could not be read"
+        ) from exc
     if len(key) != _KEY_BYTES:
-        raise ReceiptVerificationError("Hermes child observation integrity key is invalid")
+        # Two different faults used to share one "is invalid" message, so a
+        # reader was told the key was bad when the file was merely the wrong
+        # size. Report the size that was read; the key is published whole, so
+        # a wrong size now means the file itself is damaged.
+        raise ReceiptVerificationError(
+            f"Hermes child observation integrity key is {len(key)} bytes, not {_KEY_BYTES}"
+        )
     return key

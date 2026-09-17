@@ -18,17 +18,20 @@ same shape arriving from anywhere else.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 import importlib
+import importlib.util
 import json
+from pathlib import Path
 import sys
-from collections.abc import Iterator
 from tempfile import TemporaryDirectory
 from types import ModuleType
 import unittest
 
 from _local_package import load_local_package
 from _standalone_bundle import (
+    bundle_dir,
     load_standalone_bundle,
     standalone_bundle_import_failures,
     standalone_bundle_module_names,
@@ -36,38 +39,47 @@ from _standalone_bundle import (
 
 load_local_package()
 
-BUNDLE_PACKAGE = "omh.plugin_bundle.omh"
-BRIDGE_MODULE = f"{BUNDLE_PACKAGE}.agent_board_bridge"
+# The name Hermes' memory-provider lane gives the bundle is synthetic
+# (`_hermes_user_memory.omh__source_<digest>`), and that name is what the
+# ImportError from a cached stub carries. Modelling it with a foreign name is
+# the whole point: under this repo's own package name the error reads
+# `omh.plugin_bundle.omh.agent_board_bridge`, which starts with `omh.`, so a
+# guard that decides by name passes every local run and re-raises on the only
+# host it was written for.
+LANE_PACKAGE = "_hermes_user_memory_omh__source_test1623"
 
 
 @contextmanager
-def cached_stub_bridge() -> Iterator[ModuleType]:
-    """Cache a bridge module that has no names, the way a failed exec does.
+def hermes_memory_lane_bundle() -> Iterator[ModuleType]:
+    """Load the bundle with a bridge module Hermes could not exec.
 
-    Hermes' loader keeps the module object in `sys.modules` when
-    `exec_module` raises, and the parent package never gains the attribute,
-    so the import resolves to a module whose dict holds nothing the caller
-    asked for. Rebuilding that here is the only way to pin the guard: the
-    error it must survive is an `ImportError` whose `name` is this bundle's
-    own path rather than `omh`.
+    `plugin_loader.py::_exec` keeps the module in `sys.modules` when
+    `exec_module` raises, and the parent package never gains the attribute, so
+    what the next import resolves to is a module object holding none of the
+    names the caller asked for. That is the state rebuilt here.
     """
-    package = importlib.import_module(BUNDLE_PACKAGE)
-    real_module = sys.modules.get(BRIDGE_MODULE)
-    had_attribute = hasattr(package, "agent_board_bridge")
-    real_attribute = getattr(package, "agent_board_bridge", None)
-    stub = ModuleType(BRIDGE_MODULE)
-    sys.modules[BRIDGE_MODULE] = stub
-    if had_attribute:
-        delattr(package, "agent_board_bridge")
+    _forget_lane_modules()
+    directory = bundle_dir()
+    spec = importlib.util.spec_from_file_location(
+        LANE_PACKAGE, directory / "__init__.py", submodule_search_locations=[str(directory)]
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("failed to load the plugin bundle under a lane name")
+    package = importlib.util.module_from_spec(spec)
+    sys.modules[LANE_PACKAGE] = package
+    spec.loader.exec_module(package)
+    stub_name = f"{LANE_PACKAGE}.agent_board_bridge"
+    sys.modules[stub_name] = ModuleType(stub_name)
     try:
-        yield stub
+        yield package
     finally:
-        if real_module is None:
-            sys.modules.pop(BRIDGE_MODULE, None)
-        else:
-            sys.modules[BRIDGE_MODULE] = real_module
-        if had_attribute:
-            setattr(package, "agent_board_bridge", real_attribute)
+        _forget_lane_modules()
+
+
+def _forget_lane_modules() -> None:
+    for name in list(sys.modules):
+        if name == LANE_PACKAGE or name.startswith(f"{LANE_PACKAGE}."):
+            sys.modules.pop(name, None)
 
 
 class StandaloneBundleImportTests(unittest.TestCase):
@@ -98,10 +110,8 @@ class StandaloneBundleImportTests(unittest.TestCase):
                 self.assertTrue((self._bundle_path(name)).is_file())
 
     @staticmethod
-    def _bundle_path(name: str):
-        from _standalone_bundle import _bundle_dir
-
-        direct = _bundle_dir().joinpath(*name.split("."))
+    def _bundle_path(name: str) -> Path:
+        direct = bundle_dir().joinpath(*name.split("."))
         return direct.with_suffix(".py") if direct.with_suffix(".py").is_file() else direct / "__init__.py"
 
 
@@ -144,24 +154,37 @@ class StandaloneBundleDegradationTests(unittest.TestCase):
 
 
 class CachedStubBridgeTests(unittest.TestCase):
-    """The defence in depth: a broken bridge, however it broke."""
+    """The defence in depth: a broken bridge, however it came to be broken."""
 
     def test_the_tool_call_hooks_return_instead_of_raising(self) -> None:
-        from omh.plugin_bundle.omh.hooks.tool_hooks import post_tool_call, pre_tool_call
-
         call = {"tool_name": "kanban_create", "args": {"board": "qa"}, "session_id": "s",
                 "task_id": "t", "tool_call_id": "c"}
-        with cached_stub_bridge(), TemporaryDirectory() as home:
-            self.assertIsNone(pre_tool_call(omh_home=home, **call))
-            self.assertIsNone(post_tool_call(omh_home=home, **call))
+        with hermes_memory_lane_bundle(), TemporaryDirectory() as home:
+            hooks = importlib.import_module(f"{LANE_PACKAGE}.hooks.tool_hooks")
+            self.assertIsNone(hooks.pre_tool_call(omh_home=home, hermes_home=home, **call))
+            self.assertIsNone(hooks.post_tool_call(omh_home=home, hermes_home=home, **call))
 
     def test_the_agent_board_tool_reports_unavailable_instead_of_raising(self) -> None:
-        from omh.plugin_bundle.omh.tools.agent_board_tool import omh_agent_board_handler
-
-        with cached_stub_bridge():
-            result = json.loads(omh_agent_board_handler({"action": "status", "request_id": "r"}))
+        with hermes_memory_lane_bundle():
+            tool = importlib.import_module(f"{LANE_PACKAGE}.tools.agent_board_tool")
+            result = json.loads(tool.omh_agent_board_handler({"action": "status", "request_id": "r"}))
         self.assertEqual(result["state"], "unavailable")
         self.assertEqual(result["reason"], "omh_agent_board_core_unavailable")
+
+    def test_the_stub_carries_a_name_no_omh_prefixed_check_can_match(self) -> None:
+        """Why the guard cannot decide by name, measured rather than asserted.
+
+        `exec` because the failure exists only in the `from X import Y` form --
+        `import_module` hands back the stub without complaint -- and the
+        package name has to be the lane's rather than a literal.
+        """
+        with hermes_memory_lane_bundle():
+            with self.assertRaises(ImportError) as raised:
+                exec(f"from {LANE_PACKAGE}.agent_board_bridge import pre_agent_board")
+        error = raised.exception
+        self.assertNotIsInstance(error, ModuleNotFoundError)
+        self.assertEqual(error.name, f"{LANE_PACKAGE}.agent_board_bridge")
+        self.assertFalse(str(error.name) == "omh" or str(error.name).startswith("omh."))
 
 
 if __name__ == "__main__":

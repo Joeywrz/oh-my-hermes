@@ -13,7 +13,7 @@ from unittest.mock import patch
 _STANDALONE_BUNDLE_MODULE_NAME = "_test_omh_standalone_bundle"
 
 
-def _bundle_dir() -> Path:
+def bundle_dir() -> Path:
     return Path(__file__).resolve().parents[1] / "src" / "plugin_bundle" / "omh"
 
 
@@ -30,7 +30,7 @@ def standalone_bundle_module_names() -> tuple[str, ...]:
     `__init__.py` is left out because it is the entry the loader starts from;
     each subpackage's `__init__` appears here as the package itself.
     """
-    bundle = _bundle_dir()
+    bundle = bundle_dir()
     names: list[str] = []
     for path in sorted(bundle.rglob("*.py")):
         parts = path.relative_to(bundle).with_suffix("").parts
@@ -69,11 +69,11 @@ def _bundle_package() -> tuple[ModuleType, importlib.machinery.ModuleSpec]:
         ):
             sys.modules.pop(name, None)
 
-    bundle_dir = _bundle_dir()
+    directory = bundle_dir()
     spec = importlib.util.spec_from_file_location(
         _STANDALONE_BUNDLE_MODULE_NAME,
-        bundle_dir / "__init__.py",
-        submodule_search_locations=[str(bundle_dir)],
+        directory / "__init__.py",
+        submodule_search_locations=[str(directory)],
     )
     if spec is None or spec.loader is None:
         raise RuntimeError("failed to load the vendored plugin bundle standalone")

@@ -4,6 +4,41 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The three sibling engines can now put their own lanes on the board
+  `ulw-work` learned in the entry below.** A `loop` iteration still died with
+  the session: the chain of assess, act, verify, decide had no shape on the
+  board, so a loop that had to survive a session end either stayed in-session
+  and was lost, or went to the board as unordered rows a new session could
+  only resume from memory. `ultraqa` had no way to run a destructive probe
+  anywhere but the main workspace, and `ralplan` produced accepted lanes that
+  `ultrawork` had to re-plan into node prompts before it could prepare a row.
+  Each engine now carries one always-loaded clause, and for the two engines
+  that go to the board the method lives in a reference outside the body
+  budget. `ulw-loop/references/board-iteration.md` chains each iteration as a
+  builder row whose `parents` is the previous verifier and a verifier row
+  whose `parents` is its builder, so the board itself enforces builder,
+  verifier, next builder and nothing runs out of order; a stop the constraint
+  assessment owes the user is a `needs_input` block with the reason, never a
+  silent retry, and a new session resumes from one `kanban_list` and one
+  `kanban_show` per changed row, continuing from the last `done` verifier
+  rather than from memory. There is no goal-mode root row, because the loop's
+  real gate is the in-session verification it already requires.
+  `ulw-qa/references/board-fanin.md` runs each adversarial scenario
+  as its own probe row in a Hermes-owned worktree with a runtime budget, fans
+  every probe into exactly one fixer row whose `parents` is all of them so it
+  is promoted only after every probe reports, re-verifies through the native
+  review lane (`request_review`, and `request_changes` with the reason on a
+  failed re-check; a review claim is not merge evidence), returns findings only
+  through the bounded, labelled readback as the worker's own report, and names
+  the preserved worktree as the cleanup receipt. `ralplan` gains no reference
+  and no board: its accepted plan now lists every lane in node-prompt shape
+  (`TASK`, `DELIVERABLE`, `SCOPE`, `VERIFY`, `STOP WHEN`) with `depends_on`
+  per lane, so `ultrawork` can prepare rows from the plan without re-planning
+  while planning itself stays a bounded in-session lane. The create recipe,
+  the main-session-only rule, the readback bounds, the provenance words, and
+  the role table are not repeated; both references point at
+  `ulw-work/references/kanban-lane.md`. No trigger changed, so the routing
+  corpus is unchanged.
 - **A ulw-work lane can now outlive the chat session, and the HUD shows it
   beside the delegate_task rows.** Until now every parallel lane was a
   `delegate_task` child: a daemon thread inside the TUI process that `/new`,

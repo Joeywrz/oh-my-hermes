@@ -40,7 +40,28 @@ Supported durable operations are `create`, `link`, `comment`, `heartbeat`,
 a foreign `board`, a `task_id` that differs from the request, a self-link, a
 completion without summary or result, an unknown block kind, and an
 `idempotency_key` that differs from the `request_id` are all rejected as
-invalid input. `create` always freezes `idempotency_key` to the `request_id`.
+invalid input. `create` always freezes `idempotency_key` to the `request_id`;
+its admitted lane fields and their bounds are listed under
+[Lane fields on create](#lane-fields-on-create).
+
+## Operator preconditions
+
+Nothing on this page works until the host is set up for it, and OMH checks
+none of these itself: it reports the capability gap it can see (`unavailable`
+with the missing tool or schema) and otherwise prepares the action as asked.
+
+- The `kanban` toolset must be enabled for the platform the session runs on
+  (`platform_toolsets.<platform>` or a profile-level `toolsets: [kanban]`),
+  and a fresh chat started afterwards; a session opened before the change
+  keeps its old tool list, so `kanban_create` stays `unavailable` there.
+- The board database must exist: `hermes kanban init` creates
+  `~/.hermes/kanban.db` (or the named board under `kanban/boards/<slug>/`).
+- A gateway must be running with `kanban.dispatch_in_gateway` enabled; that
+  dispatcher is the only thing that turns a `ready` row into a worker.
+- `assignee` must name an existing Hermes profile, because the dispatcher
+  spawns that profile as the worker.
+- Every name in `skills` must be installed in the assignee's profile; the
+  host resolves them at dispatch, not at create.
 
 The board engine itself -- admission, receipts and board references -- lives in
 the `omh` package, not in the plugin bundle, so the feature needs that package
@@ -117,6 +138,91 @@ and task references only. The store refuses symlinks, hard links, oversized
 files, and a native database override (`HERMES_KANBAN_DB`), because the board
 binding is derived from the host's path identity and must stay attributable.
 
+## Lane fields on create
+
+A durable `create` carries the per-task overlay that shapes the worker the
+dispatcher will spawn. The prepared action admits only these optional fields,
+each bounded in `src/workflows/agent_board.py` before any schema check:
+
+| Field | Type | Bound | Refusal |
+| --- | --- | --- | --- |
+| `body` | string | non-blank, at most 16,000 characters | `invalid_text`, `body_limit_exceeded` |
+| `parents` | array of task ids | at most 200 reference-shaped ids | `too_many_task_ids`, `invalid_reference` |
+| `skills` | array of skill names | at most 8 reference-shaped names | `too_many_skills`, `invalid_reference` |
+| `workspace_kind` | string | one of `scratch`, `dir`, `worktree` | `invalid_workspace_kind` |
+| `workspace_path` | string | only with `workspace_kind` `dir` or `worktree` | `workspace_path_requires_kind` |
+| `priority` | integer | 0 to 100 | `invalid_integer` |
+| `max_runtime_seconds` | integer | 60 to 86,400 | `invalid_integer` |
+| `initial_status`, `model`, `provider`, `completion_contract` | string | as before | `invalid_initial_status`, `invalid_text` |
+
+OMH's `initial_status` bound admits `todo`, `running`, `blocked`, and `triage`,
+but the native `kanban_create` enum is `running` or `blocked` only, so a
+`todo` or `triage` value is refused by the host schema gate as `unavailable`
+with `schema:kanban_create`, not by `invalid_initial_status`. Prefer omitting
+the field; the host then starts the task `ready`, or `todo` while a parent is
+unfinished.
+
+`parents` on create is how a dependency edge is declared: the new task stays
+`todo` until every parent is `done` or `archived`, then the host promotes it
+to `ready`. A later `link` is repair for an edge that was missed at create,
+not the normal way to build a graph.
+
+### The role is a contract
+
+A create may instead state one `lane_role`, and OMH fills the lane fields that
+role implies before anything else is validated:
+
+| `lane_role` | fills `skills` | fills `workspace_kind` | checks |
+| --- | --- | --- | --- |
+| `builder` | `ulw-work` | `worktree` | — |
+| `verifier` | `omh-verification-gate` | `worktree` | non-empty `parents` |
+| `reviewer` | `omh-code-review` | nothing (read-only lane) | non-empty `parents` |
+| `docs` | `omh-docs` | `worktree` | — |
+| `qa` | `ulw-qa` | `worktree` | — |
+
+An explicit `skills` or `workspace_kind` from the caller wins, except that a
+`skills` list must contain the role's own skill; extra skills ride along under
+the same ceiling of eight. The refusals are `invalid_lane_role` for a role
+outside the table, `lane_role_skills_mismatch` for a `skills` list without the
+role's own skill, and `verifier_requires_parents` or
+`reviewer_requires_parents` for a fan-in lane that declares no inputs.
+
+`lane_role` is an OMH-side argument only. Native `kanban_create` has no such
+property, so the prepared action never carries it: OMH records the role on the
+request and on the receipt, then strips it before the native action is built.
+A leaked role would fail the host schema gate and degrade the request to
+`unavailable` with `schema:kanban_create`. On any other operation, `lane_role`
+is simply an unknown argument (`unsupported_argument`). Requests stored before
+this field existed reload with an empty role.
+
+A board `done` is the worker's own completion claim. It is never
+verification, CI, review, or merge evidence; those stay `not_observed` until
+their own surface reports them.
+
+The host's exposed schema is still the gate: an older host whose
+`kanban_create` lacks one of these properties degrades the request to
+`unavailable` with `schema:kanban_create` in `missing_capabilities`, and a
+create that does not name the absent field is still prepared.
+
+ultrawork prepares its durable lanes through this board; see
+`skills/ulw-work/references/kanban-lane.md`.
+
+## Profiles are permission envelopes
+
+A Hermes profile is a full home: its own config, auth, toolsets, model
+default, and per-profile cap. The dispatcher spawns a profile, not a role, so
+`assignee` is the envelope the worker runs inside. A role is the per-task
+overlay the create already carries: the `skills` pin, the node prompt in
+`body`, and the `model` / `provider` pin. Team packs under `<home>/agents/*.md`
+are not read by the Hermes roster and do not create assignees.
+
+A second profile is justified only when a lane needs different authority,
+for example a reviewer envelope with no source writes. The operator recipe is
+`hermes profile create <name> --clone` (which copies `config.yaml`, `.env`,
+`SOUL.md`, and installed skills into the new home) followed by
+`HERMES_HOME=<profile> omh setup`; both steps are `prepared_not_observed` from
+OMH's side, and OMH never writes a `profile.yaml`.
+
 ## Separate lifecycle evidence
 
 Each observed operation records only its own fact: `create`, `link`,
@@ -132,6 +238,24 @@ These are host facts recorded as data, not OMH failures.
 
 - There is no native `kanban_dispatch` tool. Dispatch is `unavailable`; an
   operator claim is the observed path to a running task.
+- Dispatch is asynchronous and gateway-owned. `dispatcher_presence:
+  not_observed` in the HUD means only that no worker or claim was observed
+  on any selected row while a `ready` row waited past the dispatch window;
+  a running dispatcher that skips the row (missing assignee profile,
+  per-assignee concurrency cap, tenant mismatch) has the same shape. Check
+  the operator preconditions above before concluding the dispatcher is
+  down. It is distinct from a failure.
+- The board records no usage of its own. The model, turns, tool calls, tokens
+  and cost on a HUD lane row come from the worker's own Hermes session in the
+  assignee profile's `state.db`, linked by the `worker_session_id` the worker
+  stamps on its run the first time it calls `kanban_complete` or
+  `kanban_request_review`; before that, by the session whose title Hermes
+  derived from the dispatcher's opening prompt, `work kanban task <id>`,
+  inside that run's dispatch window (what tells two workers one tick spawned
+  apart); and failing both, by the single kanban-source session opened
+  inside the window. A lane no rule links — and a window two untitled
+  sessions answer — shows no model and no tokens rather than a borrowed
+  figure.
 - Native tools expose no compare-and-swap. A request that supplies
   `expected_revision` or `expected_run_id` is `unavailable` with
   `native_compare_and_swap`. Use `expected_observation_ref` to bind a request

@@ -6,7 +6,7 @@ import json
 
 OMH_AGENT_BOARD_SCHEMA = {
     "name": "omh_agent_board",
-    "description": "Prepare a durable native Kanban action or inspect its metadata-only receipt. Preparation is not authorization or execution; invoke the returned native tool through Hermes' normal tool loop. Bounded child research uses delegation instead. No uploads, downloads, dispatch or JSON grants.",
+    "description": "Prepare a durable native Kanban action or inspect its metadata-only receipt. Preparation is not authorization or execution; invoke the returned native tool through Hermes' normal tool loop. A durable create may state lane_role (builder, verifier, reviewer, docs or qa): OMH fills that lane's skills and workspace_kind from the role, refuses a verifier or reviewer that declares no parents, and removes the role before the native action. Bounded child research uses delegation instead. No uploads, downloads, dispatch or JSON grants.",
     "parameters": {
         "type": "object",
         "properties": {

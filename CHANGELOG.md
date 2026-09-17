@@ -4,6 +4,82 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A ulw-work lane can now outlive the chat session, and the HUD shows it
+  beside the delegate_task rows.** Until now every parallel lane was a
+  `delegate_task` child: a daemon thread inside the TUI process that `/new`,
+  a session end, or `kill -9` took with it, that Hermes marked `unknown` and
+  never resumed, and that no second session could see. The Hermes Kanban
+  board already had everything a durable lane needs (rows in `kanban.db`,
+  parent edges that promote a child when every parent is `done`, a gateway
+  dispatcher that claims a `ready` row and spawns the assignee profile as a
+  detached OS process, a per-task worktree, a `session_id` stamp on rows an
+  agent created), and OMH already had the prepare-only path to it,
+  `omh_agent_board`. What was missing was the lane vocabulary on that path
+  and any way to see the result. The prepared durable `create` now admits
+  the per-task overlay the dispatcher reads — `body`, `skills`,
+  `workspace_kind`, `workspace_path`, `priority`, `max_runtime_seconds` —
+  each bounded before the host schema is consulted, with `parents` declared
+  on the create itself because the dispatcher can claim a parentless
+  `ready` row within one tick. The role is a contract rather than an
+  instruction: a create that states `lane_role` has that lane's skill and
+  workspace filled in from the role, and a verifier or reviewer declaring no
+  parents is refused instead of landing as a fan-in row the dispatcher can
+  claim before its inputs exist. OMH still executes nothing: the Hermes loop
+  invokes the prepared `kanban_create`, the gateway runs the worker, and a
+  board `done` is written as the worker's completion claim, never as
+  verification, CI, review, or merge evidence.
+
+  The HUD reads the board read-only through a bundle-local reader that
+  resolves the board the way Hermes does (`HERMES_KANBAN_HOME`, the current
+  board slug, the Hermes root with `profiles/<name>` stripped) and projects
+  each open task as a lane row in the same activity list as the native
+  rows, tagged `[bot]` where a delegate child reads `[sub]` (bold, three
+  cells, in place of the per-row `[global]` / `[this chat]` scope word; the
+  header line still states the scope), identified as `kanban/<assignee>(<model>:<effort>)` in the same
+  shape as the native `category:name(model:effort)` and rendered as one
+  accent-toned line, with a static dot for `queued`, a warn bang for a worker whose
+  heartbeat stopped, and the native status word in the tail. The figures on
+  that line are the worker's own: the board records no usage at all, so the
+  model, turns, tool calls, tokens and cost are read from the worker's
+  session in the assignee profile's `state.db` and summed the way the native
+  rows sum them, so one token column means one thing down the whole list.
+  Three rules link them, all matches on recorded fields: the
+  `worker_session_id` a worker stamps onto its run the first time it calls
+  `kanban_complete` or `kanban_request_review`; before that, the session
+  whose title Hermes derived from the dispatcher's own opening prompt,
+  `work kanban task <id>`, inside that run's dispatch window, which is what
+  tells two workers one tick spawned apart; and failing both, the single
+  kanban-source session opened inside the window. A window two untitled
+  sessions answer identifies neither, so the
+  row keeps the board's own facts and a blank token column rather than a
+  borrowed figure. The header
+  gains `board Nq Nr Nb` while the board holds lanes and `dispatcher not
+  observed` when `ready` rows have waited past the dispatch window with no
+  worker or claim anywhere — the one board fault the HUD can see, named as
+  a verdict rather than a failure. A session that created board lanes is
+  told once, on its next first turn, how many are still open.
+
+  Board readback was the claim that did not survive review: `kanban_show`
+  returns every run and comment uncapped, the message gate never sees a
+  tool result, and the bridge discards the text. So a third annotating
+  pass in `transform_tool_result` now bounds `kanban_show`,
+  `kanban_list`, and `kanban_attachments` results per field and in total,
+  drops the oldest comments and runs first while keeping the latest run,
+  and prefixes one label line whose confidence words are a hand mirror of
+  `src/evidence/labels.py`: a completed run is `reported done`, never
+  observed or verified. The ultrawork body carries one clause pointing at
+  `references/kanban-lane.md` (25,911 bytes by the structure lint's own
+  measure, 11 over the 25,900 ceiling, ratcheted to 26,000 with the dated
+  reason); the recipe, the
+  main-session-only rule (delegate_task children never see `kanban_*`), the
+  readback discipline, the provenance words, and the role table — profile
+  is the permission envelope, role is the `skills` pin plus body plus model
+  pin on the create, specialist titles are lane titles only — live in that
+  reference, outside the budget. `docs/AGENT-BOARD.md` records the operator
+  preconditions the board needs and OMH cannot create: the `kanban` toolset
+  enabled for the platform plus a fresh chat, `hermes kanban init`, a
+  running gateway with `kanban.dispatch_in_gateway`, an existing assignee
+  profile with the lane's skills installed.
 - **The plugin bundle no longer needs the `omh` package to load, and the
   tool-call hooks no longer die when a bundle module fails to.** Reported with
   a reproduction by @tonalenar (#1623): with `memory.provider: omh`, Hermes

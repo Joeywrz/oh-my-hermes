@@ -1,6 +1,6 @@
 """Composed ``transform_tool_result`` seam.
 
-This is the single registered entry for the hook; it chains the three OMH
+This is the single registered entry for the hook; it chains the four OMH
 result transforms in a fixed order:
 
 1. Code-mode discipline annotation — the first ``execute_code`` result of a
@@ -9,7 +9,12 @@ result transforms in a fixed order:
 2. Engagement nudges — a session that has changed several files without
    declaring a plan, or searched repeatedly without routing a lane, gets a
    bounded, budgeted, self-latching nudge (``engagement_nudges.py``).
-3. Full-width diff band padding — tool-result diffs get their painted lines
+3. Kanban readback bounding — a ``kanban_show`` / ``kanban_list`` /
+   ``kanban_attachments`` result is cut to a field and payload ceiling and
+   prefixed with one evidence-vocabulary label line, so a worker's unbounded
+   completion summary cannot flood the main session and a self-reported
+   ``completed`` never reads as verified (``kanban_readback.py``).
+4. Full-width diff band padding — tool-result diffs get their painted lines
    padded to a uniform band (``diff_presentation.py``).
 
 Every transform is fail-open: anything one declines passes through to the
@@ -18,9 +23,10 @@ matters only when one result matches more than one pass (an execute_code
 result whose output embeds a diff): the annotating passes run before the diff
 pass so it still sees and pads the final string.
 
-The two annotating passes cannot collide. They watch disjoint tool sets —
+The three annotating passes cannot collide. They watch disjoint tool sets —
 ``execute_code`` for the first, the file-mutating and search/read tools for the
-second — so no result is ever handed to both, and each writes its own JSON key.
+second, the ``kanban_*`` readback tools for the third — so no result is ever
+handed to two of them, and each writes its own JSON key.
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ from typing import Any
 
 from ..code_mode_guidance import annotate_execute_code_result
 from ..engagement_nudges import annotate_engagement_nudge
+from ..kanban_readback import transform_kanban_readback
 from .diff_presentation import transform_tool_result as _pad_diff_result
 
 
@@ -57,6 +64,10 @@ def transform_tool_result(**kwargs: Any) -> str | None:
     if nudged is not None:
         annotated = nudged
         kwargs = {**kwargs, "result": nudged}
+    bounded = transform_kanban_readback(kwargs.get("tool_name"), kwargs.get("result"))
+    if bounded is not None:
+        annotated = bounded
+        kwargs = {**kwargs, "result": bounded}
     padded = _pad_diff_result(**kwargs)
     if padded is not None:
         return padded

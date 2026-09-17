@@ -902,7 +902,7 @@ _DEFINITIONS = [
         quality_tier="handoff-gated",
         quality_bar=(
             ENGINE_ENTRY_CONFIRMATION_RULE,
-            "Resolve the dependency_topology decision before any dispatch: work coupled by a shared invariant or inseparable edit boundary collapses to one owner; separable but ordered units get explicit acyclic dependency edges; independent units form the dependency-ready parallel frontier; no unit dispatches without scope, acceptance criteria, a verification command, and an owner route - load `references/dependency-topology.md` for the full discipline.",
+            "Resolve the dependency_topology decision before any dispatch: work coupled by a shared invariant or inseparable edit boundary collapses to one owner; separable but ordered units get explicit acyclic dependency edges; independent units form the dependency-ready parallel frontier; no unit dispatches without scope, acceptance criteria, a verification command, and an owner route - load `references/dependency-topology.md` for the full discipline, and `references/kanban-lane.md` for a lane that must outlive this session.",
             "Attach acceptance criteria, verification commands, and review expectations to each lane.",
             "Keep dispatch, execution, review, CI, and merge status evidence separate.",
             "After final brief composition and before unattended coding handoff, explicitly run `omh handoff-risk-scan --brief-file <final-brief> --repo <workspace> --strict --json`. Route high_risk (exit 1) to existing confirmation or security-safety-review; scan_error (exit 2) requires repaired input and a new scan. Clear never grants permission or bypasses metadata preflight, approval, or host policy.",

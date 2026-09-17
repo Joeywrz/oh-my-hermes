@@ -351,6 +351,45 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("layout.routeKind === 'route-fallback' || layout.routeKind === 'maestro'", widget)
         self.assertIn("|| segment.kind === 'maestro'", widget)
 
+    def test_kanban_lane_rows_render_an_accent_colored_board_identity(self) -> None:
+        # A Hermes Kanban task (reader: kanban_board_reader) is board work a
+        # dispatcher runs as a detached worker, not a delegate_task child.
+        # Its identity names the assignee profile in the native lane's own
+        # shape -- `category:name(model:effort)` becomes
+        # `kanban/miku(gpt-5.6-sol:high)` -- and the whole row (marker, scope
+        # and id, title, identity, elapsed) renders in the theme's accent
+        # tone, the one token the widget had no other use for, so a board
+        # lane reads as one turquoise line beside the native rows. Only
+        # `blocked` and `stale` keep their semantic colours. Still never a
+        # literal.
+        widget = resources.files("omh.tui_widgets").joinpath("omh-status.mjs").read_text(encoding="utf-8")
+
+        self.assertIn("if (safeText(row.lane_backend) === 'kanban') {", widget)
+        self.assertIn("return metricSegment('kanban', `kanban/${assignee}${detail ? `(${detail})` : ''}`)", widget)
+        self.assertIn("layout.routeKind === 'kanban'", widget)
+        self.assertIn("const board = safeText(row.lane_backend) === 'kanban'", widget)
+        self.assertEqual(widget.count("t.color.accent"), 7)
+        self.assertIn("const kindTag = row => safeText(row.lane_backend) === 'kanban'", widget)
+        self.assertIn("{ color: t.color.accent, bold: true } : { color: t.color.muted, bold: true }", widget)
+        # Board verdicts the reader projects: a queued task has no worker and
+        # must not spin (a static dot), a stale one has a worker that stopped
+        # heartbeating (a warn bang). The tail keeps the board's own status
+        # word (`ready`, `review`, `archived`) rather than the verdict, and
+        # only blocked/stale override the board row's accent tone.
+        self.assertIn("const queued = row.state === 'queued'", widget)
+        self.assertIn("const stale = row.state === 'stale'", widget)
+        self.assertIn("queued ? '·' : stale ? '!'", widget)
+        self.assertIn("blocked ? t.color.error : stale ? t.color.warn : board ? t.color.accent : queued ? t.color.muted : t.color.ok", widget)
+        self.assertIn("board ? { color: t.color.accent, dimColor: true } : { color: t.color.muted }", widget)
+        self.assertIn("? safeText(row.native_status) || safeText(row.state) || 'running'", widget)
+        self.assertIn("scheduled: 'sched', archived: 'arch', review: 'rev'", widget)
+        # The header keeps its count line and appends the board tally only
+        # while the board has rows, plus the reader's dispatcher verdict.
+        self.assertIn("const board = payload.kanban || {}", widget)
+        self.assertIn("` · board ${Number(board.queued) || 0}q ${Number(board.running) || 0}r ${Number(board.blocked) || 0}b`", widget)
+        self.assertIn("board.dispatcher_presence === 'not_observed'", widget)
+        self.assertIn("' · dispatcher not observed'", widget)
+
     def test_hud_liveness_signal_drives_the_status_line_todo_and_shot_badge(self) -> None:
         # 2026-08 HUD liveness fix: exact in-flight tool-call state (paired
         # from pre_tool_call/post_tool_call by tool_call_id) replaces three
@@ -661,7 +700,7 @@ class TuiWidgetPackTests(unittest.TestCase):
         # plain quantity -- reads in `statusFg`, the tone the host status line
         # spends on its own token gauge ('tokens는 약간 회색'). A theme token
         # either way; no literal colour enters this widget.
-        self.assertIn("h(Text, { color: t.color.muted }, layout.tailRest)", widget)
+        self.assertIn("h(Text, board ? { color: t.color.accent, dimColor: true } : { color: t.color.muted }, layout.tailRest)", widget)
         self.assertIn("h(Text, { color: t.color.statusFg }, layout.tailTokens)", widget)
         self.assertIn("const tailTokens = tokensColumn ? tokensPiece : ''", widget)
         # Rate reads beside the token count it is derived from ('tokens,

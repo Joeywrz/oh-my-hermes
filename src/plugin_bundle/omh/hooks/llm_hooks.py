@@ -5,6 +5,8 @@ from .. import runtime_paths
 import errno
 from datetime import datetime, timezone
 import hashlib
+import sqlite3
+import threading
 
 from ..awareness import (
     awareness_context_match_degradation,
@@ -27,6 +29,7 @@ from ..awareness_delivery import claim_route_guidance_delivery, record_awareness
 from ..context_budget_plan import context_budget_continuation, render_context_budget
 from ..host_context import record_active_main_agent_model
 from ..host_observation import observe_plugin_hook_call
+from ..kanban_board_reader import conversation_session_ids, kanban_db_path, read_kanban_lanes
 from ..omh_roles import extract_role_marker, role_context_payload
 from ..dispatch_outcomes import unacknowledged_outcomes
 from ..runtime_reader import read_omh_activity, read_omh_hud, read_omh_status, read_omh_todo
@@ -43,6 +46,15 @@ from ..status_board_reader import (
 # A closing claim lives at the END of a message, so the bound keeps the tail;
 # the guard only needs to recognize the phrasing, not fold a whole long reply.
 _MAX_ASSISTANT_CLAIM_CHARS = 4000
+
+# The board re-entry card is one line, once per session. The memory is
+# process-local, the way `code_mode_guidance` remembers its one-shot line: the
+# awareness ledger keeps exactly one slot per session, and that slot is the
+# route-hint claim, so parking a second fact there would either replace the
+# route fingerprint or be replaced by it.
+_BOARD_CARD_MAX_CHARS = 160
+_board_card_lock = threading.Lock()
+_board_card_sessions: set[str] = set()
 
 
 def _token_metadata_from_kwargs(kwargs: dict) -> dict[str, object]:
@@ -142,6 +154,61 @@ def _todo_stall_status(omh_home: str, hermes_home: str, session_ref: str) -> str
         return ""
     stall = todo.get("stall")
     return str(stall.get("status", "")) if isinstance(stall, dict) else ""
+
+
+def _board_lanes_card(hermes_home: str, session_id: str) -> str:
+    """One line naming the open board lanes this conversation created, or "".
+
+    A Hermes Kanban task carries the ``session_id`` that created it, and the
+    board outlives the chat: a lane queued last session is still on the board
+    when the conversation resumes, with nothing in the replayed history saying
+    so. The card names the count and the tool that reads the lanes back. It is
+    absent whenever the board has nothing this conversation owns -- no db, no
+    rows, rows stamped by another session -- and on any read fault, since a
+    missing card costs one line and a raised hook costs the whole turn's
+    context.
+    """
+    if not session_id:
+        return ""
+    try:
+        db = kanban_db_path(hermes_home)
+        if db is None or not db.is_file():
+            return ""
+        owners = conversation_session_ids(hermes_home, session_id)
+        if not owners:
+            return ""
+        lanes = read_kanban_lanes(hermes_home, session_ids=owners, limit=1)
+    except (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error):
+        return ""
+    if lanes.get("scope") != "session":
+        return ""
+    running = int(lanes.get("running", 0) or 0)
+    queued = int(lanes.get("queued", 0) or 0)
+    blocked = int(lanes.get("blocked", 0) or 0)
+    total = running + queued + blocked
+    if total <= 0:
+        return ""
+    noun = "lane" if total == 1 else "lanes"
+    card = (
+        f"[OMH board] {total} board {noun} from this chat: {running} running, "
+        f"{queued} queued, {blocked} blocked; read back with kanban_list"
+    )
+    return card[:_BOARD_CARD_MAX_CHARS]
+
+
+def _claim_board_card(session_id: str) -> bool:
+    """Atomically claim the one board card this process shows a session."""
+    with _board_card_lock:
+        if session_id in _board_card_sessions:
+            return False
+        _board_card_sessions.add(session_id)
+    return True
+
+
+def _reset_board_card_state() -> None:
+    """Test seam: forget which sessions were shown the board card."""
+    with _board_card_lock:
+        _board_card_sessions.clear()
 
 
 def _tracker_event_is_present(kwargs: dict) -> bool:
@@ -323,6 +390,13 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         )
         if claim_finding:
             context_parts.append(f"[OMH continuation claim] {claim_finding}")
+        # The board is read every turn (an existence check first, one bounded
+        # read-only query after), but the card goes out once: the claim is
+        # taken only when there is a card to show, so a session whose lanes
+        # appear on a later turn still gets named exactly once.
+        board_card = _board_lanes_card(hermes_home, session_id)
+        if board_card and _claim_board_card(session_id):
+            context_parts.append(board_card)
 
     try:
         try:

@@ -23,14 +23,20 @@ MAX_TASK_IDS = 200
 MAX_OPERATION_FACTS = 32
 MAX_ATTACHMENT_REFS = 32
 MAX_REQUESTS = 200
+MAX_SKILLS = 8
+BODY_MAX_CHARS = 16_000
 _NO_HOOKS: Final[frozenset[str]] = frozenset()
 CLAIM_BOUNDARY = "Prepared actions are not invocations; receipts prove only the correlated operation, not review approval, CI or merge."
 _REFERENCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 _MIME = re.compile(r"[A-Za-z0-9!#$&^_.+-]{1,64}/[A-Za-z0-9!#$&^_.+-]{1,64}\Z")
 _STATUSES = frozenset({"triage", "todo", "ready", "running", "review", "blocked", "done", "archived"})
+_WORKSPACE_KINDS = frozenset({"scratch", "dir", "worktree"})
 # Required arguments, selected optional arguments, required native success keys.
 _OPERATIONS = {
-    "create": ("title assignee", "parents idempotency_key initial_status model provider completion_contract", "ok task_id status"),
+    "create": ("title assignee",
+               "body parents skills workspace_kind workspace_path priority max_runtime_seconds "
+               "idempotency_key initial_status model provider completion_contract",
+               "ok task_id status"),
     "link": ("parent_id child_id", "", "ok parent_id child_id"),
     "comment": ("task_id body", "", "ok task_id comment_id"),
     "heartbeat": ("", "task_id note", "ok task_id"),
@@ -43,8 +49,38 @@ _OPERATIONS = {
     "list": ("", "assignee status tenant include_archived limit", "tasks count limit truncated next_limit promoted"),
     "attachments": ("", "task_id", "ok task_id attachments"),
 }
-_TYPES = {"parents": "array", "created_cards": "array", "tasks": "array", "metadata": "object",
-          "limit": "integer", "include_archived": "boolean"}
+_TYPES = {"parents": "array", "skills": "array", "created_cards": "array", "tasks": "array", "metadata": "object",
+          "limit": "integer", "priority": "integer", "max_runtime_seconds": "integer",
+          "include_archived": "boolean"}
+# Inclusive bounds for every integer-typed argument; an unlisted integer name is a
+# programming error, so the lookup below indexes rather than defaults.
+_INTEGER_BOUNDS = {"limit": (1, 200), "priority": (0, 100), "max_runtime_seconds": (60, 86_400)}
+# Array arguments that are not task-id lists carry their own ceiling and reason.
+_ARRAY_LIMITS = {"skills": (MAX_SKILLS, "too_many_skills")}
+
+
+class LaneRoleContract(TypedDict):
+    skill: str
+    workspace_kind: str | None
+    requires_parents: bool
+
+
+# A lane role is a contract, not an instruction: the caller states the role and
+# OMH fills the lane fields it implies. The role is removed before the native
+# action is built, because native `kanban_create` has no such argument and a
+# leaked one would fail the host schema gate as `unavailable`.
+LANE_ROLES: Final[dict[str, LaneRoleContract]] = {
+    "builder": {"skill": "ulw-work", "workspace_kind": "worktree", "requires_parents": False},
+    "verifier": {"skill": "omh-verification-gate", "workspace_kind": "worktree", "requires_parents": True},
+    "reviewer": {"skill": "omh-code-review", "workspace_kind": None, "requires_parents": True},
+    "docs": {"skill": "omh-docs", "workspace_kind": "worktree", "requires_parents": False},
+    "qa": {"skill": "ulw-qa", "workspace_kind": "worktree", "requires_parents": False},
+}
+# Each parent-requiring role names its own refusal; the lookup indexes so a new
+# role cannot fall through to another role's reason code.
+_LANE_ROLE_PARENT_REASONS: Final[dict[str, str]] = {
+    "verifier": "verifier_requires_parents", "reviewer": "reviewer_requires_parents",
+}
 
 
 class NativeAction(TypedDict):
@@ -59,6 +95,7 @@ class AgentBoardRequest(TypedDict):
     board_ref: str
     route: str
     operation: str
+    lane_role: str
     argument_digest: str
     state: str
     reason: str | None
@@ -197,6 +234,34 @@ def _text(value: object) -> str:
     return value
 
 
+def apply_lane_role(operation: str, payload: Mapping[str, object]) -> tuple[dict[str, object], str]:
+    """Fill a create's lane fields from the stated role and drop the role.
+
+    The caller states one role; the skill, the workspace and the parent
+    requirement follow from it rather than from the caller's memory of the
+    plan. An explicit `skills` or `workspace_kind` still wins, but a `skills`
+    list that drops the role's own skill is a contradiction, not an override.
+    """
+    args = _object(payload.get("arguments"))
+    if operation != "create" or "lane_role" not in args:
+        return args, ""
+    role = args.pop("lane_role")
+    if not isinstance(role, str) or role not in LANE_ROLES:
+        raise ValueError("invalid_lane_role")
+    contract = LANE_ROLES[role]
+    if "skills" not in args:
+        args["skills"] = [contract["skill"]]
+    elif contract["skill"] not in _array(args["skills"]):
+        raise ValueError("lane_role_skills_mismatch")
+    if contract["workspace_kind"] is not None and "workspace_kind" not in args:
+        args["workspace_kind"] = contract["workspace_kind"]
+    # A fan-in lane with no inputs is claimed by the dispatcher on the next
+    # tick, so a missing edge is refused here rather than linked afterwards.
+    if contract["requires_parents"] and not _array(args.get("parents", [])):
+        raise ValueError(_LANE_ROLE_PARENT_REASONS[role])
+    return args, role
+
+
 def _arguments(operation: str, payload: dict[str, object], request_id: str, board: str) -> NativeAction:
     args = copy.deepcopy(_object(payload["arguments"]))
     if payload["coordination"] == "bounded_research":
@@ -237,14 +302,15 @@ def _arguments(operation: str, payload: dict[str, object], request_id: str, boar
         expected = _TYPES.get(name, "string")
         if expected == "array":
             rows = _array(value)
-            if len(rows) > MAX_TASK_IDS:
-                raise ValueError("too_many_task_ids")
+            limit, reason = _ARRAY_LIMITS.get(name, (MAX_TASK_IDS, "too_many_task_ids"))
+            if len(rows) > limit:
+                raise ValueError(reason)
             for item in rows:
                 _ = _reference(item)
         elif expected == "object":
             _ = _object(value)
         elif expected == "integer":
-            _ = _integer(value, 1, 200)
+            _ = _integer(value, *_INTEGER_BOUNDS[name])
         elif expected == "boolean":
             if type(value) is not bool:
                 raise ValueError("invalid_boolean")
@@ -260,6 +326,13 @@ def _arguments(operation: str, payload: dict[str, object], request_id: str, boar
         raise ValueError("invalid_list_status")
     if "initial_status" in args and args["initial_status"] not in {"todo", "running", "blocked", "triage"}:
         raise ValueError("invalid_initial_status")
+    if "workspace_kind" in args and args["workspace_kind"] not in _WORKSPACE_KINDS:
+        raise ValueError("invalid_workspace_kind")
+    if "workspace_path" in args and args.get("workspace_kind") not in {"dir", "worktree"}:
+        raise ValueError("workspace_path_requires_kind")
+    body = args.get("body")
+    if operation == "create" and isinstance(body, str) and len(body) > BODY_MAX_CHARS:
+        raise ValueError("body_limit_exceeded")
     if "kind" in args and args["kind"] not in {"dependency", "needs_input", "capability", "transient"}:
         raise ValueError("invalid_block_kind")
     return {"tool_name": "kanban_" + operation, "arguments": args}
@@ -302,6 +375,7 @@ class _Request:
     required: list[str]
     state: str = "prepared"
     reason: str | None = None
+    lane_role: str = ""
     missing: list[str] = field(default_factory=list)
     call_ref: str | None = None
     receipt: dict[str, object] | None = None
@@ -337,7 +411,8 @@ class AgentBoard:
         projection: AgentBoardRequest = {
             "schema_version": "agent_board_request/v1", "request_id": entry.request_id,
             "request_ref": entry.request_ref, "board_ref": self.board_ref, "route": entry.route,
-            "operation": entry.operation, "argument_digest": entry.argument_digest,
+            "operation": entry.operation, "lane_role": entry.lane_role,
+            "argument_digest": entry.argument_digest,
             "state": entry.state, "reason": entry.reason,
             "observation_ref": self.observation_ref,
             "expected_observation_ref": entry.expected,
@@ -383,7 +458,10 @@ class AgentBoard:
         expected = data.get("expected_observation_ref")
         if expected is not None and (not isinstance(expected, str) or not re.fullmatch(r"observation:(0|[1-9][0-9]{0,18})", expected)):
             raise ValueError("invalid_observation_ref")
-        args = _object(data["arguments"])
+        # The role contract fills the lane fields before any native shape is
+        # built, so the native action itself never carries `lane_role`.
+        args, lane_role = apply_lane_role(operation, data)
+        data["arguments"] = args
         route = "delegation" if coordination == "bounded_research" else "kanban"
         missing: list[str] = []
         action = None
@@ -412,7 +490,7 @@ class AgentBoard:
         digest = _digest(["agent_board_action/v1", self.board_ref, action if action else data])
         entry = _Request(request_id, _digest(["agent_board_request/v1", self.board_ref, request_id]),
                          route, operation, digest, host.scope_ref if host else "", action, expected,
-                         required_caps, missing=missing)
+                         required_caps, lane_role=lane_role, missing=missing)
         if action is not None:
             entry.task_refs = tuple(_reference(action["arguments"][key]) for key in
                                     ("task_id", "parent_id", "child_id") if key in action["arguments"])
@@ -528,7 +606,8 @@ class AgentBoard:
             receipt: dict[str, object] = {
                 "schema_version": "agent_board_receipt/v1", "request_ref": entry.request_ref,
                 "argument_digest": entry.argument_digest, "observation_ref": self.observation_ref,
-                "board_ref": self.board_ref, "operation": entry.operation, "host_call_ref": entry.call_ref,
+                "board_ref": self.board_ref, "operation": entry.operation, "lane_role": entry.lane_role,
+                "host_call_ref": entry.call_ref,
                 "state": "failed" if reason else "observed", "reason": reason,
                 "requires_reconciliation": reason is not None, "truncated": False,
                 "claim_boundary": CLAIM_BOUNDARY, **facts,
@@ -577,6 +656,7 @@ class AgentBoard:
         Reject the whole record on corruption rather than dropping dedup keys.
         """
         data = _parse_result(raw)
+        _fill_lane_role_defaults(data)
         instance = cls(board, board_ref)
         sequence = _observation_sequence(data.get("observation_ref"))
         instance._sequence = sequence
@@ -589,6 +669,7 @@ class AgentBoard:
             operation = _reference(row.get("operation"))
             route = _choice(row.get("route"), {"kanban", "delegation"})
             state = _choice(row.get("state"), {"prepared", "unavailable", "denied", "failed", "observed"})
+            lane_role = _choice(row.get("lane_role"), set(LANE_ROLES) | {""})
             expected = row.get("expected_observation_ref")
             if expected is not None:
                 _ = _observation_sequence(expected)
@@ -604,7 +685,7 @@ class AgentBoard:
                              route, operation, _hash_reference(row.get("argument_digest")), scope,
                              None, expected if isinstance(expected, str) else None,
                              [_reference(value) for value in _array(row.get("required_capabilities"))],
-                             state=state, reason=reason,
+                             state=state, reason=reason, lane_role=lane_role,
                              missing=[_reference(value) for value in _array(row.get("missing_capabilities"))],
                              call_ref=call,
                              requires_reconciliation=_boolean(row.get("requires_reconciliation")),
@@ -652,6 +733,30 @@ class AgentBoard:
                     "claim_boundary": CLAIM_BOUNDARY}
 
 
+def _fill_lane_role_defaults(data: dict[str, object]) -> None:
+    """Reload a snapshot written before lane roles as the empty role.
+
+    The request projection and every receipt gained one closed field. A store
+    that predates it is not corrupt, and rejecting the whole record would drop
+    every create deduplication key, so a missing field reloads as "".
+    """
+    receipts: list[object] = []
+    facts = data.get("operation_facts")
+    if _is_list(facts):
+        receipts.extend(facts)
+    rows = data.get("requests")
+    if _is_list(rows):
+        for item in rows:
+            if _is_object(item):
+                _ = item.setdefault("lane_role", "")
+                observed = item.get("observed_receipts")
+                if _is_list(observed):
+                    receipts.extend(observed)
+    for receipt in receipts:
+        if _is_object(receipt):
+            _ = receipt.setdefault("lane_role", "")
+
+
 def _choice(value: object, choices: set[str]) -> str:
     if not isinstance(value, str) or value not in choices:
         raise ValueError("invalid_state")
@@ -679,7 +784,8 @@ def _observation_sequence(value: object) -> int:
 def _stored_receipt(value: object, board_ref: str) -> dict[str, object]:
     row = _object(value)
     common = {"schema_version", "request_ref", "argument_digest", "observation_ref", "board_ref",
-              "operation", "host_call_ref", "state", "reason", "requires_reconciliation", "truncated", "claim_boundary"}
+              "operation", "lane_role", "host_call_ref", "state", "reason", "requires_reconciliation",
+              "truncated", "claim_boundary"}
     operation = _reference(row.get("operation"))
     fields: dict[str, set[str]] = {
         "create": {"task_id", "landed_status"}, "link": {"parent_id", "child_id"},
@@ -704,6 +810,7 @@ def _stored_receipt(value: object, board_ref: str) -> dict[str, object]:
             or row.get("requires_reconciliation") is not (state == "failed")):
         raise ValueError("invalid_state")
     _ = _boolean(row["truncated"])
+    _ = _choice(row["lane_role"], set(LANE_ROLES) | {""})
     for key in ("request_ref", "argument_digest", "host_call_ref"):
         _ = _hash_reference(row[key])
     _ = _observation_sequence(row["observation_ref"])

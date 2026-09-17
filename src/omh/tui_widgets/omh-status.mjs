@@ -352,6 +352,19 @@ export default function register(sdk) {
         ? `category:${displayCategory}${routeDetail ? `(${routeDetail})` : ''}`
         : model
     const routeKind = routeOrigin === 'fallback' || routeOrigin === 'exhausted_to_inherit' ? 'route-fallback' : 'route'
+    // A Hermes Kanban lane (reader: kanban_board_reader) is board work a
+    // dispatcher runs as a detached worker profile, not a delegate_task
+    // child, so its identity names the ASSIGNEE profile where the native
+    // lane names a mixture category, in the same shape the native lane
+    // uses -- `category:name(model:effort)` becomes
+    // `kanban/miku(model:effort)` -- so the two kinds of row read as one
+    // column. Its own segment kind renders in the theme's accent tone.
+    if (safeText(row.lane_backend) === 'kanban') {
+      const assignee = safeText(row.assignee) || 'unassigned'
+      const effort = safeText(row.effort)
+      const detail = modelName ? `${modelName}${effort ? `:${effort}` : ''}` : ''
+      return metricSegment('kanban', `kanban/${assignee}${detail ? `(${detail})` : ''}`)
+    }
     return dispatchLane ? metricSegment('maestro', dispatchIdentity) : metricSegment(routeKind, route)
   }
 
@@ -369,10 +382,27 @@ export default function register(sdk) {
     return { compact: Math.max(width.compact, cellWidth(routeCompact(text))), full: Math.max(width.full, cellWidth(text)) }
   }, { compact: 0, full: 0 })
 
-  const scopeLabel = row => row.scope === 'global' ? '[global] ' : row.scope === 'session' ? '[this chat] ' : ''
+  // The tag in front of the id names what runs the row, in three cells
+  // either way so the ids stay aligned: `[bot]` is a board worker (a
+  // profile the dispatcher runs as its own process), `[sub]` is a
+  // delegate_task child of this session. Whether this chat created the
+  // row is no longer a per-row word (it read `[global]` / `[this chat]`);
+  // the header line still says the scope. A Maestro or fanout executor
+  // row is neither kind and carries no tag.
+  const kindTag = row => safeText(row.lane_backend) === 'kanban'
+    ? '[bot] '
+    : safeText(row.dispatch_lane) || safeText(row.executor_profile) ? '' : '[sub] '
+  const scopeLabel = kindTag
   const activityLayout = (row, columns, main, extraSeconds, tokensColumn, routeColumn, scopeWidth) => {
-    const state = safeText(row.state) || 'running'
-    const stateText = columns < 100 ? ({ running: 'run', blocked: 'block', failed: 'fail' })[state] || state : state
+    // A board lane's tail shows the native status word (`ready`, `review`,
+    // `archived`), never the reader's projected state: `queued` and `stale`
+    // are HUD verdicts carried by the marker, and the board's own vocabulary
+    // is what the operator sees in `hermes kanban`.
+    const state = safeText(row.lane_backend) === 'kanban'
+      ? safeText(row.native_status) || safeText(row.state) || 'running'
+      : safeText(row.state) || 'running'
+    const stateAbbreviations = { running: 'run', blocked: 'block', failed: 'fail', scheduled: 'sched', archived: 'arch', review: 'rev' }
+    const stateText = columns < 100 ? stateAbbreviations[state] || state : state
     const taskId = truncateCells(safeText(row.task_id) || safeText(row.role) || 'agent', 8).padEnd(8)
     const turn = Number.isFinite(row.turn_count) ? `turn ${row.turn_count}` : ''
     const tools = Number.isFinite(row.tool_count) ? `${row.tool_count} tools` : ''
@@ -425,10 +455,13 @@ export default function register(sdk) {
     const tokensPiece = tokenText
       ? ` · ${tokenText.padStart(6)} tokens`
       : ' '.repeat(tokensWidth)
-    const tailState = padCells(stateText, stateWidth)
+    const tailState = padCells(truncateTextCells(stateText, stateWidth), stateWidth)
     // Elapsed and the token count are one fixed-width tail but two colours,
     // so they render as two pieces: same cells as before, split at the dot.
-    const tailRest = ` · ${padCells(elapsedText(elapsed) || '0s', 7)}`
+    // A queued board lane has not started, so it has no elapsed time to
+    // show: the cells stay blank instead of a misleading `0s`.
+    const elapsedCell = safeText(row.state) === 'queued' ? padCells('', 7) : padCells(elapsedText(elapsed) || '0s', 7)
+    const tailRest = ` · ${elapsedCell}`
     const tailTokens = tokensColumn ? tokensPiece : ''
     const scope = padCells(scopeLabel(row), scopeWidth)
     const prefix = `${scope}${taskId} `
@@ -487,14 +520,32 @@ export default function register(sdk) {
     const layout = activityLayout(row, columns, main, extraSeconds, tokensColumn, routeColumn, scopeWidth)
     const blocked = row.state === 'blocked' || row.state === 'failed'
     const done = row.state === 'done'
-    const marker = blocked ? '▲' : done ? '✓' : SPINNER_FRAMES[frame % SPINNER_FRAMES.length]
-    const statusColor = blocked ? t.color.error : t.color.ok
+    // Board-lane verdicts from kanban_board_reader: a queued task has no
+    // worker yet, so it must not spin (a static dot in the muted tone), and a
+    // stale one has a recorded worker that stopped heartbeating (a warn
+    // bang). Both keep the native status word in the tail.
+    const queued = row.state === 'queued'
+    const stale = row.state === 'stale'
+    // A board lane is a different kind of row, and the whole row says so:
+    // every piece that is not a semantic verdict -- marker, scope and id,
+    // title, identity, elapsed -- renders in the accent tone, the
+    // secondary pieces dimmed, so a kanban row reads as one turquoise line
+    // beside the native rows. Only `blocked` (error) and `stale` (warn)
+    // keep their own colour, because a lane that is stuck must never hide
+    // inside the lane colour.
+    const board = safeText(row.lane_backend) === 'kanban'
+    const marker = blocked ? '▲' : done ? '✓' : queued ? '·' : stale ? '!' : SPINNER_FRAMES[frame % SPINNER_FRAMES.length]
+    const statusColor = blocked ? t.color.error : stale ? t.color.warn : board ? t.color.accent : queued ? t.color.muted : t.color.ok
+    const markerColor = blocked ? t.color.error : stale ? t.color.warn : board ? t.color.accent : done ? t.color.ok : queued ? t.color.muted : t.color.warn
     return h(
       Text,
       { wrap: 'truncate-end' },
-      h(Text, { color: blocked ? t.color.error : done ? t.color.ok : t.color.warn }, `${marker} `),
-      h(Text, { color: t.color.muted }, `${layout.scope}${layout.taskId} `),
-      h(Text, { color: t.color.text }, layout.action),
+      h(Text, { color: markerColor }, `${marker} `),
+      // The kind tag is the one bold piece on the row, the way the header's
+      // `⚚ [OMH]` is bold: a glyph would cost cells, bold costs none.
+      h(Text, board ? { color: t.color.accent, bold: true } : { color: t.color.muted, bold: true }, layout.scope),
+      h(Text, board ? { color: t.color.accent, dimColor: true } : { color: t.color.muted }, `${layout.taskId} `),
+      h(Text, { color: board ? t.color.accent : t.color.text }, layout.action),
       // Identity, then the measured block, then the rest. The route column
       // and the state/elapsed/tokens tail are fixed widths, so those figures
       // line up vertically down the list; everything after them is variable
@@ -506,13 +557,18 @@ export default function register(sdk) {
             ? t.color.label
             : layout.routeKind === 'route-fallback' || layout.routeKind === 'maestro'
               ? t.color.warn
-              : t.color.muted,
+              // The board lane's own tone: `accent` has no other use on this
+              // surface, so a kanban identity is told apart from the native
+              // (label) and Maestro (warn) lanes by colour alone.
+              : layout.routeKind === 'kanban'
+                ? t.color.accent
+                : t.color.muted,
         },
         layout.routeCell,
       ),
       h(Text, {}, '  '),
       h(Text, { color: statusColor }, layout.tailState),
-      h(Text, { color: t.color.muted }, layout.tailRest),
+      h(Text, board ? { color: t.color.accent, dimColor: true } : { color: t.color.muted }, layout.tailRest),
       // The token count is the one figure on the row that is a plain
       // quantity, so it reads in `statusFg` -- the tone the host's own status
       // line spends on its token gauge -- instead of the muted tint every
@@ -703,6 +759,8 @@ export default function register(sdk) {
     const version = safeText(payload.version)
     const metrics = sessionMetrics(payload)
     const maestro = payload.maestro || {}
+    const board = payload.kanban || {}
+    const boardTotal = Number(board.rows_total) || 0
     const graph = payload.graph || {}
     const graphActive = graph.status === 'active'
     const graphNodes = graphActive && Array.isArray(graph.nodes) ? graph.nodes : []
@@ -724,8 +782,14 @@ export default function register(sdk) {
     const runningAgents = allAgentRows
       .filter(row => !row.state || row.state === 'running').length
     const viewportBudget = Math.max(1, viewportRows - 5 - graphHeight)
+    // The `+N more` line pays for a row of its own (the slice below), so
+    // when lanes overflow the budget grows by that one line; otherwise
+    // five running lanes and two lingering done ones showed four lanes
+    // and hid a running one behind `+3 more` on a 63-row terminal.
+    const wantedRows = Math.max(Math.max(5 - mainRows.length, 1), runningAgents)
+    const overflowLine = allAgentRows.length > wantedRows ? 1 : 0
     const agentBudget = Math.min(
-      Math.max(Math.max(5 - mainRows.length, 1), runningAgents),
+      wantedRows + overflowLine,
       Math.max(0, viewportBudget - mainRows.length),
     )
     let rows = allAgentRows.slice(0, agentBudget)
@@ -746,6 +810,17 @@ export default function register(sdk) {
         version ? h(Text, { color: t.color.muted }, ` v${version}`) : null,
         h(Text, { color: t.color.border }, SEPARATOR),
         h(Text, { color: active ? t.color.warn : t.color.ok }, `${agents.scope === 'global' ? '[global] ' : agents.scope === 'mixed' || maestro.rows?.some(row => row.scope === 'global') ? '[this chat + global] ' : agents.scope === 'session' ? '[this chat] ' : ''}${hudStateLabel(active, agents)}`),
+        // Board lanes are counted beside the agent count only while the
+        // board has any: queued/running/blocked as the reader tallied them.
+        // `dispatcher not observed` is the reader's verdict that ready tasks
+        // have waited past the dispatch window with no worker or claim
+        // anywhere on the board -- the one board fault the HUD can see.
+        boardTotal > 0
+          ? h(Text, { color: t.color.muted }, ` · board ${Number(board.queued) || 0}q ${Number(board.running) || 0}r ${Number(board.blocked) || 0}b`)
+          : null,
+        board.dispatcher_presence === 'not_observed'
+          ? h(Text, { color: t.color.warn }, ' · dispatcher not observed')
+          : null,
         h(Text, { color: t.color.muted }, `${metrics.cost ? ` • ${metrics.cost}` : ''}${metrics.ctx ? ` • ${metrics.ctx}` : ''}`),
         // Exact in-flight liveness, paired from pre_tool_call/post_tool_call
         // by tool_call_id: the only honest answer to "is something actually

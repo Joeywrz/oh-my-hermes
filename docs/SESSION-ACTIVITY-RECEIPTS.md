@@ -198,7 +198,12 @@ file contents. Storage/aggregation never occurs on the native callback path.
 `plugin_bundle/omh/activity_observer.py` provides explicit `ActivityObserver`
 construction, `enqueue`, `flush`, `status`, and bounded `close` APIs for local
 adapter development. This engine requires the OMH core package for admission;
-standalone unsupported-host registration does not import it. Its closed
+standalone unsupported-host registration does not import it. Importing the
+module is host-independent all the same -- Hermes' memory-provider loader execs
+every top-level file of the bundle whatever the config says, and caches one
+that raised (#1623) -- so the absence of the package is reported where the
+observer is constructed, which `register` turns into the `observer_setup_failed`
+status rather than a failed plugin. Its closed
 **internal** schema `omh_group_activity_event/v1` is not a Hermes API:
 
 - Keys: `schema`, `profile_ref`, `session_ref`, `room_ref`, `member_ref`,

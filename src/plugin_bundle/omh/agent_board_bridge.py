@@ -22,16 +22,40 @@ import stat
 from threading import RLock
 from typing import Protocol, TypeGuard, runtime_checkable
 
-from omh.system.descriptor_lock import DescriptorLockError, locked_descriptor
-from omh.workflows.agent_board import (
-    AgentBoard, AgentBoardRequest, HostIdentity, MAX_INTAKE_BYTES, board_reference, native_schema_supported,
-)
+try:  # The board engine is core-owned; this file is the bridge TO it.
+    # Admission, receipts and board references live in the OMH package, so a
+    # copy of them here would be a second set of rules for the same receipts.
+    # Binding them has to stay OPTIONAL all the same: Hermes' loaders exec
+    # every top-level file of the bundle -- the memory-provider lane does it
+    # eagerly -- and keep the half-initialized module in `sys.modules` when
+    # one raises, so a module that could not import without the `omh` package
+    # turned "this host has no board feature" into an ImportError on every
+    # tool call (#1623). Every entry point below therefore checks
+    # `_BOARD_CORE_AVAILABLE` before it reaches one of these names; a use that
+    # skips the check is a NameError on a host that has no engine.
+    from omh.system.descriptor_lock import DescriptorLockError, locked_descriptor
+    from omh.workflows.agent_board import (
+        AgentBoard, AgentBoardRequest, HostIdentity, MAX_INTAKE_BYTES, board_reference, native_schema_supported,
+    )
+except ImportError:  # pragma: no cover - standalone plugin hosts have no omh package.
+    _BOARD_CORE_AVAILABLE = False
+else:
+    _BOARD_CORE_AVAILABLE = True
 
 from .runtime_reader import default_omh_home
 
 
 class BoardStoreError(ValueError):
     """Closed safe error: unavailable storage must never reopen an action."""
+
+
+class BoardCoreUnavailable(RuntimeError):
+    """This host cannot import the board engine, so it has no board feature.
+
+    Deliberately not a `BoardStoreError`: an unavailable store means a
+    prepared action must not be admitted, while an unavailable engine means
+    nothing was ever prepared here and there is nothing to refuse.
+    """
 
 
 @dataclass(frozen=True)
@@ -49,6 +73,8 @@ class AgentBoardBridge:
     """
 
     def __init__(self, home: Path, *, root_identity: str | None) -> None:
+        if not _BOARD_CORE_AVAILABLE:
+            raise BoardCoreUnavailable("omh_board_core_unavailable")
         self.home: Path = home.expanduser().resolve()
         self.root_identity: str | None = root_identity
         self._pending: dict[str, _Pending] = {}
@@ -346,6 +372,8 @@ def _stored_boards(home: Path) -> Iterator[AgentBoard]:
 
 def installed_status(request_id: str) -> AgentBoardRequest:
     """Resolve a unique request in bounded OMH metadata after a plugin restart."""
+    if not _BOARD_CORE_AVAILABLE:
+        raise BoardCoreUnavailable("omh_board_core_unavailable")
     home = default_omh_home().expanduser().resolve()
     results: list[AgentBoardRequest] = []
     for state in _stored_boards(home):
@@ -361,6 +389,11 @@ def installed_status(request_id: str) -> AgentBoardRequest:
 
 
 def pre_agent_board(kwargs: Mapping[str, object]) -> dict[str, object] | None:
+    if not _BOARD_CORE_AVAILABLE:
+        # No engine on this host means nothing here ever prepared a request,
+        # so there is no tracked action to admit and none to refuse. Blocking
+        # would veto native Kanban calls OMH has no claim over.
+        return None
     tool_name = kwargs.get("tool_name")
     args = kwargs.get("args", kwargs.get("tool_input"))
     identity = _host(kwargs)
@@ -392,6 +425,8 @@ def pre_agent_board(kwargs: Mapping[str, object]) -> dict[str, object] | None:
 
 
 def post_agent_board(kwargs: Mapping[str, object]) -> None:
+    if not _BOARD_CORE_AVAILABLE:
+        return  # Nothing could have been armed, so there is nothing to close.
     identity = _host(kwargs)
     tool_name = kwargs.get("tool_name")
     args = kwargs.get("args", kwargs.get("tool_input"))

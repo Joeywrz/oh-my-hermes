@@ -1855,6 +1855,32 @@ class TodoSessionIsolationTests(_TodoSessionFixture, unittest.TestCase):
     TUI_B = "20260831_160102_9a1c22"
     SLACK = "slack:C0123ABC:1725100000.000100"
 
+    def _write_lease_registry(self, leases) -> None:
+        """leases: (durable_id, transport_id, surface='tui').
+
+        The shape is the host's own `runtime/active_sessions.json`: one entry
+        per open chat surface, the durable key as `session_id` and the
+        gateway transport id under `metadata.live_session_id`.
+        """
+        runtime = self.hermes_home / "runtime"
+        runtime.mkdir(parents=True, exist_ok=True)
+        entries = [
+            {
+                "lease_id": f"lease-{index}",
+                "pid": 4000 + index,
+                "process_start_time": self.NOW - 100,
+                "session_id": lease[0],
+                "surface": lease[2] if len(lease) > 2 else "tui",
+                "started_at": self.NOW - 60,
+                "updated_at": self.NOW - 60,
+                "metadata": {"bot_live_delivery_consumer": True, "live_session_id": lease[1]},
+            }
+            for index, lease in enumerate(leases)
+        ]
+        (runtime / "active_sessions.json").write_text(
+            json.dumps({"entries": entries}), encoding="utf-8"
+        )
+
     def _declare(self, session_id: str, title: str, states=("done", "active", "pending")) -> dict:
         import os
 
@@ -1924,25 +1950,87 @@ class TodoSessionIsolationTests(_TodoSessionFixture, unittest.TestCase):
         # identity never falls through to the TUI's plan.
         self.assertEqual(self._todo_for("slack:C0123ABC:1725100000.000200")["status"], "absent")
 
-    def test_a_fresh_tui_whose_widget_carries_the_transport_id_still_renders(self) -> None:
-        # On session.create the host's active-session file holds the gateway
-        # transport id (uuid4 hex[:8]), not the durable session key the tool
-        # stamps with; only resume/switch write the key. A widget reference
-        # that is neither a live TUI row nor the owner of a record is that
-        # case, and reads as an identity-less poll would -- the MRU live row
-        # -- so the plan the fresh TUI just declared is not hidden.
+    def _as_widget(self, tui_session_ref: str) -> dict:
         from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
 
-        self._build_state_db([(self.TUI_A, self._epoch(-60), self._epoch(-5))])
-        self._declare(self.TUI_A, "Fresh")
+        return read_omh_hud(
+            self.omh_home, self.hermes_home, tui_session_ref=tui_session_ref
+        )["todo"]
 
-        as_widget = read_omh_hud(self.omh_home, self.hermes_home, tui_session_ref="3f9a1c2b")["todo"]
-        self.assertEqual((as_widget["status"], as_widget["title"]), ("established", "Fresh"))
-        # The durable key placed by the file after a resume reads directly.
-        as_resumed = read_omh_hud(self.omh_home, self.hermes_home, tui_session_ref=self.TUI_A)["todo"]
-        self.assertEqual(as_resumed["title"], "Fresh")
+    def test_each_tui_named_by_its_transport_id_renders_only_its_own_plan(self) -> None:
+        # On session.create the host's active-session file holds the gateway
+        # transport id (uuid4 hex[:8]), not the durable session key the tool
+        # stamps with; only resume/switch write the key. That reference is in
+        # no state.db column, so it used to resolve to nothing and the reader
+        # fell back to the most-recently-active row -- which rendered ONE
+        # session's checklist in every TUI at once, the whole point of the
+        # owner's two-TUI report. The host's own lease registry pairs the two
+        # names, so each transport id now resolves to the session that holds
+        # it and reads that session's plan and no other's.
+        self._build_state_db(
+            [
+                (self.TUI_A, self._epoch(-600), self._epoch(-120)),
+                (self.TUI_B, self._epoch(-300), self._epoch(-5)),
+            ]
+        )
+        self._write_lease_registry([(self.TUI_A, "3f9a1c2b"), (self.TUI_B, "c7d10e44")])
+        self._declare(self.TUI_A, "Alpha")
+        self._declare(self.TUI_B, "Beta")
+
+        alpha, beta = self._as_widget("3f9a1c2b"), self._as_widget("c7d10e44")
+
+        self.assertEqual((alpha["status"], alpha["title"]), ("established", "Alpha"))
+        self.assertEqual((beta["status"], beta["title"]), ("established", "Beta"))
+        # B is the MRU row, so before the mapping A's widget rendered "Beta".
+        self.assertNotEqual(alpha["title"], beta["title"])
+        # The durable key placed by the file after a resume still reads directly.
+        self.assertEqual(self._as_widget(self.TUI_A)["title"], "Alpha")
+
+    def test_a_transport_id_no_lease_names_renders_no_other_sessions_plan(self) -> None:
+        # The host claims a session's lease on its first real turn, not at
+        # creation, so a TUI nobody has prompted in is named by no entry. It
+        # owns no plan either: rendering the MRU session's checklist there was
+        # showing a stranger's work, and showing nothing is the honest answer.
+        self._build_state_db([(self.TUI_A, self._epoch(-60), self._epoch(-5))])
+        self._write_lease_registry([(self.TUI_A, "3f9a1c2b")])
+        self._declare(self.TUI_A, "Alpha")
+
+        self.assertEqual(self._as_widget("3f9a1c2b")["title"], "Alpha")
+        for unpaired in ("9b0c1d2e", "not-a-session"):
+            with self.subTest(reference=unpaired):
+                self.assertEqual(self._as_widget(unpaired)["status"], "absent")
         # The strict identity (tool, hook, operator flag) never falls through.
-        self.assertEqual(self._todo_for("3f9a1c2b")["status"], "absent")
+        self.assertEqual(self._todo_for("9b0c1d2e")["status"], "absent")
+
+    def test_only_a_tui_lease_names_a_tui(self) -> None:
+        # A gateway surface's lease says nothing about which TUI is rendering,
+        # and a gateway session can carry a transport id of the same shape.
+        # Borrowing one would reintroduce the same theft through a wider door.
+        self._build_state_db([(self.TUI_A, self._epoch(-60), self._epoch(-5))])
+        self._write_lease_registry([(self.TUI_A, "3f9a1c2b", "discord")])
+        self._declare(self.TUI_A, "Alpha")
+
+        self.assertEqual(self._as_widget("3f9a1c2b")["status"], "absent")
+
+    def test_an_unreadable_lease_registry_is_unanswerable_not_a_licence(self) -> None:
+        # Every way the registry can fail to answer resolves to "this widget
+        # keeps its own reference", never to another session's record. The
+        # absent case is the one every machine hits before its first lease.
+        self._build_state_db([(self.TUI_A, self._epoch(-60), self._epoch(-5))])
+        self._declare(self.TUI_A, "Alpha")
+        registry = self.hermes_home / "runtime" / "active_sessions.json"
+
+        self.assertEqual(self._as_widget("3f9a1c2b")["status"], "absent")
+        for label, payload in (
+            ("not json", "{ broken"),
+            ("entries not a list", json.dumps({"entries": {"live_session_id": "3f9a1c2b"}})),
+            ("entry not a dict", json.dumps({"entries": ["3f9a1c2b"]})),
+            ("no metadata", json.dumps({"entries": [{"session_id": self.TUI_A, "surface": "tui"}]})),
+        ):
+            with self.subTest(registry=label):
+                registry.parent.mkdir(parents=True, exist_ok=True)
+                registry.write_text(payload, encoding="utf-8")
+                self.assertEqual(self._as_widget("3f9a1c2b")["status"], "absent")
 
     def test_the_hud_tool_reads_the_todo_for_its_dispatching_session(self) -> None:
         import os

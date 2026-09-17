@@ -131,9 +131,10 @@ neither shown in nor overwritten by another session. An unstamped record
 `$OMH_HOME/runtime/todo.json`, scoped by write time against the reading
 session's start; a reader with no live TUI row to date it against (a gateway
 session), or a host that cannot say which session is reading, keeps the
-age-only behavior. A widget reference that names no live TUI row and owns no
-record — a fresh session's transport id — reads as the most recently active
-live TUI would.
+age-only behavior. A widget reference that names no live TUI row is first
+offered to the host's active-session lease registry, which pairs a created
+session's transport id with its durable key; an unpaired reference stays its
+own identity and reads no other session's record.
 _Avoid_: task list as evidence, TodoWrite (that is another product's tool name)
 
 ### Coding delegation

@@ -17,7 +17,11 @@ from typing import Any, Callable
 from .approval_bypass import effective_approval_bypass
 from .hermes_delegation import read_hermes_native_subagents
 from .kanban_board_reader import conversation_session_ids, kanban_db_path, read_kanban_lanes
-from .live_session import LIVE_TUI_SESSION_FRESH_SECONDS, live_tui_session_rows
+from .live_session import (
+    LIVE_TUI_SESSION_FRESH_SECONDS,
+    live_tui_session_rows,
+    tui_session_durable_id,
+)
 from .subagent_graph import project_subagent_graph
 from .subagent_graph_contract import (
     GRAPH_CONTRACT_UNIT_LIMIT,
@@ -1974,13 +1978,6 @@ def _todo_summary(
     }
     session_id, session = _reading_session(hermes, session_ref or tui_session_ref)
     record, own_record = _own_todo_record(home, session_id)
-    if not own_record and not session_ref and tui_session_ref and session is None:
-        # The widget's reference places no TUI: it is neither a live row nor
-        # the owner of a record, which is what a fresh session's transport id
-        # looks like. Read as a widget with no identity would, rather than
-        # hiding the plan this TUI is most likely looking at.
-        session_id, session = _reading_session(hermes, "")
-        record, own_record = _own_todo_record(home, session_id)
     if not own_record:
         # No per-session record: the home-wide file answers, gated below by
         # the identity or write-time rule so another session's plan stays out.
@@ -2165,11 +2162,27 @@ def _reading_session(
     gateway session is a valid reader with no TUI row). Without one, the
     most recently active live TUI row answers, as before, and a host that
     cannot say returns no identity at all.
+
+    One reference the host writes is in the wrong vocabulary to match
+    anything: on ``session.create`` the active-session file carries the
+    gateway TRANSPORT id, while rows and records are keyed on the durable
+    session key, so a created (rather than resumed) TUI names a session no
+    surface here knows. The host's own lease registry pairs the two, so a
+    reference that matches no row is offered to it before being taken at face
+    value -- a translation of the reader's identity, never a guess at who
+    else might be reading. Unpaired references stay exactly as given.
     """
     reference = strip_control_characters(session_ref)[:MAX_TODO_SESSION_REF_CHARS]
     rows = live_tui_session_rows(str(hermes)) if hermes is not None else []
     if reference:
-        return reference, next((row for row in rows if str(row.get("id") or "") == reference), None)
+        row = next((row for row in rows if str(row.get("id") or "") == reference), None)
+        if row is None and hermes is not None:
+            durable = tui_session_durable_id(str(hermes), reference)
+            if durable:
+                return durable, next(
+                    (row for row in rows if str(row.get("id") or "") == durable), None
+                )
+        return reference, row
     session = rows[0] if rows else None
     if session is None:
         return "", None

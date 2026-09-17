@@ -4,6 +4,33 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **Each Hermes TUI's plan-todo panel now renders its own session's checklist,
+  not the most recently active one's.** Reported with screenshots (#1672): with
+  two TUIs open, both panels showed the same plan and whichever TUI moved last
+  won both -- one session mid-run on that plan, the other on an unrelated
+  topic, under a byte-identical header. Writes were already one record per
+  declaring session; reads were not. The widget names its session from the
+  host's per-TUI active-session file, which on `session.create` holds the
+  gateway transport id (`ebe3eaaa`) while records and `state.db` rows are keyed
+  on the durable session key (`20260917_132533_8da9b8`) -- a name no row or
+  record carries, so the reference resolved to nothing and a fallback re-read
+  with no identity at all, which answers with the most recently active TUI row.
+  The two names meet in the host's own active-session lease registry
+  (`$HERMES_HOME/runtime/active_sessions.json`), which records the durable key
+  as `session_id` and the transport id as `metadata.live_session_id` against
+  one lease, so a reference matching no live row is now resolved there before
+  being taken at face value and a created TUI reads its own plan. The
+  most-recently-active fallback is gone: an unpaired reference keeps its own
+  identity and falls back to the home-wide record under the gates already in
+  place, never to another session's record. Only `surface: 'tui'` leases
+  answer. Because the host claims a lease on a session's first real turn rather
+  than at creation, a TUI nobody has prompted in is named by no entry -- and
+  has declared no plan either, so its panel is empty for the same reason. Read
+  only, and no Hermes change: `session.create` does already return the durable
+  key next to the transport id, so the host could write it into the file
+  instead, but OMH does not patch Hermes and the registry answers the same
+  question from our own side.
+
 - **The three sibling engines can now put their own lanes on the board
   `ulw-work` learned in the entry below.** A `loop` iteration still died with
   the session: the chain of assess, act, verify, decide had no shape on the

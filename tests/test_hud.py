@@ -1881,6 +1881,26 @@ class TodoSessionIsolationTests(_TodoSessionFixture, unittest.TestCase):
             json.dumps({"entries": entries}), encoding="utf-8"
         )
 
+    def _oversized_registry(self, transport_id: str) -> str:
+        """A registry that would answer, past the size the reader will read.
+
+        The bound guards against reading something that is not the registry at
+        all, so the payload has to be otherwise VALID -- a file that fails for
+        its content proves nothing about the bound.
+        """
+        from omh.plugin_bundle.omh.live_session import _ACTIVE_SESSION_REGISTRY_MAX_BYTES
+
+        entry = {
+            "lease_id": "lease-0",
+            "pid": 4000,
+            "session_id": self.TUI_A,
+            "surface": "tui",
+            "metadata": {"live_session_id": transport_id, "pad": ""},
+        }
+        payload = json.dumps({"entries": [entry]})
+        entry["metadata"]["pad"] = "p" * (_ACTIVE_SESSION_REGISTRY_MAX_BYTES - len(payload) + 1)
+        return json.dumps({"entries": [entry]})
+
     def _declare(self, session_id: str, title: str, states=("done", "active", "pending")) -> dict:
         import os
 
@@ -2002,6 +2022,23 @@ class TodoSessionIsolationTests(_TodoSessionFixture, unittest.TestCase):
         # The strict identity (tool, hook, operator flag) never falls through.
         self.assertEqual(self._todo_for("9b0c1d2e")["status"], "absent")
 
+    def test_a_recurring_transport_id_resolves_to_its_most_recent_lease(self) -> None:
+        # A transport id is eight hex characters, so the same string recurs
+        # over a machine's history and the registry can hold a spent lease
+        # naming it. The scan claims the session someone is looking at wins,
+        # not whichever lease was written into the file first.
+        self._build_state_db(
+            [
+                (self.TUI_A, self._epoch(-600), self._epoch(-120)),
+                (self.TUI_B, self._epoch(-300), self._epoch(-5)),
+            ]
+        )
+        self._write_lease_registry([(self.TUI_A, "3f9a1c2b"), (self.TUI_B, "3f9a1c2b")])
+        self._declare(self.TUI_A, "Alpha")
+        self._declare(self.TUI_B, "Beta")
+
+        self.assertEqual(self._as_widget("3f9a1c2b")["title"], "Beta")
+
     def test_only_a_tui_lease_names_a_tui(self) -> None:
         # A gateway surface's lease says nothing about which TUI is rendering,
         # and a gateway session can carry a transport id of the same shape.
@@ -2026,6 +2063,7 @@ class TodoSessionIsolationTests(_TodoSessionFixture, unittest.TestCase):
             ("entries not a list", json.dumps({"entries": {"live_session_id": "3f9a1c2b"}})),
             ("entry not a dict", json.dumps({"entries": ["3f9a1c2b"]})),
             ("no metadata", json.dumps({"entries": [{"session_id": self.TUI_A, "surface": "tui"}]})),
+            ("larger than any registry", self._oversized_registry("3f9a1c2b")),
         ):
             with self.subTest(registry=label):
                 registry.parent.mkdir(parents=True, exist_ok=True)

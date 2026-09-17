@@ -42,6 +42,18 @@ completion without summary or result, an unknown block kind, and an
 `idempotency_key` that differs from the `request_id` are all rejected as
 invalid input. `create` always freezes `idempotency_key` to the `request_id`.
 
+The board engine itself -- admission, receipts and board references -- lives in
+the `omh` package, not in the plugin bundle, so the feature needs that package
+to be importable by the interpreter running Hermes. The documented installs
+put it in OMH's own environment, so on many hosts it is not. Such a host has
+no board feature and says so: `omh_agent_board` answers `unavailable` with
+reason `omh_agent_board_core_unavailable`, and the `pre_tool_call` /
+`post_tool_call` correlation stands down rather than refusing native `kanban_*`
+calls it has no prepared request for. What it must never do is fail: until
+#1623 the bundle module holding that bridge could not be imported at all
+without the package, and Hermes' memory-provider loader caches a module that
+raised, which turned an absent feature into a hook warning on every tool call.
+
 ## Request states
 
 Every request is exactly one of these states. They never collapse into each

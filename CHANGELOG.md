@@ -4,6 +4,36 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The plugin bundle no longer needs the `omh` package to load, and the
+  tool-call hooks no longer die when a bundle module fails to.** Reported with
+  a reproduction by @tonalenar (#1623): with `memory.provider: omh`, Hermes
+  loads the copied bundle a second time as a memory provider and that lane
+  execs every top-level `*.py` eagerly. Three modules -- `agent_board_bridge`,
+  `activity_observer`, `native_activity_observer` -- imported `omh.*` at module
+  scope, which cannot resolve from Hermes' interpreter under the documented
+  `uv tool install` / `pip install --user` layouts, and Hermes keeps the
+  half-initialized module in `sys.modules`. The lazy `from ..agent_board_bridge
+  import pre_agent_board` in the hooks then failed on the NAME rather than the
+  module, so `error.name` was the bundle's own dotted path and never `omh`: the
+  guard re-raised, and every tool call logged a hook warning while the bridge
+  was dead anyway. The three modules now guard those imports the way the rest
+  of the bundle already did and report the absence where the feature is
+  entered -- `omh_agent_board` answers `omh_agent_board_core_unavailable`, the
+  board hooks stand down instead of refusing native `kanban_*` calls they have
+  no prepared request for, and the observer raises at construction, which
+  `register` turns into the existing `observer_setup_failed` status. The
+  engines themselves stay in the `omh` package: a copy in the bundle would be a
+  second set of rules for the same receipts. The report's first suggested fix,
+  widening the guard to `except ImportError` while keeping the `omh.*` name
+  check, was measured against the cached-stub case and does not hold -- the
+  name is still not `omh`, so the hook would still re-raise; its own
+  alternative, taking the bridge by attribute and skipping when it is absent,
+  is what shipped. The gate that should have caught all of this loaded one
+  module, `awareness`, so its real subject was whatever `awareness` happened to
+  pull in; `tests/test_plugin_bundle_standalone.py` now imports every module
+  under `src/plugin_bundle/omh/` with `omh` blocked and derives that list from
+  the directory.
+
 - **A sibling cell no longer reads the receipt integrity key while it is
   still empty.** One OMH home holds one key and every run directory under it
   signs with that key, so `load_or_create_observation_key` was reached

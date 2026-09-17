@@ -9,8 +9,21 @@ import json
 import secrets
 from typing import Protocol, runtime_checkable
 
-from omh.system.local_store import atomic_write_json, atomic_write_text, file_lock
-from omh.system.paths import OmhPaths
+try:  # Core-owned storage primitives; see the same guard in activity_observer.
+    # This adapter is a producer for the OMH package's receipt store, so a
+    # host that cannot import the package has nothing to register with. The
+    # module itself must still import on every host: Hermes' loaders exec
+    # every top-level file of the bundle and keep the half-initialized module
+    # in `sys.modules` when one raises (#1623). `register` below reports the
+    # absence, and the bundle's __init__.py turns it into
+    # `observer_setup_failed` rather than unregistering the normal bridge.
+    from omh.system.local_store import atomic_write_json, atomic_write_text, file_lock
+    from omh.system.paths import OmhPaths
+except ImportError:  # pragma: no cover - standalone plugin hosts have no omh package.
+    _CORE_AVAILABLE = False
+else:
+    _CORE_AVAILABLE = True
+
 from .activity_observer import ActivityObserver, ObserverStatus
 from .activity_observer_events import EventError, opaque_ref
 from .activity_observer_state import JSON
@@ -104,6 +117,8 @@ class NativeObserver:
 
 def register(ctx: ObserverHost) -> NativeObserver:
     """Create a private profile key at registration, never on dispatch."""
+    if not _CORE_AVAILABLE:
+        raise ImportError("the omh package is not importable, so no session activity can be recorded")
     # In a native host omh_home is the common profile setting, not a separate
     # programmatic override. Standalone adapter contexts retain their API.
     override = ctx.get_config("omh_home", None) if runtime_paths._host() is None else None

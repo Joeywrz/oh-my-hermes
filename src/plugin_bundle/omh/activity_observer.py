@@ -12,9 +12,24 @@ from threading import Condition, Event, Thread
 from time import monotonic
 from typing import TypedDict, assert_never, final
 
-from omh.system.paths import OmhPaths
-from omh.system.local_store import atomic_write_json
-from omh.workflows.session_activity_receipts import ingest_session_activity_receipt
+try:  # The receipt sink and the shared atomic writer are core-owned.
+    # This engine produces normalized intervals; admission and storage stay in
+    # the OMH package, so a copy of either here would be a second
+    # implementation of the same rules. Binding them has to stay OPTIONAL all
+    # the same: Hermes' loaders exec every top-level file of the bundle -- the
+    # memory-provider lane does it eagerly -- and keep the half-initialized
+    # module in `sys.modules` when one raises, which turned "this host has no
+    # observer" into an ImportError on every tool call (#1623). Construction
+    # is where the absence is reported; `register` in the bundle's
+    # __init__.py turns that into the `observer_setup_failed` status.
+    from omh.system.paths import OmhPaths
+    from omh.system.local_store import atomic_write_json
+    from omh.workflows.session_activity_receipts import ingest_session_activity_receipt
+except ImportError:  # pragma: no cover - standalone plugin hosts have no omh package.
+    _CORE_AVAILABLE = False
+else:
+    _CORE_AVAILABLE = True
+
 from .activity_observer_events import ActivityEvent, EventError, EventValue, Kind, OpaqueRef, opaque_ref, parse_event
 from .activity_observer_state import JSON, Room
 
@@ -39,6 +54,11 @@ class ActivityObserver:
     Call close and check its result before disposing the invocation's state home.
     """
     def __init__(self, paths: OmhPaths, profile_ref: OpaqueRef, *, on_status: Callable[[ObserverStatus], None] | None = None) -> None:
+        if not _CORE_AVAILABLE:
+            # Before the worker exists: a host with no receipt store has
+            # nothing for this engine to produce into, and a thread that
+            # discovered that later would have nowhere to report it.
+            raise ImportError("the omh package is not importable, so no session activity can be recorded")
         self.paths, self.profile_ref = paths, profile_ref
         self._on_status = on_status
         self.checkpoint_path = paths.runtime_dir / f"group-activity-{profile_ref[7:]}.json"

@@ -28,13 +28,18 @@ OMH_AGENT_BOARD_SCHEMA = {
 
 def omh_agent_board_handler(args: Mapping[str, object], **kwargs: object) -> str:
     # Lazy import permits a standalone bundle without the OMH command package
-    # to register and report the exact missing component, not disappear.
+    # to register and report the exact missing component, not disappear. The
+    # catch is `ImportError`, not `ModuleNotFoundError` with a name check: a
+    # bundle module Hermes could not exec stays cached as a stub, and the
+    # import then fails on the NAME with the bundle's own dotted path rather
+    # than on `omh` (#1623). Either way this host has no board engine, which
+    # is what the reason below says.
     try:
-        from ..agent_board_bridge import handler_identity, host_capabilities, installed_bridge, installed_status
-    except ModuleNotFoundError as error:
-        if error.name is not None and (error.name == "omh" or error.name.startswith("omh.")):
-            return _unavailable("omh_agent_board_core_unavailable")
-        raise
+        from ..agent_board_bridge import (
+            BoardCoreUnavailable, handler_identity, host_capabilities, installed_bridge, installed_status,
+        )
+    except ImportError:
+        return _unavailable("omh_agent_board_core_unavailable")
     try:
         identity = handler_identity(args, kwargs)
         if args.get("action") == "status":
@@ -48,6 +53,10 @@ def omh_agent_board_handler(args: Mapping[str, object], **kwargs: object) -> str
         schemas, hooks = host_capabilities()
         prepared = bridge.prepare(args, host=identity, schemas=schemas, hooks=hooks)
         return json.dumps(prepared, sort_keys=True)
+    except BoardCoreUnavailable:
+        # The module imported, but this host cannot import the engine behind
+        # it; that is a missing component, not an invalid request.
+        return _unavailable("omh_agent_board_core_unavailable")
     except (ValueError, OSError):
         # Never echo exception strings, arguments, root paths or native output.
         return _unavailable("invalid_request_or_board_store")

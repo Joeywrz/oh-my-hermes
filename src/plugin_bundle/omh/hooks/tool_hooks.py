@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from .. import runtime_paths
 
+from collections.abc import Mapping
 import json
-from typing import Protocol, TypeGuard
+from typing import Protocol, TypeGuard, runtime_checkable
 
 from ..degradation import runtime_binding_degradation
 from ..approval_bypass import record_approval_bypass
@@ -11,6 +12,35 @@ from ..host_observation import observe_plugin_hook_call
 from ..omh_roles import extract_role_marker, resolve_role_name, role_aliases, role_names
 from ..tool_bursts import record_tool_call, record_tool_call_close
 from ..toolcall_rules import toolcall_rule_directive
+
+
+@runtime_checkable
+class _BoardBridge(Protocol):
+    """The two names the tool-call hooks need from the board bridge."""
+
+    def pre_agent_board(self, kwargs: Mapping[str, object]) -> dict[str, object] | None: ...
+    def post_agent_board(self, kwargs: Mapping[str, object]) -> None: ...
+
+
+def _agent_board_bridge() -> _BoardBridge | None:
+    """Return the board bridge, or None when this host has no usable one.
+
+    Deliberately not `except ModuleNotFoundError` with an `omh`-prefixed name
+    check. Hermes' loaders keep a half-initialized module in `sys.modules`
+    when `exec_module` raises, so this import can resolve to a stub that has
+    the module but not the names: an `ImportError` whose `name` is the
+    BUNDLE's own dotted path, never `omh`. The old check re-raised exactly
+    that, and every tool call logged a hook warning while the bridge was dead
+    anyway (#1623). Widening the check to `ImportError` would not have helped
+    on its own -- the name it carries still is not `omh` -- so the bridge is
+    taken by attribute instead: a module that cannot supply both names is no
+    bridge, and one broken module must not take the hook down on every call.
+    """
+    try:
+        from .. import agent_board_bridge
+    except ImportError:
+        return None
+    return agent_board_bridge if isinstance(agent_board_bridge, _BoardBridge) else None
 
 
 def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
@@ -47,13 +77,9 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
         return dict(rule_directive)
     # Only the normal host loop invokes native Kanban tools. Correlation runs
     # after OMH's user veto; it never dispatches or grants a native permission.
-    try:
-        from ..agent_board_bridge import pre_agent_board
-    except ModuleNotFoundError as error:
-        if error.name is None or not (error.name == "omh" or error.name.startswith("omh.")):
-            raise
-    else:
-        board_directive = pre_agent_board(kwargs)
+    bridge = _agent_board_bridge()
+    if bridge is not None:
+        board_directive = bridge.pre_agent_board(kwargs)
         if board_directive is not None:
             return board_directive
     # Tick the parallel-shot ledger and, when the host supplies a
@@ -95,13 +121,9 @@ def post_tool_call(**kwargs: object) -> dict[str, object] | None:
     except (runtime_paths.RuntimeBindingError, OSError, RuntimeError) as exc:
         return runtime_binding_degradation(exc)
     _ = observe_plugin_hook_call("post_tool_call", kwargs)
-    try:
-        from ..agent_board_bridge import post_agent_board
-    except ModuleNotFoundError as error:
-        if error.name is None or not (error.name == "omh" or error.name.startswith("omh.")):
-            raise
-    else:
-        post_agent_board(kwargs)
+    bridge = _agent_board_bridge()
+    if bridge is not None:
+        bridge.post_agent_board(kwargs)
     record_tool_call_close(
         kwargs.get("tool_call_id"),
         omh_home=omh_home,

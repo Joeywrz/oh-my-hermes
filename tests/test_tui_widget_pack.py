@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from importlib import resources
 import os
+import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -254,11 +256,79 @@ class TuiWidgetPackTests(unittest.TestCase):
 
         self.assertIn("process.env.HERMES_TUI_ACTIVE_SESSION_FILE", widget)
         self.assertIn("const sessionRef = activeSessionRef()", widget)
-        self.assertIn("{ ...READER_ENV, OMH_HUD_TUI_SESSION_REF: sessionRef }", widget)
+        # The reference is attached only when there is one; the mechanism claim
+        # beside it is unconditional (pinned by its own case below), so the two
+        # are two statements rather than one.
+        self.assertIn("if (sessionRef) env.OMH_HUD_TUI_SESSION_REF = sessionRef", widget)
         self.assertIn("tui_session_ref=os.environ.get('OMH_HUD_TUI_SESSION_REF', '')", widget)
         # A malformed value is dropped, never mutated into a different key.
         self.assertIn("SESSION_REF_SHAPE.test(sessionId) ? sessionId : ''", widget)
         self.assertNotIn("...process.env", widget)
+
+    def test_the_widget_declares_its_mechanism_separately_from_its_value(self) -> None:
+        # Having an identity mechanism and that mechanism producing a value are
+        # different facts, and only the first decides whether the most-recently-
+        # active TUI may answer. The widget always has one, so it always says
+        # so; the reference is sent only when there is one to send. Collapsing
+        # the two into an empty reference is what let a freshly opened TUI --
+        # its active-session file created but not yet written -- render the
+        # plan of the session beside it.
+        widget = resources.files("omh.tui_widgets").joinpath("omh-status.mjs").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "tui_identity_expected=os.environ.get('OMH_HUD_TUI_IDENTITY', '') == '1'", widget
+        )
+        # The claim is keyed on having the file, not on what it held.
+        self.assertIn(
+            "OMH_HUD_TUI_IDENTITY: ACTIVE_SESSION_FILE ? '1' : ''", widget
+        )
+        # And the reference stays conditional on actually having one.
+        self.assertIn("if (sessionRef) env.OMH_HUD_TUI_SESSION_REF = sessionRef", widget)
+
+    def test_the_widget_can_pass_no_identity_and_that_answer_is_pinned(self) -> None:
+        # The widget's reference resolving to nothing is what used to put one
+        # session's plan in every TUI, so the remaining way it can carry NO
+        # reference is worth stating rather than assuming away. It can: every
+        # guard in `activeSessionRef` returns the empty string rather than a
+        # substitute, and the host launcher creates the active-session file
+        # empty (`tempfile.mkstemp` then `os.close`) and writes it only on
+        # session create, activate or resume -- so between TUI launch and the
+        # first of those, the file exists and is empty.
+        widget = resources.files("omh.tui_widgets").joinpath("omh-status.mjs").read_text(encoding="utf-8")
+
+        for guard in (
+            "if (!ACTIVE_SESSION_FILE) return ''",
+            "if (!info.isFile() || info.size > ACTIVE_SESSION_FILE_MAX_BYTES) return ''",
+            "    } catch {\n      return ''\n    }",
+        ):
+            self.assertIn(guard, widget)
+        # An empty file reaches that catch: the parse is what fails, so the
+        # pre-first-write window yields '' and never a partial identity.
+        if shutil.which("node"):
+            with TemporaryDirectory() as tmp:
+                empty = Path(tmp) / "hermes-tui-active-session-test.json"
+                empty.touch()
+                probe = subprocess.run(
+                    [
+                        "node",
+                        "-e",
+                        "const {readFileSync}=require('node:fs');"
+                        "try{JSON.parse(readFileSync(process.argv[1],'utf8'));"
+                        "console.log('parsed')}catch{console.log('threw')}",
+                        str(empty),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                self.assertEqual(probe.stdout.strip(), "threw")
+        # What the reader does with an empty reference is the deliberate
+        # most-recently-active carve-out, pinned with its reason by
+        # TodoSessionIsolationTests.
+        # test_an_identity_less_read_still_answers_for_the_most_recent_tui.
+        # That is NOT the removed fallback: a reference that merely fails to
+        # resolve keeps its own identity and reads no other session's record.
+        self.assertIn("tui_session_ref=os.environ.get('OMH_HUD_TUI_SESSION_REF', '')", widget)
 
     def test_widget_frames_the_composer_and_docks_the_plan_on_top(self) -> None:
         # Changed on purpose (this used to pin a single dock-bottom app and

@@ -1317,17 +1317,23 @@ a host that sets `HERMES_TUI_ACTIVE_SESSION_FILE` for the TUI process; on a
 Hermes that does not, the widget carries no identity and the panel answers
 for the most recently active live TUI session, as it did before.
 
-The widget's own identity has one known alias. After a resume or session
-switch the host's active-session file holds the durable session key; on a
-freshly created session it holds the gateway's transport id, which no record
-and no `state.db` row carries. The reader treats a widget reference that
-names no live TUI row and owns no record as that case and answers as an
-identity-less poll would — the most recently active live TUI session — so a
-fresh TUI still renders the plan it declares. Two TUIs both freshly created
-and not yet resumed therefore still share that answer — the pre-existing
-most-recently-active rule — until each is resumed or switched and the file
-carries its durable key; the plugin tools and the reminder are unaffected
-because Hermes dispatches them with the durable key.
+The widget's own identity has one alias, which the reader resolves. After a
+resume or session switch the host's active-session file holds the durable
+session key; on a freshly created session it holds the gateway's transport
+id, which no record and no `state.db` row carries. The host's active-session
+lease registry (`$HERMES_HOME/runtime/active_sessions.json`) is where the two
+names for one session meet — it records both against one lease — so a widget
+reference that names no live TUI row is looked up there and read as the
+session it belongs to. Every TUI therefore renders the plan it declared and
+no other's, whether its session was created or resumed.
+
+The host claims a session's lease on its first real turn rather than at
+creation, so a TUI nobody has prompted in is named by no entry — and it has
+declared no plan either, so its empty panel is the same answer. A reference
+the registry does not pair keeps its own identity and falls back to the
+home-wide record under the gates above; it never adopts another session's
+record. The plugin tools and the reminder are unaffected either way, because
+Hermes dispatches them with the durable key.
 
 Native agent activity is a separate ownership policy from todos. A mapped
 valid durable identity selects native `state.db` children before row limits

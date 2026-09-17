@@ -168,7 +168,12 @@ class HudConversationScopeTests(unittest.TestCase):
         self.assertEqual(nobody['subagents']['scope'], 'global')
         self.assertTrue(all(row['scope'] == 'global' for row in nobody['subagents']['rows']))
 
-    def test_widget_unknown_identity_preserves_existing_todo_fallback(self):
+    def test_widget_transport_identity_resolves_only_through_the_host_lease(self):
+        # The widget's reference is the gateway transport id whenever its
+        # session was created rather than resumed, and no state.db row carries
+        # that name. The host's lease registry is the one surface pairing it
+        # with the durable key; a reference no lease names is a reference, not
+        # a licence to read the most-recently-active session's plan.
         self.build()
         from omh.plugin_bundle.omh.todo_store import TODO_SCHEMA_VERSION, todo_path
         record = {'schema_version': TODO_SCHEMA_VERSION, 'session_ref': PARENT_ID,
@@ -177,11 +182,18 @@ class HudConversationScopeTests(unittest.TestCase):
         path = todo_path(self.omh, PARENT_ID)
         path.parent.mkdir(parents=True)
         path.write_text(json.dumps(record))
+        registry = self.hermes / 'runtime' / 'active_sessions.json'
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry.write_text(json.dumps({'entries': [
+            {'lease_id': 'lease-0', 'pid': 4321, 'session_id': PARENT_ID, 'surface': 'tui',
+             'metadata': {'live_session_id': 'paired-transport'}}]}))
         with mock.patch('omh.plugin_bundle.omh.runtime_reader.live_tui_session_rows', return_value=[
             {'id': PARENT_ID, 'activity': NOW, 'started_at': NOW - 50}]), mock.patch(
                 'omh.plugin_bundle.omh.runtime_reader._utc_epoch_now', return_value=NOW):
-            result = self.hud(tui_session_ref='unmapped-transport')
-        self.assertEqual(result['todo']['title'], 'Private plan')
+            paired = self.hud(tui_session_ref='paired-transport')
+            unmapped = self.hud(tui_session_ref='unmapped-transport')
+        self.assertEqual(paired['todo']['title'], 'Private plan')
+        self.assertEqual((unmapped['todo']['title'], unmapped['todo']['status']), ('', 'absent'))
 
     @unittest.skipUnless(shutil.which('node'), 'Node is required for the widget boundary')
     def test_scoped_activity_rows_fit_and_keep_token_columns(self):

@@ -131,9 +131,10 @@ neither shown in nor overwritten by another session. An unstamped record
 `$OMH_HOME/runtime/todo.json`, scoped by write time against the reading
 session's start; a reader with no live TUI row to date it against (a gateway
 session), or a host that cannot say which session is reading, keeps the
-age-only behavior. A widget reference that names no live TUI row and owns no
-record — a fresh session's transport id — reads as the most recently active
-live TUI would.
+age-only behavior. A widget reference that names no live TUI row is first
+offered to the host's active-session lease registry, which pairs a created
+session's transport id with its durable key; an unpaired reference stays its
+own identity and reads no other session's record.
 _Avoid_: task list as evidence, TodoWrite (that is another product's tool name)
 
 ### Coding delegation
@@ -256,6 +257,39 @@ below the input and renders the status HUD (header always visible when
 installed; activity rows only during live work).
 _Avoid_: statusline (that is a different, host-owned surface), HUD (the widget
 renders the HUD payload; it is not the payload)
+
+### Host surfaces OMH reads
+
+**Live TUI session row**:
+A row in `$HERMES_HOME/state.db` `sessions`, scoped to `source='tui'`, not
+ended, archived, or hidden, not a delegation child, ordered by the host's own
+`last_activity_at`. Keyed on the durable session key
+(`20260917_132533_8da9b8`), which is what the plan-todo records are keyed on
+too. Read by `live_tui_session_rows` for the approval-bypass projection and
+the plan-todo scope.
+_Avoid_: treating an empty result as a negative answer (it means the question
+is unanswerable here)
+
+**Active-session lease registry**:
+`$HERMES_HOME/runtime/active_sessions.json`, the host's own record of open
+chat surfaces. One entry per lease, carrying the durable session key as
+`session_id` and the gateway transport id as `metadata.live_session_id`,
+alongside `surface`. It is the only place the two names for one TUI session
+meet — the transport id appears in no `state.db` column — so it is how a
+widget reference taken from the per-TUI active-session file resolves to the
+session that owns a plan. Written by `_claim_active_session_slot`
+(`tui_gateway/session_lifecycle.py`) on a session's first real turn, not at
+creation, so a TUI nobody has prompted in is named by no entry.
+
+This is a read-only coupling to a Hermes-private file shape, and part of the
+plugin's compatibility surface alongside the hooks and tools:
+`requires_hermes` in `src/plugin_bundle/omh/plugin.yaml` currently reads
+`">=0.21.1,<0.22.0"`, and widening that range now includes checking that the
+file, both field names, and the `surface` value still hold. If the shape
+moves, the read must go quiet and the reference stay its own identity — never
+fall back to guessing which session is reading.
+_Avoid_: writing to it, treating it as a published API, reading a non-`tui`
+lease as a TUI identity
 
 ### Fault domains
 

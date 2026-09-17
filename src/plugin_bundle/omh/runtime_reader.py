@@ -17,7 +17,11 @@ from typing import Any, Callable
 from .approval_bypass import effective_approval_bypass
 from .hermes_delegation import read_hermes_native_subagents
 from .kanban_board_reader import conversation_session_ids, kanban_db_path, read_kanban_lanes
-from .live_session import LIVE_TUI_SESSION_FRESH_SECONDS, live_tui_session_rows
+from .live_session import (
+    LIVE_TUI_SESSION_FRESH_SECONDS,
+    live_tui_session_rows,
+    tui_session_durable_id,
+)
 from .subagent_graph import project_subagent_graph
 from .subagent_graph_contract import (
     GRAPH_CONTRACT_UNIT_LIMIT,
@@ -813,6 +817,7 @@ def read_omh_hud(
     session_ref: str = "",
     tui_session_ref: str = "",
     session_scoped: bool = False,
+    tui_identity_expected: bool = False,
 ) -> dict[str, Any]:
     """The HUD payload for one reading session.
 
@@ -852,7 +857,12 @@ def read_omh_hud(
         "achievements": _achievements_summary(hermes),
         "tokens": _token_summary(token_metadata or {}),
         "todo": _todo_summary(
-            home, hermes, session_ref, tui_session_ref, activity=tool_calls["activity"]
+            home,
+            hermes,
+            session_ref,
+            tui_session_ref,
+            activity=tool_calls["activity"],
+            tui_identity_expected=tui_identity_expected,
         ),
         # Concurrent tool-call batches observed by the pre_tool_call hook;
         # the [OMH] status line brands a fresh batch as a parallel shot.
@@ -1950,6 +1960,7 @@ def _todo_summary(
     session_ref: str = "",
     tui_session_ref: str = "",
     activity: dict[str, Any] | None = None,
+    tui_identity_expected: bool = False,
 ) -> dict[str, Any]:
     """Project the reading session's plan todo.
 
@@ -1972,15 +1983,12 @@ def _todo_summary(
         "more_count": 0,
         "stall": _todo_stall(None, None),
     }
-    session_id, session = _reading_session(hermes, session_ref or tui_session_ref)
+    session_id, session = _reading_session(
+        hermes,
+        session_ref or tui_session_ref,
+        mru_allowed=not (tui_identity_expected and not session_ref and not tui_session_ref),
+    )
     record, own_record = _own_todo_record(home, session_id)
-    if not own_record and not session_ref and tui_session_ref and session is None:
-        # The widget's reference places no TUI: it is neither a live row nor
-        # the owner of a record, which is what a fresh session's transport id
-        # looks like. Read as a widget with no identity would, rather than
-        # hiding the plan this TUI is most likely looking at.
-        session_id, session = _reading_session(hermes, "")
-        record, own_record = _own_todo_record(home, session_id)
     if not own_record:
         # No per-session record: the home-wide file answers, gated below by
         # the identity or write-time rule so another session's plan stays out.
@@ -2154,7 +2162,7 @@ def _own_todo_record(home: Path, session_id: str) -> tuple[dict[str, Any], bool]
 
 
 def _reading_session(
-    hermes: Path | None, session_ref: str
+    hermes: Path | None, session_ref: str, *, mru_allowed: bool = True
 ) -> tuple[str, dict[str, Any] | None]:
     """The session a todo read is for: its id, and its live TUI row if any.
 
@@ -2165,11 +2173,35 @@ def _reading_session(
     gateway session is a valid reader with no TUI row). Without one, the
     most recently active live TUI row answers, as before, and a host that
     cannot say returns no identity at all.
+
+    One reference the host writes is in the wrong vocabulary to match
+    anything: on ``session.create`` the active-session file carries the
+    gateway TRANSPORT id, while rows and records are keyed on the durable
+    session key, so a created (rather than resumed) TUI names a session no
+    surface here knows. The host's own lease registry pairs the two, so a
+    reference that matches no row is offered to it before being taken at face
+    value -- a translation of the reader's identity, never a guess at who
+    else might be reading. Unpaired references stay exactly as given.
     """
     reference = strip_control_characters(session_ref)[:MAX_TODO_SESSION_REF_CHARS]
     rows = live_tui_session_rows(str(hermes)) if hermes is not None else []
+    if not reference and not mru_allowed:
+        # The caller HAS an identity mechanism and it produced nothing -- an
+        # active-session file the host has not written yet, or one whose shape
+        # was rejected. That is a different condition from a caller that has
+        # no mechanism at all, and only the second one may fall back to the
+        # most recently active TUI. Collapsing them is what let a freshly
+        # opened TUI render the plan of the session next to it.
+        return "", None
     if reference:
-        return reference, next((row for row in rows if str(row.get("id") or "") == reference), None)
+        row = next((row for row in rows if str(row.get("id") or "") == reference), None)
+        if row is None and hermes is not None:
+            durable = tui_session_durable_id(str(hermes), reference)
+            if durable:
+                return durable, next(
+                    (row for row in rows if str(row.get("id") or "") == durable), None
+                )
+        return reference, row
     session = rows[0] if rows else None
     if session is None:
         return "", None

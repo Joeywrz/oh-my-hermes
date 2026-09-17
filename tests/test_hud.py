@@ -1855,6 +1855,52 @@ class TodoSessionIsolationTests(_TodoSessionFixture, unittest.TestCase):
     TUI_B = "20260831_160102_9a1c22"
     SLACK = "slack:C0123ABC:1725100000.000100"
 
+    def _write_lease_registry(self, leases) -> None:
+        """leases: (durable_id, transport_id, surface='tui').
+
+        The shape is the host's own `runtime/active_sessions.json`: one entry
+        per open chat surface, the durable key as `session_id` and the
+        gateway transport id under `metadata.live_session_id`.
+        """
+        runtime = self.hermes_home / "runtime"
+        runtime.mkdir(parents=True, exist_ok=True)
+        entries = [
+            {
+                "lease_id": f"lease-{index}",
+                "pid": 4000 + index,
+                "process_start_time": self.NOW - 100,
+                "session_id": lease[0],
+                "surface": lease[2] if len(lease) > 2 else "tui",
+                "started_at": self.NOW - 60,
+                "updated_at": self.NOW - 60,
+                "metadata": {"bot_live_delivery_consumer": True, "live_session_id": lease[1]},
+            }
+            for index, lease in enumerate(leases)
+        ]
+        (runtime / "active_sessions.json").write_text(
+            json.dumps({"entries": entries}), encoding="utf-8"
+        )
+
+    def _oversized_registry(self, transport_id: str) -> str:
+        """A registry that would answer, past the size the reader will read.
+
+        The bound guards against reading something that is not the registry at
+        all, so the payload has to be otherwise VALID -- a file that fails for
+        its content proves nothing about the bound.
+        """
+        from omh.plugin_bundle.omh.live_session import _ACTIVE_SESSION_REGISTRY_MAX_BYTES
+
+        entry = {
+            "lease_id": "lease-0",
+            "pid": 4000,
+            "session_id": self.TUI_A,
+            "surface": "tui",
+            "metadata": {"live_session_id": transport_id, "pad": ""},
+        }
+        payload = json.dumps({"entries": [entry]})
+        entry["metadata"]["pad"] = "p" * (_ACTIVE_SESSION_REGISTRY_MAX_BYTES - len(payload) + 1)
+        return json.dumps({"entries": [entry]})
+
     def _declare(self, session_id: str, title: str, states=("done", "active", "pending")) -> dict:
         import os
 
@@ -1924,25 +1970,219 @@ class TodoSessionIsolationTests(_TodoSessionFixture, unittest.TestCase):
         # identity never falls through to the TUI's plan.
         self.assertEqual(self._todo_for("slack:C0123ABC:1725100000.000200")["status"], "absent")
 
-    def test_a_fresh_tui_whose_widget_carries_the_transport_id_still_renders(self) -> None:
-        # On session.create the host's active-session file holds the gateway
-        # transport id (uuid4 hex[:8]), not the durable session key the tool
-        # stamps with; only resume/switch write the key. A widget reference
-        # that is neither a live TUI row nor the owner of a record is that
-        # case, and reads as an identity-less poll would -- the MRU live row
-        # -- so the plan the fresh TUI just declared is not hidden.
+    def _as_widget(self, tui_session_ref: str) -> dict:
+        # A widget always HAS an identity mechanism, whatever it produced.
+        # Saying so is what separates it from a caller that has none.
         from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
 
-        self._build_state_db([(self.TUI_A, self._epoch(-60), self._epoch(-5))])
-        self._declare(self.TUI_A, "Fresh")
+        return read_omh_hud(
+            self.omh_home,
+            self.hermes_home,
+            tui_session_ref=tui_session_ref,
+            tui_identity_expected=True,
+        )["todo"]
 
-        as_widget = read_omh_hud(self.omh_home, self.hermes_home, tui_session_ref="3f9a1c2b")["todo"]
-        self.assertEqual((as_widget["status"], as_widget["title"]), ("established", "Fresh"))
-        # The durable key placed by the file after a resume reads directly.
-        as_resumed = read_omh_hud(self.omh_home, self.hermes_home, tui_session_ref=self.TUI_A)["todo"]
-        self.assertEqual(as_resumed["title"], "Fresh")
+    def test_each_tui_named_by_its_transport_id_renders_only_its_own_plan(self) -> None:
+        # On session.create the host's active-session file holds the gateway
+        # transport id (uuid4 hex[:8]), not the durable session key the tool
+        # stamps with; only resume/switch write the key. That reference is in
+        # no state.db column, so it used to resolve to nothing and the reader
+        # fell back to the most-recently-active row -- which rendered ONE
+        # session's checklist in every TUI at once, the whole point of the
+        # owner's two-TUI report. The host's own lease registry pairs the two
+        # names, so each transport id now resolves to the session that holds
+        # it and reads that session's plan and no other's.
+        self._build_state_db(
+            [
+                (self.TUI_A, self._epoch(-600), self._epoch(-120)),
+                (self.TUI_B, self._epoch(-300), self._epoch(-5)),
+            ]
+        )
+        self._write_lease_registry([(self.TUI_A, "3f9a1c2b"), (self.TUI_B, "c7d10e44")])
+        self._declare(self.TUI_A, "Alpha")
+        self._declare(self.TUI_B, "Beta")
+
+        alpha, beta = self._as_widget("3f9a1c2b"), self._as_widget("c7d10e44")
+
+        self.assertEqual((alpha["status"], alpha["title"]), ("established", "Alpha"))
+        self.assertEqual((beta["status"], beta["title"]), ("established", "Beta"))
+        # B is the MRU row, so before the mapping A's widget rendered "Beta".
+        self.assertNotEqual(alpha["title"], beta["title"])
+        # The durable key placed by the file after a resume still reads directly.
+        self.assertEqual(self._as_widget(self.TUI_A)["title"], "Alpha")
+
+    def test_a_transport_id_no_lease_names_renders_no_other_sessions_plan(self) -> None:
+        # The host claims a session's lease on its first real turn, not at
+        # creation, so a TUI nobody has prompted in is named by no entry. It
+        # owns no plan either: rendering the MRU session's checklist there was
+        # showing a stranger's work, and showing nothing is the honest answer.
+        self._build_state_db([(self.TUI_A, self._epoch(-60), self._epoch(-5))])
+        self._write_lease_registry([(self.TUI_A, "3f9a1c2b")])
+        self._declare(self.TUI_A, "Alpha")
+
+        self.assertEqual(self._as_widget("3f9a1c2b")["title"], "Alpha")
+        for unpaired in ("9b0c1d2e", "not-a-session"):
+            with self.subTest(reference=unpaired):
+                self.assertEqual(self._as_widget(unpaired)["status"], "absent")
         # The strict identity (tool, hook, operator flag) never falls through.
-        self.assertEqual(self._todo_for("3f9a1c2b")["status"], "absent")
+        self.assertEqual(self._todo_for("9b0c1d2e")["status"], "absent")
+
+    def test_a_recurring_transport_id_resolves_to_its_most_recent_lease(self) -> None:
+        # A transport id is eight hex characters, so the same string recurs
+        # over a machine's history and the registry can hold a spent lease
+        # naming it. The scan claims the session someone is looking at wins,
+        # not whichever lease was written into the file first.
+        self._build_state_db(
+            [
+                (self.TUI_A, self._epoch(-600), self._epoch(-120)),
+                (self.TUI_B, self._epoch(-300), self._epoch(-5)),
+            ]
+        )
+        self._write_lease_registry([(self.TUI_A, "3f9a1c2b"), (self.TUI_B, "3f9a1c2b")])
+        self._declare(self.TUI_A, "Alpha")
+        self._declare(self.TUI_B, "Beta")
+
+        self.assertEqual(self._as_widget("3f9a1c2b")["title"], "Beta")
+
+    def test_only_a_tui_lease_names_a_tui(self) -> None:
+        # A gateway surface's lease says nothing about which TUI is rendering,
+        # and a gateway session can carry a transport id of the same shape.
+        # Borrowing one would reintroduce the same theft through a wider door.
+        self._build_state_db([(self.TUI_A, self._epoch(-60), self._epoch(-5))])
+        self._write_lease_registry([(self.TUI_A, "3f9a1c2b", "discord")])
+        self._declare(self.TUI_A, "Alpha")
+
+        self.assertEqual(self._as_widget("3f9a1c2b")["status"], "absent")
+
+    def test_an_unreadable_lease_registry_is_unanswerable_not_a_licence(self) -> None:
+        # The registry is a Hermes-owned file whose shape OMH does not control,
+        # so the case that matters is not the one that resolves -- it is every
+        # way the shape can MOVE. Each must land on "this widget keeps its own
+        # reference", never back on a most-recently-active guess, because the
+        # failure mode to make impossible is a future reader restoring the
+        # fallback when the panel goes blank. The absent case is the one every
+        # machine hits before its first lease is ever claimed.
+        self._build_state_db([(self.TUI_A, self._epoch(-60), self._epoch(-5))])
+        self._declare(self.TUI_A, "Alpha")
+        registry = self.hermes_home / "runtime" / "active_sessions.json"
+
+        self.assertEqual(self._as_widget("3f9a1c2b")["status"], "absent")
+        for label, payload in (
+            ("not json", "{ broken"),
+            ("not an object", json.dumps(["3f9a1c2b"])),
+            ("no entries key", json.dumps({"leases": []})),
+            ("entries not a list", json.dumps({"entries": {"live_session_id": "3f9a1c2b"}})),
+            ("entry not a dict", json.dumps({"entries": ["3f9a1c2b"]})),
+            ("no metadata", json.dumps({"entries": [{"session_id": self.TUI_A, "surface": "tui"}]})),
+            ("metadata without a live id", json.dumps({"entries": [
+                {"session_id": self.TUI_A, "surface": "tui", "metadata": {"pid": 4000}}]})),
+            ("metadata not a dict", json.dumps({"entries": [
+                {"session_id": self.TUI_A, "surface": "tui", "metadata": "3f9a1c2b"}]})),
+            ("live id not a string", json.dumps({"entries": [
+                {"session_id": self.TUI_A, "surface": "tui",
+                 "metadata": {"live_session_id": ["3f9a1c2b"]}}]})),
+            ("paired session id not a string", json.dumps({"entries": [
+                {"session_id": None, "surface": "tui",
+                 "metadata": {"live_session_id": "3f9a1c2b"}}]})),
+            ("no surface field", json.dumps({"entries": [
+                {"session_id": self.TUI_A, "metadata": {"live_session_id": "3f9a1c2b"}}]})),
+            ("larger than any registry", self._oversized_registry("3f9a1c2b")),
+        ):
+            with self.subTest(registry=label):
+                registry.parent.mkdir(parents=True, exist_ok=True)
+                registry.write_text(payload, encoding="utf-8")
+                self.assertEqual(self._as_widget("3f9a1c2b")["status"], "absent")
+        # And the shape moving never reaches the session that owns the plan,
+        # which resolves by its durable key with no registry read at all.
+        self.assertEqual(self._as_widget(self.TUI_A)["title"], "Alpha")
+
+    def test_an_identity_less_read_still_answers_for_the_most_recent_tui(self) -> None:
+        # This is now the ONLY door the most-recently-active answer survives
+        # through, and it is deliberate, so it gets its own case rather than
+        # living in a report. `omh runtime todo show`, the operator CLI and
+        # any host that cannot say which session is reading all arrive here
+        # with no reference at all; answering them with nothing would hide a
+        # legitimately current plan from the only reader there is. Removing
+        # this after reading the PR that removed the widget fallback is the
+        # mistake this case exists to fail.
+        self._build_state_db(
+            [
+                (self.TUI_A, self._epoch(-600), self._epoch(-120)),
+                (self.TUI_B, self._epoch(-300), self._epoch(-5)),
+            ]
+        )
+        self._declare(self.TUI_A, "Alpha")
+        self._declare(self.TUI_B, "Beta")
+
+        self.assertEqual(self._todo()["title"], "Beta")
+        # The carve-out is scoped to having no reference. A reference that
+        # merely fails to resolve does NOT reopen it.
+        self.assertEqual(self._as_widget("3f9a1c2b")["status"], "absent")
+
+    def test_a_widget_whose_file_is_not_written_yet_adopts_no_one_elses_plan(self) -> None:
+        # The last door. `_reading_session` answers an empty reference with the
+        # most-recently-active TUI, and a widget CAN arrive with one: the
+        # launcher creates the active-session file empty (`mkstemp` then
+        # `os.close`) and the host writes it only on create, activate or
+        # resume, so there is a window before the first write. Through that
+        # window a freshly opened TUI rendered the plan of the session beside
+        # it -- the reported symptom, arriving through the one path the
+        # removal next door deliberately left open.
+        #
+        # The two conditions are not the same and only one may fall back. A
+        # caller with NO identity mechanism (`omh runtime todo show`, the
+        # operator CLI) is answered by the most recent TUI, because it is the
+        # only reader there is. A caller whose mechanism produced nothing keeps
+        # its own identity and reads no private record at all.
+        self._build_state_db(
+            [
+                (self.TUI_A, self._epoch(-600), self._epoch(-120)),
+                (self.TUI_B, self._epoch(-300), self._epoch(-5)),
+            ]
+        )
+        self._declare(self.TUI_A, "Alpha")
+        self._declare(self.TUI_B, "Beta")
+
+        # No mechanism: unchanged, and this is the case the carve-out exists for.
+        self.assertEqual(self._todo()["title"], "Beta")
+        # Mechanism, no value: neither session's plan.
+        self.assertNotIn(self._as_widget("")["title"], {"Alpha", "Beta"})
+        self.assertNotEqual(self._as_widget("")["status"], "established")
+
+    def test_the_home_wide_record_keeps_the_write_time_gate_it_already_had(self) -> None:
+        # Removing the fallback next door changes which sessions reach the
+        # home-wide `todo.json`, so the policy it reaches them under is
+        # stated here rather than inherited silently. That file is the
+        # unstamped operator record (`omh runtime todo set` with no
+        # --session) and is shared by construction: it is dated by write time
+        # against the reading session's own start, so a plan written before a
+        # session began belongs to an earlier one. Neither session declared
+        # it, and they do not get the same answer.
+        self._build_state_db(
+            [
+                (self.TUI_A, self._epoch(-600), self._epoch(-5)),
+                (self.TUI_B, self._epoch(-60), self._epoch(-5)),
+            ]
+        )
+        self._write_lease_registry([(self.TUI_A, "3f9a1c2b"), (self.TUI_B, "c7d10e44")])
+        self._write_todo(self._record(title="Operator", source="cli", updated_at=self._stamp(-300)))
+
+        # A started before the record was written, B after it.
+        self.assertEqual(self._as_widget("3f9a1c2b")["title"], "Operator")
+        self.assertEqual(self._as_widget("c7d10e44")["status"], "stale")
+        # A record stamped for a third session reaches neither of them.
+        self._write_todo(self._record(title="Elsewhere", session_ref="20260831_170000_000000"))
+        self.assertEqual(self._as_widget("3f9a1c2b")["status"], "stale")
+        self.assertEqual(self._as_widget("c7d10e44")["status"], "stale")
+        # A reference the registry cannot pair has no row to date an unstamped
+        # record against, so it keeps the documented age-only answer -- the
+        # home-wide file is the shared operator record, never another
+        # session's private one.
+        self._write_todo(self._record(title="Operator", source="cli", updated_at=self._stamp(-300)))
+        unpaired = self._as_widget("9b0c1d2e")
+        self.assertEqual((unpaired["status"], unpaired["title"]), ("established", "Operator"))
+        self._declare(self.TUI_A, "Alpha")
+        self.assertNotEqual(self._as_widget("9b0c1d2e")["title"], "Alpha")
 
     def test_the_hud_tool_reads_the_todo_for_its_dispatching_session(self) -> None:
         import os

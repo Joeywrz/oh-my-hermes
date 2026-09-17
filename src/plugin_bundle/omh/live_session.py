@@ -1,4 +1,12 @@
-"""The live Hermes TUI sessions a widget could plausibly be rendering for.
+"""Which live Hermes TUI session a HUD read is for, from the host's own records.
+
+The host names one TUI session two ways and only one of them reaches a widget.
+``state.db`` rows, and the plan-todo records keyed to match them, use the
+durable session key (``20260917_132533_8da9b8``). The per-TUI active-session
+file a widget reads holds the gateway TRANSPORT id (``ebe3eaaa``, uuid4
+hex[:8]) whenever its session was created rather than resumed. Both questions
+are answered here, from a different host surface each, because a widget cannot
+know which vocabulary its own reference is in.
 
 ``state.db`` is the host's own record of which sessions exist and which one
 the user is in front of. Two HUD readers need the same answer from it:
@@ -31,6 +39,10 @@ from typing import Any
 # the same bound the approval-bypass ledger uses, for the same reason.
 LIVE_TUI_SESSION_FRESH_SECONDS = 6 * 3600.0
 _LIVE_TUI_SESSION_ROW_LIMIT = 32
+# The lease registry holds one small entry per open chat surface. The bound is
+# a guard against reading something that is not that file at all, not a
+# capacity estimate; a real registry is orders of magnitude under it.
+_ACTIVE_SESSION_REGISTRY_MAX_BYTES = 1 << 20
 
 
 def live_tui_session_rows(hermes_home: str = "") -> list[dict[str, Any]]:
@@ -100,3 +112,59 @@ def live_tui_session_rows(hermes_home: str = "") -> list[dict[str, Any]]:
         except sqlite3.Error:
             pass
     return rows
+
+
+def tui_session_durable_id(hermes_home: str, transport_ref: str) -> str:
+    """The durable session key the host paired with a TUI's transport id.
+
+    ``$HERMES_HOME/runtime/active_sessions.json`` is the host's own lease
+    registry of currently open chat surfaces, and the only place on disk where
+    the two names for one session meet: each entry carries the durable key as
+    ``session_id`` and the transport id as ``metadata.live_session_id``. The
+    host mints both on one line of ``session.create`` and hands them to the
+    registry together, so the pairing is the host's own statement of identity,
+    not a correlation inferred here. The transport id is in no ``state.db``
+    column, which is why the widget's reference resolves to nothing without
+    this read.
+
+    Only ``surface: 'tui'`` entries answer, matching the scope of
+    ``live_tui_session_rows`` -- a gateway surface's lease says nothing about
+    which TUI is rendering.
+
+    An empty answer means the question is UNANSWERABLE here: no registry, an
+    unreadable or unexpected one, or no lease naming this transport id. It is
+    never a statement that the reference is invalid, and a caller must fall
+    back to treating the reference as its own identity.
+
+    The host claims a session's lease on its FIRST REAL TURN rather than at
+    creation, deliberately, so that abandoned drafts hold no slot. A TUI
+    nobody has prompted in therefore has no entry at all -- and owns no plan
+    either, so the empty answer and the empty panel agree.
+    """
+    import json
+
+    reference = str(transport_ref or "")
+    if not reference:
+        return ""
+    home = Path(hermes_home).expanduser() if hermes_home else runtime_paths.default_hermes_home()
+    path = home / "runtime" / "active_sessions.json"
+    try:
+        if path.stat().st_size > _ACTIVE_SESSION_REGISTRY_MAX_BYTES:
+            return ""
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    entries = payload.get("entries") if isinstance(payload, dict) else None
+    # Newest first. Entries are appended as leases are claimed, and a transport
+    # id is eight hex characters, so the same string can recur across a long
+    # machine history; the most recent claim is the one someone is looking at.
+    for entry in reversed(entries if isinstance(entries, list) else []):
+        if not isinstance(entry, dict) or entry.get("surface") != "tui":
+            continue
+        metadata = entry.get("metadata")
+        live = metadata.get("live_session_id") if isinstance(metadata, dict) else None
+        if not isinstance(live, str) or live != reference:
+            continue
+        durable = entry.get("session_id")
+        return durable if isinstance(durable, str) else ""
+    return ""

@@ -21,7 +21,7 @@ export default function register(sdk) {
     'import json,os,sys',
     "sys.path.insert(0, os.path.join(os.environ['HERMES_HOME'], 'plugins'))",
     'from omh.runtime_reader import read_omh_hud',
-    "print(json.dumps(read_omh_hud(os.environ.get('OMH_HOME'), os.environ.get('HERMES_HOME'), graph_preference=os.environ.get('OMH_SUBAGENT_GRAPH', 'auto'), tui_session_ref=os.environ.get('OMH_HUD_TUI_SESSION_REF', ''), session_scoped=True)))",
+    "print(json.dumps(read_omh_hud(os.environ.get('OMH_HOME'), os.environ.get('HERMES_HOME'), graph_preference=os.environ.get('OMH_SUBAGENT_GRAPH', 'auto'), tui_session_ref=os.environ.get('OMH_HUD_TUI_SESSION_REF', ''), session_scoped=True, tui_identity_expected=os.environ.get('OMH_HUD_TUI_IDENTITY', '') == '1')))",
   ].join(';')
   // This TUI's own session id. The host writes it to the file named by
   // HERMES_TUI_ACTIVE_SESSION_FILE whenever it creates, resumes, or switches
@@ -202,7 +202,15 @@ export default function register(sdk) {
     // Re-read per poll: /new and /resume move this TUI to another session
     // without restarting the widget, and the todo must follow.
     const sessionRef = activeSessionRef()
-    const env = sessionRef ? { ...READER_ENV, OMH_HUD_TUI_SESSION_REF: sessionRef } : READER_ENV
+    // Two different conditions the reader must not confuse. `OMH_HUD_TUI_IDENTITY`
+    // says this caller HAS a per-TUI identity mechanism; the ref says what it
+    // produced. An empty ref from a widget means the host has not written the
+    // active-session file yet (the launcher creates it empty), not that nobody
+    // can say who is reading -- and only the second may fall back to the most
+    // recently active TUI. Collapsing them let a freshly opened TUI render the
+    // plan of the session beside it.
+    const env = { ...READER_ENV, OMH_HUD_TUI_IDENTITY: ACTIVE_SESSION_FILE ? '1' : '' }
+    if (sessionRef) env.OMH_HUD_TUI_SESSION_REF = sessionRef
     execFile(
       __OMH_PYTHON_EXECUTABLE__,
       // `-B`, not PYTHONDONTWRITEBYTECODE: `-I` implies `-E`, so this child

@@ -167,6 +167,34 @@ unfinished.
 to `ready`. A later `link` is repair for an edge that was missed at create,
 not the normal way to build a graph.
 
+### The role is a contract
+
+A create may instead state one `lane_role`, and OMH fills the lane fields that
+role implies before anything else is validated:
+
+| `lane_role` | fills `skills` | fills `workspace_kind` | checks |
+| --- | --- | --- | --- |
+| `builder` | `ulw-work` | `worktree` | — |
+| `verifier` | `omh-verification-gate` | `worktree` | non-empty `parents` |
+| `reviewer` | `omh-code-review` | nothing (read-only lane) | non-empty `parents` |
+| `docs` | `omh-docs` | `worktree` | — |
+| `qa` | `ulw-qa` | `worktree` | — |
+
+An explicit `skills` or `workspace_kind` from the caller wins, except that a
+`skills` list must contain the role's own skill; extra skills ride along under
+the same ceiling of eight. The refusals are `invalid_lane_role` for a role
+outside the table, `lane_role_skills_mismatch` for a `skills` list without the
+role's own skill, and `verifier_requires_parents` or
+`reviewer_requires_parents` for a fan-in lane that declares no inputs.
+
+`lane_role` is an OMH-side argument only. Native `kanban_create` has no such
+property, so the prepared action never carries it: OMH records the role on the
+request and on the receipt, then strips it before the native action is built.
+A leaked role would fail the host schema gate and degrade the request to
+`unavailable` with `schema:kanban_create`. On any other operation, `lane_role`
+is simply an unknown argument (`unsupported_argument`). Requests stored before
+this field existed reload with an empty role.
+
 A board `done` is the worker's own completion claim. It is never
 verification, CI, review, or merge evidence; those stay `not_observed` until
 their own surface reports them.

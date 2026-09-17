@@ -32,6 +32,10 @@ from omh.coding.fanout_failure_diagnostics import is_object_list, is_string_map
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE_ACTIONS_EXAMPLE = ROOT / "examples" / "agent-board" / "native-actions.json"
 NATIVE_ACTIONS_MESSAGE = "agent-board coordinate durable work across profiles on the qa-board"
+# The fixture create's digest on the example board, frozen before `lane_role`
+# existed. A create that states no role must still produce it: the role is
+# filled and stripped before the native action is built.
+PRE_ROLE_CREATE_DIGEST = "sha256:31fce8f1d8327f4f9036f3cb776500b08a08b4ebee2e1ebc7e7303cd542ec6fe"
 
 
 def native_actions_example() -> dict[str, object]:
@@ -195,6 +199,9 @@ class AgentBoardFoundation(unittest.TestCase):
                 self.assertEqual(TYPED_FIELDS.get(name, "string"), agent_board._TYPES.get(name, "string"))
         self.assertEqual(set(TYPED_FIELDS), set(agent_board._TYPES) & argument_names)
         self.assertEqual(set(WORKSPACE_KINDS), set(agent_board._WORKSPACE_KINDS))
+        # `lane_role` is filled and stripped on the OMH side, so neither the
+        # admitted table nor its fixture mirror may offer it as a native field.
+        self.assertNotIn("lane_role", argument_names)
 
     def test_k1_lane_fields_on_create_round_trip_prepared_to_observed(self):
         lane: dict[str, object] = {"title": "lane-task", "assignee": "worker-profile", "body": "ephemeral-node-prompt",
@@ -244,6 +251,146 @@ class AgentBoardFoundation(unittest.TestCase):
         # A comment body keeps its own intake ceiling; the create limit is lane-specific.
         long_comment = self.prepare(self.board(), request("comment", "note-1", {"body": "x" * 16_001}, task_id="T1"))
         self.assertEqual(long_comment["state"], "prepared")
+
+    def test_k1_lane_role_fills_the_lane_contract_and_is_stripped(self):
+        from omh.workflows.agent_board import LANE_ROLES, native_schema_supported
+
+        base: dict[str, object] = {"title": "lane-task", "assignee": "worker-profile"}
+        expected: dict[str, tuple[str, str | None]] = {
+            "builder": ("ulw-work", "worktree"),
+            "verifier": ("omh-verification-gate", "worktree"),
+            "reviewer": ("omh-code-review", None),
+            "docs": ("omh-docs", "worktree"),
+            "qa": ("ulw-qa", "worktree"),
+        }
+        self.assertEqual(set(expected), set(LANE_ROLES))
+        prepared: AgentBoardRequest | None = None
+        for role, (skill, workspace) in expected.items():
+            with self.subTest(role=role):
+                fan_in: dict[str, object] = {"parents": ["T1"]} if LANE_ROLES[role]["requires_parents"] else {}
+                prepared = self.prepare(self.board(), request("create", "lane-1", dict(base, lane_role=role, **fan_in)))
+                self.assertEqual(prepared["state"], "prepared")
+                self.assertEqual(prepared["lane_role"], role)
+                arguments = self.action(prepared)["arguments"]
+                self.assertNotIn("lane_role", arguments)
+                self.assertEqual(arguments["skills"], [skill])
+                self.assertEqual(arguments.get("workspace_kind"), workspace)
+        # The role is an OMH-side contract, not a native argument: a leaked one
+        # fails the host schema gate, so the create would degrade to
+        # `unavailable` with `schema:kanban_create` instead of landing a row.
+        assert prepared is not None
+        self.assertNotIn("lane_role", supplied_schemas()["kanban_create"]["properties"])
+        leaked: NativeAction = {"tool_name": "kanban_create",
+                                "arguments": dict(self.action(prepared)["arguments"], lane_role="qa")}
+        self.assertFalse(native_schema_supported(supplied_schemas()["kanban_create"], leaked))
+
+    def test_k1_lane_role_defaults_yield_to_an_explicit_caller_value(self):
+        base: dict[str, object] = {"title": "lane-task", "assignee": "worker-profile", "parents": ["T1"]}
+        read_only = self.prepare(self.board(), request("create", "lane-1", dict(base, lane_role="reviewer")))
+        self.assertNotIn("workspace_kind", self.action(read_only)["arguments"])
+        explicit = self.prepare(self.board(), request("create", "lane-2", dict(
+            base, lane_role="reviewer", workspace_kind="worktree", workspace_path="/repo/.worktrees/review")))
+        self.assertEqual(self.action(explicit)["arguments"]["workspace_kind"], "worktree")
+        scratch = self.prepare(self.board(), request("create", "lane-3", dict(
+            base, lane_role="builder", workspace_kind="scratch")))
+        self.assertEqual(self.action(scratch)["arguments"]["workspace_kind"], "scratch")
+        # Extra skills ride along as long as the role's own skill is among them.
+        extra = self.prepare(self.board(), request("create", "lane-4", dict(
+            base, lane_role="builder", skills=["tdd-red-green", "ulw-work"])))
+        self.assertEqual(self.action(extra)["arguments"]["skills"], ["tdd-red-green", "ulw-work"])
+        eight = ["ulw-work"] + [f"skill-{index}" for index in range(7)]
+        full = self.prepare(self.board(), request("create", "lane-5", dict(base, lane_role="builder", skills=eight)))
+        self.assertEqual(self.action(full)["arguments"]["skills"], eight)
+        with self.assertRaises(ValueError) as caught:
+            _ = self.prepare(self.board(), request("create", "lane-6", dict(
+                base, lane_role="builder", skills=eight + ["skill-8"])))
+        self.assertEqual(str(caught.exception), "too_many_skills")
+
+    def test_k5_lane_role_refusals_are_closed(self):
+        base: dict[str, object] = {"title": "lane-task", "assignee": "worker-profile"}
+        refused: list[tuple[dict[str, object], str]] = [
+            ({"lane_role": "architect"}, "invalid_lane_role"),
+            ({"lane_role": ""}, "invalid_lane_role"),
+            ({"lane_role": ["builder"]}, "invalid_lane_role"),
+            ({"lane_role": "verifier"}, "verifier_requires_parents"),
+            ({"lane_role": "verifier", "parents": []}, "verifier_requires_parents"),
+            ({"lane_role": "reviewer"}, "reviewer_requires_parents"),
+            ({"lane_role": "builder", "skills": ["omh-docs"]}, "lane_role_skills_mismatch"),
+            ({"lane_role": "docs", "skills": []}, "lane_role_skills_mismatch"),
+            ({"lane_role": "qa", "skills": "ulw-qa"}, "expected_array"),
+        ]
+        for extra, reason in refused:
+            with self.subTest(reason=reason, extra=extra), self.assertRaises(ValueError) as caught:
+                _ = self.prepare(self.board(), request("create", "lane-1", dict(base, **extra)))
+            self.assertEqual(str(caught.exception), reason)
+        # Only a create carries a role; anywhere else it is an unknown argument.
+        with self.assertRaises(ValueError) as caught:
+            _ = self.prepare(self.board(), request("comment", "note-1", {"body": "note", "lane_role": "builder"},
+                                                   task_id="T1"))
+        self.assertEqual(str(caught.exception), "unsupported_argument")
+
+    def test_k4_lane_role_absent_keeps_the_frozen_argument_digest(self):
+        api = self.api()
+        example = api.AgentBoard("qa-board", api.board_reference("example-root", "qa-board"))
+        prepared = self.prepare(example, host=api.HostIdentity("example-session", "example-task", "example-call"))
+        self.assertEqual(prepared["argument_digest"], PRE_ROLE_CREATE_DIGEST)
+        self.assertEqual(prepared["lane_role"], "")
+        # A stated role produces the same native action, and so the same frozen
+        # digest, as spelling the same lane fields out by hand.
+        lane: dict[str, object] = {"title": "lane-task", "assignee": "worker-profile"}
+        stated = self.prepare(self.board(), request("create", "lane-1", dict(lane, lane_role="builder")))
+        spelled = self.prepare(self.board(), request("create", "lane-1", dict(
+            lane, skills=["ulw-work"], workspace_kind="worktree")))
+        self.assertEqual(stated["argument_digest"], spelled["argument_digest"])
+        self.assertEqual(self.action(stated)["arguments"], self.action(spelled)["arguments"])
+
+    def test_k6_lane_role_rides_the_prepared_to_observed_receipt(self):
+        board = self.board()
+        prepared = self.prepare(board, request("create", "lane-1", {
+            "title": "lane-task", "assignee": "worker-profile", "lane_role": "docs", "parents": ["T1"]}))
+        self.assertTrue(self.begin(board, prepared))
+        receipt = self.observe(board, prepared, {"ok": True, "task_id": "T2", "status": "todo"})
+        assert receipt is not None
+        self.assertEqual((receipt["lane_role"], receipt["fact"], receipt["task_id"]), ("docs", "create", "T2"))
+        status = board.status("lane-1")
+        self.assertEqual(status["lane_role"], "docs")
+        self.assertEqual(status["observed_receipts"][0]["lane_role"], "docs")
+        # An operation that carries no role records the empty one, not a guess.
+        beat = self.prepare(board, request("heartbeat", "beat-1", {}, task_id="T2"))
+        self.assertTrue(self.begin(board, beat, call="native-2"))
+        beat_receipt = self.observe(board, beat, {"ok": True, "task_id": "T2"}, call="native-2")
+        assert beat_receipt is not None
+        self.assertEqual(beat_receipt["lane_role"], "")
+
+    def test_k8_lane_role_reloads_as_empty_for_records_that_predate_it(self):
+        api = self.api()
+        board = self.board()
+        prepared = self.prepare(board, request("create", "lane-1", {
+            "title": "lane-task", "assignee": "worker-profile", "lane_role": "builder"}))
+        self.assertTrue(self.begin(board, prepared))
+        _ = self.observe(board, prepared, {"ok": True, "task_id": "T2", "status": "todo"})
+        current = json.dumps(board.snapshot())
+        legacy = parsed_object(current)
+        rows = legacy["requests"]
+        assert is_object_list(rows)
+        for row in rows:
+            del row["lane_role"]
+            receipts = row["observed_receipts"]
+            assert is_object_list(receipts)
+            for receipt in receipts:
+                del receipt["lane_role"]
+        facts = legacy["operation_facts"]
+        assert is_object_list(facts)
+        for fact in facts:
+            del fact["lane_role"]
+        # A store written before the field is not corrupt; rejecting it would
+        # drop every create deduplication key it still holds.
+        reloaded = api.AgentBoard.restore("qa-board", board.board_ref, json.dumps(legacy))
+        status = reloaded.status("lane-1")
+        self.assertEqual((status["state"], status["lane_role"]), ("observed", ""))
+        self.assertEqual(status["observed_receipts"][0]["lane_role"], "")
+        kept = api.AgentBoard.restore("qa-board", board.board_ref, current)
+        self.assertEqual(kept.status("lane-1")["lane_role"], "builder")
 
     def test_k2_older_host_schema_without_skills_is_unavailable(self):
         lane: dict[str, object] = {"title": "lane-task", "assignee": "worker-profile", "skills": ["ulw-work"]}

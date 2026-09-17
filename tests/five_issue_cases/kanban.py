@@ -365,6 +365,20 @@ def run_case(case_id: str) -> CaseResult:
                     dispatch = loop.prepare(request("dispatch", "dispatch", {}, task_id="T1"))
                     assert dispatch["state"] == "unavailable"
                     assertions += 1
+                    # A stated role is filled on the OMH side and stripped
+                    # before the native action. The fixture host's schema has
+                    # no `lane_role`, so its pre hook would refuse a leaked
+                    # one and `native` would return False instead of True.
+                    role_lane = loop.prepare(request("create", "role-create", {
+                        "title": "role-task", "assignee": "qa-profile", "lane_role": "builder"}))
+                    prepared_action = role_lane["native_action"]
+                    assert _object(prepared_action)
+                    role_arguments = prepared_action["arguments"]
+                    assert _object(role_arguments) and "lane_role" not in role_arguments
+                    assert role_arguments["skills"] == ["ulw-work"] and role_arguments["workspace_kind"] == "worktree"
+                    assert loop.native(role_lane, {"ok": True, "task_id": "T3", "status": "todo"})
+                    assert _receipt(loop.status("role-create"))["lane_role"] == "builder"
+                    assertions += 4
                 elif case_id == "K8":
                     heartbeat = loop.prepare(request("heartbeat", "failed", {}, task_id="T1"))
                     assert loop.native(heartbeat, {"error": "PRIVATE-SENTINEL"})

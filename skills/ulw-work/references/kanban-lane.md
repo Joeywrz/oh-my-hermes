@@ -14,18 +14,29 @@ Every other lane stays a `delegate_task` lane routed by `omh_delegate_route`. Or
 
 ## The Create Recipe
 
-One `omh_agent_board` `prepare` per lane, with `coordination` set to `durable` and `operation` set to `create`. Fill the arguments from the lane definition, never from memory of the plan:
+One `omh_agent_board` `prepare` per lane, with `coordination` set to `durable` and `operation` set to `create`. State the lane's role once and fill the rest from the lane definition, never from memory of the plan:
 
 | Argument | Source |
 | --- | --- |
 | `title` | the lane's one-line `TASK` |
 | `assignee` | an existing Hermes profile name (the permission envelope the worker runs under) |
+| `lane_role` | the lane's role: `builder`, `verifier`, `reviewer`, `docs`, or `qa` |
 | `body` | the standalone node prompt: `TASK`, `DELIVERABLE`, `SCOPE`, `VERIFY`, `STOP WHEN`, in that order |
 | `parents` | every dependency edge the lane consumes, declared on this create |
-| `skills` | the lane's role skill (see the role table) |
-| `workspace_kind` | `worktree` for a code-changing lane; omit for a read-only lane |
 | `max_runtime_seconds` | the lane's time budget, so a stuck worker ends instead of holding the row |
 | `model`, `provider` | the lane's route category from `omh_delegate_route`, when the category pins one |
+
+The role is a contract, not an instruction. OMH fills the lane fields the role implies and refuses a create that contradicts them:
+
+| `lane_role` | fills `skills` with | fills `workspace_kind` with | checks |
+| --- | --- | --- | --- |
+| `builder` | `ulw-work` | `worktree` | — |
+| `verifier` | `omh-verification-gate` | `worktree` | `parents` present and non-empty |
+| `reviewer` | `omh-code-review` | nothing (a read-only lane) | `parents` present and non-empty |
+| `docs` | `omh-docs` | `worktree` | — |
+| `qa` | `ulw-qa` | `worktree` | — |
+
+Pass `skills` or `workspace_kind` yourself when the lane needs something else, and the explicit value wins, with one exception: a `skills` list must still contain the role's own skill. Extra skills ride along under the same ceiling of eight; dropping the role's own skill is refused as `lane_role_skills_mismatch`. An unknown role is refused as `invalid_lane_role`, and a fan-in lane that declares no inputs as `verifier_requires_parents` or `reviewer_requires_parents`. The role itself never reaches the board: OMH removes it before the native action, because `kanban_create` has no such argument.
 
 Declare `parents` on the create call, never as a later `link`. The gateway dispatcher can claim a parentless `ready` row within one tick, so a row created first and linked second may already be running under a worker that never saw its inputs. Do not pass `initial_status`; the host places the row and promotes it when every parent is `done` or `archived`. `prepare` sets `idempotency_key` to the `request_id`, so repeating a create with the same `request_id` returns the already observed task instead of a duplicate.
 
@@ -50,16 +61,16 @@ An accepted plan with two builder components, one verification fan-in, and a doc
 
 ```text
 prepare  coordination=durable operation=create
-  title="Builder: storage adapter"   assignee=<profile> skills=["ulw-work"]
-  workspace_kind=worktree max_runtime_seconds=3600 body=<TASK/DELIVERABLE/SCOPE/VERIFY/STOP WHEN>
+  title="Builder: storage adapter"   assignee=<profile> lane_role=builder
+  max_runtime_seconds=3600 body=<TASK/DELIVERABLE/SCOPE/VERIFY/STOP WHEN>
 prepare  coordination=durable operation=create
-  title="Builder: CLI surface"       assignee=<profile> skills=["ulw-work"]
-  workspace_kind=worktree max_runtime_seconds=3600 body=<...>
+  title="Builder: CLI surface"       assignee=<profile> lane_role=builder
+  max_runtime_seconds=3600 body=<...>
 prepare  coordination=durable operation=create
-  title="Verifier: full suite"       assignee=<profile> skills=["omh-verification-gate"]
-  parents=[<storage task id>, <cli task id>] workspace_kind=worktree body=<...>
+  title="Verifier: full suite"       assignee=<profile> lane_role=verifier
+  parents=[<storage task id>, <cli task id>] body=<...>
 prepare  coordination=durable operation=create
-  title="Docs: adapter setup page"   assignee=<profile> skills=["omh-docs"]
+  title="Docs: adapter setup page"   assignee=<profile> lane_role=docs
   parents=[<storage task id>] body=<...>
 ```
 
@@ -93,18 +104,19 @@ Check these before preparing the first board lane; a missing one is reported as 
 2. `kanban.db` is initialised under the Hermes root (or the board named by `board`).
 3. The gateway is running with `kanban.dispatch_in_gateway` enabled; without it rows sit in `ready` forever.
 4. The `assignee` profile exists.
-5. Every skill named in `skills` is installed in that profile.
+5. Every skill the lane carries is installed in that profile: the role's own skill, plus anything extra the create names in `skills`.
 
 ## Role Table
 
-Profile is the permission envelope; role is the per-task overlay carried by `skills`. One profile is the default; use a second profile only when a lane needs different authority (a write credential, a production connector, a stricter model chain), never to label a specialty.
+Profile is the permission envelope; role is the per-task overlay stated as `lane_role` and filled into `skills` by the create recipe above. One profile is the default; use a second profile only when a lane needs different authority (a write credential, a production connector, a stricter model chain), never to label a specialty.
 
-| Lane | `skills` | `parents` | Notes |
+| Lane | `lane_role` | `parents` | Notes |
 | --- | --- | --- | --- |
 | Main session | none (this chat) | none | planner and operator; prepares every row, owns the todo, closes the run |
-| Builder | `ulw-work` | its upstream builders, if any | one per component; `workspace_kind=worktree` |
-| Verifier | `omh-verification-gate` | every builder | exactly one; runs the repository's real test or build command |
-| Reviewer | `omh-code-review` | the builders it reviews | findings first; a review claim is not merge evidence |
-| Docs | `omh-docs` | the builders whose behaviour it documents | only when behaviour, setup, commands, or public claims changed |
+| Builder | `builder` | its upstream builders, if any | one per component |
+| Verifier | `verifier` | every builder | exactly one; runs the repository's real test or build command |
+| Reviewer | `reviewer` | the builders it reviews | findings first; a review claim is not merge evidence |
+| Docs | `docs` | the builders whose behaviour it documents | only when behaviour, setup, commands, or public claims changed |
+| QA probe | `qa` | the builders it probes | only for checks a unit suite cannot make from inside the code |
 
-Specialist titles such as backend, SRE, or data are lane titles only. They name the component a builder owns; they are never new catalog roles, and they never change which `skills` entry a lane carries.
+Specialist titles such as backend, SRE, or data are lane titles only. They name the component a builder owns; they are never new catalog roles, and they never change which role a lane carries.

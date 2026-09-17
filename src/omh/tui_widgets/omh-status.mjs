@@ -769,8 +769,14 @@ export default function register(sdk) {
     const runningAgents = allAgentRows
       .filter(row => !row.state || row.state === 'running').length
     const viewportBudget = Math.max(1, viewportRows - 5 - graphHeight)
+    // The `+N more` line pays for a row of its own (the slice below), so
+    // when lanes overflow the budget grows by that one line; otherwise
+    // five running lanes and two lingering done ones showed four lanes
+    // and hid a running one behind `+3 more` on a 63-row terminal.
+    const wantedRows = Math.max(Math.max(5 - mainRows.length, 1), runningAgents)
+    const overflowLine = allAgentRows.length > wantedRows ? 1 : 0
     const agentBudget = Math.min(
-      Math.max(Math.max(5 - mainRows.length, 1), runningAgents),
+      wantedRows + overflowLine,
       Math.max(0, viewportBudget - mainRows.length),
     )
     let rows = allAgentRows.slice(0, agentBudget)

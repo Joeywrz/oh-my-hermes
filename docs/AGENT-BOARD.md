@@ -221,10 +221,13 @@ These are host facts recorded as data, not OMH failures.
   and cost on a HUD lane row come from the worker's own Hermes session in the
   assignee profile's `state.db`, linked by the `worker_session_id` the worker
   stamps on its run the first time it calls `kanban_complete` or
-  `kanban_request_review` and, before that, by the single kanban-source
-  session opened inside that run's dispatch window. A lane neither rule links
-  — and a window two sessions answer — shows no model and no tokens rather
-  than a borrowed figure.
+  `kanban_request_review`; before that, by the session whose title Hermes
+  derived from the dispatcher's opening prompt, `work kanban task <id>`,
+  inside that run's dispatch window (what tells two workers one tick spawned
+  apart); and failing both, by the single kanban-source session opened
+  inside the window. A lane no rule links — and a window two untitled
+  sessions answer — shows no model and no tokens rather than a borrowed
+  figure.
 - Native tools expose no compare-and-swap. A request that supplies
   `expected_revision` or `expected_run_id` is `unavailable` with
   `native_compare_and_swap`. Use `expected_observation_ref` to bind a request

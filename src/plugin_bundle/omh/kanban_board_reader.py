@@ -93,6 +93,11 @@ _WORKER_SESSION_LEAD_SECONDS = 5.0
 _WORKER_SESSION_SPAWN_SECONDS = 300.0
 # The columns of the worker's own session row the HUD reports, in one place so
 # both lookups below read the same shape.
+# The dispatcher opens every worker with the literal prompt
+# `work kanban task <task id>` (hermes_cli/kanban_db_dispatch.py, _worker_argv),
+# and Hermes derives the session title from that first prompt, so the title
+# is a field the host wrote from the task id, not text a model produced.
+_WORKER_PROMPT_TITLE_PREFIX = "work kanban task "
 _USAGE_SELECT = (
     "SELECT id, model, model_config, api_call_count, tool_call_count, "
     "input_tokens, output_tokens, actual_cost_usd, estimated_cost_usd, cost_status "
@@ -415,13 +420,14 @@ def _usage_row(row: Any, match: str) -> dict[str, Any]:
 def _worker_usage(
     connection: sqlite3.Connection,
     *,
+    task_id: str,
     worker_session_id: str,
     workspace_path: str,
     run_started_at: float | None,
 ) -> dict[str, Any] | None:
     """What the worker's own session recorded, or ``None`` when it is unlinked.
 
-    Two rules, both matches on recorded fields and never on text the model
+    Three rules, all matches on recorded fields and never on text the model
     wrote. The stamp the worker put on its run row is exact, so it is tried
     first and it is final: a run that named its own session is answered by
     that session or by nothing, because a stamp that does not resolve here
@@ -437,7 +443,14 @@ def _worker_usage(
     one session answers it, so two candidates return nothing rather than a
     coin flip, and a session whose recorded cwd names a different workspace is
     excluded outright (which is what still separates two legacy worker rows
-    that do carry one).
+    that do carry one). Between the stamp and the window sits the one field
+    the host does write from the task id: the session title Hermes derives
+    from the dispatcher's own opening prompt, `work kanban task <id>`. Two
+    workers spawned in the same tick share a window but not a title, so an
+    exact title match inside the window is an identity on its own; two
+    same-title sessions in one window are two attempts at this task and the
+    newest is the live one. A host that re-titles the session later falls
+    back to the window rule.
     """
     try:
         if worker_session_id:
@@ -447,6 +460,24 @@ def _worker_usage(
             return _usage_row(row, "worker_session_id") if row is not None else None
         row = None
         match = ""
+        if run_started_at is not None and task_id:
+            try:
+                titled = connection.execute(
+                    f"{_USAGE_SELECT} WHERE source = 'kanban' AND title = ? "
+                    "AND started_at >= ? AND started_at <= ? "
+                    "ORDER BY started_at DESC, id DESC LIMIT 1",
+                    (
+                        _WORKER_PROMPT_TITLE_PREFIX + task_id,
+                        run_started_at - _WORKER_SESSION_LEAD_SECONDS,
+                        run_started_at + _WORKER_SESSION_SPAWN_SECONDS,
+                    ),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                # A sessions table without `title` (older host): the window
+                # rule below still applies.
+                titled = None
+            if titled is not None:
+                return _usage_row(titled, "worker_prompt_title")
         if run_started_at is not None:
             candidates = connection.execute(
                 f"{_USAGE_SELECT} WHERE source = 'kanban' "
@@ -487,6 +518,7 @@ def _task_worker_usage(
         run_started = _epoch(task["started_at"])
     return _worker_usage(
         connection,
+        task_id=_text(task["id"], limit=80),
         worker_session_id=_worker_session_id(task["run_metadata"]),
         workspace_path=_text(task["workspace_path"], limit=1024),
         run_started_at=run_started,

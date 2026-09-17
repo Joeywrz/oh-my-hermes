@@ -75,10 +75,14 @@ CREATE TABLE sessions (
     started_at REAL NOT NULL, ended_at REAL, message_count INTEGER DEFAULT 0,
     tool_call_count INTEGER DEFAULT 0, api_call_count INTEGER DEFAULT 0,
     input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0,
-    cache_read_tokens INTEGER DEFAULT 0, cwd TEXT,
+    cache_read_tokens INTEGER DEFAULT 0, cwd TEXT, title TEXT,
     estimated_cost_usd REAL, actual_cost_usd REAL, cost_status TEXT
 );
 """
+
+# An older host whose sessions table predates `title`: the title rule must
+# step aside and the window rule must still answer.
+SESSIONS_DDL_WITHOUT_TITLE = SESSIONS_DDL.replace(" title TEXT,", "")
 
 
 def _insert(connection: sqlite3.Connection, table: str, rows) -> None:
@@ -102,11 +106,11 @@ def build_board(
         _insert(connection, "task_runs", runs)
 
 
-def build_state_db(db: Path, sessions: list[dict]) -> None:
+def build_state_db(db: Path, sessions: list[dict], *, ddl: str = SESSIONS_DDL) -> None:
     """A profile's ``state.db`` holding the sessions its workers recorded."""
     db.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(db)) as connection, connection:
-        connection.executescript(SESSIONS_DDL)
+        connection.executescript(ddl)
         _insert(connection, "sessions", sessions)
 
 
@@ -508,6 +512,71 @@ class KanbanWorkerUsageTests(unittest.TestCase):
         self.board(runs=[run("t_run00001", metadata=json.dumps({"worker_session_id": "sess-a"}))])
         self.assertEqual(self.row()["usage_session_id"], "sess-a")
 
+    def test_two_workers_spawned_together_link_by_their_prompt_title(self) -> None:
+        # One dispatcher tick spawns two workers of the same profile a second
+        # apart: their windows overlap, but Hermes derives each session's
+        # title from the dispatcher's own opening prompt, `work kanban task
+        # <id>`, so the title is the one recorded field that names the task.
+        build_board(self.db, [
+            task("t_run00001", "running", started_at=NOW - 300, worker_pid=41, last_heartbeat_at=NOW - 5),
+            task("t_run00002", "running", started_at=NOW - 299, worker_pid=42, last_heartbeat_at=NOW - 5),
+        ], runs=[run("t_run00001"), run("t_run00002", started_at=NOW - 299)])
+        build_state_db(self.profile_db, [
+            worker_session("sess-one", title="work kanban task t_run00001", input_tokens=1_000, output_tokens=1),
+            worker_session("sess-two", title="work kanban task t_run00002", started_at=float(NOW - 289),
+                           input_tokens=2_000, output_tokens=2),
+        ])
+        rows = {row["task_id"]: row for row in self.lanes()["rows"]}
+        self.assertEqual(rows["run00001"]["usage_session_id"], "sess-one")
+        self.assertEqual(rows["run00001"]["usage_match"], "worker_prompt_title")
+        self.assertEqual(rows["run00001"]["tokens"], 1_001)
+        self.assertEqual(rows["run00002"]["usage_session_id"], "sess-two")
+        self.assertEqual(rows["run00002"]["tokens"], 2_002)
+
+    def test_the_prompt_title_needs_the_window_and_the_kanban_source(self) -> None:
+        # The title alone is not the link: an earlier attempt at the same
+        # task keeps its title but sits outside this run's window, and a CLI
+        # session an operator titled the same way is not a dispatched worker.
+        self.board(runs=[run("t_run00001")])
+        for case, session in (
+            ("an earlier attempt's session", worker_session("s", title="work kanban task t_run00001",
+                                                              started_at=float(NOW - 7_200))),
+            ("a cli session with the same title", worker_session("s", title="work kanban task t_run00001",
+                                                                   source="cli")),
+        ):
+            with self.subTest(case=case):
+                self.profile_db.unlink(missing_ok=True)
+                build_state_db(self.profile_db, [session])
+                row = self.row()
+                self.assertIsNone(row["tokens"])
+                self.assertNotIn("usage_match", row)
+        # Two attempts inside one window are both this task; the newest is
+        # the live one.
+        self.profile_db.unlink()
+        build_state_db(self.profile_db, [
+            worker_session("sess-old", title="work kanban task t_run00001", started_at=float(NOW - 295)),
+            worker_session("sess-new", title="work kanban task t_run00001", started_at=float(NOW - 250)),
+        ])
+        self.assertEqual(self.row()["usage_session_id"], "sess-new")
+
+    def test_a_retitled_session_falls_back_to_the_window(self) -> None:
+        # A host that re-titles the session later loses the title link; one
+        # candidate in the window still answers, two do not.
+        self.board(runs=[run("t_run00001")])
+        build_state_db(self.profile_db, [worker_session("sess-live", title="Widen the create arguments")])
+        self.assertEqual(self.row()["usage_match"], "dispatch_window")
+        self.profile_db.unlink()
+        build_state_db(self.profile_db, [
+            worker_session("sess-a", title="Widen the create arguments"),
+            worker_session("sess-b", title="Read the board", started_at=float(NOW - 280)),
+        ])
+        self.assertNotIn("usage_match", self.row())
+
+    def test_a_sessions_table_without_title_still_matches_by_window(self) -> None:
+        self.board(runs=[run("t_run00001")])
+        build_state_db(self.profile_db, [worker_session("sess-live")], ddl=SESSIONS_DDL_WITHOUT_TITLE)
+        self.assertEqual(self.row()["usage_match"], "dispatch_window")
+
     def test_a_stamp_that_does_not_resolve_answers_with_nothing(self) -> None:
         # The run named its own session and this home does not have it, so
         # this is the wrong home: the window rule would answer with whatever
@@ -749,3 +818,41 @@ console.log(JSON.stringify({dock, idle, lines: dockLines, wide: [...lines], colo
 
 if __name__ == "__main__":
     unittest.main()
+
+    @unittest.skipUnless(shutil.which("node"), "Node is required for the widget boundary")
+    def test_widget_never_hides_a_running_lane_behind_the_overflow_line(self) -> None:
+        # Five running lanes plus two lingering done ones: the `+N more` line
+        # costs a row, and that row is paid for by the budget, never by a
+        # running lane. Before this, the dock showed four lanes and `+3 more`.
+        rows = [
+            task(f"t_running{n}", "running", title=f"Lane {n}", started_at=NOW - 100 - n,
+                 worker_pid=100 + n, last_heartbeat_at=NOW - 1)
+            for n in range(5)
+        ] + [
+            task(f"t_done000{n}", "done", title=f"Finished {n}", started_at=NOW - 900, completed_at=NOW - 30 - n)
+            for n in range(2)
+        ]
+        build_board(self.hermes / "kanban.db", rows)
+        payload = self.hud()
+        widget = self.root / "widget.mjs"
+        widget.write_bytes(widget_payload(Path(sys.executable)))
+        script = """
+import register from './widget.mjs';
+const payload = JSON.parse(process.argv[1]);
+const apps = [], lines = [];
+const h = (tag, props, ...children) => {
+  if (typeof tag === 'function') { const text = tag(props); if (tag.name === 'ActivityRow') lines.push(text); return text; }
+  return children.flat(Infinity).filter(x => x != null).join('');
+};
+register({Box:'box', Text:'text', h, defineWidgetApp: app => {apps.push(app); return app}, openWidget:()=>{}, updateWidget:()=>{}});
+const app = apps.find(x => x.id === 'omh-status');
+const t = {color:{accent:'ACCENT', warn:'WARN', muted:'MUTED', ok:'OK', error:'ERROR', label:'LABEL', text:'TEXT', primary:'PRIMARY', border:'BORDER', statusFg:'STATUSFG'}};
+const dock = app.render({cols:160, rows:40, state:{payload}, t});
+console.log(JSON.stringify({dock, lines}));
+"""
+        result = subprocess.run(["node", "--input-type=module", "-e", script, json.dumps(payload)], cwd=self.root, encoding="utf-8", capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        views = json.loads(result.stdout)
+        running_lines = [line for line in views["lines"] if "Lane " in line]
+        self.assertEqual(len(running_lines), 5, views["lines"])
+        self.assertIn("+2 more", views["dock"])

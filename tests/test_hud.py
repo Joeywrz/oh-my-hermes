@@ -1971,10 +1971,15 @@ class TodoSessionIsolationTests(_TodoSessionFixture, unittest.TestCase):
         self.assertEqual(self._todo_for("slack:C0123ABC:1725100000.000200")["status"], "absent")
 
     def _as_widget(self, tui_session_ref: str) -> dict:
+        # A widget always HAS an identity mechanism, whatever it produced.
+        # Saying so is what separates it from a caller that has none.
         from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
 
         return read_omh_hud(
-            self.omh_home, self.hermes_home, tui_session_ref=tui_session_ref
+            self.omh_home,
+            self.hermes_home,
+            tui_session_ref=tui_session_ref,
+            tui_identity_expected=True,
         )["todo"]
 
     def test_each_tui_named_by_its_transport_id_renders_only_its_own_plan(self) -> None:
@@ -2113,6 +2118,36 @@ class TodoSessionIsolationTests(_TodoSessionFixture, unittest.TestCase):
         # The carve-out is scoped to having no reference. A reference that
         # merely fails to resolve does NOT reopen it.
         self.assertEqual(self._as_widget("3f9a1c2b")["status"], "absent")
+
+    def test_a_widget_whose_file_is_not_written_yet_adopts_no_one_elses_plan(self) -> None:
+        # The last door. `_reading_session` answers an empty reference with the
+        # most-recently-active TUI, and a widget CAN arrive with one: the
+        # launcher creates the active-session file empty (`mkstemp` then
+        # `os.close`) and the host writes it only on create, activate or
+        # resume, so there is a window before the first write. Through that
+        # window a freshly opened TUI rendered the plan of the session beside
+        # it -- the reported symptom, arriving through the one path the
+        # removal next door deliberately left open.
+        #
+        # The two conditions are not the same and only one may fall back. A
+        # caller with NO identity mechanism (`omh runtime todo show`, the
+        # operator CLI) is answered by the most recent TUI, because it is the
+        # only reader there is. A caller whose mechanism produced nothing keeps
+        # its own identity and reads no private record at all.
+        self._build_state_db(
+            [
+                (self.TUI_A, self._epoch(-600), self._epoch(-120)),
+                (self.TUI_B, self._epoch(-300), self._epoch(-5)),
+            ]
+        )
+        self._declare(self.TUI_A, "Alpha")
+        self._declare(self.TUI_B, "Beta")
+
+        # No mechanism: unchanged, and this is the case the carve-out exists for.
+        self.assertEqual(self._todo()["title"], "Beta")
+        # Mechanism, no value: neither session's plan.
+        self.assertNotIn(self._as_widget("")["title"], {"Alpha", "Beta"})
+        self.assertNotEqual(self._as_widget("")["status"], "established")
 
     def test_the_home_wide_record_keeps_the_write_time_gate_it_already_had(self) -> None:
         # Removing the fallback next door changes which sessions reach the

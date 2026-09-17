@@ -219,7 +219,11 @@ console.log(JSON.stringify(results));
             with self.subTest(columns=case['cols'], scopes=case['scopes']):
                 self.assertEqual(len(case['lines']), 2)
                 for scope, line in zip(case['scopes'], case['lines']):
-                    self.assertIn('[global]' if scope == 'global' else '[this chat]', line)
+                    # Rows carry what runs them, not a scope word: a delegate
+                    # child is `[sub]`; the header line still says the scope.
+                    self.assertIn('[sub] ', line)
+                    self.assertNotIn('[global]', line)
+                    self.assertNotIn('[this chat]', line)
                     self.assertIn('12.3k tokens', line[:case['cols']])
                     self.assertLessEqual(len(line), case['cols'] - 2)
                 self.assertEqual(*[line.index('12.3k tokens') for line in case['lines']])
@@ -279,13 +283,20 @@ console.log(JSON.stringify({native, omh}));
             render = subprocess.run(['node', '--input-type=module', '-e', render_script, read.stdout], cwd=self.root, env=env, encoding='utf-8', capture_output=True)
             self.assertEqual(render.returncode, 0, render.stderr)
             views = json.loads(render.stdout)
-            self.assertIn('[global] MAIN', views['omh'])
-            self.assertIn('[global] executor', views['omh'])
+            # Executor and Maestro rows carry no kind tag; the DAG block keeps
+            # its explicit global word.
+            self.assertIn('MAIN', views['omh'])
+            self.assertNotIn('[global] MAIN', views['omh'])
+            self.assertIn('executor', views['omh'])
+            self.assertNotIn('[bot] executor', views['omh'])
+            self.assertNotIn('[sub] executor', views['omh'])
             self.assertIn('[global] DAG', views['omh'])
             self.assertIn('global-node', views['omh'])
             self.assertIn('codex/maestro', views['omh'])
             rendered = views['native']
+            # The header carries the scope word once; every native row carries
+            # the `[sub]` kind tag instead of repeating it.
             self.assertIn('[global]' if scope == 'global' else '[this chat]', rendered)
+            self.assertEqual(rendered.count('[sub] '), len(rows))
             if scope == 'global':
                 self.assertNotIn('[this chat]', rendered)
-                self.assertGreaterEqual(rendered.count('[global]'), len(rows) + 1)

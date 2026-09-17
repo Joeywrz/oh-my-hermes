@@ -368,7 +368,9 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("return metricSegment('kanban', `kanban/${assignee}${detail ? `(${detail})` : ''}`)", widget)
         self.assertIn("layout.routeKind === 'kanban'", widget)
         self.assertIn("const board = safeText(row.lane_backend) === 'kanban'", widget)
-        self.assertEqual(widget.count("t.color.accent"), 6)
+        self.assertEqual(widget.count("t.color.accent"), 7)
+        self.assertIn("const kindTag = row => safeText(row.lane_backend) === 'kanban'", widget)
+        self.assertIn("{ color: t.color.accent, bold: true } : { color: t.color.muted, bold: true }", widget)
         # Board verdicts the reader projects: a queued task has no worker and
         # must not spin (a static dot), a stale one has a worker that stopped
         # heartbeating (a warn bang). The tail keeps the board's own status

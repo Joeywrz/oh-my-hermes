@@ -747,10 +747,11 @@ class KanbanHudMergeTests(unittest.TestCase):
         script = """
 import register from './widget.mjs';
 const payload = JSON.parse(process.argv[1]);
-const apps = [], lines = [], colors = [];
+const apps = [], lines = [], colors = [], bolds = [];
 const h = (tag, props, ...children) => {
   if (typeof tag === 'function') { const text = tag(props); if (tag.name === 'ActivityRow') lines.push(text); return text; }
   if (props && props.color) colors.push([props.color, children.flat(Infinity).filter(x => x != null).join('')]);
+  if (props && props.bold) bolds.push(children.flat(Infinity).filter(x => x != null).join(''));
   return children.flat(Infinity).filter(x => x != null).join('');
 };
 register({Box:'box', Text:'text', h, defineWidgetApp: app => {apps.push(app); return app}, openWidget:()=>{}, updateWidget:()=>{}});
@@ -764,7 +765,7 @@ const dockLines = [...lines];
 const idle = app.render({cols:160, rows:30, state:{payload:{...payload, kanban:{...payload.kanban, rows_total:0, dispatcher_presence:'not_observed'}}}, t});
 lines.length = 0;
 app.render({cols:220, rows:30, state:{payload}, t});
-console.log(JSON.stringify({dock, idle, lines: dockLines, wide: [...lines], colors}));
+console.log(JSON.stringify({dock, idle, lines: dockLines, wide: [...lines], colors, bolds}));
 """
         result = subprocess.run(["node", "--input-type=module", "-e", script, json.dumps(payload)], cwd=self.root, encoding="utf-8", capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -801,6 +802,15 @@ console.log(JSON.stringify({dock, idle, lines: dockLines, wide: [...lines], colo
         def color_of(fragment: str) -> str:
             return next(color for color, text in views["colors"] if fragment in text)
 
+        # Kind tags: a board row is `[bot]`, a delegate child `[sub]`, both
+        # bold and three cells wide so the ids stay aligned; no scope word.
+        self.assertIn("[bot] ", running)
+        self.assertIn("[sub] ", lines[0])
+        self.assertIn("[bot] ", views["bolds"])
+        self.assertIn("[sub] ", views["bolds"])
+        self.assertEqual(color_of("[bot] "), "ACCENT")
+        self.assertEqual(color_of("[sub] "), "MUTED")
+        self.assertNotIn("[global]", running)
         self.assertEqual(color_of("kanban/miku(gpt-5.6-sol:high)"), "ACCENT")
         self.assertEqual(color_of("kanban/miku"), "ACCENT")
         # The whole board row is accent: title and the dimmed scope/id and

@@ -382,7 +382,17 @@ export default function register(sdk) {
     return { compact: Math.max(width.compact, cellWidth(routeCompact(text))), full: Math.max(width.full, cellWidth(text)) }
   }, { compact: 0, full: 0 })
 
-  const scopeLabel = row => row.scope === 'global' ? '[global] ' : row.scope === 'session' ? '[this chat] ' : ''
+  // The tag in front of the id names what runs the row, in three cells
+  // either way so the ids stay aligned: `[bot]` is a board worker (a
+  // profile the dispatcher runs as its own process), `[sub]` is a
+  // delegate_task child of this session. Whether this chat created the
+  // row is no longer a per-row word (it read `[global]` / `[this chat]`);
+  // the header line still says the scope. A Maestro or fanout executor
+  // row is neither kind and carries no tag.
+  const kindTag = row => safeText(row.lane_backend) === 'kanban'
+    ? '[bot] '
+    : safeText(row.dispatch_lane) || safeText(row.executor_profile) ? '' : '[sub] '
+  const scopeLabel = kindTag
   const activityLayout = (row, columns, main, extraSeconds, tokensColumn, routeColumn, scopeWidth) => {
     // A board lane's tail shows the native status word (`ready`, `review`,
     // `archived`), never the reader's projected state: `queued` and `stale`
@@ -531,7 +541,10 @@ export default function register(sdk) {
       Text,
       { wrap: 'truncate-end' },
       h(Text, { color: markerColor }, `${marker} `),
-      h(Text, board ? { color: t.color.accent, dimColor: true } : { color: t.color.muted }, `${layout.scope}${layout.taskId} `),
+      // The kind tag is the one bold piece on the row, the way the header's
+      // `⚚ [OMH]` is bold: a glyph would cost cells, bold costs none.
+      h(Text, board ? { color: t.color.accent, bold: true } : { color: t.color.muted, bold: true }, layout.scope),
+      h(Text, board ? { color: t.color.accent, dimColor: true } : { color: t.color.muted }, `${layout.taskId} `),
       h(Text, { color: board ? t.color.accent : t.color.text }, layout.action),
       // Identity, then the measured block, then the rest. The route column
       // and the state/elapsed/tokens tail are fixed widths, so those figures

@@ -54,6 +54,12 @@ calls it has no prepared request for. What it must never do is fail: until
 without the package, and Hermes' memory-provider loader caches a module that
 raised, which turned an absent feature into a hook warning on every tool call.
 
+That expectation, what each affected feature does without the package, and how
+to make `omh` importable from Hermes' own environment are written up once in
+[What the Hermes interpreter must be able to import](INSTALLATION.md#what-the-hermes-interpreter-must-be-able-to-import).
+`omh doctor` reads the installed bundle for the unguarded shape and reports it
+as `plugin_bundle_standalone_imports` (#1670).
+
 ## Request states
 
 Every request is exactly one of these states. They never collapse into each

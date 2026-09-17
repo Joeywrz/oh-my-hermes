@@ -322,6 +322,49 @@ full workflow picker. This keeps the first explanation conversational while
 still exposing `omh_context_brief/v1` for adapters that want structured lanes,
 rules, and boundaries.
 
+### What the Hermes interpreter must be able to import
+
+`omh setup` copies the plugin bundle to `$HERMES_HOME/plugins/omh`, and Hermes
+loads it with **its own** interpreter. Every documented install — Homebrew,
+bun, npm, the universal installer, `uv tool install`, `pip install --user` —
+puts the `omh` **package** in OMH's environment, not Hermes'. On most machines
+the Hermes interpreter therefore cannot import `omh` at all.
+
+That is a supported state, not a broken one. Every module of the bundle imports
+without the package: the imports that need it are guarded, and the features it
+carries report their own absence instead of failing. Two features live in the
+package rather than the bundle, so they are the ones that absence turns off:
+
+| Feature | Behavior when Hermes cannot import `omh` |
+| --- | --- |
+| Agent board (`omh_agent_board`) | Answers `unavailable` with reason `omh_agent_board_core_unavailable`, and leaves native `kanban_*` calls alone. See [Agent board and native Kanban coordination](AGENT-BOARD.md). |
+| Local activity observer engine | `register` reports `observer_setup_failed`; the rest of the plugin still loads. See [Session activity receipts](SESSION-ACTIVITY-RECEIPTS.md). |
+
+To turn those two on, install `oh-my-hermes` into the environment that runs
+Hermes as well, so `omh` is importable from both. Nothing else changes: the
+bundle, the configuration, and every doctor check stay the same.
+
+What is **not** supported is a bundle module that imports `omh.*` at module
+level without a guard. Hermes' memory-provider lane execs every top-level file
+of the bundle and keeps the module in `sys.modules` when one raises, so the
+next import of that module fails on the name, its feature is silently dead, and
+every tool call that reaches it logs a hook warning (#1623). `omh doctor` reads
+the installed bundle and reports this as `plugin_bundle_standalone_imports`,
+naming the module and the import:
+
+```text
+plugin_bundle_standalone_imports: 1 module-level import(s) in
+/Users/you/.hermes/plugins/omh cannot resolve on a host without the `omh`
+package: agent_board_bridge.py:36 `from omh.workflows.agent_board import
+AgentBoard`. ...
+```
+
+A machine reaches that state when the installed copy is stale, hand-copied, or
+locally edited rather than written by OMH. Run `omh update` to reinstall the
+managed bundle from the current OMH package (`omh setup --force` if this copy
+carries local edits you are willing to replace), then restart Hermes Agent and
+run `omh doctor` again.
+
 ## Guided Model Setup
 
 Normal users can ask Hermes **set up my models**. The CLI in this section is an

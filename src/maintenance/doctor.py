@@ -23,6 +23,7 @@ from ..install.guidance_projection import build_guidance_projection_status, cata
 from ..install.hook_integrity import HOOK_HOST_TARGET, VALID_HOOK_EVENTS, build_hook_integrity_status
 from ..install.identity_conflicts import build_identity_conflict_report
 from ..install.installer import installed_skill_directories
+from ..install.plugin_bundle_import_scan import describe_findings, scan_bundle_core_imports
 from ..install.plugin_loader_observation import observe_real_loader_registration
 from ..manifest import local_modifications, read_manifest
 from ..paths import OmhPaths
@@ -220,6 +221,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
         if plugin["plugin_dir_installed"]
         else None
     )
+    bundle_import_scan = scan_bundle_core_imports(paths.hermes_plugin_dir)
     latest_plugin_observation, plugin_observation_errors = latest_plugin_host_observation(paths)
     latest_plugin_readiness = ""
     if latest_plugin_observation:
@@ -297,6 +299,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
                 ),
                 _plugin_enforcement_check(plugin),
                 _plugin_loader_observation_check(loader_observation),
+                _plugin_bundle_import_scan_check(bundle_import_scan),
                 Check(
                     "plugin_runtime_observed",
                     True,
@@ -987,6 +990,68 @@ def _plugin_loader_observation_check(observation: dict[str, object] | None) -> C
         remediation="Run `omh setup --force`, then reload Hermes and run `omh doctor` again.",
         next_action="Run `omh setup --force`, reload Hermes, then run `omh doctor` again.",
         observed=True,
+    )
+
+
+BUNDLE_IMPORT_SCAN_REMEDIATION = (
+    "Run `omh update` to reinstall the managed plugin bundle from the current OMH package "
+    "(`omh setup --force` if this copy carries local edits), then restart Hermes Agent."
+)
+
+
+def _plugin_bundle_import_scan_check(scan: dict[str, object]) -> Check:
+    """Read the INSTALLED bundle's syntax; the source-tree gate cannot reach it.
+
+    `plugin_loader_observed` drives the plugin lane, where a failed exec is
+    dropped from `sys.modules`, and its verdict is registration equality --
+    so a bundle whose modules cannot exec on the memory-provider lane passed
+    it while the agent-board bridge was dead and every tool call logged a hook
+    warning (#1623, #1670). This tier asks the other question, statically: can
+    a host with no `omh` package on its path run the top level of every file
+    Hermes execs?
+
+    Blocking, not advisory. The advisory lane is for a legitimate, recommended
+    configuration that must not move the exit code (#1636); an unguarded
+    module-level `omh.*` import in the installed copy is never a configuration
+    choice. It means this copy is stale, hand-copied, or locally edited away
+    from the managed bundle, the features those modules carry are dead, and
+    `omh update` fixes it -- the same profile as `plugin_import_smoke` and
+    `plugin_bundle_current`, which are blocking beside it.
+    """
+    if not scan.get("scanned"):
+        reason = str(scan.get("reason", "plugin_bundle_not_installed"))
+        return Check(
+            "plugin_bundle_standalone_imports",
+            True,
+            (
+                f"installed plugin bundle not scanned ({reason}); "
+                "static import shape is unknown, not proven good"
+            ),
+            severity="warning",
+            observed=False,
+        )
+    findings = [item for item in scan.get("findings", []) if isinstance(item, dict)]
+    module_count = scan.get("module_count", 0)
+    if not findings:
+        return Check(
+            "plugin_bundle_standalone_imports",
+            True,
+            (
+                f"{module_count} module(s) under {scan.get('bundle_dir')} import at module level "
+                "with no `omh` package on the path, which is what Hermes' interpreter normally has"
+            ),
+        )
+    return Check(
+        "plugin_bundle_standalone_imports",
+        False,
+        (
+            f"{len(findings)} module-level import(s) in {scan.get('bundle_dir')} cannot resolve on a "
+            f"host without the `omh` package: {describe_findings(findings)}. "
+            "Hermes' memory-provider lane execs every file of the bundle and keeps the module that "
+            "raised, so each tool call reaching one logs a hook warning and its feature is dead"
+        ),
+        remediation=BUNDLE_IMPORT_SCAN_REMEDIATION,
+        next_action="Run `omh update`, restart Hermes Agent, then run `omh doctor` again.",
     )
 
 

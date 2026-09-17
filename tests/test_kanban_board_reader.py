@@ -378,7 +378,7 @@ class KanbanHudMergeTests(unittest.TestCase):
     def test_widget_renders_the_kanban_identity_and_lane_markers(self) -> None:
         build_board(self.hermes / "kanban.db", [
             task("t_running1", "running", title="Ship the board lane", started_at=NOW - 280, worker_pid=7,
-                 last_heartbeat_at=NOW - 1, model_override="gpt-5.6-sol"),
+                 last_heartbeat_at=NOW - 1, model_override="gpt-5.6-sol", reasoning_effort="high"),
             task("t_queued01", "ready", title="Write the release notes", created_at=NOW - 30),
             task("t_stale001", "running", title="Stalled worker", started_at=NOW - 3000, worker_pid=8,
                  last_heartbeat_at=NOW - 20 * 60),
@@ -417,11 +417,12 @@ console.log(JSON.stringify({dock, idle, lines: dockLines, colors}));
         self.assertEqual(len(lines), 4)
         self.assertIn("category:architect(claude-fable-5-1:xhigh)", lines[0])
         running = next(line for line in lines if "Ship the board lane" in line)
-        self.assertIn("(kanban miku gpt-5.6-sol)", running)
+        self.assertIn("kanban/miku(gpt-5.6-sol:high)", running)
         self.assertIn("running · 4m 40s", running)
         stale = next(line for line in lines if "Stalled worker" in line)
         self.assertTrue(stale.startswith("! "), stale)
-        self.assertIn("(kanban miku)", stale)
+        self.assertIn("kanban/miku", stale)
+        self.assertNotIn("kanban/miku(", stale, "no model pin, no parenthesis")
         self.assertIn("running ·", stale, "the tail keeps the native status word")
         queued = next(line for line in lines if "Write the release notes" in line)
         self.assertTrue(queued.startswith("· "), queued)
@@ -429,10 +430,16 @@ console.log(JSON.stringify({dock, idle, lines: dockLines, colors}));
         def color_of(fragment: str) -> str:
             return next(color for color, text in views["colors"] if fragment in text)
 
-        self.assertEqual(color_of("(kanban miku gpt-5.6-sol)"), "ACCENT")
-        self.assertEqual(color_of("(kanban miku)"), "ACCENT")
+        self.assertEqual(color_of("kanban/miku(gpt-5.6-sol:high)"), "ACCENT")
+        self.assertEqual(color_of("kanban/miku"), "ACCENT")
+        # The whole board row is accent: title and the dimmed scope/id and
+        # elapsed pieces; a native row keeps text/muted.
+        self.assertEqual(color_of("Ship the board lane"), "ACCENT")
+        self.assertEqual(color_of("Review the router change"), "TEXT")
+        self.assertEqual(color_of("· 4m 40s"), "ACCENT", "the board row's elapsed piece is accent (dimmed)")
+        self.assertEqual(color_of("· 42s"), "MUTED", "a native row's elapsed piece stays muted")
         self.assertEqual(color_of("category:architect(claude-fable-5-1:xhigh)"), "LABEL")
-        self.assertEqual(next(color for color, text in views["colors"] if text == "· "), "MUTED")
+        self.assertEqual(next(color for color, text in views["colors"] if text == "· "), "ACCENT")
         self.assertEqual(next(color for color, text in views["colors"] if text == "! "), "WARN")
         self.assertEqual(color_of("· dispatcher not observed"), "WARN")
         self.assertEqual(color_of("· board 1q 2r 0b"), "MUTED")

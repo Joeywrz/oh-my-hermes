@@ -354,13 +354,16 @@ export default function register(sdk) {
     const routeKind = routeOrigin === 'fallback' || routeOrigin === 'exhausted_to_inherit' ? 'route-fallback' : 'route'
     // A Hermes Kanban lane (reader: kanban_board_reader) is board work a
     // dispatcher runs as a detached worker profile, not a delegate_task
-    // child, so its identity names the ASSIGNEE profile and the per-task
-    // model override instead of a mixture category: `(kanban miku model)`.
-    // Its own segment kind renders in the theme's accent tone so a board
-    // lane stands apart from both the native lane and the Maestro lane.
+    // child, so its identity names the ASSIGNEE profile where the native
+    // lane names a mixture category, in the same shape the native lane
+    // uses -- `category:name(model:effort)` becomes
+    // `kanban/miku(model:effort)` -- so the two kinds of row read as one
+    // column. Its own segment kind renders in the theme's accent tone.
     if (safeText(row.lane_backend) === 'kanban') {
       const assignee = safeText(row.assignee) || 'unassigned'
-      return metricSegment('kanban', `(kanban ${assignee}${modelName ? ` ${modelName}` : ''})`)
+      const effort = safeText(row.effort)
+      const detail = modelName ? `${modelName}${effort ? `:${effort}` : ''}` : ''
+      return metricSegment('kanban', `kanban/${assignee}${detail ? `(${detail})` : ''}`)
     }
     return dispatchLane ? metricSegment('maestro', dispatchIdentity) : metricSegment(routeKind, route)
   }
@@ -513,14 +516,23 @@ export default function register(sdk) {
     // bang). Both keep the native status word in the tail.
     const queued = row.state === 'queued'
     const stale = row.state === 'stale'
+    // A board lane is a different kind of row, and the whole row says so:
+    // every piece that is not a semantic verdict -- marker, scope and id,
+    // title, identity, elapsed -- renders in the accent tone, the
+    // secondary pieces dimmed, so a kanban row reads as one turquoise line
+    // beside the native rows. Only `blocked` (error) and `stale` (warn)
+    // keep their own colour, because a lane that is stuck must never hide
+    // inside the lane colour.
+    const board = safeText(row.lane_backend) === 'kanban'
     const marker = blocked ? '▲' : done ? '✓' : queued ? '·' : stale ? '!' : SPINNER_FRAMES[frame % SPINNER_FRAMES.length]
-    const statusColor = blocked ? t.color.error : queued ? t.color.muted : stale ? t.color.warn : t.color.ok
+    const statusColor = blocked ? t.color.error : stale ? t.color.warn : board ? t.color.accent : queued ? t.color.muted : t.color.ok
+    const markerColor = blocked ? t.color.error : stale ? t.color.warn : board ? t.color.accent : done ? t.color.ok : queued ? t.color.muted : t.color.warn
     return h(
       Text,
       { wrap: 'truncate-end' },
-      h(Text, { color: blocked ? t.color.error : done ? t.color.ok : queued ? t.color.muted : t.color.warn }, `${marker} `),
-      h(Text, { color: t.color.muted }, `${layout.scope}${layout.taskId} `),
-      h(Text, { color: t.color.text }, layout.action),
+      h(Text, { color: markerColor }, `${marker} `),
+      h(Text, board ? { color: t.color.accent, dimColor: true } : { color: t.color.muted }, `${layout.scope}${layout.taskId} `),
+      h(Text, { color: board ? t.color.accent : t.color.text }, layout.action),
       // Identity, then the measured block, then the rest. The route column
       // and the state/elapsed/tokens tail are fixed widths, so those figures
       // line up vertically down the list; everything after them is variable
@@ -543,7 +555,7 @@ export default function register(sdk) {
       ),
       h(Text, {}, '  '),
       h(Text, { color: statusColor }, layout.tailState),
-      h(Text, { color: t.color.muted }, layout.tailRest),
+      h(Text, board ? { color: t.color.accent, dimColor: true } : { color: t.color.muted }, layout.tailRest),
       // The token count is the one figure on the row that is a plain
       // quantity, so it reads in `statusFg` -- the tone the host's own status
       // line spends on its token gauge -- instead of the muted tint every

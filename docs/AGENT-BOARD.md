@@ -217,6 +217,14 @@ These are host facts recorded as data, not OMH failures.
   per-assignee concurrency cap, tenant mismatch) has the same shape. Check
   the operator preconditions above before concluding the dispatcher is
   down. It is distinct from a failure.
+- The board records no usage of its own. The model, turns, tool calls, tokens
+  and cost on a HUD lane row come from the worker's own Hermes session in the
+  assignee profile's `state.db`, linked by the `worker_session_id` the worker
+  stamps on its run the first time it calls `kanban_complete` or
+  `kanban_request_review` and, before that, by the single kanban-source
+  session opened inside that run's dispatch window. A lane neither rule links
+  — and a window two sessions answer — shows no model and no tokens rather
+  than a borrowed figure.
 - Native tools expose no compare-and-swap. A request that supplies
   `expected_revision` or `expected_run_id` is `unavailable` with
   `native_compare_and_swap`. Use `expected_observation_ref` to bind a request

@@ -48,9 +48,23 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
     try:
         omh_home = str(runtime_paths.plugin_home(kwargs.get("omh_home")))
         runtime_paths.plugin_home(kwargs.get("hermes_home"), hermes=True)
+    except runtime_paths.UnattributableSessionError as exc:
+        # No profile owns this session, so no store was named -- and the rules
+        # this hook guards are opt-in by the presence of a file inside the
+        # session's own store (`toolcall_rules`). There is no rules file to
+        # leave unread here, so the veto protected nothing and cost the
+        # session: in a multiplexed gateway every tool call of every
+        # default-profile session came back blocked (#1674). Degrade instead,
+        # the posture `post_tool_call` and `pre_llm_call` already take, and
+        # keep the veto for every refusal that did name a store.
+        return runtime_binding_degradation(exc)
     except (runtime_paths.RuntimeBindingError, OSError, RuntimeError) as exc:
-        # A missing rules owner cannot safely authorize the tool. This is the
-        # native host's supported veto, not a swallowed rule failure.
+        # A store was named and then rejected or could not be read: a
+        # malformed setting, an unresolvable path, an unverified owner, a
+        # config read that failed. A rules file may exist in it and may be
+        # blocking this very tool, so a missing rules owner cannot safely
+        # authorize the call. This is the native host's supported veto, not a
+        # swallowed rule failure.
         return {**runtime_binding_degradation(exc), "action": "block",
                 "message": "OMH runtime binding unavailable; tool rules could not be checked. Tool call blocked."}
     _ = observe_plugin_hook_call("pre_tool_call", kwargs)

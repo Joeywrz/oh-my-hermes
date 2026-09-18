@@ -147,7 +147,85 @@ class RuntimeBindingReviewTests(unittest.TestCase):
                     self.assertTrue(result['omh_degradation']['degraded'])
                     self.assertNotIn('PRIVATE_PATH', json.dumps(result))
                     if name == 'pre_tool_call':
+                        # A refusal that named a store keeps the veto; only
+                        # `UnattributableSessionError` degrades (#1674).
                         self.assertEqual(result['action'], 'block')
+                        self.assertNotIsInstance(paths.RuntimeBindingError('x'),
+                                                 paths.UnattributableSessionError)
+
+    def test_every_other_binding_fault_keeps_the_pre_tool_veto(self):
+        # The veto's boundary, pinned by type: only an unowned session
+        # degrades. A refusal that named a store, and the filesystem and host
+        # faults raised while reading one, all still veto -- a rules file can
+        # exist in a store that was named, and leaving it unread is what the
+        # veto is for (#1674).
+        for error in (paths.RuntimeBindingError('PRIVATE_PATH'), OSError('PRIVATE_PATH'),
+                      RuntimeError('PRIVATE_PATH')):
+            with self.subTest(error=type(error).__name__):
+                with patch.object(paths, 'plugin_home', side_effect=error), \
+                        patch.object(tool_hooks, 'observe_plugin_hook_call') as observer:
+                    result = tool_hooks.pre_tool_call(tool_name='read_file', session_id='s')
+                observer.assert_not_called()
+                self.assertEqual(result['action'], 'block')
+                self.assertIn('Tool call blocked', result['message'])
+                self.assertNotIn('PRIVATE_PATH', json.dumps(result))
+
+    def test_unowned_session_is_its_own_binding_fault(self):
+        # The refusal that names no store at all is the one a caller must be
+        # able to tell apart, so it carries its own type. Both entry points
+        # raise it; `resolve_homes` re-checks what `default_hermes_home`
+        # already refused, so each is driven on its own.
+        modules = native_modules(self.home, self.store, active=False, multiplex=True)
+        with patch.dict(sys.modules, modules):
+            for call in (paths.resolve_homes, paths.default_hermes_home):
+                with self.subTest(call=call.__name__):
+                    with self.assertRaises(paths.UnattributableSessionError):
+                        call()
+        self.assertTrue(issubclass(paths.UnattributableSessionError, paths.RuntimeBindingError))
+        modules['hermes_cli.config'].load_config_readonly.assert_not_called()
+
+    def test_named_store_that_fails_validation_is_not_an_unowned_session(self):
+        # A store the profile named and OMH then rejected is the shape where a
+        # rules file can exist unread, so it must NOT wear the unowned type --
+        # `pre_tool_call` reads that distinction to decide whether to veto.
+        modules = native_modules(self.home, self.store)
+        modules['hermes_cli.config'].load_config_readonly.return_value = {
+            'plugins': {'entries': {'omh': {'settings': {'omh_home': str(self.root / 'foreign')}}}}}
+        with patch.dict(sys.modules, modules):
+            with self.assertRaises(paths.RuntimeBindingError) as caught:
+                paths.resolve_homes()
+        self.assertNotIsInstance(caught.exception, paths.UnattributableSessionError)
+
+    def test_unowned_session_degrades_every_hook_including_pre_tool(self):
+        # #1674: a multiplexed gateway's unowned session had every tool call
+        # vetoed. The rules this hook guards are opt-in by a file in the
+        # session's own store, and an unowned session has no store, so there
+        # is no rules file to leave unread -- the hook degrades exactly as the
+        # observer hooks already did.
+        for module, name in ((llm_hooks, 'pre_llm_call'), (tool_hooks, 'pre_tool_call'),
+                             (tool_hooks, 'post_tool_call'), (session_hooks, 'on_session_end')):
+            with self.subTest(hook=name):
+                with patch.object(paths, 'plugin_home',
+                                  side_effect=paths.UnattributableSessionError('PRIVATE_PATH')), \
+                        patch.object(module, 'observe_plugin_hook_call') as observer:
+                    result = getattr(module, name)(tool_name='read_file', host='host', session_id='s')
+                observer.assert_not_called()
+                self.assertTrue(result['omh_degradation']['degraded'])
+                self.assertNotIn('action', result)
+                self.assertNotIn('message', result)
+                self.assertNotIn('PRIVATE_PATH', json.dumps(result))
+
+    def test_gateway_unowned_session_reaches_no_veto(self):
+        # End to end for #1674, through the real binding path rather than a
+        # patched one: the multiplexed session with no home override is
+        # refused as unowned, and the hook returns a degradation the host
+        # discards instead of the block that ended the session.
+        modules = native_modules(self.home, self.store, active=False, multiplex=True)
+        with patch.dict(sys.modules, modules):
+            result = tool_hooks.pre_tool_call(tool_name='read_file', session_id='s', args={})
+        self.assertTrue(result['omh_degradation']['degraded'])
+        self.assertNotIn('action', result)
+        self.assertNotIn('Tool call blocked', json.dumps(result))
 
     def test_tool_rule_failure_is_not_swallowed_by_binding_guard(self):
         with patch.object(tool_hooks, 'toolcall_rule_directive', side_effect=RuntimeError('rule failure')):

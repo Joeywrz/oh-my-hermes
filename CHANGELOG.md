@@ -4,6 +4,35 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A gateway session that no profile owns is no longer vetoed out of every
+  tool call.** On a Hermes gateway with `multiplex_profiles` on, a session that
+  reaches OMH with no home override is one OMH refuses to attribute to any
+  profile -- it will not guess a store, and that refusal is correct. What was
+  wrong is what `pre_tool_call` did with it: it returned `action: block`, so
+  every tool call in every such session came back "OMH runtime binding
+  unavailable; tool rules could not be checked", while TUI sessions and
+  explicitly routed profiles kept working. The reporter measured 72 blocked
+  calls in a day across their IM and cron sessions and confirmed the sessions
+  recover as soon as the hook stops vetoing (#1674).
+
+  The veto exists to protect user-authored toolcall rules, and those are opt-in
+  by the presence of a file inside the session's own store. A session with no
+  store has no rules file to leave unread, so the veto was protecting nothing
+  and ending the session instead. That distinction is now carried by the signal
+  rather than guessed by the handler: the two refusals that name no store raise
+  `UnattributableSessionError`, and `pre_tool_call` degrades on it exactly as
+  `post_tool_call` and `pre_llm_call` already did. Every other binding fault
+  keeps the veto, because each of them named a store first -- a malformed
+  setting, an unresolvable path, an unverified owner, a config read that failed
+  -- and a rules file may be sitting in it.
+
+  Profile isolation is untouched. Which sessions bind and which are refused is
+  the same before and after; only the refused session's tool calls stop being
+  vetoed. The narrower report that a configured `omh_home` cannot rescue this
+  shape is real and left open: the refusal does precede the configured home, by
+  design, and changing that is a profile-binding decision rather than a
+  hook-posture one.
+
 - **Each Hermes TUI's plan-todo panel now renders its own session's checklist,
   not the most recently active one's.** Reported with screenshots (#1672): with
   two TUIs open, both panels showed the same plan and whichever TUI moved last

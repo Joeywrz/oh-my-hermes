@@ -78,7 +78,10 @@ tightens the former empty-string fallback: omit the argument (`None` in Python)
 to request defaults. Blank configured native bindings never inherit ambient
 state. Filesystem failures while resolving runtime homes are also bounded
 `RuntimeBindingError`s. Hooks classify failed binding before observation I/O;
-pre-tool binding failure blocks the call because its rules cannot be checked.
+a pre-tool binding failure that named a store blocks the call, because a rules
+file may exist there and go unread. A session no profile owns names no store,
+so it carries `UnattributableSessionError` and degrades like the other hooks
+instead: there is no rules file it could be leaving unread.
 Direct runtime readers still raise on unreadable state instead of claiming idle.
 Evidence child binding failure returns an error without spawning a command.
 

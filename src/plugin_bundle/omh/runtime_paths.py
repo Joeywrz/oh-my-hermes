@@ -18,6 +18,17 @@ class RuntimeBindingError(ValueError):
     """No safe runtime store can be selected (messages contain no path values)."""
 
 
+class UnattributableSessionError(RuntimeBindingError):
+    """No profile owns this session, so no store was named to read or write.
+
+    Every other binding refusal names a store and then rejects it: a malformed
+    setting, an unresolvable path, an unverified owner. This one is raised
+    before any store is named at all, which is the distinction a caller needs
+    when it must decide whether user configuration might exist and go
+    unread. `pre_tool_call` is that caller (#1674).
+    """
+
+
 _VARIABLE = re.compile(r"\$(?:\{(?:env:)?([A-Za-z_][A-Za-z_0-9]*)\}|([A-Za-z_][A-Za-z_0-9]*))|%([A-Za-z_][A-Za-z_0-9]*)%")
 _MISSING = object()
 # Lifecycle marker only, never a current-profile/home/secret cache. Native
@@ -189,7 +200,7 @@ def default_hermes_home() -> Path:
     if host is not None:
         secrets = import_module("agent.secret_scope")
         if secrets.is_multiplex_active() and host.get_hermes_home_override() is None:
-            raise RuntimeBindingError("OMH requires an active Hermes profile scope")
+            raise UnattributableSessionError("OMH requires an active Hermes profile scope")
     value = host.get_hermes_home() if host is not None else (os.environ.get("HERMES_HOME") or "~/.hermes")
     # Hermes already resolves its profile home. Do not expand it through an
     # environment lookup which could recursively select the launch profile.
@@ -278,7 +289,7 @@ def resolve_homes(omh_home: str | Path | None = None, hermes_home: str | Path | 
     secrets = import_module("agent.secret_scope")
     multiplex = secrets.is_multiplex_active()
     if multiplex and host.get_hermes_home_override() is None:
-        raise RuntimeBindingError("OMH requires an active Hermes profile scope")
+        raise UnattributableSessionError("OMH requires an active Hermes profile scope")
     configured = _configured_home(home)
     if configured is not _MISSING:
         return configured, home

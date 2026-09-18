@@ -107,13 +107,20 @@ class ModelWidgetTests(unittest.TestCase):
         keys: list[str],
         *,
         overrides: dict | None = None,
+        overrides_text: str | None = None,
         entitlements_text: str | None = None,
         rows: int = 40,
+        named_store: bool = False,
+        stray_env_home: bool = False,
     ):
         """Run the harness; return (harness result, override document or None, python payload).
 
         ``rows`` is the terminal height the frames are rendered at: 40 fits
         every category; a shorter height exercises the windowing.
+        ``named_store`` has the Hermes home's config.yaml name the store
+        under `plugins.entries.omh.settings.omh_home` and leaves `OMH_HOME`
+        out of the environment, the shape of a bot-profile TUI;
+        ``stray_env_home`` adds an `OMH_HOME` pointing elsewhere on top.
         """
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -122,6 +129,10 @@ class ModelWidgetTests(unittest.TestCase):
             shutil.copytree(BUNDLE_DIR, hermes_home / "plugins" / "omh", ignore=shutil.ignore_patterns("__pycache__"))
             if overrides:
                 _write_overrides(omh_home, overrides)
+            if overrides_text is not None:
+                document_file = omh_home / "routing" / "model-chains.json"
+                document_file.parent.mkdir(parents=True, exist_ok=True)
+                document_file.write_text(overrides_text, encoding="utf-8")
             if entitlements_text is not None:
                 record = omh_home / "routing" / "providers.json"
                 record.parent.mkdir(parents=True, exist_ok=True)
@@ -131,7 +142,17 @@ class ModelWidgetTests(unittest.TestCase):
             widget.write_bytes(widget_payload(Path(sys.executable)))
             harness = root / "harness.mjs"
             harness.write_text(HARNESS, encoding="utf-8")
-            env = {**os.environ, "HERMES_HOME": str(hermes_home), "OMH_HOME": str(omh_home), "HOME": str(root)}
+            env = {**os.environ, "HERMES_HOME": str(hermes_home), "HOME": str(root)}
+            env.pop("OMH_HOME", None)
+            if named_store:
+                (hermes_home / "config.yaml").write_text(
+                    f"plugins:\n  enabled:\n    - omh\n  entries:\n    omh:\n      settings:\n        omh_home: {omh_home.as_posix()}\n",
+                    encoding="utf-8",
+                )
+                if stray_env_home:
+                    env["OMH_HOME"] = str(root / "elsewhere")
+            else:
+                env["OMH_HOME"] = str(omh_home)
             env.pop("HERMES_TUI_ACTIVE_SESSION_FILE", None)
             # Node writes the report as UTF-8; without saying so, Windows
             # decodes the pipe in its code page and the frames' glyphs fail.
@@ -159,8 +180,63 @@ class ModelWidgetTests(unittest.TestCase):
                 "a widget spawn wrote bytecode into the temp tree; check `-B` on its argv",
             )
             document_path = omh_home / "routing" / "model-chains.json"
-            document = json.loads(document_path.read_text(encoding="utf-8")) if document_path.exists() else None
+            document = None
+            if document_path.exists() and overrides_text is None:
+                document = json.loads(document_path.read_text(encoding="utf-8"))
+            if stray_env_home:
+                # The store the environment named must stay untouched.
+                self.assertFalse((root / "elsewhere").exists())
             return result, document, payload
+
+    def test_a_profile_that_names_its_store_is_edited_there_with_no_environment_home(self) -> None:
+        """The widget forced `OMH_HOME` (or `~/.omh`) into every spawn, so in
+        a profile that names its own store `/omh-model` read and saved a file
+        the profile's dispatches never looked at (#1679). With nothing named,
+        the bundle resolves the profile's setting the way its plugin does,
+        and an `OMH_HOME` the TUI happened to be launched with loses to it.
+        """
+        for stray in (False, True):
+            with self.subTest(stray_env_home=stray):
+                result, document, payload = self._drive(
+                    ["down", "right", "plus", "enter"],
+                    overrides={"writing": (("custom-store-model", "high"),)},
+                    named_store=True,
+                    stray_env_home=stray,
+                )
+                self.assertEqual(result["phase"], "saved", result["message"])
+                self.assertTrue(result["message"].startswith("Saved 1 category to "), result["message"])
+                # The reader read the named store: the override seeded there
+                # is on its row before any key is pressed. This is the half
+                # that produced the reported twelve `default` rows.
+                first = result["frames"][0]
+                self.assertIn("custom-store-model", first)
+                self.assertIn("◆ override", first)
+                self.assertIsNotNone(document, "the save did not land in the store the profile names")
+                self.assertEqual(set(document["categories"]), {"deep", "writing"})
+                self.assertEqual(payload["document_status"], "applied")
+
+    def test_an_ignored_document_is_said_under_the_providers_line(self) -> None:
+        """An override file the reader rejects is ignored whole, so every row
+        reads `default` -- the picture of a chain that was never set. The one
+        row the CLI picker adds for it, mirrored."""
+        result, _document, payload = self._drive(["quit"], overrides_text="{")
+        self.assertEqual(payload["document_status"], "invalid: unreadable JSON")
+        first = result["frames"][0]
+        self.assertIn("! model-chains.json ignored: unreadable JSON · every category shows its shipped default", first)
+        self.assertEqual(first.count("model-chains.json ignored"), 1)
+        # A valid or absent document adds no such row.
+        result, _document, payload = self._drive(["quit"])
+        self.assertEqual(payload["document_status"], "absent")
+        self.assertNotIn("model-chains.json ignored", result["frames"][0])
+
+    def test_the_footer_names_the_store_with_nothing_to_save(self) -> None:
+        # Which file the picker edits is the question a person opens it with
+        # when a chain set elsewhere seems not to have taken; it is not
+        # withheld until they change something.
+        result, _document, payload = self._drive(["quit"])
+        first = result["frames"][0]
+        self.assertIn("no unsaved changes · ", first)
+        self.assertIn(Path(payload["path"]).name, first)
 
     def test_reads_the_rows_and_steps_exactly_like_the_python_original(self) -> None:
         result, document, payload = self._drive(["down", "right", "plus", "enter"])
@@ -219,6 +295,14 @@ class ModelWidgetTests(unittest.TestCase):
         self.assertIn("providers.json ignored", first)
         self.assertNotIn("deep-work", first)
         self.assertIn("↓ 1 more", first)
+        # The ignored-document row costs one more, and both together two.
+        result, _document, _payload = self._drive(["quit"], rows=27, overrides_text="{")
+        self.assertIn("↓ 1 more", result["frames"][0])
+        result, _document, _payload = self._drive(["quit"], rows=27, overrides_text="{", entitlements_text="{")
+        first = result["frames"][0]
+        self.assertIn("providers.json ignored", first)
+        self.assertIn("model-chains.json ignored", first)
+        self.assertIn("↓ 2 more", first)
 
     def test_escape_after_edits_writes_nothing(self) -> None:
         result, document, _ = self._drive(["right", "minus", "quit"])

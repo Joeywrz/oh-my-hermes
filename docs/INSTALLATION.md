@@ -41,9 +41,26 @@ The copied plugin and package use the same uncached root resolver, in this order
    Anonymous scope mappings have no owner identity: mismatching/unverifiable
    values are refused before I/O. Use an absolute profile setting for bindings
    supplied only through an ad hoc in-memory secret mapping.
-4. For standalone/launch-owner operation only, the legacy `OMH_HOME`/`~/.omh`
-   default. The independent OMH CLI has no Hermes dependency and retains its
-   explicit `--omh-home`, `--hermes-home`, and `--scope project` behavior.
+4. For standalone/launch-owner operation -- the independent `omh` CLI and the
+   TUI widget's reader spawn, which load no Hermes module -- the same setting
+   read from the Hermes home's own `config.yaml` by text scan (the user file;
+   the managed overlay the native lane validates against is not reachable
+   there), then the legacy `OMH_HOME`, then `~/.omh`. The scan follows the
+   block shape Hermes writes, last duplicate winning; a `plugins:` section
+   written inline that names no `omh_home` reads as an absent setting. Refused
+   as a binding error, never a substitute store: a blank or null setting, an
+   inline section that does name `omh_home`, an alias or merge key the
+   setting could be inherited through, a leaf a YAML loader would not hand
+   back as one string (`true`, `123`, `{a: b}`), a tab-indented file, an
+   unreadable `config.yaml`, and a `$VAR` other than `$HERMES_HOME` or
+   `$HOME` -- this lane has no secret scope to verify a variable against, so
+   it will not read one out of the process environment. Each refusal names
+   `--omh-home` as the way to run the tool that reads the file. So
+   `omh model-chains --hermes-home ~/.hermes/profiles/<name>` and
+   `/omh-model` inside that profile's TUI read and write the store the
+   profile's own plugin dispatches from. The CLI has no Hermes dependency and
+   retains its explicit `--omh-home`, `--hermes-home`, and `--scope project`
+   behavior; an explicit `--omh-home` wins over the setting.
 
 Importing `hermes_constants` alone does not select native operation. A plain
 OMH CLI colocated with a compatible Hermes installation still uses process
@@ -1176,7 +1193,9 @@ appear in the `/` autocomplete — in any chat, bot or default. Invoke them as
 and list what is installed with `/skills`. The one `/` entry OMH adds is
 `/omh-model`, the per-category model-chain picker the Modern-TUI widget
 registers as a modal app; it exists only in the Modern TUI, where the widget
-loads.
+loads. In a bot's TUI it edits that bot's own store when the profile names one
+(`plugins.entries.omh.settings.omh_home`), the same file the bot's
+delegations read, and its footer names the file it is editing.
 
 ![/omh-model in the Modern TUI: the same rows and keys as the CLI picker, over the transcript](../assets/omh-model-tui.png)
 

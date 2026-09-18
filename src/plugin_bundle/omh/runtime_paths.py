@@ -230,6 +230,161 @@ def _setting(config):
     return _MISSING
 
 
+# The same setting, read by the standalone lane. A colocated `omh` CLI and the
+# TUI widget's reader spawn have no `hermes_cli.config`, so they cannot load
+# the effective, managed-overlaid configuration the native lane validates
+# against; the user file is what they can read, and it is the store the
+# profile's own plugin resolves on every ordinary install. Not reading it is
+# what had `/omh-model` and `omh model-chains` editing `~/.omh` in a profile
+# whose dispatches never looked there (#1679).
+_STANDALONE_SETTING_PATHS = (
+    ("plugins", "entries", "omh", "settings", "omh_home"),
+    ("plugins", "entries", "omh", "config", "omh_home"),
+)
+# The native lane hands a `$VAR` in the setting to `_profile_variable`, which
+# verifies the value against the profile's own secret scope. The standalone
+# lane has no scope to verify against, and the file this value comes from is
+# one a bot can write, so it expands the two names it can answer itself and
+# refuses the rest rather than read them out of the process environment.
+_STANDALONE_SETTING_VARIABLES = frozenset({"HERMES_HOME", "HOME"})
+_LINE_BREAK = re.compile(r"\r\n|\r|\n")
+# What a YAML loader hands back as something other than a string. The native
+# lane refuses those through `expand_path`'s type check; this lane refuses
+# them by spelling, rather than read `true` as a directory name.
+_YAML_WORD_SCALARS = frozenset({"true", "false", "yes", "no", "on", "off"})
+_YAML_NUMBER = re.compile(
+    r"^[-+]?(?:0x[0-9a-f_]+|0o[0-7_]+|\d[\d_]*(?:\.\d*)?(?:e[-+]?\d+)?|\.\d+(?:e[-+]?\d+)?|\.inf|\.nan)$",
+    re.IGNORECASE,
+)
+_YAML_INDICATORS = "{[&*!|>%@`"
+
+
+def _standalone_configured_home(home: Path):
+    try:
+        text = (home / "config.yaml").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return _MISSING
+    except (OSError, UnicodeDecodeError):
+        raise RuntimeBindingError("OMH profile configuration is unreadable or invalid") from None
+    lines = _LINE_BREAK.split(text)
+    for key_path in _STANDALONE_SETTING_PATHS:
+        found, value = _scan_block_setting(lines, key_path)
+        if not found:
+            continue
+        for match in _VARIABLE.finditer(value or ""):
+            name = next(group for group in match.groups() if group is not None)
+            if name not in _STANDALONE_SETTING_VARIABLES:
+                raise RuntimeBindingError("OMH profile setting may reference only $HERMES_HOME or $HOME outside a Hermes host")
+        return value
+    return _MISSING
+
+
+def _scan_block_setting(lines: list[str], key_path: tuple[str, ...]) -> tuple[bool, str | None]:
+    """Follow one nested key through block-style YAML by indentation.
+
+    Returns ``(True, value)`` when every key on the path is a block mapping
+    key at its level and the last one carries a scalar (``None`` for a YAML
+    null), and ``(False, None)`` when a key is absent or an intermediate key
+    holds an inline value that cannot name the setting (`plugins: {enabled:
+    [omh]}`, `entries: {}`). The one shape understood is the one Hermes
+    writes -- a key at a fixed indent, its children on deeper-indented
+    lines -- with the last duplicate winning as a YAML loader resolves it.
+    Refused rather than read past: an inline value that does mention the
+    setting, an alias or merge key where the setting could be inherited from
+    an anchor, a tab-indented line, and a leaf a loader would not hand back
+    as one string.
+    """
+    start, stop, parent_indent = 0, len(lines), -1
+    for depth, key in enumerate(key_path):
+        child_indent = None
+        found_at = None
+        merge_key = False
+        for index in range(start, stop):
+            line = lines[index]
+            body = line.strip()
+            if not body or body.startswith("#"):
+                continue
+            indent = len(line) - len(line.lstrip(" \t"))
+            if "\t" in line[:indent]:
+                raise RuntimeBindingError("OMH profile configuration is tab-indented; YAML indents with spaces")
+            if indent <= parent_indent:
+                stop = index
+                break
+            if child_indent is None:
+                child_indent = indent
+            if indent != child_indent:
+                continue
+            name, separator, rest = body.partition(":")
+            if not separator or (rest and not rest[0].isspace()):
+                continue
+            name = name.strip().strip("'\"")
+            if name == key:
+                found_at = index
+            elif name == "<<":
+                merge_key = True
+        if found_at is None:
+            if merge_key:
+                # `<<: *base` may carry the key from an anchor this reader
+                # cannot follow; the profile may well have named a store.
+                raise RuntimeBindingError(_INLINE_SHAPE_MESSAGE)
+            return False, None
+        quoted, value = _yaml_scalar(lines[found_at].partition(":")[2])
+        if depth == len(key_path) - 1:
+            return True, _leaf_string(quoted, value)
+        if quoted or value.startswith("*") or "omh_home" in value:
+            raise RuntimeBindingError(_INLINE_SHAPE_MESSAGE)
+        if value:
+            return False, None
+        start, parent_indent = found_at + 1, child_indent
+    return False, None
+
+
+_INLINE_SHAPE_MESSAGE = (
+    "OMH profile configuration uses an inline shape this reader cannot follow; "
+    "write the setting in block style or pass --omh-home"
+)
+
+
+def _yaml_scalar(raw: str) -> tuple[bool, str]:
+    """``(quoted, text)`` for one scalar; a quoted value is a string as written.
+
+    A node property (`&anchor`, `!tag`) before the value is not the value:
+    `plugins: &base` heads a block mapping whose children follow, and
+    `omh_home: &a /x` names `/x`.
+    """
+    value = raw.strip()
+    while value[:1] in {"&", "!"}:
+        value = value.partition(" ")[2].strip()
+    if value[:1] in {"'", '"'}:
+        end = value.find(value[0], 1)
+        remainder = value[end + 1:].strip() if end > 0 else ""
+        if end <= 0 or (remainder and not remainder.startswith("#")):
+            raise RuntimeBindingError("OMH profile configuration is unreadable or invalid")
+        return True, value[1:end]
+    if value.startswith("#"):
+        return False, ""
+    return False, re.split(r"\s#", value, maxsplit=1)[0].rstrip()
+
+
+def _leaf_string(quoted: bool, value: str) -> str | None:
+    if quoted:
+        return value
+    if not value or value.lower() in {"~", "null"}:
+        # A present-but-blank setting, which `expand_path` refuses the way
+        # the native lane refuses `None`; it is not the OS user's home.
+        return None
+    if (
+        value[0] in _YAML_INDICATORS
+        or value.lower() in _YAML_WORD_SCALARS
+        or _YAML_NUMBER.match(value)
+        # A character Python splits lines on and a YAML loader may not: the
+        # two readings would name different stores, so neither is taken.
+        or len(value.splitlines()) != 1
+    ):
+        raise RuntimeBindingError("OMH profile setting is not a path string")
+    return value
+
+
 def _overlay_config(user: dict, managed: dict) -> dict:
     # Preserve the winning *raw* leaf, before native process expansion. A
     # shadowed user template is not the provenance of a managed literal.
@@ -275,14 +430,19 @@ def resolve_homes(omh_home: str | Path | None = None, hermes_home: str | Path | 
 
     A complete explicit pair permits offline CLI operations and intentional
     sharing. An unbound routed profile is unavailable, never a new empty store
-    and never the launch profile's store.
+    and never the launch profile's store. The standalone lane keeps the same
+    order in the shape it can afford: the home's own `config.yaml` setting,
+    then the process `OMH_HOME`, then `~/.omh`.
     """
     home = expand_path(hermes_home) if hermes_home is not None else default_hermes_home()
     if omh_home is not None:
         return expand_path(omh_home, hermes_home=home), home
     host = _host()
     if host is None:
-        return expand_path(os.environ.get("OMH_HOME") or "~/.omh", hermes_home=home), home
+        configured = _standalone_configured_home(home)
+        if configured is not _MISSING:
+            return expand_path(configured, hermes_home=home, relative_to=home), home
+        return standalone_default_omh_home(home), home
     active_home = default_hermes_home()
     if home != active_home:
         raise RuntimeBindingError("OMH requires an explicit home pair for an offline profile")
@@ -305,6 +465,16 @@ def resolve_homes(omh_home: str | Path | None = None, hermes_home: str | Path | 
     if multiplex or home != launch_home:
         raise RuntimeBindingError("OMH home is not configured for this profile")
     return expand_path("~/.omh", hermes_home=home), home
+
+
+def standalone_default_omh_home(hermes_home: Path | None = None) -> Path:
+    """The store a standalone caller reaches when no home names one.
+
+    Also the store a profile synced from a default primary was registered
+    at, which is why the installer's candidate list names it: a profile that
+    later selected its own store still carries that registration.
+    """
+    return expand_path(os.environ.get("OMH_HOME") or "~/.omh", hermes_home=hermes_home)
 
 
 def default_omh_home() -> Path:

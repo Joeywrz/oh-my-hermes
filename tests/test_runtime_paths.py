@@ -100,6 +100,119 @@ class RuntimePathsTests(unittest.TestCase):
                     paths.default_omh_home()
                 self.assertIs(caught.exception, broken)
 
+    def test_standalone_lane_reads_the_launch_homes_own_setting_first(self):
+        """`plugins.entries.omh.settings.omh_home`, read with no host loaded.
+
+        The native plugin resolves that setting before any environment value.
+        The standalone lane -- the `omh` CLI and the TUI widget's reader
+        spawn -- read env `OMH_HOME` or `~/.omh` and never the file, so in a
+        profile that named its store, `/omh-model` and `omh model-chains`
+        edited one its dispatches never read (#1679).
+        """
+        import os
+        from omh.plugin_bundle.omh import runtime_paths as paths
+
+        setting = "plugins:\n  enabled:\n    - omh\n  entries:\n    omh:\n      settings:\n        omh_home: {value}\nkanban:\n  x: 1\n"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            profile = root / "profile"
+            profile.mkdir()
+
+            def config(text, home=profile):
+                home.mkdir(exist_ok=True)
+                (home / "config.yaml").write_text(text, encoding="utf-8")
+
+            with patch.dict("sys.modules", {"hermes_constants": None}), patch.dict(os.environ, {
+                "HOME": str(root), "USERPROFILE": str(root), "SECRET_TOKEN": "sk-live-not-a-path",
+                "OMH_HOME": str(root / "state"), "HERMES_HOME": str(profile)
+            }):
+                # No file, then a file that names nothing -- in block style or
+                # inline -- and the environment answers.
+                self.assertEqual(paths.resolve_homes(), (root / "state", profile))
+                for text in (
+                    "model:\n  default: x\nplugins:\n  enabled:\n    - omh\n",
+                    "plugins:\n  entries: {}\n",
+                    "plugins:\n",
+                    "plugins: {enabled: [omh]}\n",
+                    "plugins:\n  entries: {other: {}}\n",
+                    "plugins:\n  entries:\n    omh:\n      settings:\n        # omh_home: /commented\n",
+                ):
+                    config(text)
+                    with self.subTest(text=text):
+                        self.assertEqual(paths.resolve_homes(), (root / "state", profile))
+                # The setting beats the environment, under either spelling;
+                # a relative value is anchored at the profile and quotes and
+                # trailing comments are not part of it.
+                config(setting.format(value=str(root / "store")))
+                self.assertEqual(paths.resolve_homes(), (root / "store", profile))
+                config("plugins:\n  entries:\n    omh:\n      config:\n        omh_home: 'omh/legacy'  # anchored here\n")
+                self.assertEqual(paths.resolve_homes(), (profile / "omh" / "legacy", profile))
+                config(setting.format(value=f"{root / 'store2'}  # unquoted, comment stripped"))
+                self.assertEqual(paths.resolve_homes(), (root / "store2", profile))
+                config(setting.format(value='"$HERMES_HOME/omh"'))
+                self.assertEqual(paths.resolve_homes(), (profile / "omh", profile))
+                # A commented-out line at the setting's own depth is not the
+                # setting; the last duplicate wins as a YAML loader reads it;
+                # CRLF is a line break; a quoted `null` is a directory name.
+                config(
+                    "plugins:\n  entries:\n    omh:\n      settings:\n        # omh_home: /commented\n"
+                    f"        omh_home: /first\n        omh_home: {root / 'last'}\n"
+                )
+                self.assertEqual(paths.resolve_homes(), (root / "last", profile))
+                config(setting.format(value=str(root / "store")).replace("\n", "\r\n"))
+                self.assertEqual(paths.resolve_homes(), (root / "store", profile))
+                config(setting.format(value="'null'"))
+                self.assertEqual(paths.resolve_homes(), (profile / "null", profile))
+                # An anchor is a node property, not the value: one heading a
+                # block mapping still has children, one before a scalar
+                # still names it.
+                config(setting.format(value=f"&store {root / 'anchored'}").replace("plugins:\n", "plugins: &base\n"))
+                self.assertEqual(paths.resolve_homes(), (root / "anchored", profile))
+                # Another plugin's identical key is not it.
+                config("plugins:\n  entries:\n    other:\n      settings:\n        omh_home: /elsewhere\n")
+                self.assertEqual(paths.resolve_homes(), (root / "state", profile))
+                # An explicit pair still wins, and a named Hermes home follows
+                # its own file rather than the launch profile's.
+                config(setting.format(value=str(root / "store")))
+                self.assertEqual(paths.resolve_homes(root / "named", profile), (root / "named", profile))
+                config(setting.format(value=str(root / "other-store")), home=root / "other")
+                self.assertEqual(paths.resolve_homes(None, root / "other"), (root / "other-store", root / "other"))
+                self.assertEqual(paths.default_omh_home(), root / "store")
+                # Refusals, never a substitute store: blank and null; an inline
+                # section that does name the setting; an alias or merge key
+                # the setting could be inherited through; a leaf a YAML loader
+                # would not hand back as one string; a `$VAR` this lane cannot
+                # verify (the native lane checks it against the profile's own
+                # secret scope); tab indentation; a malformed quote.
+                for text in (
+                    setting.format(value=""),
+                    setting.format(value="~"),
+                    setting.format(value="null"),
+                    "plugins: {entries: {omh: {settings: {omh_home: /x}}}}\n",
+                    "plugins:\n  entries:\n    omh: {settings: {omh_home: /x}}\n",
+                    "plugins: 'text'\n",
+                    "base: &base\n  entries: {}\nplugins: *base\n",
+                    "base: &base\n  omh: {}\nplugins:\n  entries:\n    <<: *base\n",
+                    setting.format(value="{a: b}"),
+                    setting.format(value="[a, b]"),
+                    setting.format(value="true"),
+                    setting.format(value="123"),
+                    setting.format(value="*alias"),
+                    setting.format(value="a\x85b"),
+                    setting.format(value="$SECRET_TOKEN/state"),
+                    setting.format(value="'unterminated"),
+                    setting.format(value="'a' b"),
+                    "plugins:\n\tentries:\n\t\tomh: {}\n",
+                ):
+                    config(text)
+                    with self.subTest(text=text), self.assertRaises(paths.RuntimeBindingError):
+                        paths.resolve_homes()
+                # So is a file that cannot be read at all.
+                (profile / "config.yaml").unlink()
+                (profile / "config.yaml").mkdir()
+                with self.assertRaises(paths.RuntimeBindingError):
+                    paths.resolve_homes()
+
     def test_same_session_ids_do_not_consume_another_profiles_guards(self):
         import json
         from omh.plugin_bundle.omh import agent_board_bridge as board, toolcall_rules as rules

@@ -8,6 +8,8 @@ from pathlib import Path
 import shutil
 from typing import Any, TypedDict
 
+from ..plugin_bundle.omh import runtime_paths
+
 try:
     from ..core.errors import OmhError
     from ..install.config_adapter import ensure_external_dir, read_config, remove_external_dir, write_config
@@ -218,17 +220,28 @@ def migrate_legacy(root: Path, state: dict[str, Any], paths: Any, platform: Self
     legacy = Path(str(state["active"]["path"]))
     bootstrap = root / "generations" / "bootstrap-legacy"
     bootstrap.mkdir(parents=True, exist_ok=True)
-    for name, target in (("venv", legacy), ("skills", paths.omh_home / "skills")):
+    # The pre-pointer install registered and populated `<store>/skills` at
+    # the store the resolver named THEN. A home that has since named its own
+    # store (#1679) resolves elsewhere now, so the default store is the
+    # legacy one whenever the resolved store carries no skills.
+    legacy_skills = paths.omh_home / "skills"
+    default_skills = runtime_paths.standalone_default_omh_home(paths.hermes_home) / "skills"
+    if not legacy_skills.is_dir() and default_skills.is_dir():
+        legacy_skills = default_skills
+    for name, target in (("venv", legacy), ("skills", legacy_skills)):
         link = bootstrap / name
         if not link.exists() and not link.is_symlink():
             platform.create_directory_link(root, link, target)
     if pointer_target(root, platform=platform) is None:
         switch_current(root, bootstrap, platform=platform)
     launcher = _retarget_launcher(root, platform)
-    old = paths.omh_home / "skills"
-    changed = ensure_external_dir(remove_external_dir(read_config(paths.hermes_config_path), old).text, root / "current" / "skills")
-    if changed.changed:
-        write_config(paths.hermes_config_path, changed.text)
+    original = read_config(paths.hermes_config_path)
+    text = original
+    for old in (legacy_skills, default_skills, paths.omh_home / "skills"):
+        text = remove_external_dir(text, old).text
+    text = ensure_external_dir(text, root / "current" / "skills").text
+    if text != original:
+        write_config(paths.hermes_config_path, text)
     state["active"] = generation_entry(bootstrap, "bootstrap")
     state["migration"] = {"status": "completed", "launcher_on_pointer": launcher, "registration_on_pointer": True, "completed_at": now()}
     record_pointer(state, root, bootstrap)

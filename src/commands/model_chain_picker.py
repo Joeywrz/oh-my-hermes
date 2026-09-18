@@ -252,6 +252,16 @@ def render_frame(
             " " * _MARGIN
             + paint(_clip(f"! providers.json ignored: {reason} · any providers it excluded count again", inner), "ui_warn")
         )
+    # An override document the reader rejects is ignored whole, so every row
+    # below reads `default` -- the exact picture of a chain that was never
+    # set. One row says the file is there and why it is not in effect.
+    document_status = str(payload.get("document_status") or "")
+    if document_status.startswith("invalid:"):
+        reason = document_status[len("invalid:"):].strip()
+        lines.append(
+            " " * _MARGIN
+            + paint(_clip(f"! model-chains.json ignored: {reason} · every category shows its shipped default", inner), "ui_warn")
+        )
     lines += [rule, header]
     for index, row in enumerate(rows):
         is_cursor = index == cursor

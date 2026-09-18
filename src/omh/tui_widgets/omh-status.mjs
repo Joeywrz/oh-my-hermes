@@ -4,14 +4,20 @@ import { readFileSync, statSync } from 'node:fs'
 export default function register(sdk) {
   const { Box, Dialog, Overlay, Text, defineWidgetApp, h, openWidget, updateWidget } = sdk
   const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
-  const HOME = process.env.OMH_HOME || `${process.env.HOME}/.omh`
   const HERMES_HOME = process.env.HERMES_HOME || `${process.env.HOME}/.hermes`
+  // The OMH store is the bundle's to resolve, not this file's. A profile
+  // names its own under `plugins.entries.omh.settings.omh_home`, and the
+  // plugin that dispatches from this TUI reads that setting before any
+  // environment value; the readers below get the same answer by asking the
+  // bundle with no store named. An `OMH_HOME` this process was launched
+  // with passes through for the rest of the standalone precedence, where it
+  // loses to the setting -- forcing it here is what had the picker editing
+  // `~/.omh` in a profile whose dispatches never read it (#1679).
   const READER_ENV = {
     HOME: process.env.HOME || '',
     HERMES_HOME,
-    OMH_HOME: HOME,
   }
-  for (const key of ['LANG', 'LC_ALL', 'LC_CTYPE', 'SYSTEMROOT', 'WINDIR']) {
+  for (const key of ['OMH_HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SYSTEMROOT', 'WINDIR']) {
     if (process.env[key]) READER_ENV[key] = process.env[key]
   }
   if (['on', 'off'].includes(process.env.OMH_SUBAGENT_GRAPH)) {
@@ -21,7 +27,7 @@ export default function register(sdk) {
     'import json,os,sys',
     "sys.path.insert(0, os.path.join(os.environ['HERMES_HOME'], 'plugins'))",
     'from omh.runtime_reader import read_omh_hud',
-    "print(json.dumps(read_omh_hud(os.environ.get('OMH_HOME'), os.environ.get('HERMES_HOME'), graph_preference=os.environ.get('OMH_SUBAGENT_GRAPH', 'auto'), tui_session_ref=os.environ.get('OMH_HUD_TUI_SESSION_REF', ''), session_scoped=True, tui_identity_expected=os.environ.get('OMH_HUD_TUI_IDENTITY', '') == '1')))",
+    "print(json.dumps(read_omh_hud(None, os.environ.get('HERMES_HOME'), graph_preference=os.environ.get('OMH_SUBAGENT_GRAPH', 'auto'), tui_session_ref=os.environ.get('OMH_HUD_TUI_SESSION_REF', ''), session_scoped=True, tui_identity_expected=os.environ.get('OMH_HUD_TUI_IDENTITY', '') == '1')))",
   ].join(';')
   // This TUI's own session id. The host writes it to the file named by
   // HERMES_TUI_ACTIVE_SESSION_FILE whenever it creates, resumes, or switches
@@ -1219,13 +1225,13 @@ export default function register(sdk) {
     'import json,os,sys',
     "sys.path.insert(0, os.path.join(os.environ['HERMES_HOME'], 'plugins'))",
     'from omh.model_chain_picker import picker_rows',
-    "print(json.dumps(picker_rows(os.environ.get('OMH_HOME'), hermes_home=os.environ.get('HERMES_HOME'))))",
+    "print(json.dumps(picker_rows(None, hermes_home=os.environ.get('HERMES_HOME'))))",
   ].join(';')
   const PICKER_WRITER = [
     'import json,os,sys',
     "sys.path.insert(0, os.path.join(os.environ['HERMES_HOME'], 'plugins'))",
     'from omh.model_chain_picker import apply_picker_changes',
-    "print(json.dumps(apply_picker_changes(os.environ.get('OMH_HOME'), json.load(sys.stdin))))",
+    "print(json.dumps(apply_picker_changes(None, json.load(sys.stdin), hermes_home=os.environ.get('HERMES_HOME'))))",
   ].join(';')
   const PICKER_EFFORT_LADDER = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
   const runPickerScript = (script, stdinText) => new Promise(resolve => {
@@ -1373,11 +1379,17 @@ export default function register(sdk) {
     // conditional row says so; a valid or absent record adds none.
     const entitlementsStatus = String(payload.entitlements_status || '')
     const ignoredRecord = entitlementsStatus.startsWith('invalid:') ? entitlementsStatus.slice('invalid:'.length).trim() : ''
+    // An override document the reader rejects is ignored whole, so every
+    // row below reads `default` -- the exact picture of a chain that was
+    // never set. One conditional row says the file is there and why it is
+    // not in effect; a valid or absent document adds none.
+    const documentStatus = String(payload.document_status || '')
+    const ignoredDocument = documentStatus.startsWith('invalid:') ? documentStatus.slice('invalid:'.length).trim() : ''
     // Dialog chrome, the providers line, the header, the detail block and
-    // the hint take fifteen rows (sixteen with the ignored-record row); the
+    // the hint take fifteen rows (one more per ignored-file row); the
     // category list gets the rest and windows around the cursor when the
     // terminal is shorter than the twelve categories need.
-    const visible = Math.max(3, Math.min(categories.length, rows - 15 - (ignoredRecord ? 1 : 0)))
+    const visible = Math.max(3, Math.min(categories.length, rows - 15 - (ignoredRecord ? 1 : 0) - (ignoredDocument ? 1 : 0)))
     const start = Math.max(0, Math.min(state.cursor - Math.floor(visible / 2), categories.length - visible))
     const lines = []
     // The providers the served marks are judged against, each with where it
@@ -1395,6 +1407,9 @@ export default function register(sdk) {
     ))
     if (ignoredRecord) {
       lines.push(h(Text, { color: t.color.warn, wrap: 'truncate-end' }, `   ! providers.json ignored: ${safeText(ignoredRecord)} · any providers it excluded count again`))
+    }
+    if (ignoredDocument) {
+      lines.push(h(Text, { color: t.color.warn, wrap: 'truncate-end' }, `   ! model-chains.json ignored: ${safeText(ignoredDocument)} · every category shows its shipped default`))
     }
     lines.push(h(Text, { color: t.color.muted, wrap: 'truncate-end' }, `   ${padCells('CATEGORY', 19)}${padCells('  HEAD MODEL', 26)}${padCells('  EFFORT', 16)}STATE`))
     if (start > 0) lines.push(h(Text, { color: t.color.muted }, `   ↑ ${start} more`))
@@ -1441,7 +1456,10 @@ export default function register(sdk) {
     lines.push(h(
       Text,
       { color: changed ? t.color.warn : t.color.muted, wrap: 'truncate-end' },
-      changed ? `   ${plural(changed, 'unsaved change')} · ⏎ writes ${homeText(payload.path)}` : '   no unsaved changes · ⏎ or esc leaves the file as it is',
+      // The path shows in both states: which store this picker edits is the
+      // question a person opens it with when a chain set elsewhere seems
+      // not to have taken.
+      changed ? `   ${plural(changed, 'unsaved change')} · ⏎ writes ${homeText(payload.path)}` : `   no unsaved changes · ${homeText(payload.path)}`,
     ))
     if (served[headModel] === false) {
       lines.push(h(Text, { color: t.color.error, wrap: 'truncate-end' }, `   ! ${labels[headModel] || safeText(headModel)} is not served by this machine's providers`))

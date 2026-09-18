@@ -4,6 +4,41 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **`/omh-model` and the `omh` CLI now edit the store a bot profile
+  dispatches from.** A Hermes bot profile may select its own OMH store with
+  `plugins.entries.omh.settings.omh_home`, and its native plugin resolves that
+  setting before any environment value. The two other surfaces that show "the
+  chains" did not: the TUI widget forced `OMH_HOME` (or `~/.omh`) into every
+  reader and writer it spawned, and the standalone CLI read the environment
+  and never the file, even under `--hermes-home <profile>`. So a chain set
+  from a Desktop bot chat landed in the profile's store and took effect there,
+  while `/omh-model` in that bot's TUI and `omh model-chains show` read
+  `~/.omh` and reported every category as `default` -- and a save from the
+  picker went to a file the profile never read (#1679).
+
+  The standalone lane now reads the same setting from the Hermes home's own
+  `config.yaml` (by text scan, the block shape Hermes writes, last duplicate
+  winning), then the legacy `OMH_HOME`, then `~/.omh`; an explicit
+  `--omh-home` still wins. An inline `plugins:` section that names no
+  `omh_home` reads as absent. A blank or null setting, an inline section
+  that does name it, an alias or merge key it could be inherited through, a
+  leaf a YAML loader would not hand back as one string, a tab-indented file,
+  and a `$VAR` other than `$HERMES_HOME`/`$HOME` are binding errors rather
+  than a substitute store -- the last because this lane has no secret scope
+  to verify a variable against, where the native lane does. The widget names
+  no store and lets the bundle resolve it from the Hermes home it names. The
+  installer's profile sync keeps naming the primary's store for the managed
+  skills, widget and skin every profile shares; the registration-only
+  opt-out and the one-time legacy migration still find a registration
+  written at the default store when the home has since selected its own.
+
+  Two smaller things made the symptom unreadable and are fixed alongside: an
+  override document the reader rejects (`invalid: …`) rendered in both
+  pickers as twelve `default` rows with no warning, and now gets one row
+  saying the file is there and why it is not in effect; and the TUI picker
+  showed the file it edits only while a change was pending, and now shows it
+  always.
+
 - **A gateway session that no profile owns is no longer vetoed out of every
   tool call.** On a Hermes gateway with `multiplex_profiles` on, a session that
   reaches OMH with no home override is one OMH refuses to attribute to any

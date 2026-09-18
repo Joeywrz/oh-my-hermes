@@ -551,6 +551,14 @@ class TuiWidgetPackTests(unittest.TestCase):
         # with the same isolated interpreter spawn the HUD reader uses.
         self.assertIn("from omh.model_chain_picker import picker_rows", widget)
         self.assertIn("from omh.model_chain_picker import apply_picker_changes", widget)
+        # The spawns name no store. The bundle resolves it from the Hermes
+        # home -- a profile's own setting first -- so an `OMH_HOME` forced
+        # here cannot send the HUD or the picker to a file the profile's
+        # dispatches never read (#1679).
+        self.assertEqual(widget.count("os.environ.get('OMH_HOME')"), 0)
+        self.assertEqual(widget.count("read_omh_hud(None, os.environ.get('HERMES_HOME')"), 1)
+        self.assertEqual(widget.count("picker_rows(None, hermes_home=os.environ.get('HERMES_HOME'))"), 1)
+        self.assertEqual(widget.count("apply_picker_changes(None, json.load(sys.stdin), hermes_home=os.environ.get('HERMES_HOME'))"), 1)
         self.assertIn("['-I', '-B', '-c', script]", widget)
         self.assertIn("Mirror of model_chain_picker.step_head_model", widget)
         self.assertIn("Mirror of model_chain_picker.step_effort", widget)

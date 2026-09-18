@@ -13,6 +13,7 @@ the bare form's degrade to `show` off a terminal and the `omh model` alias.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
@@ -46,6 +47,7 @@ from omh.plugin_bundle.omh.model_chain_picker import (
     PICKER_EFFORT_RING,
     PICKER_SCHEMA_VERSION,
     _EFFORT_LADDER,
+    apply_picker_changes,
     chain_from_entries,
     compose_override_document,
     known_model_aliases,
@@ -136,6 +138,44 @@ class PickerModelTests(unittest.TestCase):
         self.assertEqual(by_name["deep"]["purpose"], CHAIN_SURFACE_PURPOSES["deep"])
         self.assertEqual(payload["efforts"], list(PICKER_EFFORT_RING))
         self.assertEqual(payload["document_status"], "applied")
+
+    def test_a_none_store_binds_to_the_named_hermes_home_not_the_ambient_one(self) -> None:
+        """Naming no store means the store `hermes_home` dispatches from.
+
+        The widget spawns both scripts with no store named (#1679); the
+        `hermes_home` argument is what binds it, not the `HERMES_HOME` the
+        process happens to carry, and a binding refusal on the save path is
+        a sentence in the reply rather than a traceback.
+        """
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+
+            def hermes_home(name: str) -> Path:
+                home = root / name
+                home.mkdir()
+                store = (root / f"{name}-store").as_posix()
+                (home / "config.yaml").write_text(
+                    f"plugins:\n  entries:\n    omh:\n      settings:\n        omh_home: {store}\n", encoding="utf-8"
+                )
+                return home
+
+            named, ambient = hermes_home("named"), hermes_home("ambient")
+            document = root / "named-store" / "routing" / "model-chains.json"
+            with patch.dict("sys.modules", {"hermes_constants": None}), patch.dict(
+                os.environ, {"HERMES_HOME": str(ambient), "HOME": str(root), "USERPROFILE": str(root)}
+            ):
+                os.environ.pop("OMH_HOME", None)
+                self.assertEqual(Path(picker_rows(None, hermes_home=named)["path"]), document)
+                result = apply_picker_changes(
+                    None, {"deep": [{"model": "kimi-k3", "reasoning_effort": "high"}]}, hermes_home=named
+                )
+                self.assertEqual(Path(result["path"]), document)
+                self.assertTrue(document.exists())
+                self.assertFalse((root / "ambient-store").exists())
+                (named / "config.yaml").write_text(
+                    "plugins:\n  entries:\n    omh:\n      settings:\n        omh_home: true\n", encoding="utf-8"
+                )
+                self.assertIn("not a path string", apply_picker_changes(None, {}, hermes_home=named)["error"])
 
     def test_rows_carry_the_stored_chain_not_the_entitlement_shaped_one(self) -> None:
         # `show` reorders a chain so served entries lead; the picker must not,
@@ -425,6 +465,42 @@ class PickerNavigationTests(unittest.TestCase):
         payload = _payload(self.root)
         lines = render_frame(payload, _chains(payload), 0, use_color=False, width=200)
         self.assertFalse(any("providers.json ignored" in line for line in lines))
+        self.assertIn("CATEGORY", lines[3])
+
+    def test_an_ignored_document_is_said_once_under_the_providers_line(self) -> None:
+        """An override file the reader rejects is ignored whole, so every row
+        reads `default` -- the exact picture of a chain that was never set,
+        which is how a person who just set one reads it. The frame says the
+        file is there and why it is not in effect; a valid or absent document
+        adds no row and the layout is the one every other frame test pins.
+        """
+        document = _omh_home(self.root) / "routing" / "model-chains.json"
+        document.parent.mkdir(parents=True, exist_ok=True)
+        document.write_text("{", encoding="utf-8")
+        payload = _payload(self.root)
+        self.assertEqual(payload["document_status"], "invalid: unreadable JSON")
+        self.assertTrue(all(row["origin"] == "default" for row in payload["categories"]))
+        lines = render_frame(payload, _chains(payload), 0, use_color=False, width=200)
+        self.assertEqual(lines[2], "   ! model-chains.json ignored: unreadable JSON · every category shows its shipped default")
+        self.assertIn("CATEGORY", lines[4])
+        self.assertEqual(sum("model-chains.json ignored" in line for line in lines), 1)
+        narrow = render_frame(payload, _chains(payload), 0, use_color=False, width=60)
+        self.assertLessEqual(len(narrow[2]), 60)
+        # Both files ignored: one row each, providers first, header two lower.
+        record = _omh_home(self.root) / "routing" / "providers.json"
+        record.write_text("{", encoding="utf-8")
+        payload = _payload(self.root)
+        lines = render_frame(payload, _chains(payload), 0, use_color=False, width=200)
+        self.assertIn("providers.json ignored", lines[2])
+        self.assertIn("model-chains.json ignored", lines[3])
+        self.assertIn("CATEGORY", lines[5])
+        # A valid document and record restore the plain layout.
+        record.unlink()
+        _write_overrides(self.root, {"deep": (("kimi-k3", "high"),)})
+        payload = _payload(self.root)
+        self.assertEqual(payload["document_status"], "applied")
+        lines = render_frame(payload, _chains(payload), 0, use_color=False, width=200)
+        self.assertFalse(any("ignored" in line for line in lines))
         self.assertIn("CATEGORY", lines[3])
 
     def test_an_unserved_head_is_marked_on_its_row_and_explained_once(self) -> None:

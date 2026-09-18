@@ -77,6 +77,7 @@ from ..menubar_app import is_managed_menubar_install, setup_menubar_app, uninsta
 from ..mcp.host_config import install_mcp_host_config
 from ..mcp_bridge import MCP_HOST_CONFIG_RECIPE_HOSTS
 from ..paths import OmhPaths, managed_command_venv_dir, managed_current_workflow_pack_dir, managed_generation_for_executable
+from ..plugin_bundle.omh import runtime_paths
 from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
 from ..plugin_bundle.omh.provider_detection import (
     LINKED_SOURCE_CONFIG,
@@ -523,6 +524,22 @@ def _hermes_profile_dirs(paths) -> list[tuple[str, "Path"]]:
     return [(entry.name, entry) for entry in entries]
 
 
+def _profile_clone(args: argparse.Namespace, primary: OmhPaths, profile_dir: Path) -> argparse.Namespace:
+    """The argument set the sync runs one profile with: its home, the primary's store.
+
+    The pair is named explicitly because the resolver now reads a profile's
+    own `plugins.entries.omh.settings.omh_home` when nothing names a store
+    (#1679), and that is the profile's dispatch store, not the one the
+    managed skills, widget and skin are installed from. Every profile shares
+    the primary's store for those, as `uninstall_profile_plugin` records, and
+    the registration candidates the sync scores are the primary's too.
+    """
+    clone = argparse.Namespace(**vars(args))
+    clone.hermes_home = str(profile_dir)
+    clone.omh_home = str(primary.omh_home)
+    return clone
+
+
 def _sync_hermes_profiles(args: argparse.Namespace) -> list[dict[str, object]]:
     """Apply the managed OMH registration to every bot-profile home.
 
@@ -541,9 +558,9 @@ def _sync_hermes_profiles(args: argparse.Namespace) -> list[dict[str, object]]:
     `_managed_workflow_dir_candidates`.
     """
     results: list[dict[str, object]] = []
-    for name, profile_dir in _hermes_profile_dirs(_paths(args)):
-        clone = argparse.Namespace(**vars(args))
-        clone.hermes_home = str(profile_dir)
+    primary = _paths(args)
+    for name, profile_dir in _hermes_profile_dirs(primary):
+        clone = _profile_clone(args, primary, profile_dir)
         profile_paths = _paths(clone)
         config_text = read_config(profile_paths.hermes_config_path)
         registered = any(
@@ -586,9 +603,9 @@ def _uninstall_hermes_profiles(args: argparse.Namespace, *, remove_all: bool) ->
     halfway.
     """
     results: list[dict[str, object]] = []
-    for name, profile_dir in _hermes_profile_dirs(_paths(args)):
-        clone = argparse.Namespace(**vars(args))
-        clone.hermes_home = str(profile_dir)
+    primary = _paths(args)
+    for name, profile_dir in _hermes_profile_dirs(primary):
+        clone = _profile_clone(args, primary, profile_dir)
         profile_paths = _paths(clone)
         entry: dict[str, object] = {"profile": name}
         try:
@@ -680,6 +697,14 @@ def _managed_workflow_dir_candidates(paths: OmhPaths) -> list[Path]:
         paths.omh_home / "skills",
         paths.skills_dir,
         managed_current_workflow_pack_dir(),
+        # A profile that later selected its own store (`plugins.entries.omh.
+        # settings.omh_home`) was registered by the sync at the primary's
+        # store, which for a default install is this one. Named by the
+        # standalone default rather than through `paths`, because a direct
+        # `omh --hermes-home <profile> uninstall --registration-only` now
+        # resolves `paths.omh_home` to the profile's store (#1679) and would
+        # otherwise leave the registration it came to remove.
+        runtime_paths.standalone_default_omh_home(paths.hermes_home) / "skills",
     ):
         if candidate is not None and candidate not in candidates:
             candidates.append(candidate)

@@ -28,6 +28,7 @@ from pathlib import Path
 import secrets
 from typing import Any
 
+from . import runtime_paths
 from .hermes_delegation import (
     HERMES_MIXTURE_CATEGORY_CHAINS,
     MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION,
@@ -139,6 +140,7 @@ def picker_rows(
     """
     labels = labels or {}
     purposes = purposes or {}
+    omh_home = _bound_store(omh_home, hermes_home)
     overrides, status = load_mixture_chain_overrides(omh_home)
     entitlements, entitlement_status, providers = effective_provider_entitlements(omh_home, hermes_home)
     routes, _ = load_model_provider_routes(omh_home)
@@ -280,7 +282,26 @@ def write_override_document(omh_home: str | Path | None, document: Mapping[str, 
     return path
 
 
-def apply_picker_changes(omh_home: str | Path | None, raw_changes: object) -> dict[str, Any]:
+def _bound_store(omh_home: str | Path | None, hermes_home: str | Path | None) -> str | Path:
+    """A store named by the caller, else the one `hermes_home` resolves to.
+
+    Naming no store means "the store this Hermes home dispatches from": a
+    profile's own `plugins.entries.omh.settings.omh_home`, then the
+    standalone precedence (#1679). Bound here, once, so every read and the
+    write below agree, and so `hermes_home` binds rather than reading as if
+    it did while the ambient `HERMES_HOME` decided.
+    """
+    if omh_home is not None:
+        return omh_home
+    return runtime_paths.resolve_homes(None, hermes_home)[0]
+
+
+def apply_picker_changes(
+    omh_home: str | Path | None,
+    raw_changes: object,
+    *,
+    hermes_home: str | Path | None = None,
+) -> dict[str, Any]:
     """The widget's save, as one call over stdin JSON.
 
     `raw_changes` is `{category: [{"model": ..., "reasoning_effort": ...}]}`
@@ -290,6 +311,10 @@ def apply_picker_changes(omh_home: str | Path | None, raw_changes: object) -> di
     """
     if not isinstance(raw_changes, Mapping):
         return {"error": "changes must be a JSON object keyed by category"}
+    try:
+        omh_home = _bound_store(omh_home, hermes_home)
+    except runtime_paths.RuntimeBindingError as exc:
+        return {"error": str(exc)}
     changes: dict[str, Chain] = {}
     for name, entries in raw_changes.items():
         if not isinstance(entries, list) or not all(

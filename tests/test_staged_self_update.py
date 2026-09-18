@@ -394,6 +394,41 @@ class StagedSelfUpdateTests(unittest.TestCase):
                 self.assertEqual((root / "hermes" / "config.yaml").read_bytes(), config_before)
                 self._assert_pair(root)
 
+    def test_migration_finds_the_legacy_skills_at_the_default_store_when_the_home_names_its_own(self) -> None:
+        # The pre-pointer install registered and populated `<store>/skills` at
+        # the store the resolver named then. A home that has since selected
+        # its own store (`plugins.entries.omh.settings.omh_home`, read by the
+        # standalone lane since #1679) resolves elsewhere now; the migration
+        # must still link and strip the registration where it actually sits.
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            legacy = root / "legacy"
+            (legacy / "bin").mkdir(parents=True)
+            default_skills = root / ".omh" / "skills"
+            default_skills.mkdir(parents=True)
+            named_store = root / "named-store"
+            hermes_home = root / "hermes"
+            hermes_home.mkdir()
+            (hermes_home / "config.yaml").write_text(
+                f"skills:\n  external_dirs:\n    - {default_skills.as_posix()}\n"
+                f"plugins:\n  entries:\n    omh:\n      settings:\n        omh_home: {named_store.as_posix()}\n",
+                encoding="utf-8",
+            )
+            state: dict[str, JsonValue] = {"active": self._entry(legacy), "migration": {"status": "pending"}}
+            paths = OmhPaths(omh_home=named_store, hermes_home=hermes_home)
+            platform = SelfUpdatePlatform(is_windows=False)
+            with patch.dict(os.environ, {"HOME": str(root), "USERPROFILE": str(root)}, clear=False):
+                os.environ.pop("OMH_HOME", None)
+                os.environ.pop("OMH_BIN_DIR", None)
+                self_update_state.migrate_legacy(root, state, paths, platform)
+            bootstrap = root / "generations" / "bootstrap-legacy"
+            self.assertEqual((bootstrap / "skills").resolve(), default_skills.resolve())
+            registered = external_dirs((hermes_home / "config.yaml").read_text(encoding="utf-8"))
+            self.assertNotIn(default_skills.as_posix(), registered)
+            self.assertIn((root / "current" / "skills").as_posix(), registered)
+            self.assertFalse(named_store.exists())
+            self.assertEqual(state["migration"]["status"], "completed")
+
     def test_migration_launcher_failure_keeps_old_pair_and_cleans_candidate(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

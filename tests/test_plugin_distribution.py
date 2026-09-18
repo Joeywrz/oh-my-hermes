@@ -2280,6 +2280,83 @@ class HermesProfileSyncTests(unittest.TestCase):
             self.assertEqual(status, 0, stderr)
             self.assertIn("Bot profiles: politehelper (left unregistered)", stdout)
 
+    def _profile_naming_its_own_store(self, root: Path, name: str) -> tuple[Path, Path]:
+        """A profile whose config.yaml selects its own OMH store, before setup."""
+        profile = self._profile(root, name)
+        store = profile / "omh"
+        (profile / "config.yaml").write_text(
+            f"plugins:\n  entries:\n    omh:\n      settings:\n        omh_home: {store.as_posix()}\n",
+            encoding="utf-8",
+        )
+        return profile, store
+
+    def test_a_profile_that_names_its_own_store_is_synced_from_the_primary_store(self) -> None:
+        # A profile may select its own OMH store (`plugins.entries.omh.
+        # settings.omh_home`), and the resolver reads that setting for a bare
+        # `--hermes-home <profile>` too (#1679). The sync is not such a
+        # caller: the managed skills, widget and skin every profile shares
+        # come from the primary's store, so the registration it writes and
+        # the candidates it scores stay the primary's, and nothing is
+        # created under the profile's own store.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile, store = self._profile_naming_its_own_store(root, "politehelper")
+            status, stdout, stderr = run_cli(self._base(root) + ["setup", "--json"], output_json=False)
+            self.assertEqual((status, stderr), (0, ""))
+            rows = {entry["profile"]: entry["status"] for entry in json.loads(stdout)["hermes_profiles"]}
+            self.assertEqual(rows, {"politehelper": "bootstrapped"})
+            config_text = (profile / "config.yaml").read_text(encoding="utf-8")
+            self.assertIn((root / ".omh" / "skills").resolve().as_posix(), config_text)
+            self.assertNotIn((store / "skills").as_posix(), config_text)
+            self.assertFalse((store / "skills").exists())
+            # The setting survives registration, and the next update still
+            # scores the profile as registered rather than opted out.
+            self.assertIn(store.as_posix(), config_text)
+            status, stdout, stderr = run_cli(self._base(root) + ["update"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("Bot profiles: politehelper (refreshed)", stdout)
+
+    def test_a_bare_setup_on_the_primary_still_registers_profiles_at_the_primary_store(self) -> None:
+        # Every other case here names the store with `--omh-home`, which pins
+        # the per-profile pair by argv alone. A live `omh update` names
+        # nothing, so this is the shape that exercises `_profile_clone`:
+        # without it, the profile's own setting would resolve and the sync
+        # would register `<profile>/omh/skills`, a directory it never creates.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile, store = self._profile_naming_its_own_store(root, "politehelper")
+            with mock.patch.dict(os.environ, {"HOME": str(root), "USERPROFILE": str(root)}):
+                os.environ.pop("OMH_HOME", None)
+                status, _, stderr = run_cli(["--hermes-home", str(root / ".hermes"), "setup"])
+            self.assertEqual(status, 0, stderr)
+            config_text = (profile / "config.yaml").read_text(encoding="utf-8")
+            self.assertIn((root / ".omh" / "skills").resolve().as_posix(), config_text)
+            self.assertNotIn((store / "skills").as_posix(), config_text)
+            self.assertFalse((store / "skills").exists())
+
+    def test_opting_out_a_profile_that_names_its_own_store_without_naming_the_primary(self) -> None:
+        # The documented opt-out names only the profile home. With the
+        # profile's own store now resolved from its setting, the registration
+        # the sync wrote at the primary's store is still the one to remove;
+        # the candidate list names the standalone default for exactly this.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile, _store = self._profile_naming_its_own_store(root, "politehelper")
+            status, _, stderr = run_cli(self._base(root) + ["setup"])
+            self.assertEqual(status, 0, stderr)
+            old_path = (root / ".omh" / "skills").resolve().as_posix()
+            self.assertIn(old_path, (profile / "config.yaml").read_text(encoding="utf-8"))
+            with mock.patch.dict(os.environ, {"HOME": str(root), "USERPROFILE": str(root)}):
+                os.environ.pop("OMH_HOME", None)
+                status, _, stderr = run_cli(["--hermes-home", str(profile), "uninstall", "--registration-only"])
+            self.assertEqual(status, 0, stderr)
+            config_after = (profile / "config.yaml").read_text(encoding="utf-8")
+            self.assertNotIn(old_path, config_after)
+            self.assertTrue((profile / "plugins" / "omh").is_dir())
+            status, stdout, stderr = run_cli(self._base(root) + ["update"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("Bot profiles: politehelper (left unregistered)", stdout)
+
     def test_opting_out_removes_a_registration_at_the_current_managed_dir(self) -> None:
         # The mirror case: a home registered only at the generation pointer,
         # with the older path absent, opts out identically.

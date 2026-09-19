@@ -400,8 +400,8 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
 # function. `_write_candidate_batch`, `_is_catalog_question`, `pre_llm_call`,
 # `_resume_unlocked`, and `_execute_cell` each hold two handlers, so the handler
 # count is five above the anchor count.
-EXPECTED_HANDLER_COUNT = 40
-EXPECTED_ANCHOR_COUNT = 35
+EXPECTED_HANDLER_COUNT = 41
+EXPECTED_ANCHOR_COUNT = 36
 
 
 class DerivedSite(NamedTuple):

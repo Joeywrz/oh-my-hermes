@@ -138,7 +138,7 @@ _DEFAULT_SURFACE_PROJECTIONS = ("routable", "installable", "workflow_reference",
 _DEFAULT_SURFACE_PREFERRED_USAGE = (
     "Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle."
 )
-# Retired ULW engines keep only the reference projection -- the
+# Retired surfaces keep only the reference projection -- the
 # `quality-evidence-loop` precedent: the contract exists but is not an
 # installed, routable, user-facing skill.
 _RETIRED_SURFACE_PROJECTIONS = ("workflow_reference",)
@@ -146,6 +146,21 @@ _RETIRED_SURFACE_PREFERRED_USAGE = (
     "Retired workflow engine: the intent now runs as a `ulw-work` capability; keep this contract as a "
     "workflow reference only."
 )
+
+
+def _retired_sibling_preferred_usage(target_home: str) -> str:
+    """Preferred-usage line for a skill retired into a sibling skill.
+
+    The engine line above names a capability inside `ulw-work`. A skill folded
+    into a sibling has no capability id -- the whole target home is where the
+    intent now runs -- so the line names the target's display label instead.
+    """
+    return (
+        f"Retired workflow surface: the intent now runs as `{omh_skill_display_name(target_home)}`; "
+        "keep this contract as a workflow reference only."
+    )
+
+
 _SURFACE_EXPOSURES = (
     SurfaceExposure(
         "design-orchestration",
@@ -628,6 +643,59 @@ _SURFACE_EXPOSURES = (
         _DEFAULT_SURFACE_PREFERRED_USAGE,
         lifecycle_stage="canonical",
     ),
+    # Three non-engine skills folded into a stronger sibling (#1691). Each was
+    # a strict subset of its target home -- the target produces the same
+    # outputs plus more -- so the pair cost two always-loaded bodies for one
+    # job. The retirement shape is the one the engines above use: the
+    # `SkillDefinition` stays, the body stops rendering, the contract survives
+    # as a `workflow_reference`, and rollback is a one-row edit back to the
+    # default shape.
+    #
+    # Two things differ from the engine rows. The target home is a sibling
+    # SKILL, not a capability inside `ulw-work`, so there is no capability id
+    # to name and the preferred-usage line names the target instead. And the
+    # cue vocabulary migrates by folding each retired trigger into the target
+    # home's own trigger table rather than through `routing/ulw_alias.py`:
+    # that resolver returns an unconditional high-confidence dispatch on a
+    # contained cue, which is right for distinctive engine names and wrong for
+    # bare words like `benchmark` and `latency`. Folded triggers stay inside
+    # ordinary catalog scoring, where they compete instead of pre-empting.
+    SurfaceExposure(
+        "performance-goal",
+        "direct_skill",
+        _RETIRED_SURFACE_PROJECTIONS,
+        False,
+        "workflow_reference",
+        _retired_sibling_preferred_usage("ultraperf"),
+        compatibility_alias=True,
+        lifecycle_stage="retired",
+        target_home="ultraperf",
+        migration_release="2.0.4",
+    ),
+    SurfaceExposure(
+        "best-practice-research",
+        "direct_skill",
+        _RETIRED_SURFACE_PROJECTIONS,
+        False,
+        "workflow_reference",
+        _retired_sibling_preferred_usage("web-research"),
+        compatibility_alias=True,
+        lifecycle_stage="retired",
+        target_home="web-research",
+        migration_release="2.0.4",
+    ),
+    SurfaceExposure(
+        "autoresearch-goal",
+        "direct_skill",
+        _RETIRED_SURFACE_PROJECTIONS,
+        False,
+        "workflow_reference",
+        _retired_sibling_preferred_usage("research"),
+        compatibility_alias=True,
+        lifecycle_stage="retired",
+        target_home="research",
+        migration_release="2.0.4",
+    ),
 )
 
 
@@ -1012,8 +1080,27 @@ def retired_ulw_engine_definitions() -> list[SkillDefinition]:
     return [definition for definition in _builtin_definitions_cached() if definition.name in names]
 
 
+def retired_skill_names() -> tuple[str, ...]:
+    """Canonical names of every skill whose lifecycle stage is `retired`.
+
+    Read off the exposure table rather than the ULW inventory, which only
+    enumerates the engines in `ULW_ENGINE_SKILL_NAMES`: a skill folded into a
+    non-engine sibling (#1691) is retired by the same row shape but is invisible
+    to `retired_ulw_engine_names()`. The two are kept separate on purpose --
+    the ULW-derived one feeds the engine inventory surfaces (README and site
+    regions, drift counts, the capability equivalence table), which mean the
+    engines specifically; this one feeds label resolution, the migration error,
+    and doctor, which mean every retired contract.
+    """
+    return tuple(
+        exposure.name
+        for exposure in _SURFACE_EXPOSURES
+        if exposure.lifecycle_stage == "retired"
+    )
+
+
 def retired_display_names() -> dict[str, str]:
-    """Map every current and historical display label of a retired engine to its canonical name.
+    """Map every current and historical display label of a retired skill to its canonical name.
 
     Consulted after `_canonical_skill_by_display_name()` misses: retirement
     narrows a skill out of the routable projection, which ends ordinary label
@@ -1021,7 +1108,7 @@ def retired_display_names() -> dict[str, str]:
     of a silent miss.
     """
     mapping: dict[str, str] = {}
-    for name in retired_ulw_engine_names():
+    for name in retired_skill_names():
         mapping[name] = name
         mapping[omh_skill_display_name(name)] = name
         for label in historical_skill_display_names(name):
@@ -1030,11 +1117,12 @@ def retired_display_names() -> dict[str, str]:
 
 
 def retired_skill_migration_error(label: str) -> dict[str, str]:
-    """Named migration error for a retired engine label or tap path.
+    """Named migration error for a retired skill label or tap path.
 
-    Returns an empty dict when the label names no retired engine. The message
-    is informational migration copy, not a deprecation warning: the intent now
-    runs as the named `ulw-work` capability.
+    Returns an empty dict when the label names no retired skill. The message is
+    informational migration copy, not a deprecation warning: the intent now
+    runs as the named `ulw-work` capability, or -- for a skill folded into a
+    sibling rather than into an engine capability -- as the target home skill.
     """
     text = label.strip()
     canonical = retired_display_names().get(text, "")
@@ -1043,6 +1131,8 @@ def retired_skill_migration_error(label: str) -> dict[str, str]:
         canonical = retired_display_names().get(tail, "")
     if not canonical:
         return {}
+    if canonical not in ULW_RETIRED_CAPABILITIES:
+        return _retired_sibling_migration_error(canonical)
     capability = ULW_RETIRED_CAPABILITIES[canonical]
     display = omh_skill_display_name(canonical)
     return {
@@ -1055,6 +1145,30 @@ def retired_skill_migration_error(label: str) -> dict[str, str]:
         "message": (
             f"`{display}` is retired; this intent now runs as `ulw-work` capability "
             f"`{capability}`. Install or invoke `ulw-work` (canonical `ultrawork`) instead."
+        ),
+    }
+
+
+def _retired_sibling_migration_error(canonical: str) -> dict[str, str]:
+    """Migration error for a skill retired into a sibling skill (#1691).
+
+    No `selected_capability` key: the intent moved to a whole target home, not
+    to one capability inside `ulw-work`, and inventing a capability id here
+    would put a name in diagnostics that no capability table defines.
+    """
+    exposure = surface_exposure_for_skill(canonical)
+    target = exposure.target_home or ""
+    display = omh_skill_display_name(canonical)
+    target_display = omh_skill_display_name(target) if target else ""
+    return {
+        "error": "retired_skill",
+        "retired_contract_id": canonical,
+        "retired_display_name": display,
+        "target_contract_id": target,
+        "target_display_name": target_display,
+        "message": (
+            f"`{display}` is retired; this intent now runs as `{target_display}`. "
+            f"Install or invoke `{target_display}` (canonical `{target}`) instead."
         ),
     }
 
@@ -1255,7 +1369,7 @@ _EXPLICIT_MEMORY_CONTEXT_SKILLS = (
     "ralplan",
     "code-review",
     "ai-slop-cleaner",
-    "performance-goal",
+    "ultraperf",
     "ask",
 )
 

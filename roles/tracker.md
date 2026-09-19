@@ -24,7 +24,7 @@ Role selection is prepared guidance only. It is not worker dispatch, tool execut
 
 ## Primary Skills
 
-- `performance-goal`
+- `ultraperf`
 - `agent-board`
 - `executor-runtime-readiness`
 - `toolbelt-readiness`

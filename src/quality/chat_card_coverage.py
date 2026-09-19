@@ -507,14 +507,6 @@ CHAT_CARD_COVERAGE_CASES: tuple[ChatCardCoverageCase, ...] = (
         "prepare_media_input_card",
     ),
     ChatCardCoverageCase(
-        "performance-goal",
-        "Performance Goal",
-        "performance-goal",
-        "performance-goal",
-        "plan",
-        "forward_plan_to_selected_workflow",
-    ),
-    ChatCardCoverageCase(
         "physical-device-readiness",
         "Physical Device Readiness",
         "physical-device-readiness",

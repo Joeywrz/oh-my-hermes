@@ -1803,7 +1803,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "keep researching AI agent memory practices until the evidence gaps are closed or logged.",
-                "autoresearch-goal",
+                "research",
             ),
         )
 
@@ -2784,9 +2784,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "성능 최적화해줘",
-                "performance-goal",
-                "prepare_quality_performance_and_usability_review",
-                "operator_surface_fast_path:performance",
+                "ultraperf",
+                "prepare_ultraperf_loop",
+                "operator_surface_fast_path:ultraperf",
             ),
             ("리드미 개선해줘", "ultrawork", "prepare_coding_runtime_handoff", "operator_surface_fast_path:delivery"),
             (
@@ -2873,12 +2873,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 "performance proof",
                 "workflow completion",
             ),
-            "performance-goal": (
-                "runtime proof",
-                "tool invocation",
-                "MCP server",
+            "ultraperf": (
+                "execution",
+                "review",
                 "CI",
-                "platform action",
+                "merge",
             ),
         }
 
@@ -3047,11 +3046,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(image_card["selected_harness"], "img-summary")
 
         official_docs = route_chat_message("find official docs for the current OpenAI API version", source="discord")
-        self.assertEqual(official_docs["selected_skill"], "best-practice-research")
+        self.assertEqual(official_docs["selected_skill"], "web-research")
         self.assertEqual(official_docs["selected_harness"], "research")
 
         best_practice = route_chat_message("find best practice docs for Python packaging", source="discord")
-        self.assertEqual(best_practice["selected_skill"], "best-practice-research")
+        self.assertEqual(best_practice["selected_skill"], "web-research")
         self.assertEqual(best_practice["selected_harness"], "research")
 
     def test_explicit_workflow_learning_feedback_wins_over_domain_terms(self) -> None:
@@ -4006,7 +4005,14 @@ selected_workflow=ultraprocess
             ("AI agent usability research with current sources research every morning with a briefing", "research-department", "guard:research_department"),
             ("AI agent usability research with current sources and make a PR", "ultrawork", "guard:delivery_cycle_before_research_only"),
             ("AI agent usability research with current sources and explain this paper PDF", "paper-learning", "guard:paper_learning"),
-            ("AI agent usability research with current sources keep researching until gap closed", "autoresearch-goal", "guard:durable_research_goal"),
+            # The durable-research guard used to win this collision because it
+            # preferred a different skill from the fast path. With
+            # `autoresearch-goal` retired into `research` (#1691) both lanes
+            # name the same workflow, so the fast path resolves first and its
+            # marker is the one recorded. The guard itself still fires on the
+            # same language without the AI-usability cues -- "keep researching
+            # until gap closed" alone matches `guard:durable_research_goal`.
+            ("AI agent usability research with current sources keep researching until gap closed", "research", "operator_surface_fast_path:ai_usability_research"),
             ("AI agent usability research with current sources create a research brief", "research-brief", "guard:research_brief"),
             ("AI agent usability current sources and attach a PDF report to Slack", "deliverable-package", "guard:deliverable_package"),
             ("AI agent usability current sources and prepare an image card", "img-summary", "guard:img_summary"),
@@ -4019,6 +4025,14 @@ selected_workflow=ultraprocess
                 decision = route_chat_message(message, source="discord")
                 self.assertEqual(decision["selected_skill"], skill)
                 self.assertIn(marker, decision["recommendations"][0]["matched"])
+
+        # The durable-research guard still fires on its own language, without
+        # the AI-usability cues that hand the collision row above to the fast
+        # path. Asserted rather than described, because that row is the only
+        # other place this guard is named.
+        durable = route_chat_message("keep researching until gap closed", source="discord")
+        self.assertEqual(durable["selected_skill"], "research")
+        self.assertIn("guard:durable_research_goal", durable["recommendations"][0]["matched"])
 
         for message in ("find paper PDF datasets", "research every morning with a briefing", "make a PR", "explain this paper PDF", "keep researching until gap closed", "create a research brief"):
             with self.subTest(message=message):
@@ -5057,19 +5071,22 @@ class UltraperfRoutingMatrixTests(unittest.TestCase):
         "\uba54\ubaa8\ub9ac \ub204\uc218 \uc6d0\uc778 \ucc3e\uc544\uc11c \uace0\uccd0\uc918",
         "\ubc30\ud3ec \ud6c4 \ub290\ub824\uc9c4 \uc6d0\uc778 \ucc3e\uc544\uc918",
         "\uc11c\ube44\uc2a4 \uc131\ub2a5 \uc804\ubc18 \uc810\uac80\ud574\uc918",
+        # Moved up from NEGATIVE with the retirement of `performance-goal`
+        # into this skill (#1691): their incumbent was the folded skill, so
+        # "ultraperf must not steal them" no longer names anything.
+        "benchmark latency for the recommender and prove the budget",
+        "evaluate agent performance on the benchmark suite",
+        "\uc131\ub2a5 \ucd5c\uc801\ud654\ud574\uc918",
     )
 
     NEGATIVE = (
         ("audit this workspace prompts skills plugins and hooks for stale config", "workspace-audit"),
-        ("benchmark latency for the recommender and prove the budget", "performance-goal"),
         ("review this diff for bottleneck-prone loops", "code-review"),
         # Pre-existing incumbents on origin/main: the guard requirement is that
         # ultraperf must not steal these prompts, not that their historical
         # owner changes.
         ("check the login page visually before release", "browser-operator"),
-        ("evaluate agent performance on the benchmark suite", "performance-goal"),
         ("the CI build is failing on main", "build-failure-triage"),
-        ("\uc131\ub2a5 \ucd5c\uc801\ud654\ud574\uc918", "performance-goal"),
         ("\ucf54\ub4dc \ub9ac\ubdf0\ud574\uc918", "code-review"),
     )
 

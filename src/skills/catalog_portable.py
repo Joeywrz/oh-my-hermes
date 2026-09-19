@@ -161,12 +161,12 @@ _PORTABILITY: dict[str, str] = {
     'omh-refactor-plan': PORTABILITY_PORTABLE,
     # required_inputs: the repo root or the scoped path list the audit is confined to; expected_outputs: orientation summary: manifests read, churn ranking, largest files, test and CI entry points; final_checklist requires evidence/approval, not a native runtime.
     'omh-tech-debt-audit': PORTABILITY_PORTABLE,
-    # required_inputs: chosen technology; expected_outputs: source-backed guidance; final_checklist requires evidence/approval, not a native runtime.
-    'omh-best-practice-research': PORTABILITY_PORTABLE,
-    # required_inputs: research objective; expected_outputs: research artifact; final_checklist requires evidence/approval, not a native runtime.
-    'omh-autoresearch-goal': PORTABILITY_PORTABLE,
-    # required_inputs: metric; expected_outputs: measurement delta; final_checklist requires evidence/approval, not a native runtime.
-    'omh-performance-goal': PORTABILITY_PORTABLE,
+    # Catalog reference/retired surface, not an installable workflow; no Agent Skills projection in v1.
+    'omh-best-practice-research': PORTABILITY_HERMES_ONLY,
+    # Catalog reference/retired surface, not an installable workflow; no Agent Skills projection in v1.
+    'omh-autoresearch-goal': PORTABILITY_HERMES_ONLY,
+    # Catalog reference/retired surface, not an installable workflow; no Agent Skills projection in v1.
+    'omh-performance-goal': PORTABILITY_HERMES_ONLY,
     # required_inputs: the model id(s) and where the weights live (HF id, local path, gated or not); expected_outputs: engine and quantization verdict from the decision tables, with the rejected options named; final_checklist requires evidence/approval, not a native runtime.
     'omh-inference-serving': PORTABILITY_PORTABLE,
     # required_inputs require router recognition; quality_bar mutates Hermes/Maestro model routing.

@@ -36,7 +36,9 @@ REPRESENTATIVE_ROUTE_CASES = (
     ImpactRouteCase("image-edit", "Edit this image to remove the background", "img-summary"),
     ImpactRouteCase("video-generate", "Generate a short product demo video", "external-connector-readiness"),
     ImpactRouteCase("home-assistant", "Check whether Home Assistant can control this device", "external-connector-readiness"),
-    ImpactRouteCase("testing-article", "Write an article about testing best practices", "best-practice-research"),
+    # `best-practice-research` retired into `web-research` (#1691); the cited
+    # best-practice retrieval this sentence asks for is the target home's job.
+    ImpactRouteCase("testing-article", "Write an article about testing best practices", "web-research"),
     ImpactRouteCase("pull-request-review", "Review this pull request code", "ultrawork"),
     ImpactRouteCase("csv-analysis", "Analyze this CSV dataset", "data-analysis"),
     ImpactRouteCase("quick-plan", "Make a quick implementation plan", "plan"),

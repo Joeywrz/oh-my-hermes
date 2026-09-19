@@ -979,7 +979,7 @@ class RouterContentTests(unittest.TestCase):
         expected_fragments = {
             "memory-new": ("omh-memory-sync", "decision-recall"),
             "memory-sync": ("memory-new", "decision-recall"),
-            "research": ("research-brief", "best-practice-research", "research-department"),
+            "research": ("research-brief", "web-research", "research-department"),
             "research-brief": ("ulw-research", "research-department"),
             "research-department": ("research-brief", "source-finder"),
             "source-finder": ("ulw-research", "research-brief"),
@@ -2937,7 +2937,10 @@ class RouterContentTests(unittest.TestCase):
             "research": (
                 "typed candidate list or acquisition status",
                 "market, customer, or pricing decision brief",
-                "bounded, versioned official or upstream guidance",
+                # `best-practice-research` retired into `web-research` (#1691),
+                # so the official/upstream-guidance boundary and the one-round
+                # lookup boundary are the same statement now.
+                "One cited retrieval round settles the question",
             ),
             "source-finder": (
                 "factual findings, comparison, or a summary",
@@ -4111,7 +4114,7 @@ class RouterContentTests(unittest.TestCase):
         # Retired engines must not be presented as current planning skills.
         self.assertNotIn("`ultragoal`", docs_readme)
         # omh-docs and github-issue-intake raise the measured catalog to 119.
-        self.assertIn("**127 installable skills**", docs_readme)
+        self.assertIn("**124 installable skills**", docs_readme)
         self.assertIn("**Retain knowledge**", docs_readme)
         # The unit suite runs through the deterministic sharding tools (issue
         # #1294): plan once, run per shard plus the serial quarantine, then

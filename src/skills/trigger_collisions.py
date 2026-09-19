@@ -36,6 +36,13 @@ class CollisionDeclaration:
 # Why each family of shared identities is intentional. The IDs are stable so a
 # reviewer can find every group approved for the same reason.
 COLLISION_RATIONALES: dict[str, str] = {
+    "R-RETIRED-SIBLING-FOLD": (
+        "A skill retired into a sibling (#1691) keeps its trigger table as the record of what the contract answered to, "
+        "and the sibling carries the same phrase because the fold moved it there. Only one of the two owners is routable: "
+        "the retired contract's projections are `(\"workflow_reference\",)`, so it cannot win a route and the shared "
+        "identity is not an ambiguity a user can reach. The sharing has to end together with the retirement -- un-retiring "
+        "the contract restores a real two-owner collision, and this declaration is what makes the gate say so."
+    ),
     "R-OMH-ENTRYPOINT": (
         "The `/omh` entrypoint token is the meta-router's job to detect and the router skill's job to describe; both must answer to it."
     ),
@@ -97,22 +104,33 @@ INTENTIONAL_COLLISIONS: tuple[CollisionDeclaration, ...] = (
     CollisionDeclaration(identity="./omh", owners=("meta-router", "oh-my-hermes",), rationale_id="R-OMH-ENTRYPOINT"),
     CollisionDeclaration(identity="/omh", owners=("meta-router", "oh-my-hermes",), rationale_id="R-OMH-ENTRYPOINT"),
     CollisionDeclaration(identity="accessibility", owners=("frontend", "voice-operator",), rationale_id="R-ACCESSIBILITY-SURFACE"),
+    CollisionDeclaration(identity="autoresearch-goal", owners=("autoresearch-goal", "research",), rationale_id="R-RETIRED-SIBLING-FOLD"),
+    CollisionDeclaration(identity="benchmark", owners=("performance-goal", "ultraperf",), rationale_id="R-RETIRED-SIBLING-FOLD"),
+    CollisionDeclaration(identity="best practice", owners=("best-practice-research", "web-research",), rationale_id="R-RETIRED-SIBLING-FOLD"),
+    CollisionDeclaration(identity="best-practice-research", owners=("best-practice-research", "web-research",), rationale_id="R-RETIRED-SIBLING-FOLD"),
     CollisionDeclaration(identity="broken layout", owners=("frontend", "visual-qa",), rationale_id="R-LAYOUT-DEFECT-INTAKE"),
+    CollisionDeclaration(identity="check the docs", owners=("best-practice-research", "web-research",), rationale_id="R-RETIRED-SIBLING-FOLD"),
     CollisionDeclaration(identity="ci failed", owners=("build-failure-triage", "github-event-ops",), rationale_id="R-CI-FAILURE-INTAKE"),
     CollisionDeclaration(identity="ci 실패", owners=("build-failure-triage", "github-event-ops",), rationale_id="R-CI-FAILURE-INTAKE"),
     CollisionDeclaration(identity="coding handoff", owners=("maestro", "plan",), rationale_id="R-CODING-HANDOFF-INTAKE"),
     CollisionDeclaration(identity="coordinated workers", owners=("team", "ultrawork",), rationale_id="R-PARALLEL-EXECUTION"),
+    CollisionDeclaration(identity="critic research", owners=("autoresearch-goal", "research",), rationale_id="R-RETIRED-SIBLING-FOLD"),
     CollisionDeclaration(identity="delivery process", owners=("ultraprocess", "ultrawork",), rationale_id="R-DELIVERY-CYCLE"),
+    CollisionDeclaration(identity="durable research", owners=("autoresearch-goal", "research",), rationale_id="R-RETIRED-SIBLING-FOLD"),
     CollisionDeclaration(identity="end-to-end process", owners=("ultraprocess", "ultrawork",), rationale_id="R-DELIVERY-CYCLE"),
     CollisionDeclaration(identity="feedback trends", owners=("feedback-triage", "research-brief",), rationale_id="R-FEEDBACK-SIGNAL"),
     CollisionDeclaration(identity="finish until done", owners=("ralph", "ultrawork",), rationale_id="R-PERSISTENT-EXECUTION"),
     CollisionDeclaration(identity="generated file", owners=("deliverable-package", "verification-gate",), rationale_id="R-GENERATED-FILE-SENSE"),
     CollisionDeclaration(identity="issue triage", owners=("github-event-ops", "plan",), rationale_id="R-ISSUE-INTAKE"),
+    CollisionDeclaration(identity="latency", owners=("performance-goal", "ultraperf",), rationale_id="R-RETIRED-SIBLING-FOLD"),
     CollisionDeclaration(identity="layout broken", owners=("frontend", "visual-qa",), rationale_id="R-LAYOUT-DEFECT-INTAKE"),
     CollisionDeclaration(identity="make a pr", owners=("ultraprocess", "ultrawork",), rationale_id="R-DELIVERY-CYCLE"),
     CollisionDeclaration(identity="mcp inventory", owners=("harness-session-inventory", "workspace-audit",), rationale_id="R-ENVIRONMENT-INVENTORY"),
+    CollisionDeclaration(identity="official docs", owners=("best-practice-research", "web-research",), rationale_id="R-RETIRED-SIBLING-FOLD"),
     CollisionDeclaration(identity="one-cycle delivery", owners=("ultraprocess", "ultrawork",), rationale_id="R-DELIVERY-CYCLE"),
     CollisionDeclaration(identity="open a pr", owners=("ultraprocess", "ultrawork",), rationale_id="R-DELIVERY-CYCLE"),
+    CollisionDeclaration(identity="performance goal", owners=("performance-goal", "ultraperf",), rationale_id="R-RETIRED-SIBLING-FOLD"),
+    CollisionDeclaration(identity="performance-goal", owners=("performance-goal", "ultraperf",), rationale_id="R-RETIRED-SIBLING-FOLD"),
     CollisionDeclaration(identity="persistent execution", owners=("ralph", "ultrawork",), rationale_id="R-PERSISTENT-EXECUTION"),
     CollisionDeclaration(identity="plan implement review docs pr", owners=("ultraprocess", "ultrawork",), rationale_id="R-DELIVERY-CYCLE"),
     CollisionDeclaration(identity="pr-ready", owners=("ultraprocess", "ultrawork",), rationale_id="R-DELIVERY-CYCLE"),
@@ -120,8 +138,12 @@ INTENTIONAL_COLLISIONS: tuple[CollisionDeclaration, ...] = (
     CollisionDeclaration(identity="release gate", owners=("code-review", "verification-gate",), rationale_id="R-RELEASE-GATE"),
     CollisionDeclaration(identity="release readiness", owners=("cto-loop", "production-audit",), rationale_id="R-RELEASE-READINESS"),
     CollisionDeclaration(identity="render qa", owners=("materials-package", "visual-qa",), rationale_id="R-RENDER-QA"),
+    CollisionDeclaration(identity="research goal", owners=("autoresearch-goal", "research",), rationale_id="R-RETIRED-SIBLING-FOLD"),
     CollisionDeclaration(identity="research plan implement review docs pr", owners=("ultraprocess", "ultrawork",), rationale_id="R-DELIVERY-CYCLE"),
     CollisionDeclaration(identity="single-cycle delivery", owners=("ultraprocess", "ultrawork",), rationale_id="R-DELIVERY-CYCLE"),
+    CollisionDeclaration(identity="throughput", owners=("performance-goal", "ultraperf",), rationale_id="R-RETIRED-SIBLING-FOLD"),
+    CollisionDeclaration(identity="upstream guidance", owners=("best-practice-research", "web-research",), rationale_id="R-RETIRED-SIBLING-FOLD"),
+    CollisionDeclaration(identity="what do the docs say", owners=("best-practice-research", "web-research",), rationale_id="R-RETIRED-SIBLING-FOLD"),
     CollisionDeclaration(identity="고객 피드백", owners=("feedback-triage", "research",), rationale_id="R-FEEDBACK-SIGNAL"),
     CollisionDeclaration(identity="디스코드", owners=("automation-blueprint", "gateway-intent-card",), rationale_id="R-CHAT-GATEWAY"),
     CollisionDeclaration(identity="레이아웃 깨짐", owners=("frontend", "visual-qa",), rationale_id="R-LAYOUT-DEFECT-INTAKE"),

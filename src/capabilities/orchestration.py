@@ -143,7 +143,7 @@ def orchestration_patterns() -> list[dict[str, object]]:
             "Use when Hermes should prepare ongoing research operations as Scout, Analyst, and Briefer lanes.",
             "Do not claim source retrieval, synthesis-tool, knowledge-store, scheduler, gateway delivery, or verification evidence from the prepared plan.",
             "researcher",
-            ("research-department", "research", "research-brief", "best-practice-research", "report-package", "automation-blueprint"),
+            ("research-department", "research", "research-brief", "web-research", "report-package", "automation-blueprint"),
             ("show_research_department_plan", "revise_research_sources", "show_status"),
             actions,
             ("research_plan_prepared", "source_retrieval_observed", "synthesis_observed", "brief_delivery_observed", "verification_observed"),

@@ -156,7 +156,7 @@ POPULAR_PLUGIN_FAMILIES: tuple[PopularPluginFamily, ...] = (
             "deploy-and-monitor",
             "production-audit",
             "ops-review",
-            "performance-goal",
+            "ultraperf",
         ),
         "Keeps metric-provider analysis, SLOs, incident review, rollout, and rollback work evidence-bound.",
     ),

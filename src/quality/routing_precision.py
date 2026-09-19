@@ -2025,6 +2025,40 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "",
         "strategy-brief",
     ),
+    # Negative controls for the three trigger tables folded into a target home
+    # by #1691. Each retired skill was built out of everyday words -- a bare
+    # metric noun, a best-practice question, a durability adjective -- and the
+    # scorer credits a multi-word trigger as its separate tokens too, so
+    # folding them onto a bigger sibling is exactly the move that can widen
+    # the sibling past its intent. These three sentences use those words in
+    # the sense that is not a request: a metric that is already exported, a
+    # convention question about git branch names, and a changelog remark. They
+    # fell back before the fold and must still fall back after it.
+    #
+    # No `forbidden_candidate`: that field reads `route.candidate_skill`,
+    # which stays set through a fallback, and the claim here is about the
+    # ACTION, which the case already fails on.
+    RoutingPrecisionCase(
+        "exported-throughput-metric-stays-a-direct-answer",
+        "A metric the team already exports is not a performance investigation",
+        "throughput of the kafka consumer is a metric we already export",
+        "answer_directly",
+        "direct_answer",
+    ),
+    RoutingPrecisionCase(
+        "branch-naming-best-practice-stays-a-direct-answer",
+        "A convention question is not a cited web-retrieval request",
+        "what is the best practice for naming git branches",
+        "answer_directly",
+        "direct_answer",
+    ),
+    RoutingPrecisionCase(
+        "official-docs-remark-stays-a-direct-answer",
+        "Reporting what the docs said is not asking to go read them",
+        "official docs say the flag was removed",
+        "answer_directly",
+        "direct_answer",
+    ),
 )
 
 
@@ -4614,12 +4648,17 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "run_hermes_research",
         "web_research",
     ),
+    # Retargeted with `best-practice-research`'s retirement into `web-research`
+    # (#1691). The case still measures the same thing -- the sibling-pointer
+    # words `upstream` and `guidance` in the `research` description must not
+    # steal a question that names them -- but the skill that owns the phrase is
+    # now the target home, which is where the trigger moved.
     RoutingInterventionCase(
-        "sibling-pointer-words-stay-with-best-practice-research",
+        "sibling-pointer-words-stay-with-web-research",
         "The sibling-pointer words in the research description do not steal upstream guidance questions",
         "upstream guidance for pinning Python dependencies",
         "dispatch",
-        "best-practice-research",
+        "web-research",
         "run_hermes_research",
         "web_research",
     ),
@@ -6012,6 +6051,38 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "prepare_strategy_brief",
         "strategy_brief",
         "strategy-brief",
+    ),
+    # The three skills retired by #1691, typed by their own canonical name.
+    # This is the promise the retirement makes -- nothing a person types stops
+    # working -- stated as a case per contract, so a later trigger edit that
+    # drops a folded phrase fails here instead of going quiet. Each lands on
+    # the target home the exposure row names.
+    RoutingInterventionCase(
+        "retired-performance-goal-reaches-ultraperf",
+        "The retired performance-goal name still reaches the measured optimization loop",
+        "performance-goal",
+        "dispatch",
+        "ultraperf",
+        "prepare_ultraperf_loop",
+        "ultraperf_loop",
+    ),
+    RoutingInterventionCase(
+        "retired-best-practice-research-reaches-web-research",
+        "The retired best-practice-research name still reaches the cited web lookup lane",
+        "best-practice-research",
+        "dispatch",
+        "web-research",
+        "run_hermes_research",
+        "web_research",
+    ),
+    RoutingInterventionCase(
+        "retired-autoresearch-goal-reaches-research",
+        "The retired autoresearch-goal name still reaches the research engine",
+        "autoresearch-goal",
+        "dispatch",
+        "research",
+        "run_hermes_research",
+        "web_research",
     ),
 )
 

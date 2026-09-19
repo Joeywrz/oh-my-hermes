@@ -73,7 +73,7 @@ prepared handoffs, and observed evidence:
   - Research question and source boundary
   - Observed evidence versus inferred trend
   - Research summary that can feed planning or strategy
-- Primary skills: `research`, `best-practice-research`, `research-brief`, `autoresearch-goal`
+- Primary skills: `research`, `web-research`, `research-brief`
 - Primary harnesses: `research`, `business-research`
 - Wrapper actions: `ask_followup`, `show_sources`, `show_status`
 - Evidence boundary: A researcher role can prepare or summarize evidence; it is not implementation, review, CI, or merge evidence.
@@ -170,7 +170,7 @@ prepared handoffs, and observed evidence:
   - Observed runtime, target, executor, and status-card state
   - Tool, MCP, credential, token, cost, latency, and run-history readiness gaps
   - Progress narration without upgrading missing evidence
-- Primary skills: `performance-goal`, `agent-board`, `executor-runtime-readiness`, `toolbelt-readiness`, `ops-observability-card`, `doctor`, `skill`, `cancel`
+- Primary skills: `ultraperf`, `agent-board`, `executor-runtime-readiness`, `toolbelt-readiness`, `ops-observability-card`, `doctor`, `skill`, `cancel`
 - Primary harnesses: `measurement`, `status`, `tool-readiness`, `operator-health`
 - Wrapper actions: `show_status`, `refresh_status`, `choose_executor`
 - Evidence boundary: A tracker role can report status and missing evidence; it is not proof that an executor, worker, tool, MCP server, CI job, or platform action ran.

@@ -3669,8 +3669,14 @@ _OPERATOR_SURFACE_FAST_PATH_RULES: tuple[tuple[str, tuple[str, ...], str, str], 
         "Clear delivery-cycle request; prepare ultrawork's bounded delivery capability.",
     ),
     (
-        "performance-goal",
+        "ultraperf",
         (
+            # The declared-optimization half. It was a separate rule ordered
+            # before this one while `performance-goal` was the incumbent for a
+            # stated metric; with that skill retired into this one (#1691)
+            # there is no second incumbent left to order against, so both
+            # halves open the same loop and keeping them apart would only be
+            # two rules returning the same skill.
             "performance optimization",
             "optimize performance",
             "improve latency",
@@ -3679,13 +3685,7 @@ _OPERATOR_SURFACE_FAST_PATH_RULES: tuple[tuple[str, tuple[str, ...], str, str], 
             "성능 개선",
             "레이턴시 개선",
             "레이턴시 최적화",
-        ),
-        "operator_surface_fast_path:performance",
-        "Clear performance-improvement request; prepare the measured performance goal without scoring every workflow.",
-    ),
-    (
-        "ultraperf",
-        (
+            # The discovery half.
             "performance bottleneck",
             "find the bottleneck",
             "token cost hotspot",
@@ -3695,10 +3695,7 @@ _OPERATOR_SURFACE_FAST_PATH_RULES: tuple[tuple[str, tuple[str, ...], str, str], 
             "\uc131\ub2a5 \ubcd1\ubaa9",
         ),
         "operator_surface_fast_path:ultraperf",
-        # Ordered AFTER the performance-goal rule: declared optimization phrases
-        # (performance optimization / improve latency / \uc131\ub2a5 \ucd5c\uc801\ud654) keep their
-        # incumbent, while discovery-shaped phrases open the ultraperf loop.
-        "Unlocalized performance problem; open the measured inspect-and-fix loop without scoring every workflow.",
+        "Performance-improvement request or unlocalized performance problem; open the measured inspect-and-fix loop without scoring every workflow.",
     ),
     (
         "doctor",

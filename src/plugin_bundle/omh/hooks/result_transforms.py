@@ -1,6 +1,6 @@
 """Composed ``transform_tool_result`` seam.
 
-This is the single registered entry for the hook; it chains the five OMH
+This is the single registered entry for the hook; it chains the six OMH
 result transforms in a fixed order:
 
 1. Code-mode discipline annotation — the first ``execute_code`` result of a
@@ -19,7 +19,11 @@ result transforms in a fixed order:
    prefixed with one evidence-vocabulary label line, so a worker's unbounded
    completion summary cannot flood the main session and a self-reported
    ``completed`` never reads as verified (``kanban_readback.py``).
-5. Full-width diff band padding — tool-result diffs get their painted lines
+5. Unarmed remote waits — a ``terminal`` call that starts work on a remote
+   with no background process armed to wake the session, or one blocked at
+   the human approval gate, gets a per-turn directive naming the two honest
+   exits (``remote_wait_nudge.py``).
+6. Full-width diff band padding — tool-result diffs get their painted lines
    padded to a uniform band (``diff_presentation.py``).
 
 Every transform is fail-open: anything one declines passes through to the
@@ -41,7 +45,27 @@ parses the already-nudged object and adds its key beside the nudge; neither
 reads the other's key, so swapping the two would produce the same two keys in
 the other insertion order. The composed case is pinned in
 ``tests/test_truncated_read_recovery.py``. Code-mode guidance still cannot
-meet either of them: it watches ``execute_code`` and nothing else.
+meet either of them: it watches ``execute_code`` and nothing else, and
+neither can unarmed remote waits, which watches ``terminal`` and nothing
+else and writes ``omh_remote_wait``. ``read_file`` is the only tool two
+annotating passes share; the full picture is ``execute_code`` for code-mode
+guidance, ``{write_file, patch}`` plus ``{read_file, search_files,
+web_search, web_extract}`` plus the delegation tools for engagement nudges,
+``read_file`` for truncated-read recovery, the ``kanban_*`` readback tools
+for kanban bounding, and ``terminal`` for unarmed remote waits. Engagement
+nudges deliberately do NOT watch ``terminal``, so no result reaches both of
+those. ``tests/test_remote_wait_nudge.py`` derives those sets from the
+modules and pins the disjointness, so a pass that later widens into
+``terminal`` fails there rather than silently sharing a result.
+
+**Why unarmed remote waits runs last of the annotating passes.** It is the
+only one whose DECISION reads fields of the host's result rather than just
+its tool name: ``exit_code`` to know the command succeeded, ``status`` /
+``approval_pending`` for the gate, and ``session_id`` to recognise a
+background spawn. Being disjoint from the others it always sees the host's
+own object anyway, and running it immediately before the diff pass states
+that ordering as an invariant rather than an accident: every pass that reads
+host fields runs before the one that reformats text.
 """
 
 from __future__ import annotations
@@ -51,6 +75,7 @@ from typing import Any
 from ..code_mode_guidance import annotate_execute_code_result
 from ..engagement_nudges import annotate_engagement_nudge
 from ..kanban_readback import transform_kanban_readback
+from ..remote_wait_nudge import annotate_remote_wait
 from ..truncated_read_recovery import annotate_truncated_read_recovery
 from .diff_presentation import transform_tool_result as _pad_diff_result
 
@@ -97,6 +122,20 @@ def transform_tool_result(**kwargs: Any) -> str | None:
     if bounded is not None:
         annotated = bounded
         kwargs = {**kwargs, "result": bounded}
+    waited = annotate_remote_wait(
+        tool_name=kwargs.get("tool_name"),
+        args=kwargs.get("args"),
+        result=kwargs.get("result"),
+        session_id=session_id,
+        # The host's own turn identity, threaded through every tool hook by
+        # `model_tools._CallIds.hook_kwargs`. It is this pass's only turn
+        # boundary, which is why the directive declines without it.
+        turn_id=str(kwargs.get("turn_id", "") or ""),
+        hermes_home=str(kwargs.get("hermes_home", "") or ""),
+    )
+    if waited is not None:
+        annotated = waited
+        kwargs = {**kwargs, "result": waited}
     padded = _pad_diff_result(**kwargs)
     if padded is not None:
         return padded

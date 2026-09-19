@@ -356,6 +356,19 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
         "as a delivered nudge.",
     ),
     ClassifiedSite(
+        "src/plugin_bundle/omh/remote_wait_nudge.py",
+        "annotate_remote_wait",
+        INTENTIONAL,
+        "The same seam and the same swallow as `annotate_engagement_nudge`: Hermes wraps "
+        "`transform_tool_result` in its own `except Exception` and logs at debug, so a raise "
+        "here disappears rather than failing loudly. The handler records the failure by type "
+        "in the decline tally `remote_wait_declines()` reads, and returns None, which the "
+        "seam contract defines as 'leave the tool result alone'. It cannot turn an unarmed "
+        "wait into an armed one either: the armed check is a separate function with narrow "
+        "handlers whose unreadable-record answer is None, and None declines instead of "
+        "accusing a session that may well be watching something.",
+    ),
+    ClassifiedSite(
         "src/plugin_bundle/omh/hooks/session_hooks.py",
         "subagent_start",
         INTENTIONAL,
@@ -374,8 +387,8 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
 # function. `_write_candidate_batch`, `_is_catalog_question`, `pre_llm_call`,
 # `_resume_unlocked`, and `_execute_cell` each hold two handlers, so the handler
 # count is five above the anchor count.
-EXPECTED_HANDLER_COUNT = 39
-EXPECTED_ANCHOR_COUNT = 34
+EXPECTED_HANDLER_COUNT = 40
+EXPECTED_ANCHOR_COUNT = 35
 
 
 class DerivedSite(NamedTuple):

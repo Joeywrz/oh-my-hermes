@@ -62,9 +62,9 @@ class LocalDiagnosticProcessCleanupTests(unittest.TestCase):
             for pid in alive:
                 os.kill(pid, signal.SIGKILL)
 
-        self.assertEqual(result.status, "ok")
-        self.assertEqual(len(pids), 2)
-        self.assertEqual(alive, [])
+            self.assertEqual(result.status, "ok")
+            self.assertEqual(len(pids), 2)
+            self.assertEqual(alive, [])
 
     @requires_windows
     def test_windows_job_reaps_child_after_successful_leader_exit(self) -> None:
@@ -97,8 +97,11 @@ class LocalDiagnosticProcessCleanupTests(unittest.TestCase):
 
             cleanup_verified = owner.terminate(signal.SIGTERM)
 
-        self.assertTrue(cleanup_verified)
-        self.assertTrue(process_absent(child_pid))
+            self.assertTrue(
+                cleanup_verified,
+                msg=f"termination diagnostic: {owner.termination_diagnostic!r}",
+            )
+            self.assertTrue(process_absent(child_pid))
 
     def _repository(self, root: Path) -> tuple[Path, str, str]:
         repo = root / "repo"

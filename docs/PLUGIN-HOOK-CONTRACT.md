@@ -6,6 +6,9 @@ plugin's `plugin.yaml` declares would do on the supported Hermes contract. It
 answers one question an operator has before enabling an unfamiliar plugin: can a
 declared hook block an action, or can it only watch one.
 
+The same result's self-update finding is a separate page:
+[Plugin Self-Update and Code Replacement](PLUGIN-SELF-UPDATE-AUDIT.md).
+
 ## What this is not
 
 It is an advisory static risk contract, not proof that a plugin is safe.

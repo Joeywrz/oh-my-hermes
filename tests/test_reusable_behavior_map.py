@@ -533,7 +533,9 @@ class CitedAuditTests(unittest.TestCase):
                 "network_request",
                 "potential_committed_secret",
                 "process_execution",
+                "self_update_or_code_replacement",
                 "undetermined_hook_contract",
+                "undetermined_self_update_path",
             ],
         )
         self.assertEqual(list(AUDIT_MANIFEST_STATUSES), ["invalid_json", "missing", "present"])

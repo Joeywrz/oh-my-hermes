@@ -16,6 +16,59 @@ All notable changes will be documented here.
   read `not_observed` as an absent record rather than a record, would have
   flipped it with every existing case green (#1554).
 
+- **A Windows diagnostic-owner test no longer lets tempdir teardown replace
+  the verdict it exists to report.** In
+  `tests/test_local_diagnostic_process_cleanup.py`, both tests asserted their
+  outcome after their `TemporaryDirectory` block had already closed, so a
+  `PermissionError` from a still-exiting child holding the directory open
+  came back as the whole failure and hid whether cleanup actually verified
+  (#1644). Both tests now assert inside the `with` block, and
+  `WindowsJobObjectOwner` records which of its two waits did not resolve --
+  the Job Object never reporting empty, or the process handle not reporting
+  exit once it did -- on a new `termination_diagnostic` attribute the test
+  surfaces in its failure message, with no change to what `terminate()`
+  returns. Separately, `_await_empty_job`'s 1.0s deadline was a correctness
+  bound sized like a performance budget on a shared runner, the same class of
+  defect as #1599/#1604; it is now its own named constant,
+  `_JOB_EMPTY_DEADLINE_SECONDS = 30`. The Windows path itself is unverified
+  from this change -- macOS cannot reach `WindowsJobObjectOwner` at all.
+
+- **`omh ops plugin-risk-audit` now says whether a plugin can replace its own
+  installed code.** The audit reported dependencies, dynamic execution, hook
+  capability, network requests, committed secrets and process execution as six
+  independent categories, so an operator saw ordinary network and process
+  findings without being told the package may also carry a second
+  software-update authority beside the host's pinned plugin update path, with
+  different pinning, rollback, consent and review guarantees (#1546).
+
+  The result now carries a `self_update` block composed from signals the scan
+  already collects rather than a parallel scanner: the file's own
+  `network_request` category supplies retrieval, a write, copy, rename or
+  replace call beside a code or manifest target name supplies replacement, and
+  an archive unpacked or a self-directed upgrade command in a file that also
+  spawns a process supply the remaining legs. Three named compositions classify
+  `detected` and the matched one is reported, so the result says which signals
+  produced the verdict. Neither ordinary leg passes alone, which is why an API
+  client writing a cache file and a code generator with no network do not
+  compose it. Retrieval beside dynamic execution is `needs_review`, because
+  retrieved bytes can become code without a write to settle it either way. Both
+  verdicts reach `summary.risk_categories`, as `self_update_or_code_replacement`
+  and `undetermined_self_update_path`, so a wrapper reading only the summary
+  cannot see a package with an unsettled replacement path as a clean one.
+  Integrity verification is recorded under `mitigating_signals` and never turns
+  a finding into a safe verdict.
+
+  The scan stays what it was: bounded static text from one explicitly named
+  local directory, with import, registration, execution, dependency
+  installation and network access still `not_observed`, joined now by
+  `plugin_code_replacement` and `plugin_self_update_execution`. No file name,
+  remote target or matched source reaches the result; `signal_file_counts` is
+  the bounded stand-in, because a file name is plugin-authored text. Absence is
+  reported as absence of a match rather than absence of risk, in the block's own
+  diagnostics and in the claim boundary. `docs/PLUGIN-SELF-UPDATE-AUDIT.md` is
+  the public account of the signals, the compositions, the three states, and the
+  two shapes worth knowing before acting on a result.
+
 - **`/omh-model` and the `omh` CLI now edit the store a bot profile
   dispatches from.** A Hermes bot profile may select its own OMH store with
   `plugins.entries.omh.settings.omh_home`, and its native plugin resolves that

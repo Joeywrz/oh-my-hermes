@@ -104,9 +104,11 @@ OWNER_KINDS = {
     "omx-runtime": "runtime_handoff",
 }
 
-# `build_coding_delegation_payload` takes no clock, so evidence written for the
-# surface tests is recorded at the real current time. The freshness window is 24
-# hours, so drift inside one test run cannot move a verdict.
+# `build_coding_delegation_payload` accepts `now` since #1768, and these surface
+# tests deliberately leave it at its default, the real clock: they record their
+# evidence at the real current time so the production freshness path is the one
+# exercised. The window is 24 hours, so drift inside one test run cannot move a
+# verdict.
 RECORDED_NOW = utc_now()
 
 

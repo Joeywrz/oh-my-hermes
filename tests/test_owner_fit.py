@@ -87,10 +87,11 @@ OBSERVED_AT = "2026-01-01T00:00:00Z"
 WITHIN_WINDOW = "2026-01-01T06:00:00Z"
 PAST_WINDOW = "2026-01-03T00:00:00Z"
 
-# `build_coding_delegation_payload` is the production path and takes no clock,
-# so the surface tests record their evidence at the real current time. The
-# freshness window is 24 hours, so wall-clock drift inside one test run cannot
-# change a verdict.
+# `build_coding_delegation_payload` is the production path; it accepts `now`
+# since #1768 and these surface tests deliberately leave it at its default, the
+# real clock, recording their evidence at the real current time so the
+# production freshness path is the one exercised. The window is 24 hours, so
+# wall-clock drift inside one test run cannot change a verdict.
 RECORDED_NOW = utc_now()
 
 # One team-shaped plan used almost everywhere: it declares a routed workflow

@@ -37,6 +37,16 @@ from omh.system.paths import OmhPaths
 
 posix_only = unittest.skipIf(os.name == "nt", "POSIX process groups required")
 
+# Not a path discriminator -- only a hang guard for the SIGTERM mid-flight
+# test below. Two units can be in flight at signal time (concurrency=2) and
+# dispatch_fanout sequentially awaits each one up to
+# UNIT_TERMINATE_GRACE_SECONDS + 5s, so the grace path's own worst case is
+# ~2 * 15s = 30s. This is sized several times over that so a loaded shared
+# runner (#1703 measured 30.1s on the correct path) never trips it, while
+# staying far short of the 1800s default unit timeout the grace path exists
+# to beat.
+_SIGTERM_HANG_GUARD_SECONDS = 180
+
 _GOAL = "signal safety drill"
 _UNITS = [
     {"unit_id": "one", "title": "One", "owner": "codex", "file_scope": ["src/one/"]},
@@ -342,8 +352,11 @@ class AsyncSignalTests(unittest.TestCase):
         # A REAL signal, delivered while workers are mid-flight — the shape
         # the synchronous raise-inside-a-worker tests cannot reach. The
         # spawned group must die, no unit spawn may survive the signal, the
-        # summary file must say interrupted, and the whole thing must settle
-        # within the grace budget rather than the 1800s unit timeout.
+        # summary file must say interrupted, and every cancelled unit must
+        # have settled within the grace budget rather than waited out the
+        # unit timeout -- read off the recorded cancellation status, not
+        # wall-clock time (#1703: elapsed alone reads a loaded runner as the
+        # wrong path).
         import threading as _threading
 
         from omh.coding.fanout_dispatch import signal_safe_unit_runner as safe_runner
@@ -397,10 +410,39 @@ class AsyncSignalTests(unittest.TestCase):
             elapsed = time.monotonic() - started
             killer.join(timeout=10)
             self.assertEqual(caught.exception.code, 143)
-            # Settled within the grace budget, not the unit timeout.
-            self.assertLess(elapsed, 25)
             stored = read_json_object(fanout_dispatch_summary_path(paths, contract["fanout_id"]))
             self.assertTrue(stored and stored.get("interrupted"))
+            # The discriminator: which path each cancelled unit actually
+            # took, read off the record dispatch_fanout itself writes rather
+            # than inferred from wall time. `cancelled_outcome_unknown` is
+            # the status a unit gets when its worker did not come back
+            # within dispatch_fanout's own terminate-grace wait
+            # (UNIT_TERMINATE_GRACE_SECONDS + 5s) -- that is the unit-timeout
+            # path this test exists to rule out. `cancelled` is the grace
+            # path: the group died and the worker returned with a negative
+            # exit code inside that wait.
+            cancellation = stored.get("cancellation") or {}
+            outcome_unknown = cancellation.get("outcome_unknown") or []
+            self.assertEqual(
+                outcome_unknown,
+                [],
+                f"unit(s) {outcome_unknown} did not settle within the terminate "
+                "grace -- the batch waited out the unit timeout instead of the "
+                "grace budget",
+            )
+            self.assertTrue(
+                cancellation.get("cancelled"),
+                "no unit recorded the grace-path `cancelled` status -- nothing "
+                "here proves the SIGTERM path actually ran",
+            )
+            # A generous hang guard, not a path discriminator -- see the
+            # constant's own reasoning above.
+            self.assertLess(
+                elapsed,
+                _SIGTERM_HANG_GUARD_SECONDS,
+                f"dispatch_fanout took {elapsed:.1f}s -- past the hang guard, "
+                "not merely a loaded runner",
+            )
             # Every spawned stand-in group is dead — a spawn that raced the
             # signal was terminated by the runner's register-then-check.
             for pid in spawn_pids:

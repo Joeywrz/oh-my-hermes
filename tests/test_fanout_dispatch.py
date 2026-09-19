@@ -4918,8 +4918,6 @@ class SpawnStaggerTests(unittest.TestCase):
         self.assertEqual(clock.slept, [0.05, 0.05])
 
     def test_injected_runner_without_marker_never_staggers(self) -> None:
-        import time as _time
-
         import omh.coding.fanout_dispatch as engine
 
         units = [
@@ -4931,8 +4929,14 @@ class SpawnStaggerTests(unittest.TestCase):
             paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
             repo, sha = _make_repo(root)
             contract = write_fanout_contract(paths, build_fanout_contract(_GOAL, units))
-            started = _time.monotonic()
-            with mock.patch.object(engine, "CACHE_WARM_SPAWN_STAGGER_SECONDS", 60.0):
+            # The discriminator: whether the stagger's own reserve() was ever
+            # called, not how long the dispatch took. Elapsed time as a proxy
+            # for "the 60s interval never engaged" is the same defect as
+            # #1703 -- a correctness bound sized like a performance budget --
+            # since a loaded shared runner can push an unrelated in-process
+            # dispatch past a wall-clock ceiling with no stagger involved.
+            with mock.patch.object(engine, "CACHE_WARM_SPAWN_STAGGER_SECONDS", 60.0), \
+                mock.patch.object(engine._SpawnStagger, "reserve") as reserve:
                 summary = dispatch_fanout(
                     paths,
                     contract,
@@ -4942,12 +4946,11 @@ class SpawnStaggerTests(unittest.TestCase):
                     runner=_agent_runner(),
                     readiness=_ready,
                 )
-            elapsed = _time.monotonic() - started
             statuses = {entry["unit_id"]: entry["status"] for entry in summary["units"]}
             self.assertEqual(statuses, {"core": "completed", "docs": "completed"})
-            # A 60s interval that engaged would hold the second spawn for a
-            # minute; injected runners without accepts_on_spawn never wait.
-            self.assertLess(elapsed, 30.0)
+            # Injected runners without accepts_on_spawn never wait: the
+            # stagger's reserve() is only called for a real-spawn marker.
+            reserve.assert_not_called()
 
     def test_marked_runner_spawns_are_spaced(self) -> None:
         import time as _time

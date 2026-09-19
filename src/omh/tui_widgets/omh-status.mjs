@@ -1048,8 +1048,33 @@ export default function register(sdk) {
       if (last && (last.phase === phase || (!phase && depthOf(item) > 0))) last.items.push(item)
       else groups.push({ phase, items: [item] })
     }
-    const itemLabel = item =>
-      `${Object.hasOwn(markers, item.state) ? markers[item.state] : '[ ]'} ${truncateCells(item.text, budget)}`
+    // The reason an item records for not proceeding, rendered on the row that
+    // carries it. Without this an item sits in `active` with nothing saying it
+    // is waiting on anything, and the row reads the same as one that has
+    // simply stopped (#1553). The row splits its width instead of just
+    // appending: the reason takes a bounded share at the end and the item text
+    // gives back exactly that much, so a long text cannot push the clause off
+    // a `truncate-end` row -- which would leave the display the field exists
+    // to fix, on precisely the items that most often carry one. Cutting it is
+    // this renderer's job alone: the stop criterion reads the stored field
+    // whole, and the ceiling here is the text HUD line's
+    // (`TODO_BLOCKED_REASON_DISPLAY_CHARS`, runtime_reader.py).
+    const WAITING_CHROME_CELLS = 12 // ` (waiting: ` plus the closing `)`
+    const MIN_ITEM_TEXT_CELLS = 24
+    const REASON_CELLS_CEILING = 48 // TODO_BLOCKED_REASON_DISPLAY_CHARS, runtime_reader.py
+    const reasonCells = Math.max(
+      8,
+      Math.min(REASON_CELLS_CEILING, budget - WAITING_CHROME_CELLS - MIN_ITEM_TEXT_CELLS),
+    )
+    const reasonOf = item => truncateCells(item.blocked_reason, reasonCells)
+    const textCells = reason => (reason ? Math.max(8, budget - reasonCells - WAITING_CHROME_CELLS) : budget)
+    // Warn, not muted: a waiting item is the same "this is not what it looks
+    // like at a glance" fact the not-live marker is. It states what the plan
+    // recorded and stops there; the payload's evidence boundary already says a
+    // todo item is a declaration, never execution evidence.
+    const waitingNode = reason => (reason ? h(Text, { color: t.color.warn }, ` (waiting: ${reason})`) : null)
+    const itemLabel = (item, reason) =>
+      `${Object.hasOwn(markers, item.state) ? markers[item.state] : '[ ]'} ${truncateCells(item.text, textCells(reason))}`
     const itemProps = item => ({
       bold: item.state === 'active',
       // A stalled active item (HUD says not-live) is a warning-grade fact,
@@ -1073,22 +1098,37 @@ export default function register(sdk) {
     // text instead, plus the reader's elapsed hint once the checklist has
     // been unchanged long enough to be a finding -- the marker and indent
     // stay the same shape either way, only the state they claim changes.
-    const itemNode = (item, indent) =>
-      item.state === 'active'
-        ? live
+    const itemNode = (item, indent) => {
+      const reason = reasonOf(item)
+      const waiting = waitingNode(reason)
+      // The reason rides ahead of the unchanged hint: where a row carries
+      // both, the reason is what explains the age.
+      if (item.state !== 'active') {
+        return waiting
           ? h(
               Text,
-              {},
-              h(Text, itemProps(item), `${indent}${markers.active} `),
-              h(ShimmerText, { color: t.color.ok, t, text: truncateCells(item.text, budget) }),
-            )
-          : h(
-              Text,
               { wrap: 'truncate-end' },
-              h(Text, itemProps(item), `${indent}${markers.active} ${truncateCells(item.text, budget)}`),
-              unchangedElapsed ? h(Text, { color: t.color.muted }, ` (unchanged ${unchangedElapsed})`) : null,
+              h(Text, itemProps(item), `${indent}${itemLabel(item, reason)}`),
+              waiting,
             )
-        : h(Text, itemProps(item), `${indent}${itemLabel(item)}`)
+          : h(Text, itemProps(item), `${indent}${itemLabel(item)}`)
+      }
+      return live
+        ? h(
+            Text,
+            {},
+            h(Text, itemProps(item), `${indent}${markers.active} `),
+            h(ShimmerText, { color: t.color.ok, t, text: truncateCells(item.text, textCells(reason)) }),
+            waiting,
+          )
+        : h(
+            Text,
+            { wrap: 'truncate-end' },
+            h(Text, itemProps(item), `${indent}${markers.active} ${truncateCells(item.text, textCells(reason))}`),
+            waiting,
+            unchangedElapsed ? h(Text, { color: t.color.muted }, ` (unchanged ${unchangedElapsed})`) : null,
+          )
+    }
     const rows = []
     if (start > 0) rows.push(foldLine('todo-earlier', start, 'earlier'))
     groups.forEach((group, groupIndex) => {

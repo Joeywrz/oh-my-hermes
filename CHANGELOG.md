@@ -108,6 +108,26 @@ All notable changes will be documented here.
   the public account of the signals, the compositions, the three states, and the
   two shapes worth knowing before acting on a result.
 
+- **A plan item that records why it cannot proceed now says so on the
+  checklist.** `blocked_reason` had one consumer, the turn-end continuation
+  directive, which reads it and stops nudging. Nothing rendered it, so the
+  person watching the TUI saw the item sitting in `active` with no sign it was
+  waiting on anything -- which reads as stuck, the exact reading the stall
+  finding exists to prevent (#1553). Both row-rendering surfaces now carry the
+  reason: the text HUD line appends `(waiting: <reason>)`, and the TUI plan
+  panel adds the same clause in its warn tone, ahead of the `(unchanged …)`
+  hint on a row that carries both, because the reason is what explains the
+  age. It renders on whatever row holds the field rather than on a chosen item
+  state.
+
+  The store's 200-character cap is not a row width, so each surface cuts the
+  reason at 48 characters, the ellipsis included, and the panel gives back
+  exactly the width the clause needs from the item text so that a long text
+  cannot push the clause off the row. Truncation stays a render concern: the
+  stop criterion and the projected `blocked_reason` field are untouched, and a
+  recorded reason remains a declaration -- never evidence that something is
+  actually blocking.
+
 - **`/omh-model` and the `omh` CLI now edit the store a bot profile
   dispatches from.** A Hermes bot profile may select its own OMH store with
   `plugins.entries.omh.settings.omh_home`, and its native plugin resolves that

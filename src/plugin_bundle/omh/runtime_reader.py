@@ -64,6 +64,16 @@ HUD_PRESETS = {"minimal", "focused", "full"}
 # How long a fully-done plan keeps rendering after its last update.
 ALL_DONE_TODO_LINGER_SECONDS = 15 * 60
 TODO_DISPLAY_ITEM_LIMIT = 3
+# How much of an item's recorded `blocked_reason` a checklist row shows, the
+# ellipsis included. The store caps the field at `MAX_TODO_BLOCKED_REASON_CHARS`
+# (200) and a checklist row is nowhere near that wide, so the cut happens at the
+# render boundary and only there: `todo_reconciliation`'s stop criterion reads
+# the projected field whole, which
+# `test_a_recorded_reason_is_read_whole_however_long_the_item_is` pins. The TUI
+# widget bounds its own rows at the same number through `truncateTextCells`,
+# which counts terminal cells where this counts characters -- so the two agree
+# on a narrow-glyph reason and the widget cuts a wide-glyph one sooner.
+TODO_BLOCKED_REASON_DISPLAY_CHARS = 48
 # How long an established plan's checklist may sit unchanged before the reader
 # reports that it has stopped moving. NOT a guessed threshold: it is the tool
 # ledger's own bound for how long an unclosed call may still be presumed in
@@ -1954,6 +1964,30 @@ def todo_unchanged_text(todo: dict[str, Any]) -> str:
     return elapsed_text(seconds)
 
 
+def todo_blocked_reason_display(item: dict[str, Any]) -> str:
+    """One item's recorded reason, cut to what a checklist row can carry.
+
+    Empty when nothing is recorded, so a caller renders the clause by
+    appending this and nothing else -- the shape `todo_unchanged_text` above
+    already uses. The cut is a display bound and stays one: the stop criterion
+    reads `blocked_reason` off the projected item itself
+    (`todo_reconciliation.recorded_blocked_reason`), and the two answers may
+    differ in length precisely because only this one is a display. A
+    non-string reads as absent, the call that function also makes on a
+    hand-written record; the projection this normally reads from has already
+    coerced the field to a string.
+    """
+    reason = item.get("blocked_reason", "")
+    if not isinstance(reason, str) or not reason:
+        return ""
+    if len(reason) <= TODO_BLOCKED_REASON_DISPLAY_CHARS:
+        return reason
+    # The ellipsis is inside the ceiling, the shape `truncateTextCells` in the
+    # widget already uses, so the two surfaces cut a narrow-glyph reason to the
+    # same width instead of differing by one character for no stated reason.
+    return reason[: TODO_BLOCKED_REASON_DISPLAY_CHARS - 1] + "…"
+
+
 def _todo_summary(
     home: Path,
     hermes: Path | None = None,
@@ -2282,6 +2316,20 @@ def _hud_todo_lines(todo: dict[str, Any], *, preset: str = "focused") -> list[st
 
     def item_line(item: dict[str, Any], indent: str) -> str:
         line = f"{indent}{marker[item['state']]} {item['text']}"
+        # The recorded reason rides its own item, ahead of the stall hint:
+        # when both are on the same row the reason is what explains the
+        # unchanged age. Without it the row reads the same as one that has
+        # simply stopped (#1553). It is rendered wherever the field is, not
+        # on a chosen state -- the field is per item and is not a fourth item
+        # state, so the row that carries one says so whatever its state. The
+        # wording states what the plan recorded and nothing more: the
+        # payload's `evidence_boundary` already says todo items are plan
+        # declarations, not execution evidence, and a recorded reason is one
+        # of those declarations, never an observation that something is
+        # blocking.
+        reason = todo_blocked_reason_display(item)
+        if reason:
+            line = f"{line} (waiting: {reason})"
         return f"{line} (unchanged {unchanged})" if unchanged and item["state"] == "active" else line
 
     lines = [header]

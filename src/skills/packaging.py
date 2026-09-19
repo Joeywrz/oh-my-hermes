@@ -38,6 +38,13 @@ from .render import (
     refactor_plan_reference_templates,
     frontend_refactor_reference_templates,
     domain_engineering_reference_templates,
+    deep_interview_reference_templates,
+    file_ownership_reference_templates,
+    plan_constitution_reference_templates,
+    prose_lexicon_reference_templates,
+    requirement_coverage_reference_templates,
+    requirements_quality_reference_templates,
+    review_lens_reference_templates,
     idea_to_deploy_reference_templates,
     jit_learn_skill,
     llm_app_dev_reference_templates,
@@ -129,6 +136,17 @@ def builtin_skill_reference_templates() -> list[SkillReferenceTemplate]:
         *frontend_refactor_reference_templates(),
         *ai_slop_cleaner_reference_templates(),
         *domain_engineering_reference_templates(),
+        # Issue #1714: one reference per skill carrying a mechanism the body
+        # only points at. Reference files are measured outside
+        # FULL_PROFILE_SKILL_BODY_CHAR_LIMIT, so each capability costs one
+        # pointer line in the always-loaded budget and nothing more.
+        *requirement_coverage_reference_templates(),
+        *deep_interview_reference_templates(),
+        *file_ownership_reference_templates(),
+        *review_lens_reference_templates(),
+        *requirements_quality_reference_templates(),
+        *prose_lexicon_reference_templates(),
+        *plan_constitution_reference_templates(),
     ]
 
 

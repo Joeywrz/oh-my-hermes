@@ -422,6 +422,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Ask exactly one blocking question per turn unless the wrapper explicitly supports a structured batch.
   - Offer two to four candidate answers plus a free-input option with every question, and accept free text over the list at any time.
   - Tie each question to a missing decision that changes the plan, handoff, or stop condition.
+  - Before the first question, load `references/ambiguity-taxonomy.md` and score every category Clear/Partial/Missing, then spend the round budget worst-first and write each accepted answer back into the artifact being clarified.
   - Emit a clarified brief with non-goals and acceptance criteria before planning or delegation.
 - Completion checklist:
   - The clarified brief names goals, non-goals, constraints, and one next planning or handoff path.
@@ -576,6 +577,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Quality bar:
   - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
   - Resolve the dependency_topology decision before any dispatch: work coupled by a shared invariant or inseparable edit boundary collapses to one owner; separable but ordered units get explicit acyclic dependency edges; independent units form the dependency-ready parallel frontier; no unit dispatches without scope, acceptance criteria, a verification command, and an owner route - load `references/dependency-topology.md` for the full discipline, and `references/kanban-lane.md` for a lane that must outlive this session.
+  - Before concurrent fan-out, load `references/file-ownership-manifest.md`.
   - Attach acceptance criteria, verification commands, and review expectations to each lane.
   - Keep dispatch, execution, review, CI, and merge status evidence separate.
   - After final brief composition and before unattended coding handoff, explicitly run `omh handoff-risk-scan --brief-file <final-brief> --repo <workspace> --strict --json`. Route high_risk (exit 1) to existing confirmation or security-safety-review; scan_error (exit 2) requires repaired input and a new scan. Clear never grants permission or bypasses metadata preflight, approval, or host policy.
@@ -3632,6 +3634,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Tie every completion claim to the smallest check that proves it, then broaden for shared surfaces.
   - When a diff touches a declared generated path, name its source of truth and regeneration command before the edit rather than after a byte gate rejects it; a diff touching a generator and its output together is the correct shape, not a violation — load `references/generated-artifact-provenance.md` for the declaration and reporting rules.
   - Record command/source, freshness, exit status, and scope for each observed result.
+  - When the change answers to a written spec, plan, or issue, load `references/requirement-coverage-map.md` and map requirement to task to evidence under stable ids before claiming coverage.
   - Return PASS only when required checks pass and stale or missing evidence is resolved.
   - Keep fixes, reruns, review, CI, and merge as separate observed states.
 - Completion checklist:
@@ -4646,6 +4649,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Why: The request lacks the required inputs or would overclaim work that Hermes did not observe.
 - Quality bar:
   - Make goals, non-goals, risks, acceptance criteria, and verification shape explicit.
+  - Where the repository declares non-negotiable principles, load `references/project-constitution.md` and record the check: a plan conflicting with a MUST is resolved by changing the plan, never by reinterpreting the principle.
   - Keep draft plans unapproved until a user or wrapper accepts them.
   - Only prepare coding handoff guidance after the plan is accepted.
   - Plan acceptance approves the plan content, not execution: after acceptance, recommend the follow-on path that fits the work's shape — `ultrawork` durable checkpoints for progress that must survive sessions as a checkpointed ledger, `ultrawork` coordinated lanes for an accepted plan split into disjoint parallel lanes, `ultrawork` single-owner persistence for one already-scoped task with a single owner, `ultrawork` for one bounded delivery cycle, or a direct selected executor/runtime handoff for a single prepared coding change — state the fit reason in one line, and start it only after the user's explicit go-ahead.
@@ -4885,6 +4889,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - To dispatch a reviewer rather than write the findings yourself, load `omh-code-review/references/review-dispatch.md`; it carries the base-SHA rule and the implementer status contract.
   - When findings arrive for work you own, load `omh-code-review/references/review-response.md` before changing anything.
   - For maintainability judgement calls, load `omh-code-review/references/smell-baseline.md`; it names the twelve baseline smells with their fixes and the repo-standards-override rule.
+  - When one bug-first pass is not enough, load `omh-code-review/references/review-lenses.md` and run the five lenses separately; the verification-gap lens asks whether anything would go red if the changed behavior broke.
 - Required inputs:
   - diff or files
   - expected behavior
@@ -4939,6 +4944,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Classify before deleting: every finding names one category from the slop taxonomy - duplication, dead code, needless abstraction, boundary violation, missing tests, or templated defaults - so the pass order below can own it.
   - Run single-smell passes in fixed order, re-verifying between passes and never bundling categories: dead-code deletion, then duplicate removal, then naming and error handling, then test reinforcement; the full contract is `omh-ai-slop-cleaner/references/cleanup-passes.md`.
   - When the user names no target smell, run detection first and hand back the inventory: prepared linter and dead-code commands are named per stack in the reference and stay prepared_not_observed until run.
+  - When the cleanup target is written English rather than code, load `omh-ai-slop-cleaner/references/prose-lexicon.md` for the word tiers, the pattern severities, and the context profile that decides which rules apply.
   - Prefer deletion, reuse, and boundary repair over new abstractions.
   - Rerun verification after cleanup before claiming behavior is preserved, and close with the four-part report: changed files, simplifications, behavior lock, remaining risks.
 - Completion checklist:
@@ -5758,6 +5764,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - `action=set` replaces the whole list: send every item back on every write, including the ones that did not change, or the omitted ones are silently dropped. There is no partial update.
   - The checklist belongs to the session that declared it -- another TUI, Slack, or Discord session neither sees nor overwrites it -- so do not tell a user their checklist is visible somewhere it is not.
   - Two different things stop a plan advancing and they are not interchangeable: an item that cannot proceed carries `blocked_reason`, and a person steering the session elsewhere is `deferred_reason` on the write. Load `references/checklist-discipline.md` before using either.
+  - To review whether requirements are fit to build from rather than to track work, load `references/requirements-quality-checklist.md`; its items interrogate the spec, and the party that generates them may not tick them.
 - Completion checklist:
   - Exactly one item is active, or the list is complete and every item is done.
   - Every write sent the whole list back, so no item was dropped by omission.

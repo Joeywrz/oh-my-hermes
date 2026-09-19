@@ -71,6 +71,7 @@ Quality bar:
 - Ask exactly one blocking question per turn unless the wrapper explicitly supports a structured batch.
 - Offer two to four candidate answers plus a free-input option with every question, and accept free text over the list at any time.
 - Tie each question to a missing decision that changes the plan, handoff, or stop condition.
+- Before the first question, load `references/ambiguity-taxonomy.md` and score every category Clear/Partial/Missing, then spend the round budget worst-first and write each accepted answer back into the artifact being clarified.
 - Emit a clarified brief with non-goals and acceptance criteria before planning or delegation.
 
 Required inputs:

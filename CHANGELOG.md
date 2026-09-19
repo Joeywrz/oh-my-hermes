@@ -4,6 +4,45 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A question asked mid-plan is now answered before the plan resumes.**
+  While an `omh_todo` plan has open items, every turn's context carried
+  `TODO_CONTINUATION_RULE`, whose stop criterion ends "not when a turn has
+  produced an answer". On a turn someone opened with a message that is the
+  wrong sentence: it tells the model that answering does not discharge the
+  turn, so the ask gets a cursory agreement and the session returns to its own
+  next item. The observed run agreed that something "could be a model-level
+  issue" having checked nothing, pivoted to "how shall we proceed?", and when
+  challenged offered to fact-check if it were asked a second time.
+
+  The per-turn line now reads one structural fact about the turn -- whether an
+  inbound message opened it -- and carries `TODO_ANSWER_FIRST_RULE` in place
+  of the drive when one did: answer it completely in this turn, investigate
+  rather than defer, never agree with a claim you have not checked, then
+  resume the plan and record a `deferred_reason` if the work was redirected.
+  The drive is reordered, not dropped, which is what keeps this inside the
+  stop-criterion contract rather than back at an observe-only reminder.
+
+  That fact is an identity, not an interpretation. Hermes invokes
+  `pre_llm_call` exactly once per turn, from `build_turn_context`, with the
+  message that started it, and a turn the session drove onward by itself never
+  re-enters that hook at all -- the host appends the `pre_verify` directive as
+  a synthetic user-role row and re-enters the same turn loop. Nothing OMH
+  wrote can arrive as this message, so presence is the whole test: two
+  messages that mean opposite things produce the identical line, a blank or
+  non-string message is absence, a host-labelled tracker event is an event and
+  not someone writing, and a host that passes no message renders what it
+  rendered before, byte for byte.
+
+  Precedence is pinned alongside it. A recorded `deferred_reason` still wins
+  over the message, being the more specific statement and the one that names
+  what was asked for instead; a blocked next item still vetoes the deferral;
+  and the stall observation goes with the drive, since "if nothing is blocking
+  it, move it" would re-add in the same breath the ask this branch removes.
+  The turn-end directive is unchanged and deliberately ungated: it fires after
+  the answer it is handed as `final_response` exists, which is the moment the
+  new rule itself asks the plan to resume, and Hermes passes it no message it
+  could gate on.
+
 - **The rule that keeps a retracted failure from outranking a live
   cancellation is now held by a test.** Runtime recap ranks the two terminal
   event groups by severity rather than arrival, so a `cancelled` appended

@@ -26,24 +26,42 @@ unit did anything.
 The per-turn line has one structural limit: it is read at the start of a
 turn, so nothing observes a turn that ENDS with open items, and continuation
 then waits for the person. `plan_continuation_reading` is the same policy
-delivered at the one moment a host offers -- `pre_verify`, where a returned
-directive starts the next turn instead of describing the current one. Same
-gate (`open_plan_position`), same rules, same boundary: it reports what the
-plan record says and asserts nothing about what the next turn does. It also
-hands back the plan's write stamp, which is how the hook decides whether the
-run is still moving and therefore whether more of the host's turn-end budget
-may be spent on it (`hooks/nudge_budget.py`).
+delivered at the one moment a host offers -- `pre_verify`, whose returned
+directive Hermes appends as a synthetic user-role row before re-entering the
+SAME turn loop (`agent/turn_stop_gates.py`, `apply_stop_gates`), so the
+session is driven onward without anyone being asked for it. Same gate
+(`open_plan_position`), same rules, same boundary: it reports what the plan
+record says and asserts nothing about what the next turn does. It also hands
+back the plan's write stamp, which is how the hook decides whether the run is
+still moving and therefore whether more of the host's turn-end budget may be
+spent on it (`hooks/nudge_budget.py`).
 
 Both surfaces were right when the session stalled and wrong when the PERSON
 steered: "unless something is blocking it, advance the next item" argues with
 the person while the session does what they just asked for, and the person is
 what is blocking it. A plan-level `deferred_reason` is where that gets
 recorded, and `plan_deferral_reason` is the single place either surface asks
-whether it holds. Nothing here reads the conversation to decide it -- the
-record declares it, the way the item-level block does, and for the same reason
-(`recorded_blocked_reason`). Its liveness is decided in `runtime_reader`
-against a digest of the items, so resuming the plan lapses it; a blocked next
-item still wins over it, being the stronger statement about why nothing moved.
+whether it holds. The record declares it, the way the item-level block does,
+and for the same reason (`recorded_blocked_reason`). Its liveness is decided
+in `runtime_reader` against a digest of the items, so resuming the plan lapses
+it; a blocked next item still wins over it, being the stronger statement about
+why nothing moved.
+
+That field only ever covered the half a model remembers to write down. The
+half it does not: someone asks something mid-plan and the drive, sitting in
+the context of that very turn, has already said the turn is not discharged by
+producing an answer. So the per-turn line reads ONE structural fact about the
+turn as well -- whether an inbound message opened it
+(`turn_opened_by_message`) -- and carries `TODO_ANSWER_FIRST_RULE` in place of
+the drive when one did. That fact is an identity, not an interpretation:
+Hermes calls `pre_llm_call` exactly once per turn, from `build_turn_context`
+(`agent/turn_context.py`), with the message that started the turn, and a turn
+the session drove onward by itself never re-enters that hook at all. What is
+still not read is what the message MEANS -- not whether it is a question, not
+whether it redirects the work, not its wording in any language. Presence is
+the whole test. The turn-end directive reads nothing of the conversation at
+all, because its host hands it none: `pre_verify` is called with the plan's
+own coordinates and the answer already produced, never with a message.
 """
 from __future__ import annotations
 
@@ -103,9 +121,9 @@ TODO_CONTINUATION_RULE = (
     "omh_todo blocked_reason -- not when a turn has produced an answer."
 )
 
-# What the turn-end directive adds to the rule above. The message arrives as a
-# synthetic user turn, so it has to say what it is: a read of the plan record,
-# never a claim that an item ran.
+# What the turn-end directive adds to the rule above. The host appends the
+# message as a synthetic user-role row, so it has to say what it is: a read of
+# the plan record, never a claim that an item ran.
 PLAN_CONTINUATION_BOUNDARY = (
     "This directive reports what the plan record says; it is not evidence that "
     "any item ran, passed, or was verified."
@@ -122,6 +140,33 @@ TODO_DEFERRED_RULE = (
     "deferral lapses by itself the moment the item list changes, so resuming "
     "the plan needs no clearing step -- and if an item genuinely cannot "
     "proceed, that is an omh_todo blocked_reason on the item, not this."
+)
+
+# What the per-turn line says INSTEAD of the continuation rule on a turn an
+# inbound message opened. The reported failure, mid-plan: the person asked why
+# something might be a model-level problem, the session agreed with nothing
+# checked, pivoted straight back to "how shall we proceed?", and when
+# challenged offered to fact-check if asked again. "Not when a turn has
+# produced an answer" is the sentence that tells a model answering does not
+# discharge the turn, and it is delivered into the context of the very turn
+# the question arrived on.
+#
+# It replaces the whole rule rather than softening it, for the reason
+# `TODO_DEFERRED_RULE` records: a line that both serves the person and asks
+# for the next item is the argument to avoid. The drive is ordered, not
+# dropped -- the last sentence still ends the turn on the plan. That is what
+# keeps this inside the stop-criterion contract instead of back at the
+# observe-only reminder, and it is why the rule has to be a replacement and
+# still carry a resume: `pre_verify` fires only on a turn that changed files,
+# so for every non-coding plan this line is the only thing driving at all.
+TODO_ANSWER_FIRST_RULE = (
+    "A message started this turn, so answering it completely is this turn's "
+    "work, ahead of the next plan item. Investigate what it asks with the "
+    "tools you have and answer from what you found: do not defer it, and do "
+    "not ask to be asked again. Do not agree with a claim you have not "
+    "checked -- check it, or say exactly what checking it would need. Then "
+    "resume the plan, and if the work was redirected record an omh_todo "
+    "deferred_reason rather than arguing for the next item."
 )
 
 TODO_RECONCILIATION_RULE = (
@@ -169,6 +214,7 @@ def open_todo_reminder(
     hermes_home: str = "",
     session_ref: str = "",
     outcomes: list[dict[str, Any]] | None = None,
+    user_message: str = "",
 ) -> str:
     """The per-turn plan line, plus any dispatch outcome nobody wrote down.
 
@@ -177,9 +223,19 @@ def open_todo_reminder(
     session's. ``outcomes`` lets a caller that already read them (the hook
     also needs the count for its honesty check) hand them in rather than
     making this scan the runtime a second time on the same turn.
+
+    ``user_message`` is the message the host says opened this turn, and the
+    only thing taken from it is whether there is one (``turn_opened_by_message``
+    says why). It defaults to absent so a caller that does not know stays on
+    the behaviour it has today.
     """
     lines: list[str] = []
-    head = _open_plan_line(omh_home=omh_home, hermes_home=hermes_home, session_ref=session_ref)
+    head = _open_plan_line(
+        omh_home=omh_home,
+        hermes_home=hermes_home,
+        session_ref=session_ref,
+        user_message=user_message,
+    )
     if head:
         lines.append(head)
     lines.extend(
@@ -305,6 +361,35 @@ def recorded_blocked_reason(item: dict[str, Any] | None) -> str:
     return reason.strip() if isinstance(reason, str) else ""
 
 
+def turn_opened_by_message(user_message: object) -> bool:
+    """Whether an inbound message opened the turn this line is riding.
+
+    The single place that question is asked, and it is an identity, not an
+    interpretation. Hermes invokes ``pre_llm_call`` exactly once per turn,
+    from ``build_turn_context``, handing it ``original_user_message`` -- the
+    message that started the turn, which the host keeps free of its own nudge
+    injection. A turn the session drove onward by itself never reaches here:
+    ``apply_stop_gates`` appends the ``pre_verify`` directive as a synthetic
+    user-role row and re-enters the same turn loop, and no second
+    ``pre_llm_call`` fires for it. So there is no message here that OMH wrote,
+    and presence is a fact about who the turn owes an answer to.
+
+    Presence is therefore the whole test. What the message SAYS is never read
+    and must not be: deciding "is this a question" or "did they redirect me"
+    from wording is the inference ``recorded_blocked_reason`` records as
+    unfixable in one language let alone four. Two messages with opposite
+    meanings produce the identical line.
+
+    Absence keeps today's behaviour, deliberately. A host that passes no
+    message, and OMH's own tracker-event path in ``pre_llm_call`` -- which
+    zeroes it for a host-labelled GitHub event, an event rather than someone
+    writing -- leave this false and the continuation drive exactly as it was.
+    A plugin that cannot see whether anyone wrote must not begin claiming they
+    did.
+    """
+    return bool(user_message.strip()) if isinstance(user_message, str) else False
+
+
 def plan_deferral_reason(todo: dict[str, Any]) -> str:
     """The reason the person steered this plan elsewhere, while it still holds.
 
@@ -389,9 +474,18 @@ def plan_continuation_reading(
     # dispatch nobody wrote down is a separate obligation -- it is frequently
     # the thing that unblocks the item -- so gating both on one item's state
     # would bury the event that ends the wait. A live deferral stops the same
-    # half on the same terms: the directive arrives as a synthetic user turn,
-    # so issuing one while the person is being served would interrupt them
-    # with the plan they just stepped away from.
+    # half on the same terms: the host appends the directive as a synthetic
+    # user-role row and re-enters the turn with it, so issuing one while the
+    # person is being served would answer them with the plan they just
+    # stepped away from.
+    #
+    # There is no gate here for the message that opened the turn, and it is
+    # not an omission. This fires at the END of a turn that already produced
+    # the answer it is handed as `final_response`, which is exactly the moment
+    # `TODO_ANSWER_FIRST_RULE`'s own last sentence asks the plan to resume --
+    # so the two agree rather than contradict. It also could not read one:
+    # Hermes calls `pre_verify` with the session, platform, model, coding
+    # posture, attempt, final response and changed paths, and no message.
     if position is not None and not recorded_blocked_reason(item) and not plan_deferral_reason(todo):
         done, total = position
         head = f"[OMH plan todo] {done}/{total} done"
@@ -415,7 +509,9 @@ def plan_continuation_reading(
     return "\n".join(lines), stamp
 
 
-def _open_plan_line(*, omh_home: str, hermes_home: str, session_ref: str) -> str:
+def _open_plan_line(
+    *, omh_home: str, hermes_home: str, session_ref: str, user_message: str = ""
+) -> str:
     todo = read_omh_todo(omh_home or None, hermes_home or None, session_ref=session_ref)
     position = open_plan_position(todo)
     if position is None:
@@ -442,6 +538,16 @@ def _open_plan_line(*, omh_home: str, hermes_home: str, session_ref: str) -> str
         # projection of it. Cutting a reason mid-clause can invert what the
         # person asked for, which an item's text cannot do.
         return f"{head} · deferred: {deferred}. {TODO_DEFERRED_RULE} {TODO_RECONCILIATION_RULE}"
+    # Below the deferral and above the drive. The recorded redirection is the
+    # more specific statement and says what was asked for, so it keeps the
+    # line when both hold; a message arriving now still beats the drive. The
+    # stall half goes with the drive for the reason the deferred branch drops
+    # it: "if nothing is blocking it, move it" would re-add, in the same
+    # breath, the ask this branch exists to subordinate. The reconciliation
+    # rule stays, being about a completion claim rather than about who is
+    # owed the turn.
+    if turn_opened_by_message(user_message):
+        return f"{head}. {TODO_ANSWER_FIRST_RULE} {TODO_RECONCILIATION_RULE}"
     unchanged = todo_unchanged_text(todo)
     if not unchanged:
         return f"{head}. {TODO_CONTINUATION_RULE} {TODO_RECONCILIATION_RULE}"

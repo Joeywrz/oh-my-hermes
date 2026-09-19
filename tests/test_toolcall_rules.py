@@ -406,11 +406,12 @@ class RuleGateFaultTest(unittest.TestCase):
 
     def setUp(self):
         _reset_state()
+        # addCleanup (not tearDown): registered immediately so a later
+        # exception in this same setUp still tears the directory down
+        # (issue #1731).
         self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         self.home = Path(self._tmp.name)
-
-    def tearDown(self):
-        self._tmp.cleanup()
 
     def _raise_in_the_gate(self, error: Exception):
         return patch.object(tool_hooks, "toolcall_rule_directive", side_effect=error)
@@ -536,13 +537,14 @@ class DoctorRulesVisibilityTest(unittest.TestCase):
 
     def setUp(self):
         _reset_state()
+        # addCleanup (not tearDown): registered immediately so a later
+        # exception in this same setUp still tears the directory down
+        # (issue #1731).
         self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
         self.omh_home = self.root / ".omh"
         self.hermes_home = self.root / ".hermes"
-
-    def tearDown(self):
-        self._tmp.cleanup()
 
     def _checks(self) -> dict[str, dict]:
         status, stdout, stderr = run_cli(

@@ -1271,6 +1271,27 @@ class DoctorSurfacesTheBriefTests(unittest.TestCase):
             self.assertEqual(check["severity"], "warning")
             self.assertIn("consolidation is due", check["message"])
 
+    def test_a_headroom_only_brief_with_a_cluster_keeps_the_warning(self) -> None:
+        # The reason set and the eviction plan are separate fields on a file
+        # that a consumer reads back, and the plan is the discriminator the
+        # split is named for. A brief whose reasons say only "full" while its
+        # plan still names something redundant has work to do, and the reason
+        # string alone would miss it.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._fire_a_brief(root)
+            path = root / ".omh" / "memory" / "consolidation.json"
+            brief = json.loads(path.read_text(encoding="utf-8"))
+            brief["eviction_plan"]["reclaimable_chars"] = 412
+            brief["eviction_plan"]["duplicate_clusters"] = [
+                {"entry_indices": [0, 1], "entry_chars": [412, 412], "keep_chars": 412,
+                 "reclaimable_chars": 412, "min_similarity": 0.91}
+            ]
+            path.write_text(json.dumps(brief), encoding="utf-8")
+            check = self._checks(root)["memory_consolidation"]
+            self.assertEqual(check["severity"], "warning")
+            self.assertIn("consolidation is due", check["message"])
+
     def test_a_brief_without_an_eviction_plan_keeps_the_warning(self) -> None:
         # A brief from a generation that did not carry the plan cannot prove
         # nothing is reclaimable, so it is not downgraded on a guess.

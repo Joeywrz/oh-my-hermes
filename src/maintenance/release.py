@@ -1202,7 +1202,22 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # nothing could be added without a raise. Re-derived from the full-profile
 # skill_context_cost_payload() producer, never by subtracting the three body
 # sizes by hand.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 978380
+# 978380 -> 979758: seven existing skills gain one body pointer each at a new
+# reference file carrying a mechanism the body previously lacked (#1714).
+# `verification-gate` gains the requirement-to-task-to-evidence coverage map,
+# `deep-interview` the scored ambiguity taxonomy with its write-back target,
+# `ultrawork` the file-ownership manifest, `code-review` the five separately
+# run review lenses, `todo-checklist` the requirements-quality checklist with
+# its generator-may-not-tick rule, `ai-slop-cleaner` the prose lexicon, and
+# `plan` the project constitution. Every mechanism itself lives in
+# `skills/<name>/references/*.md`, measured outside this budget; what is paid
+# here is seven pointer lines saying when to open one. The `ultrawork` pointer
+# is deliberately the shortest of the seven: that body had 89 bytes of
+# per-skill headroom under STRUCTURE_LINT_SKILL_BODY_BYTE_CEILING, and
+# shortening one pointer was the cheaper move against raising a second
+# ratchet. Still below the pre-#1691 level of 992659. Re-derived from the
+# full-profile skill_context_cost_payload() producer, never by adding deltas.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 979758
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

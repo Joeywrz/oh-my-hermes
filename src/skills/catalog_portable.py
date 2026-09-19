@@ -898,4 +898,18 @@ PORTABLE_REFERENCE_PATHS = frozenset({
     'external-connector-readiness/references/memory-provider-trial.md',
     'verification-gate/references/generated-artifact-provenance.md',
     'security-safety-review/references/credential-rotation.md',
+    # Issue #1714. Each of these is named by a body pointer that projects into
+    # this target, so omitting it would ship a pointer at a file the portable
+    # pack does not carry. All five are host-neutral prose procedure: no OMH
+    # CLI command, no Hermes-only surface, nothing that reads local state.
+    # `ultrawork/references/file-ownership-manifest.md` is deliberately absent
+    # -- the ulw-work override drops the quality_bar line that names it, so
+    # carrying the file here would add an unreferenced document.
+    # `todo-checklist` is not a portable skill at all, so its sibling
+    # reference has no projection to dangle in.
+    'verification-gate/references/requirement-coverage-map.md',
+    'deep-interview/references/ambiguity-taxonomy.md',
+    'code-review/references/review-lenses.md',
+    'ai-slop-cleaner/references/prose-lexicon.md',
+    'plan/references/project-constitution.md',
 })

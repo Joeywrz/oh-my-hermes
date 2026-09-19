@@ -66,6 +66,7 @@ Reasoning demand: `standard`
 Quality bar:
 
 - Make goals, non-goals, risks, acceptance criteria, and verification shape explicit.
+- Where the repository declares non-negotiable principles, load `references/project-constitution.md` and record the check: a plan conflicting with a MUST is resolved by changing the plan, never by reinterpreting the principle.
 - Keep draft plans unapproved until a user or wrapper accepts them.
 - Only prepare coding handoff guidance after the plan is accepted.
 - Plan acceptance approves the plan content, not execution: after acceptance, recommend the follow-on path that fits the work's shape — `ultrawork` durable checkpoints for progress that must survive sessions as a checkpointed ledger, `ultrawork` coordinated lanes for an accepted plan split into disjoint parallel lanes, `ultrawork` single-owner persistence for one already-scoped task with a single owner, `ultrawork` for one bounded delivery cycle, or a direct selected executor/runtime handoff for a single prepared coding change — state the fit reason in one line, and start it only after the user's explicit go-ahead.

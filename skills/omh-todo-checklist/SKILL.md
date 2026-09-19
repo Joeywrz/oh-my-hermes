@@ -79,6 +79,7 @@ Quality bar:
 - `action=set` replaces the whole list: send every item back on every write, including the ones that did not change, or the omitted ones are silently dropped. There is no partial update.
 - The checklist belongs to the session that declared it -- another TUI, Slack, or Discord session neither sees nor overwrites it -- so do not tell a user their checklist is visible somewhere it is not.
 - Two different things stop a plan advancing and they are not interchangeable: an item that cannot proceed carries `blocked_reason`, and a person steering the session elsewhere is `deferred_reason` on the write. Load `references/checklist-discipline.md` before using either.
+- To review whether requirements are fit to build from rather than to track work, load `references/requirements-quality-checklist.md`; its items interrogate the spec, and the party that generates them may not tick them.
 
 Handoff policy:
 

@@ -34,6 +34,43 @@ All notable changes will be documented here.
   render identically and 322 lose padding, for 2.27 million fewer characters
   of trailing space in total. None loses its band entirely.
 
+- **Seven skills gain the mechanism they only gestured at, for the cost of one
+  line each.** `verification-gate` named which commands count as evidence and
+  never mapped requirement to task to evidence. `deep-interview` asked one
+  question at a time with no taxonomy to prioritise against and nowhere to
+  write the answers. `ultrawork` split work into disjoint lanes and shipped no
+  file-ownership manifest, the artifact that stops two lanes editing one file.
+  `code-review` ran a single bug-first pass. `todo-checklist` tracked work and
+  could not review whether requirements were fit to build from. `ai-slop-cleaner`
+  was deletion-first for code and carried nothing for prose. `plan` had no place
+  to put a rule that is not up for renegotiation.
+
+  Each now carries a reference file with the procedure: stable `FR-###`/`SC-###`
+  ids and a requirement-to-task-to-evidence map with a metrics block; a ten-category
+  ambiguity taxonomy scored Clear/Partial/Missing with a five-question cap and a
+  write-back target; a stream manifest with explicit file lists, a named owner for
+  each shared interface, and a four-step overlap ladder whose last rung is that two
+  streams never edit one file concurrently; five review lenses run as separate
+  passes, including a verification-gap lens that asks whether anything would go red
+  if the changed behaviour broke; a requirements-quality checklist whose generator
+  may not tick its own boxes; a prose lexicon whose word tiers keep a wordiness fix
+  from reading as an authorship accusation; and a project constitution where a
+  conflict with a MUST principle is resolved by changing the plan.
+
+  Reference files are measured outside `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`, so
+  the always-loaded cost is seven pointer lines: 978,380 to 979,758 characters,
+  against a pre-retirement level of 992,659. The `ultrawork` pointer is the
+  terse one deliberately -- that body had 89 bytes of headroom under the
+  per-skill ceiling, and shortening a pointer was cheaper than raising a second
+  ratchet.
+
+  Every mechanism is reconstructed in OMH's own vocabulary from a studied
+  upstream, each registered in `docs/SKILL-SOURCES.md` with the commit read and
+  its closure receipt: github/spec-kit, automazeio/ccpm, wshobson/agents, and
+  bmad-code-org/BMAD-METHOD, all MIT. Nothing here needs a model judge inside
+  OMH, a network index, or ownership of the working tree; a coverage map is
+  something a model fills and a person or CI checks, never evidence by itself.
+
 - **`omh --resume <id>` works, and the terminal now names the `omh` way
   back.** Bare `omh` is documented as the same door as `hermes`, but the door
   opened one way only: the parser rejected `omh --resume <id>` as an invalid

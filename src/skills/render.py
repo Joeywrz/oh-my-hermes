@@ -9170,3 +9170,789 @@ common to community visual-review skills, restated in OMH's prepared-versus-
 observed vocabulary. No text from any of them is reproduced either; the
 wording here is OMH's own.
 """
+
+
+# --- Issue #1714: seven reference-file mechanisms, measured outside the
+# --- always-loaded body budget. Each is reconstructed in OMH vocabulary from a
+# --- studied upstream mechanism registered in docs/SKILL-SOURCES.md; no
+# --- upstream prose is reproduced. Each carries named artifacts a reader can
+# --- follow without the upstream project, and none records a date, a count of
+# --- live repository state, or a status line (cache-placement rule).
+
+
+def requirement_coverage_reference_templates() -> list[SkillReferenceTemplate]:
+    return list(_requirement_coverage_reference_templates_cached())
+
+
+@lru_cache(maxsize=1)
+def _requirement_coverage_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
+    return (
+        SkillReferenceTemplate(
+            "verification-gate",
+            "references/requirement-coverage-map.md",
+            _requirement_coverage_map_reference(),
+        ),
+    )
+
+
+def _requirement_coverage_map_reference() -> str:
+    return """# Requirement Coverage Map
+
+`verification-gate` names which commands count as evidence. This names what the
+evidence has to cover. Load it when a change answers to a written spec, plan, or
+issue and the question is whether anything was left unbuilt, not whether the
+build passed.
+
+The pass is **strictly read-only**. It reads the requirement text, the task
+list, and the diff, and it writes one report. It never edits a spec, never ticks
+a box, and never re-runs the work. A coverage map is something a model fills and
+a person or CI then checks; the filled map is not itself evidence that anything
+was verified.
+
+## Stable ids come first
+
+Every requirement gets an id before anything is mapped, because a finding that
+points at a paraphrase cannot be looked up twice.
+
+- `FR-###` for a functional requirement: something the system must do.
+- `SC-###` for a success criterion: a measurable outcome that gates acceptance.
+- Reuse an id the source document already assigns. Never renumber; a renumbered
+  map silently invalidates every prior report.
+- When the source has no ids, assign them in document order and say in the
+  report that the ids are assigned by this pass, not by the spec.
+
+Exclude from `SC-###` any outcome that no work item could produce - adoption
+targets, revenue, ticket volume. They are real goals and they are not coverage
+gaps. A criterion earns an id when some buildable task could satisfy it.
+
+## The three-column map
+
+One row per requirement id. The row is the unit of the whole pass.
+
+| Column | What it holds | Filled by |
+| --- | --- | --- |
+| Requirement | `FR-###` / `SC-###` plus a one-line restatement | this pass |
+| Tasks | every task id that claims to satisfy it, or `none` | this pass |
+| Evidence | the command, test name, or artifact path that would fail if it regressed, or `none` | this pass |
+
+A task id in the second column is a claim. The third column is where the claim
+becomes checkable, and `none` there is the finding this map exists to produce: a
+requirement with a task and no evidence is work that nothing would catch
+breaking.
+
+Map a task to a requirement by an explicit id reference where one exists. Where
+the task only names the behavior, say so in the row - an inferred mapping and a
+declared mapping are not the same claim, and a report that hides the difference
+launders a guess into coverage.
+
+## Six passes, run separately
+
+Run each pass over the whole map before starting the next. Bundling them
+produces one undifferentiated list in which the cheap findings bury the
+expensive ones.
+
+1. **Duplication** - two requirements asserting the same thing under different
+   ids. Keep the one that is measurable; mark the other for consolidation.
+2. **Ambiguity** - an unquantified adjective standing where a threshold belongs
+   (fast, secure, robust, intuitive), or an unresolved placeholder left in the
+   text.
+3. **Underspecification** - a requirement with a verb and no object, no
+   measurable outcome, or an acceptance criterion nothing could fail.
+4. **Principle conflict** - a requirement that contradicts a non-negotiable
+   project principle. See `omh-plan/references/project-constitution.md`; a
+   conflict found here is automatically the top severity.
+5. **Coverage gaps** - a requirement with no task, a task mapped to no
+   requirement, or an `SC-###` whose satisfying work is absent from the list.
+6. **Inconsistency** - one concept under two names across documents, an entity
+   present in the plan and absent from the spec, or an ordering that puts
+   dependent work ahead of what it depends on.
+
+## Severity
+
+Four levels, assigned by what the finding costs if it ships, never by how
+confident the reader feels.
+
+- **Critical** - conflicts with a non-negotiable principle, or a requirement
+  with zero coverage that blocks the change's stated purpose.
+- **High** - conflicting requirements, an unquantified security or performance
+  attribute, or an acceptance criterion no command could fail.
+- **Medium** - one concept under two names, a non-functional requirement with no
+  task, an edge case named and not specified.
+- **Low** - wording and redundancy that does not change what gets built.
+
+## Finding ids and the cap
+
+Prefix each finding with its pass initial and number within that pass: `D1`,
+`A1`, `U1`, `P1`, `C1`, `I1`. Ids are per-pass and stable, so re-running against
+unchanged inputs produces the same ids and the same counts. A report whose ids
+move on a no-op re-run cannot be diffed against the previous one.
+
+Cap the findings table at fifty rows. Order by severity, then by pass order.
+When more than fifty qualify, list the top fifty and add one overflow line
+naming how many were withheld and in which passes they fell - never silently
+truncate, and never drop a Critical to make room.
+
+## Metrics block
+
+Close the report with these, and nothing derived by hand from them:
+
+- requirements mapped, by kind
+- tasks mapped, and tasks mapped to no requirement
+- coverage percentage: requirements with at least one task, over requirements
+- requirements with zero tasks
+- requirements with a task and no evidence
+- findings by severity
+
+Coverage percentage answers one question only: how much of the written
+requirement set something claims to address. It is not a pass rate, and a high
+percentage over a map whose evidence column is mostly `none` is the worst state
+this pass can find, not a good one.
+
+## What the report may end with
+
+Recommendations, addressed to a person. Name the requirement id, the pass that
+found it, and the smallest change that would close it. Never apply one. When the
+map is clean, say so with the metrics block attached; a zero-finding report with
+its counts shown is a result, and a zero-finding report without them is a
+missing measurement.
+"""
+
+
+def deep_interview_reference_templates() -> list[SkillReferenceTemplate]:
+    return list(_deep_interview_reference_templates_cached())
+
+
+@lru_cache(maxsize=1)
+def _deep_interview_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
+    return (
+        SkillReferenceTemplate(
+            "deep-interview",
+            "references/ambiguity-taxonomy.md",
+            _ambiguity_taxonomy_reference(),
+        ),
+    )
+
+
+def _ambiguity_taxonomy_reference() -> str:
+    return """# Ambiguity Taxonomy
+
+`deep-interview` asks one question at a time and stops on clarity. This says how
+to decide which questions are worth a round, and where the answers go so the
+next lane reads them instead of the transcript. Load it before the first
+question.
+
+Scanning is free and asking is not. Score the whole taxonomy first, then spend
+the round budget on the categories that scored worst.
+
+## Score every category before asking anything
+
+Ten categories. Mark each one `Clear`, `Partial`, or `Missing` against the
+material already in hand.
+
+| Category | What it covers |
+| --- | --- |
+| Scope and behavior | the outcome, what is explicitly out of scope, who the actors are |
+| Domain and data | entities, identity and uniqueness, state transitions, expected volume |
+| Interaction flow | the critical path, and the error, empty, and loading states |
+| Quality attributes | latency and throughput targets, availability, observability |
+| Security and privacy | authentication, authorization, data handling, threat assumptions |
+| Integration surface | external services, their failure modes, formats, version assumptions |
+| Edge cases | negative paths, limits and throttling, concurrent-change resolution |
+| Constraints and tradeoffs | fixed technical choices, and alternatives already rejected |
+| Terminology | the canonical term for each concept, and the synonyms to stop using |
+| Completion signals | how acceptance is decided, and by what observable |
+
+`Clear` means the material answers it. `Partial` means it is addressed and would
+still admit two incompatible builds. `Missing` means nothing addresses it.
+
+The scored map is working state, not output. Report it only when no question
+will be asked, where it is the evidence for asking nothing.
+
+## Which gaps earn a question
+
+A `Partial` or `Missing` category is a candidate, not a question. Promote it only
+when a different answer would change what gets built, how it is tested, or
+whether it is accepted. Drop it when it is a matter of implementation technique,
+a choice the executing lane can make and reverse cheaply, or already answered
+somewhere in the material.
+
+Rank the survivors by impact times uncertainty and ask in that order. Five
+questions is the ceiling for the whole session. Spend them on the worst
+unresolved categories rather than clearing several cheap ones - two low-impact
+answers and an unresolved security posture is a worse session than one question.
+
+## Question shape
+
+One question per round, and the round advances only on an accepted answer.
+
+- Lead with a complete interrogative that ends in a question mark and stands on
+  its own. A topic label, a section heading, or a bare requirement id is not a
+  question; a reader who has not seen the spec must be able to answer from the
+  question line.
+- An id may follow the question mark in parentheses. Never before it.
+- Follow with one plain sentence on what the answer changes. A question whose
+  stake cannot be stated in one sentence has not earned a round.
+- Offer two to five mutually exclusive options, or constrain a short answer to a
+  few words. Name which option is recommended and why, in one line, so the
+  answerer can accept rather than adjudicate.
+- Never show the queue. A visible queue invites answering ahead, which collapses
+  several rounds into one unattributable paragraph.
+
+A clarifying exchange within one question is part of that question. It does not
+consume another round.
+
+## Write the answer back
+
+An answer that stays in the transcript is lost at the next compaction. Integrate
+each accepted answer before asking the next one, into whichever artifact the
+session is clarifying.
+
+- Append the exchange to a dedicated clarifications section of that artifact,
+  one line per accepted answer, question and answer together.
+- Then apply the answer where it belongs: a behavior answer into the requirement
+  text, a quality answer as a threshold replacing the adjective it resolves, an
+  edge case as its own entry, a terminology answer normalized across every
+  mention.
+- Replace the statement the answer invalidates. Leaving both makes the artifact
+  contradict itself, which is worse than the original ambiguity because it now
+  reads as decided.
+- Do not reorder or reformat anything the answer did not touch.
+
+If no artifact exists to write into, say so before the first question and name
+where the answers will land. An interview with no write-back target produces a
+transcript, not a clarified brief.
+
+## Stopping
+
+Stop at the first of: every high-impact category resolved, the person says to
+stop, or five questions asked. Then report the outcome and, when the budget ran
+out first, list the categories still `Partial` or `Missing` and say what was
+assumed for each. A named unresolved assumption is a usable result. A silent one
+is the failure this whole pass exists to prevent.
+"""
+
+
+def file_ownership_reference_templates() -> list[SkillReferenceTemplate]:
+    return list(_file_ownership_reference_templates_cached())
+
+
+@lru_cache(maxsize=1)
+def _file_ownership_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
+    return (
+        SkillReferenceTemplate(
+            "ultrawork",
+            "references/file-ownership-manifest.md",
+            _file_ownership_manifest_reference(),
+        ),
+    )
+
+
+def _file_ownership_manifest_reference() -> str:
+    return """# File-Ownership Manifest
+
+`references/dependency-topology.md` requires that no two concurrently runnable
+lanes share a write scope. This is the artifact that makes the requirement
+checkable before dispatch instead of discoverable at integration. Load it when a
+unit of work is about to fan out into more than one concurrent lane.
+
+A declared manifest is preparation. It is not dispatch, execution, or
+verification evidence, and a lane that has one can still be wrong about which
+files it will touch - which is why the manifest is compared against the diff
+afterwards.
+
+## Derive the file list before naming the streams
+
+Naming streams first produces plausible-sounding lanes whose file lists overlap.
+Derive in this order.
+
+1. **Enumerate** every file the work creates or modifies. A file nobody can name
+   yet is itself a finding: the work is not understood well enough to split.
+2. **Cluster** by directory proximity, by import relationship, and by layer.
+   Files that import each other belong to one owner.
+3. **Assign** one cluster per stream. No file may appear in two clusters.
+4. **Separate the interface** - the types, signatures, event names, and payload
+   shapes that two clusters agree on. These get one owner, named explicitly, and
+   every other stream consumes them read-only.
+
+## Manifest shape
+
+One manifest per unit of work, written before the first lane starts.
+
+```
+unit: <issue or task id>
+streams:
+  - id: <stream id>
+    scope: <one sentence: what this stream is responsible for>
+    files: <explicit paths or a single directory glob; never "related files">
+    starts: immediately | after <stream id>
+    verify: <the command that proves this stream alone>
+shared:
+  - path: <file>
+    owner: <stream id>
+    consumers: [<stream id>, ...]
+conflict_risk:
+  - paths: [<file>, ...]
+    streams: [<stream id>, ...]
+    resolution: split | single-owner | sequential
+```
+
+Three rules make it worth writing:
+
+- **`files` is explicit.** A glob is allowed when the whole directory belongs to
+  one stream. A prose description is not a file list, and a manifest of prose
+  descriptions cannot be checked for overlap by anyone.
+- **`shared` is not empty by default.** Almost every multi-stream change has a
+  type file, a registry, a schema, or a config map that more than one stream
+  wants. Finding none usually means the interface was not looked for.
+- **`conflict_risk` names files, not worries.** An entry with no paths is a
+  feeling. Leave the section out rather than filling it with one.
+
+## Resolving an overlap
+
+When two streams need the same file, take the first of these that applies.
+Higher options cost more design and save more integration time.
+
+1. **Split the file.** Extract the concern each stream needs into its own file
+   and give each stream one of them. This is the only resolution that leaves
+   both streams fully parallel.
+2. **Single owner, change requests.** One stream owns the file; the other states
+   what it needs and does not edit. The owner's lane carries both changes.
+3. **Sequential.** One stream finishes the file, then the other takes it. Record
+   this as a dependency edge, because that is what it is - the streams are no
+   longer concurrent and the plan should stop saying they are.
+
+Two streams editing one file concurrently is never an option, whatever the
+merge tooling promises. The failure is not the textual conflict, which is
+visible; it is the clean auto-merge of two edits that each assumed the other's
+absence.
+
+## Check the manifest against what happened
+
+After the lanes return, compare the manifest to the actual diff and report the
+comparison rather than the intent.
+
+- A file touched by a stream that did not declare it is a manifest defect. Say
+  which stream, which file, and whether another stream also touched it.
+- A file touched by two streams is the failure this artifact exists to prevent.
+  Report it even when the merge was clean, because a clean merge of two
+  independent edits to one file is where the silent defect lives.
+- A declared file nobody touched is usually harmless and occasionally the tell
+  that a stream stopped early.
+
+## Reporting
+
+A parallel split earns its coordination cost only when the lanes are genuinely
+independent. State the stream count and the deepest dependency chain; those two
+numbers say what the split can and cannot buy. Do not report a wall-clock
+saving that was not measured - an estimate presented beside real observations
+reads as one of them.
+"""
+
+
+def review_lens_reference_templates() -> list[SkillReferenceTemplate]:
+    return list(_review_lens_reference_templates_cached())
+
+
+@lru_cache(maxsize=1)
+def _review_lens_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
+    return (
+        SkillReferenceTemplate(
+            "code-review",
+            "references/review-lenses.md",
+            _review_lenses_reference(),
+        ),
+    )
+
+
+def _review_lenses_reference() -> str:
+    return """# Review Lenses
+
+`code-review` runs one bug-first pass. This splits the reading into five named
+lenses run as separate passes over the same diff. Load it when a change is large
+enough, or its failure mode quiet enough, that one pass will find the first
+class of problem and stop looking.
+
+One pass finds what its opening question primes it to find. Five passes cost
+five readings and find five different things. Run them in this order, and record
+which lenses were actually run - a review reported as complete after two of them
+is a two-lens review.
+
+## The verification-gap lens
+
+This is the lens with no equivalent elsewhere in OMH, and the one to run when
+only one is affordable. It asks a different question from every other lens: not
+*is this correct*, but **if this behavior broke tomorrow, would anything go
+red**.
+
+Work it in order.
+
+1. **Is there a behavioral change at all?** Formatting, comments, pure renames,
+   and type-only edits that cannot change a return value, a raised error, a
+   visible side effect, or observable state are non-behavioral; stop and report
+   zero findings. One exception: a test-only change that deletes or weakens
+   verification is in scope, because that is the gap itself.
+2. **Name what changed.** The return value, the branch taken, the error path,
+   the payload shape, the default, the validation rule. Handle each separately.
+   A dependency, toolchain, or data-file change is behavioral even when no line
+   of logic moved.
+3. **Trace to where it is observed.** Direct callers, registered entry points,
+   schema and event consumers. Follow a path only while the changed behavior is
+   still reachable and still unverified. Stop at the nearest boundary where a
+   test would fail, or where the next hop is guesswork.
+4. **State the smallest regression the consumer would see** - invert the branch,
+   drop the default, omit the field, return the previous error code. Then read
+   the test that should catch it and ask whether that regression would make an
+   assertion fail.
+
+Three shapes qualify as findings:
+
+- **Regression gap** - the change can regress at that consumer and no test
+  covering it would fail.
+- **Missing-adoption gap** - a site that should now use the new behavior still
+  does its own thing, and nothing flags the omission. This qualifies only with a
+  supersession signal, meaning the change itself shows the new behavior is
+  intended to replace the local one. Without that signal it is a refactor
+  suggestion.
+- **Broken-verification gap** - a test looks like it covers the behavior and
+  would not protect it: skipped, not in the normal run, or asserting something
+  that passes either way.
+
+A test counts only if it runs in the normal verification path and an assertion
+observes the changed value. These do not count: no-throw and snapshot-only
+checks, mock-call assertions, a test that mocks away the integration under
+review, and an end-to-end test that exercises the path without checking the
+changed output.
+
+**Read the test before saying what it covers.** Before claiming no test exists,
+search the repository by symbol and by import reference; the file where it ought
+to live is not enough. Then say in the finding how far you looked. "None of the
+tests I read cover this" is a reportable observation. "There is no test" is a
+claim about the whole repository and needs the search behind it.
+
+## The other four
+
+- **Adversarial** - read the diff as someone trying to make it fail. This pass
+  must produce at least one finding or an explicit statement of what was
+  attacked and held; "looks fine" is not a result of an adversarial pass.
+- **Edge case** - walk every branch and every boundary the change introduces:
+  empty, one, many, maximum, absent, malformed, concurrent, and the error path
+  out of each.
+- **Structure** - the shape of the change against the shape of the codebase.
+  Misplaced responsibility, a seam in the wrong place, an abstraction that will
+  need undoing before the next change.
+- **Prose** - comments, docstrings, commit and report text. A comment that
+  overclaims what a guard proves is a review finding here, not a nitpick: the
+  next reader trusts it instead of re-deriving it.
+
+## Findings
+
+Each lens reports under its own name, so a reader can tell a structural opinion
+from a verification gap. Within the verification-gap lens, do not assign
+severity, confidence, or priority: a gap is present or it is not, and ranking
+invites resolving it by argument instead of by a test. The other four lenses
+carry severity as `code-review` already defines it.
+
+Drop any finding that cannot be grounded in something read. A lens that returns
+nothing returns nothing, and reports it.
+"""
+
+
+def requirements_quality_reference_templates() -> list[SkillReferenceTemplate]:
+    return list(_requirements_quality_reference_templates_cached())
+
+
+@lru_cache(maxsize=1)
+def _requirements_quality_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
+    return (
+        SkillReferenceTemplate(
+            "todo-checklist",
+            "references/requirements-quality-checklist.md",
+            _requirements_quality_checklist_reference(),
+        ),
+    )
+
+
+def _requirements_quality_checklist_reference() -> str:
+    return """# Requirements-Quality Checklist
+
+A plan checklist tracks work. This is a different artifact that happens to share
+the shape: a checklist whose items interrogate the **requirements**, not the
+implementation. Load it when asked to review whether a spec, issue, or plan is
+fit to be built from, before anyone starts building.
+
+Think of the requirement text as a program written in English. This checklist is
+its test suite. Every item asks whether the requirements are written well enough
+to build and accept against - never whether the code works. The code has its own
+tests and `verification-gate` owns them.
+
+## The line an item may not cross
+
+An item that can only be answered by running the software is in the wrong
+artifact.
+
+- Wrong: does the endpoint return the right status on a duplicate submission?
+- Right: does the spec say what happens on a duplicate submission?
+- Wrong: does the list load quickly?
+- Right: is "quickly" given a threshold and a measurement point?
+
+The test is mechanical. If answering the item requires the built system, move it
+to a verification checklist. If it can be answered by reading the requirement
+text alone, it belongs here.
+
+## Item shape
+
+```
+- [ ] CHK### - <question about the requirements> [<Quality>, <source ref>]
+```
+
+- `CHK###` is stable and assigned once. Renumbering breaks every reference to a
+  prior review.
+- The text is a question, ending in a question mark. A declarative item hides
+  whether it is asking or asserting.
+- `<Quality>` is exactly one of the six below.
+- `<source ref>` points at what the item is about: a requirement id, a section,
+  or `Gap` when the item exists precisely because nothing in the document covers
+  it.
+
+## The six qualities
+
+Every item is tagged with one. The tag is what makes the finished checklist
+readable as a diagnosis rather than a list.
+
+| Quality | The question behind it |
+| --- | --- |
+| Completeness | is the case covered at all? |
+| Clarity | can it be read only one way? |
+| Consistency | is the same rule stated the same way everywhere it appears? |
+| Measurability | can a person or a command decide whether it is met? |
+| Coverage | are the non-obvious paths present - errors, empties, limits, permissions? |
+| Gap | is something absent that a builder will have to invent? |
+
+## Ownership: the generator does not tick its own boxes
+
+The party that writes the items does not decide they pass. This is the rule the
+artifact rests on, and it has one reason: an author checking their own item
+re-reads their own intent, not the document.
+
+- Generating or appending items leaves every one of them `[ ]`.
+- `[x]` means a reviewer judged the requirement-quality criterion satisfied. It
+  never means the work is done.
+- A model may help evaluate an item when a reviewer asks it to, item by item,
+  with the reason stated. It may not sweep the list.
+- A generated checklist that arrives with boxes already ticked is void. Reset it
+  and say why, rather than trusting marks whose owner is unknown.
+
+This is the same boundary `prepared_not_observed` draws everywhere else in OMH:
+the checklist is prepared, and a reviewer's marks are the only thing on it that
+is observed.
+
+## Building one
+
+1. Name the domain the checklist covers and say what it excludes. A checklist
+   over everything gets skimmed.
+2. Read the requirement text and write one item per distinct doubt, tagged.
+3. Sort by quality, then by source reference, so a reader sees all the
+   measurability problems together.
+4. Stop when the next item would restate the previous one at a different
+   altitude. Length is not coverage, and a long list trains reviewers to tick
+   without reading.
+
+## Reading a completed one
+
+Unchecked items are the output. Report them grouped by quality: several
+`Measurability` misses mean the spec cannot be accepted against, several `Gap`
+entries mean the builder is being asked to design. A fully ticked checklist says
+the requirements are fit to build from. It says nothing at all about the build.
+"""
+
+
+def prose_lexicon_reference_templates() -> list[SkillReferenceTemplate]:
+    return list(_prose_lexicon_reference_templates_cached())
+
+
+@lru_cache(maxsize=1)
+def _prose_lexicon_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
+    return (
+        SkillReferenceTemplate(
+            "ai-slop-cleaner",
+            "references/prose-lexicon.md",
+            _prose_lexicon_reference(),
+        ),
+    )
+
+
+def _prose_lexicon_reference() -> str:
+    return """# Prose Lexicon
+
+`ai-slop-cleaner` is deletion-first and written for code. Prose in a repository
+needs the same pass and a different instrument: README text, docstrings, commit
+bodies, review comments, and report prose carry machine-writing tells that no
+code smell describes. Load this when the cleanup target is written English.
+
+Three instruments, used together: a word list in tiers, a pattern catalog with
+severity, and a context profile that decides which rules apply at all.
+
+## Word tiers
+
+The tier says how much a hit weighs, not how hard it is to fix. Match inflected
+forms - a listed word covers its plural, gerund, adverb, and conjugations -
+except where a variant carries an honest separate sense, which is judged in
+context rather than matched.
+
+- **Tier 1A, frequency markers.** Words that appear far more often in machine
+  text than in human writing. Replace every one. A cluster of them is evidence
+  about how the passage was produced. Typical members: delve, leverage as a
+  verb, seamless, robust as praise, testament, realm, landscape, pivotal,
+  underscore, harness as a verb.
+- **Tier 1B, clarity edits.** Wordiness and inflated formality: in order to,
+  utilize, commence, ascertain, endeavor, prior to. Replace them too - the edit
+  is identical - but a 1B hit is **not** evidence of machine authorship. People
+  write this way. Keep 1B out of any density signal, so tightening wordy human
+  prose can never push a document toward an "AI-written" verdict.
+- **Tier 2, cluster words.** Fine alone, suspicious together. Flag when two or
+  more appear in one paragraph.
+- **Tier 3, density words.** Ordinary words that machine text overuses. Flag
+  only at high density across the document, never on a single occurrence.
+
+Report 1A and 1B separately. Merging them is what turns a wordiness report into
+a false authorship accusation.
+
+## Pattern severity
+
+Patterns are shapes, not words, and they carry three severities.
+
+- **P0, credibility killers.** Training-cutoff disclaimers, assistant artifacts
+  left in the text, invented attributions to unnamed experts, unfilled
+  placeholders, chat citation markup, and tracking parameters pasted in with a
+  URL. Any one of these in a shipped document is a defect on its own.
+- **P1, obvious tells.** Tier 1 vocabulary, slot-fill phrasing, "Let's" openers,
+  formulaic openings, bold on every other phrase, em dashes well above the rate
+  of ordinary prose, closing paragraphs that narrate a future, stacked hedges,
+  moral adjectives on things that cannot have morals, and bullet lists whose
+  items are bare noun phrases.
+- **P2, polish.** Generic conclusions, the compulsive rule of three, uniform
+  paragraph lengths, copula avoidance, and transition words carrying no
+  transition.
+
+## Context profiles
+
+The same sentence is a defect in one register and correct in another. Name the
+register before flagging anything.
+
+| Profile | What it is | How the rules move |
+| --- | --- | --- |
+| `docs` | READMEs, guides, reference pages | clarity over voice; lists and structure are the format, not a smell |
+| `code-comment` | comments, docstrings | strictest on overclaiming; a comment that asserts more than the code proves is P0 here |
+| `commit-and-pr` | commit bodies, PR descriptions, review replies | strict on promotional and significance inflation; the reader is deciding whether to trust a claim |
+| `report` | findings, postmortems, status writeups | extra strict on hedging and on anything that reads as evidence without being it |
+| `casual` | internal notes, chat | P0 only |
+
+When no profile is named, infer one from the destination and **say which one and
+why** before reporting. The writer overrides. A rule absent from a profile's
+adjustments applies at full strength.
+
+## Running the pass
+
+Prose cleanup follows the same discipline as `references/cleanup-passes.md`: one
+category per pass, never bundled. Word tiers first, then patterns by severity,
+then register fit. Between passes, re-read the paragraph whole - the failure
+mode here is a document that passes every rule and no longer says anything,
+because each fix was made against the rule instead of against the meaning.
+
+Two edits are never in scope. Do not change a technical term because it appears
+in a tier, and do not remove a hedge that is accurate; "may" in a sentence about
+undefined behavior is doing work. Losing a true qualifier to a style rule turns
+a correct document into a confident wrong one.
+"""
+
+
+def plan_constitution_reference_templates() -> list[SkillReferenceTemplate]:
+    return list(_plan_constitution_reference_templates_cached())
+
+
+@lru_cache(maxsize=1)
+def _plan_constitution_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
+    return (
+        SkillReferenceTemplate(
+            "plan",
+            "references/project-constitution.md",
+            _project_constitution_reference(),
+        ),
+    )
+
+
+def _project_constitution_reference() -> str:
+    return """# Project Constitution
+
+A plan is checked against the request and against the codebase. This adds the
+third thing it must be checked against: the project's own non-negotiable rules,
+written down once at a fixed path so a plan cannot quietly argue past them. Load
+it when planning inside a repository that has such a document, or when the
+absence of one is why the same argument keeps being had.
+
+## The fixed path
+
+The constitution lives at one declared path, and the plan names that path. A
+principle the planner recalls from a previous session is not a principle; it is
+a memory, and it loses every argument to a confident paragraph.
+
+Where a repository already carries its non-negotiables in its contributor
+documents, that is the constitution and the path is those files. Do not create a
+second home for rules that already have one - two documents of principles
+disagree within a quarter, and then neither is authoritative.
+
+## Principle shape
+
+Each principle has a short name, the rule in normative language, and its reason.
+
+- **MUST** is non-negotiable. A plan conflicting with a MUST is wrong, and the
+  plan changes.
+- **SHOULD** is a default with a stated cost to departing from it. A plan may
+  depart, in writing, naming the cost it accepts.
+- Nothing else. A principle written with "consider" or "prefer where possible"
+  cannot be conflicted with, so it cannot be checked, so it is documentation
+  rather than governance.
+
+The reason matters as much as the rule. A principle with no recorded reason gets
+reinterpreted the first time it is expensive, because nobody can tell whether
+the current situation is the one it was written for.
+
+## How a conflict resolves
+
+This is the whole mechanism and it has one direction.
+
+**A plan that conflicts with a MUST principle is a top-severity finding, and it
+is resolved by changing the plan.** Never by reinterpreting the principle to
+admit the plan, never by noting the tension and proceeding, never by scoping the
+principle down to exclude this case.
+
+If the principle is genuinely wrong, that is a separate change: amend the
+constitution first, in its own commit, with its own review, and then re-plan
+against the amended text. The two must not happen in one motion. A principle
+amended inside the change it was blocking has been argued around, whatever the
+diff says.
+
+The direction is what gives the document force. A principle that can be
+reinterpreted under pressure is advice, and advice does not need a fixed path.
+
+## Amendment
+
+- Amendments are versioned. A removal or redefinition is a major change, a new
+  principle is a minor one, and a wording fix is a patch. State which.
+- An amendment names the principles added, changed, or removed, and what they
+  were before.
+- Where a principle's wording changes, say whether existing plans and existing
+  code were conforming under the old text. A silent tightening turns the whole
+  repository non-conforming with nobody told.
+
+## Checking a plan against it
+
+Before a plan is accepted, walk the principles and record the check. For each
+MUST, the plan either does not touch it, satisfies it, or conflicts with it -
+and a conflict stops acceptance. For each SHOULD the plan departs from, the plan
+carries the written cost.
+
+Record the result as part of the plan, not as a separate note. The check is
+cheap, it is the only reason the document has force, and a plan that does not
+show it was performed has not been.
+"""

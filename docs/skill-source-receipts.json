@@ -1,5 +1,94 @@
 {
   "schema_version": "skill_source_closure_receipt/v1",
   "contract": "docs/SKILL-SOURCES.md, Closure receipts. Append-only: a correction adds a superseding receipt and never rewrites an earlier one. Rationale states the OMH decision in one bounded line; watch evidence stays in the private continuity record and in the cited OMH issue.",
-  "receipts": []
+  "receipts": [
+    {
+      "receipt_id": "ssc-2026-09-19-ai-slop-cleaner-wshobson",
+      "candidate_key": "ai-slop-cleaner@github.com/wshobson/agents",
+      "prior_checkpoint": null,
+      "next_checkpoint": "4236bb91f8395b0435f1d8b8baf9e8e4c69a8620",
+      "disposition": "adopted",
+      "decision_ref": "#1714",
+      "reviewed_on": "2026-09-19",
+      "rationale": "Adopted the tiered word list with its 1A/1B evidence split, the three-severity pattern catalog, and per-register profiles; rebuilt for OMH repository prose registers.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-19-code-review-bmad",
+      "candidate_key": "code-review@github.com/bmad-code-org/bmad-method",
+      "prior_checkpoint": null,
+      "next_checkpoint": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "disposition": "adopted",
+      "decision_ref": "#1714",
+      "reviewed_on": "2026-09-19",
+      "rationale": "Adopted the five-lens split and the verification-gap lens shapes and evidence rules; the superpowers request/receive halves were already shipped and are not re-adopted here.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-19-deep-interview-spec-kit",
+      "candidate_key": "deep-interview@github.com/github/spec-kit",
+      "prior_checkpoint": null,
+      "next_checkpoint": "d4229c071c7ea3885b43e8a7739847300f618f13",
+      "disposition": "adopted",
+      "decision_ref": "#1714",
+      "reviewed_on": "2026-09-19",
+      "rationale": "Adopted the scored ambiguity taxonomy, the five-question session cap, and per-answer write-back; spec-file paths and script preflight rejected as host-specific.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-19-plan-spec-kit",
+      "candidate_key": "plan@github.com/github/spec-kit",
+      "prior_checkpoint": null,
+      "next_checkpoint": "d4229c071c7ea3885b43e8a7739847300f618f13",
+      "disposition": "adopted",
+      "decision_ref": "#1714",
+      "reviewed_on": "2026-09-19",
+      "rationale": "Adopted the fixed-path constitution with MUST/SHOULD semantics and the conflict-resolves-by-changing-the-plan direction; the template placeholder machinery was rejected.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-19-todo-checklist-spec-kit",
+      "candidate_key": "todo-checklist@github.com/github/spec-kit",
+      "prior_checkpoint": null,
+      "next_checkpoint": "d4229c071c7ea3885b43e8a7739847300f618f13",
+      "disposition": "adopted",
+      "decision_ref": "#1714",
+      "reviewed_on": "2026-09-19",
+      "rationale": "Adopted requirement-quality items over behaviour verification, the CHK id scheme, quality tags, and the generator-may-not-tick ownership rule.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-19-ultrawork-ccpm",
+      "candidate_key": "ultrawork@github.com/automazeio/ccpm",
+      "prior_checkpoint": null,
+      "next_checkpoint": "7d7e4623bc6d4c0c9ba66ca6bfecd7e5261dc697",
+      "disposition": "adopted",
+      "decision_ref": "#1714",
+      "reviewed_on": "2026-09-19",
+      "rationale": "Adopted the per-unit parallel-stream manifest with explicit file lists, coordination points, and a conflict-risk section; the estimated-hours and speedup fields were rejected as unmeasured.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-19-ultrawork-wshobson",
+      "candidate_key": "ultrawork@github.com/wshobson/agents",
+      "prior_checkpoint": null,
+      "next_checkpoint": "4236bb91f8395b0435f1d8b8baf9e8e4c69a8620",
+      "disposition": "adopted",
+      "decision_ref": "#1714",
+      "reviewed_on": "2026-09-19",
+      "rationale": "Adopted the enumerate-cluster-assign ownership derivation and the four-step overlap ladder ending in never-concurrent; the per-framework directory layouts were rejected as stack-specific.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-19-verification-gate-spec-kit",
+      "candidate_key": "verification-gate@github.com/github/spec-kit",
+      "prior_checkpoint": null,
+      "next_checkpoint": "d4229c071c7ea3885b43e8a7739847300f618f13",
+      "disposition": "adopted",
+      "decision_ref": "#1714",
+      "reviewed_on": "2026-09-19",
+      "rationale": "Adopted stable FR-/SC- ids, the requirement-to-task-to-evidence map, six separate passes, four-level severity, and the capped read-only report with its metrics block.",
+      "supersedes": null
+    }
+  ]
 }

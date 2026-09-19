@@ -545,6 +545,21 @@ class DoctorRulesVisibilityTest(unittest.TestCase):
         self.assertIn("1 user tool-call rule(s) load", checks["toolcall_rules"]["message"])
         self.assertNotIn("toolcall_rule_gate", checks)
 
+    def test_a_non_schema_defect_is_not_blamed_on_the_schema_version(self):
+        # Every rule invalid also loads zero rules. Naming schema_version
+        # there would assert a cause the validator did not report.
+        _write_rules(
+            self.omh_home,
+            [
+                {"name": "a", "pattern": "[unclosed", "message": "no"},
+                {"name": "b", "pattern": "(also broken", "message": "no"},
+            ],
+        )
+        check = self._checks()["toolcall_rules"]
+        self.assertEqual(check["severity"], "warning")
+        self.assertIn("0 rule(s) load, 2 skipped", check["message"])
+        self.assertNotIn("schema_version", check["message"])
+
     def test_an_unparseable_rules_file_is_named(self):
         path = toolcall_rules_path(str(self.omh_home))
         path.parent.mkdir(parents=True, exist_ok=True)

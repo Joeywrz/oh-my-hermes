@@ -1138,10 +1138,14 @@ def _toolcall_rule_checks(paths: OmhPaths) -> list[Check]:
                 accepted = 0
             if errors:
                 skipped = _toolcall_rules_declared_count(raw) - accepted
+                # Named only when the validator actually reported it. Keying
+                # this off `accepted == 0` instead would assert a wrong
+                # schema_version over three bad regexes or an oversized file,
+                # which is a cause the reader did not observe.
                 whole_document = (
                     f" A wrong schema_version refuses the WHOLE document, so the expected value is "
                     f"{TOOLCALL_RULES_SCHEMA_VERSION}."
-                    if accepted == 0
+                    if any(error.startswith("schema_version must be") for error in errors)
                     else ""
                 )
                 checks.append(

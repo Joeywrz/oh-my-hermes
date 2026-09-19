@@ -220,6 +220,29 @@ Hermes:
 omh setup
 ```
 
+### Open the terminal, and come back to a session
+
+Bare `omh` opens the same OH-MY-HERMES terminal that bare `hermes` does, and
+three Hermes session flags pass straight through on that bare launch:
+
+```sh
+omh --resume <session-id>    # reopen one session by id (short form: -r)
+omh --continue               # continue the most recent session (short form: -c)
+omh -p <profile>             # open a bot profile's own home
+```
+
+They are a bare-launch surface only. Passing one together with a subcommand
+is an error naming the flag, never a silent no-op, because dropping `-p`
+would run that subcommand against a different profile than you selected.
+
+When the terminal exits normally and OMH can identify the session that just
+closed, it prints one copyable line after Hermes' own exit summary:
+`omh --resume <session-id>`, or `omh -p <profile> --resume <session-id>` when
+you launched with a profile, since a profile has its own `state.db`. OMH
+reads only the session id, from the Hermes state database it launched
+against, and prints nothing whenever more than one session could be the one
+that closed.
+
 ### Keep every installed layer current
 
 The same command updates every supported installation path:

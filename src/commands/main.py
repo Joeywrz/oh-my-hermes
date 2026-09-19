@@ -5,6 +5,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 
 from ..version import __version__
 from ..maintenance.build_identity import build_identity_summary, probe_build_identity
@@ -272,6 +273,44 @@ def build_parser() -> argparse.ArgumentParser:
         "--pretty",
         action="store_true",
         help="Print indented JSON for human reading (default is compact; OMH_JSON_PRETTY=1 also works).",
+    )
+    # Bare-launch pass-through to `hermes`. Hermes accepts all three at its own
+    # top level (`hermes_cli/_parser.py`; `--profile`/`-p` is consumed before
+    # its argparse runs), and no top-level OMH option claimed `-r`, `-c` or
+    # `-p`, so the short forms carry over unchanged.
+    #
+    # These are the only top-level options a subcommand does NOT honour: they
+    # open the terminal and nothing else. `main` rejects them alongside a
+    # subcommand rather than ignoring them, because silently dropping `-p`
+    # would run that subcommand against a different profile than was asked
+    # for. The dests are prefixed because several subcommands define a
+    # `--profile` of their own, and a subparser's defaults overwrite the
+    # parent's values in the namespace they share.
+    parser.add_argument(
+        "-r",
+        "--resume",
+        dest="tui_resume",
+        default=None,
+        metavar="SESSION",
+        help="Bare launch only: reopen this Hermes session id in the terminal.",
+    )
+    parser.add_argument(
+        "-c",
+        "--continue",
+        dest="tui_continue",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="NAME",
+        help="Bare launch only: continue the most recent Hermes session, or one named NAME.",
+    )
+    parser.add_argument(
+        "-p",
+        "--profile",
+        dest="tui_profile",
+        default=None,
+        metavar="NAME",
+        help="Bare launch only: open the terminal on this Hermes bot profile.",
     )
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
@@ -555,19 +594,115 @@ def _run_auto_update(args: argparse.Namespace, paths, result: dict[str, object])
         print(f"omh: update-check auto-update failed: {exc}", file=sys.stderr)
 
 
+_TUI_PASSTHROUGH_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("tui_resume", "--resume"),
+    ("tui_continue", "--continue"),
+    ("tui_profile", "--profile"),
+)
+
+
+def _reject_tui_passthrough_with_subcommand(args: argparse.Namespace) -> None:
+    """Refuse a bare-launch flag that was given alongside a subcommand.
+
+    Unlike `--omh-home`/`--hermes-home`/`--scope`, these three do not apply to
+    a subcommand at all: they are forwarded to `hermes` when the bare launch
+    opens the terminal, and there is no terminal here. Ignoring one silently
+    would run the subcommand against a profile or session the person believes
+    they selected.
+    """
+    for dest, flag in _TUI_PASSTHROUGH_OPTIONS:
+        if getattr(args, dest, None) is not None:
+            raise OmhError(
+                f"{flag} opens the OH-MY-HERMES terminal and cannot be combined "
+                f"with the '{args.command}' command."
+            )
+
+
+def _hermes_passthrough_argv(args: argparse.Namespace) -> list[str]:
+    """The bare-launch flags forwarded to `hermes`, in one fixed order.
+
+    Every value is its own argv element: nothing is interpolated into a string
+    and nothing goes through a shell. Nothing else is added -- which terminal
+    opens is still Hermes' `display.interface` decision, for the reason the
+    launcher's docstring records.
+    """
+    argv: list[str] = []
+    profile = getattr(args, "tui_profile", None)
+    if profile:
+        argv += ["--profile", profile]
+    resume = getattr(args, "tui_resume", None)
+    if resume:
+        argv += ["--resume", resume]
+    continued = getattr(args, "tui_continue", None)
+    if continued is not None:
+        argv.append("--continue")
+        if continued:
+            argv.append(continued)
+    return argv
+
+
+def _print_resume_hint(
+    args: argparse.Namespace,
+    paths,
+    started_at: float,
+    ended_at: float,
+    returncode: int,
+) -> None:
+    """Print one copyable `omh --resume <id>` line after the TUI's own epilogue.
+
+    Hermes prints its exit summary first, naming `hermes --tui --resume <id>`.
+    OMH cannot suppress that without capturing the child's stdout, which would
+    break the TUI, so this line follows it and gives someone who came in
+    through `omh` the `omh` way back.
+
+    Only the two exit codes Hermes itself treats as a normal close print
+    anything, matching the condition its own epilogue uses. Everything else is
+    best effort: this runs after the person's session has ended, so it must
+    not raise and must not change the code the launcher returns. Whatever it
+    cannot resolve, it prints nothing for.
+
+    stdout being a TTY is already settled: `_launch_hermes_tui` returns before
+    launching anything when it is not, so no child ran and this is never
+    reached.
+    """
+    if returncode not in (0, 130):
+        return
+    from ..maintenance.hermes_resume import (
+        hermes_state_db_path,
+        resumable_session_id,
+        resume_command_line,
+    )
+
+    profile = getattr(args, "tui_profile", None) or None
+    try:
+        session_id = resumable_session_id(
+            hermes_state_db_path(paths.hermes_home, profile), started_at, ended_at
+        )
+        if session_id:
+            print(resume_command_line(session_id, profile))
+    except (OSError, ValueError):
+        return
+
+
 def _launch_hermes_tui(args: argparse.Namespace) -> int | None:
     """Open the OH-MY-HERMES terminal: bare `omh` is the same door as `hermes`.
 
     The oh-my-zsh contract, applied here: the wrapper's bare name IS the
-    styled experience. This execs the user's own `hermes` binary with no
-    flags -- a user-invoked local launch, not background dispatch. It used to
-    force `--tui`, which made the two doors open DIFFERENT terminals whenever
-    `display.interface` selected the classic REPL: `omh` showed the HUD, bare
-    `hermes` showed no OMH surface at all, and the split read as a bug from
-    the first boot. Which terminal opens belongs to Hermes' own
-    `display.interface`; OMH's door just walks through it. No terminal or no
-    Hermes install means there is nothing to launch, and the caller falls
-    back to the welcome text.
+    styled experience. This execs the user's own `hermes` binary carrying
+    nothing but the three session flags the bare launch passes through
+    (`_hermes_passthrough_argv`) -- a user-invoked local launch, not
+    background dispatch. It used to force `--tui`, which made the two doors
+    open DIFFERENT terminals whenever `display.interface` selected the
+    classic REPL: `omh` showed the HUD, bare `hermes` showed no OMH surface
+    at all, and the split read as a bug from the first boot. Which terminal
+    opens belongs to Hermes' own `display.interface`; OMH's door just walks
+    through it. No terminal or no Hermes install means there is nothing to
+    launch, and the caller falls back to the welcome text.
+
+    The child's start and end wall-clock times are recorded because they are
+    the only handle OMH has on which session closed with it: see
+    `maintenance/hermes_resume.py` for why the id cannot be read any other
+    way.
     """
     import shutil
 
@@ -577,10 +712,14 @@ def _launch_hermes_tui(args: argparse.Namespace) -> int | None:
     if not hermes:
         return None
     _run_startup_update_check(args)
+    paths = _paths(args)
+    started_at = time.time()
     try:
-        return int(subprocess.run([hermes]).returncode)
+        returncode = int(subprocess.run([hermes, *_hermes_passthrough_argv(args)]).returncode)
     except (OSError, KeyboardInterrupt):
         return None
+    _print_resume_hint(args, paths, started_at, time.time(), returncode)
+    return returncode
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -602,6 +741,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_welcome()
         return 0
     try:
+        _reject_tui_passthrough_with_subcommand(args)
         return int(args.func(args))
     except OmhError as exc:
         print(f"omh: {exc}", file=sys.stderr)

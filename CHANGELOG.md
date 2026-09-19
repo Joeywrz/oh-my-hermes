@@ -4,6 +4,47 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **`omh --resume <id>` works, and the terminal now names the `omh` way
+  back.** Bare `omh` is documented as the same door as `hermes`, but the door
+  opened one way only: the parser rejected `omh --resume <id>` as an invalid
+  choice, and the one resume hint on screen when the TUI exited named the
+  other binary, `hermes --tui --resume <id>`. Someone who came in through
+  `omh` was told to come back through `hermes`.
+
+  Three Hermes session flags now pass through on the bare launch --
+  `-r/--resume`, `-c/--continue` and `-p/--profile` -- each value forwarded as
+  its own argv element, in one fixed order, with nothing else added. No
+  top-level OMH option claimed those short forms, so they carry over
+  unchanged. Which terminal opens is still Hermes' `display.interface`
+  decision: the launch has never forced `--tui` and still does not. Combining
+  one of the three with a subcommand is an error that names the flag, because
+  a dropped `-p` would run that subcommand against a profile the person
+  believes they selected.
+
+  After a clean exit, OMH prints one copyable line, `omh --resume <id>`, or
+  `omh -p <profile> --resume <id>` when a profile was passed, since a profile
+  has its own `state.db`. Hermes' own epilogue still prints first; suppressing
+  it would mean capturing the child's stdout, which would break the TUI.
+
+  OMH cannot read the id Hermes used -- Hermes creates its active-session file
+  with `mkstemp` and unlinks it before returning -- so the id comes from the
+  state database the TUI just wrote to. The TUI gateway stamps
+  `sessions.ended_at` as the child exits when it owns the session's lifecycle,
+  and the launch knows when its child started and stopped. Only the id and the
+  columns that choose it are read: no title, no message content, no cwd, and
+  cwd is not a filter either, because `hermes --resume` restores the session's
+  own directory.
+
+  The whole contract is when it declines, since this runs after the session
+  has already ended and a wrong id is worse than no line. Nothing is printed
+  when no TUI session ended inside the child's window, when the newest one did
+  not end close to the child's exit, when a second session ended within the
+  same tolerance (two terminals closing together), when the session holds no
+  messages, when the database is missing, locked, corrupt or foreign, or on
+  any exit code other than 0 and 130. A gateway-owned session is never ended
+  by the TUI, so it produces no candidate and no line, which is the right
+  outcome rather than a gap.
+
 - **A question asked mid-plan is now answered before the plan resumes.**
   While an `omh_todo` plan has open items, every turn's context carried
   `TODO_CONTINUATION_RULE`, whose stop criterion ends "not when a turn has

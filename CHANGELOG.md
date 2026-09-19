@@ -1613,6 +1613,47 @@ All notable changes will be documented here.
   small to separate 0.4 from 0.6 is itself the reportable result. The
   measurement remains open. (#1612)
 
+- **A refused re-read of a TRUNCATED file now names the offset instead of
+  claiming the model already has the content.** Measured in session
+  20260919_140745_db409e: a model that needed line 2318 of a 9,172-line file
+  called `read_file(path)` with no `offset`. The read returned lines 1-1666
+  with `truncated: true` and `next_offset: 1667`, and the model kept calling
+  it with the same arguments. After three full results the host answered
+  twice with a `status: unchanged` stub and then with 117 distinct `BLOCKED`
+  refusals saying "the content from your earlier read_file result in this
+  conversation is still current. Proceed with your task using the information
+  you already have." For a truncated read that is false in the way that
+  matters: line 2318 was in no result. Neither the stub nor the refusal
+  mentions `offset`, and the one place it appeared was the `hint` field of
+  the successful read, which the model had already ignored three times.
+
+  A fifth pass in the composed `transform_tool_result` seam records what a
+  truncated `read_file` returned, keyed on the session, the path, and the
+  window the read started from, all taken from the call's own arguments. A
+  later refusal or stub whose own call asked for that same window gains one
+  bounded note: that read returned lines 1 to 1666 of 9,172 and stopped there,
+  lines past the stop were not in that result, and another region needs
+  `offset`. Every decision reads a structured field and never the refusal's
+  wording -- `truncated`, `next_offset` and `total_lines` on the way in,
+  `already_read`, `status == "unchanged"` and `guardrail_refusal` on the way
+  out -- so a host that rewrites the sentence keeps working, and a host too old
+  to send `guardrail_refusal` (the measured one) is recognised by the other
+  two. The window start is half the key rather than payload: a truncated read
+  from `offset=5000` says nothing about lines 1-4999, so keying on the path
+  alone would have annotated a first-window refusal with a mid-file read's
+  numbers. That key is also the whole gate, replacing a literal "the offset is
+  1" test with the fact it stood in for, and a model looping on any other
+  offset now gets the same note with its own numbers. The window start itself
+  is derived through the host's own `max(1, int(offset))` clamp, so it
+  describes the read that happened. The map is bounded at 64 sessions and 16
+  windows each, evicting oldest first.
+
+  Neither half of the defect is OMH's. The model ignored an explicit
+  `Use offset=1667 to continue` three times, and the host wrote the refusal;
+  OMH has the one seam that sees both. What this does not claim: that any
+  model follows the note. That needs a live run, and none was done. The note
+  is prepared instruction, never evidence that a region was read. (#1723)
+
 ## 2.0.3 - 2026-09-12
 
 Everything merged since the 2.0.2 tag (2026-09-07). Highlights, grouped:

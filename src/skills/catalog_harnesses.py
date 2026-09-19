@@ -3350,6 +3350,28 @@ _PRIMARY_HARNESSES = {
     "adversarial-consensus": "planning",
     "code-review": "critic",
     "ai-slop-cleaner": "coding-handling",
+    # These five used to reach `coding-handling` through the routing fallback
+    # rather than by anyone choosing it. The rendered bodies do not change; a
+    # value nobody declared becomes a value someone did, which is what lets
+    # the body render a harness line at all after #1690. Each one is coding
+    # work by the catalog's own two statements about it: `capability_family_
+    # projection()` files it under `delegate_coding_and_ship`, and its subject
+    # is one of the verbs `coding-handling`'s own use_when names - write,
+    # modify, debug, refactor. `maestro` additionally carries `handoff-gated`,
+    # the tier no other harness in the catalog has.
+    #
+    # The other three the family also files under coding are deliberately left
+    # undeclared, because a second harness competes for each and the catalog
+    # does not say which wins: `application-threat-model` shares its tier with
+    # `security-safety-review`, `llm-app-dev` with `app-delivery-loop`, and
+    # `tech-debt-audit` shares `code-review`'s tier, which declares `critic`.
+    # Guessing one would launder a guess into a recorded decision; they render
+    # no harness line instead.
+    "backend": "coding-handling",
+    "frontend-refactor": "coding-handling",
+    "maestro": "coding-handling",
+    "native-debugging": "coding-handling",
+    "rust": "coding-handling",
     "model-setup": "hermes-setup",
     "parallel-tools": "hermes-setup",
     "websearch-setup": "hermes-setup",

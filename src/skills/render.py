@@ -14,6 +14,7 @@ from .catalog import (
     builtin_definitions,
     builtin_harnesses,
     decision_frontier_policy,
+    declared_primary_harness,
     harness_quality_contract,
     memory_context_policy_for_skill,
     omh_description,
@@ -227,15 +228,28 @@ relative to its parent. Resolve them from the host-provided skill base directory
 (`{baseDir}` on hosts that provide it), never a hardcoded install location.
 A named workflow not installed here is unavailable, not permission to emulate
 its host-specific capabilities. Verify through the real surface before done."""
-    return f"""## Runtime Evidence
-
-Preferred harness for this skill: `{primary_harness}`.
+    # A skill the catalog declares no primary harness for renders neither the
+    # line nor the record command. `omh runtime record` requires `--harness`,
+    # so the only alternative to omitting both is naming a harness nobody
+    # chose, and the value that used to be named was `coding-handling`: a
+    # coding-handoff instruction sitting in the always-loaded body of skills
+    # that do no coding (#1690). Saying nothing is the one answer that cannot
+    # be wrong. `declared_primary_harness` is what makes the absence visible;
+    # `primary_harness_for_skill` hides it behind the routing fallback.
+    harness_section = (
+        f"""Preferred harness for this skill: `{primary_harness}`.
 
 ```sh
 omh runtime record --skill {definition.name} --harness {primary_harness} --status started
 ```
 
-Record observed delegation results; otherwise return `not_available` or `not_observed`.
+"""
+        if primary_harness
+        else ""
+    )
+    return f"""## Runtime Evidence
+
+{harness_section}Record observed delegation results; otherwise return `not_available` or `not_observed`.
 Prepared OMH routing is not execution, review, CI, merge-readiness, or merge evidence.
 {_memory_context_skill_contract_bullets(definition)}
 Preserve workflow intent and stop conditions; verify before claiming completion.
@@ -1431,7 +1445,7 @@ def memory_sync_skill() -> SkillTemplate:
     definition = _definitions_by_name()[name]
     title = name.replace("-", " ").title()
     triggers = ", ".join(f"`{trigger}`" for trigger in definition.triggers)
-    primary_harness = primary_harness_for_skill(name)
+    primary_harness = declared_primary_harness(name)
     body = f"""# {title}
 
 This is a Hermes-native `{name}` workflow skill.
@@ -1563,7 +1577,7 @@ def deep_interview_skill() -> SkillTemplate:
     definition = _definitions_by_name()[name]
     title = name.replace("-", " ").title()
     triggers = ", ".join(f"`{trigger}`" for trigger in definition.triggers)
-    primary_harness = primary_harness_for_skill(name)
+    primary_harness = declared_primary_harness(name)
     max_rounds = DEEP_INTERVIEW_MAX_ROUNDS
     soft_round = DEEP_INTERVIEW_SOFT_CHECK_ROUND
     body = f"""# {title}
@@ -1665,7 +1679,7 @@ def memory_new_skill() -> SkillTemplate:
     definition = _definitions_by_name()[name]
     title = name.replace("-", " ").title()
     triggers = ", ".join(f"`{trigger}`" for trigger in definition.triggers)
-    primary_harness = primary_harness_for_skill(name)
+    primary_harness = declared_primary_harness(name)
     body = f"""# {title}
 
 This is a Hermes-native `{name}` workflow skill.
@@ -1722,7 +1736,7 @@ def wiki_skill() -> SkillTemplate:
     definition = _definitions_by_name()[name]
     title = name.replace("-", " ").title()
     triggers = ", ".join(f"`{trigger}`" for trigger in definition.triggers)
-    primary_harness = primary_harness_for_skill(name)
+    primary_harness = declared_primary_harness(name)
     body = f"""# {title}
 
 This is a Hermes-native `{name}` workflow skill.
@@ -2143,7 +2157,7 @@ def _workflow_full_body(
     definition = _target_definition(definition, target)
     title = name.replace("-", " ").title()
     triggers = ", ".join(f"`{trigger}`" for trigger in definition.triggers)
-    primary_harness = primary_harness_for_skill(name)
+    primary_harness = declared_primary_harness(name)
     framing = (
         f"This is a Hermes-native `{name}` workflow skill."
         if target == "hermes" else

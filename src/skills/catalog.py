@@ -1283,6 +1283,25 @@ def harness_quality_contract(name: str) -> dict[str, object]:
     )
 
 
+def declared_primary_harness(name: str) -> str:
+    """The harness the catalog declares for this skill, or "" when it declares none.
+
+    `primary_harness_for_skill` answers a different question and answers it for
+    every name, because routing, validation, and the structure lint all need a
+    harness that resolves. This one answers whether the catalog ever chose, so
+    a caller that would otherwise put the fallback into authored text can say
+    nothing instead. Rendered skill bodies are the caller that must use this:
+    the fallback wrote `coding-handling` into the always-loaded body of skills
+    that do no coding (#1690).
+    """
+    return _PRIMARY_HARNESSES.get(name, "")
+
+
+# The fallback is the ROUTING default, not a claim about the skill. It exists
+# because `_lint_harness_resolves` and `validate_skill_definition` both require
+# a harness that resolves to a definition, and because a route payload's
+# `selected_harness` is a required string. Never use it to author text a model
+# reads as instruction; use `declared_primary_harness` there.
 def primary_harness_for_skill(name: str) -> str:
     return _PRIMARY_HARNESSES.get(name, "coding-handling")
 

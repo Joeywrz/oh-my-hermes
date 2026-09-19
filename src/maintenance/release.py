@@ -1217,7 +1217,16 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # shortening one pointer was the cheaper move against raising a second
 # ratchet. Still below the pre-#1691 level of 992659. Re-derived from the
 # full-profile skill_context_cost_payload() producer, never by adding deltas.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 979758
+# 979758 -> 977649: fourteen skills the catalog declares no primary harness
+# for stop rendering one (#1690). Each paid about 150 bytes for a "Preferred
+# harness for this skill: `coding-handling`" line plus an `omh runtime record
+# --harness coding-handling` command nobody chose -- the renderer read the
+# routing fallback and wrote a coding handoff into the always-loaded body of
+# skills that do no coding. This is a ratchet DOWN, and the budget stood at
+# 100% of its limit again, so it has to move for the saving to be real.
+# Re-derived from the full-profile skill_context_cost_payload() producer,
+# never by subtracting fourteen line lengths by hand.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 977649
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

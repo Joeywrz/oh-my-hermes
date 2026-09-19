@@ -312,7 +312,23 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # pointers and the lane shape. Re-derived from the producer.
 # 430308 -> 422526: the three capability rows of the skills retired by #1691
 # leave the full capability section with them. Re-derived from the producer.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 422526
+# 422526 -> 422450: `todo-checklist`'s quality bar and recovery note now name
+# `action=advance`, the single-item write #1730 added, because the sentence
+# they carried -- "there is no partial update" -- became false with it. The
+# claim they replace was the reason a session re-sent a ten-item list to tick
+# one item, so leaving it would cost far more per run than these 86 characters
+# cost per load. The guard, the refusals, and the byte-equality with
+# `action=set` are in `references/checklist-discipline.md`, counted outside
+# this budget.
+#
+# The limit FALLS across this change even though the change adds to it: the
+# section measured 422364 on this branch's base, because #1690 removed a
+# rendered harness line from fourteen skills, and the limit was still sitting
+# at the pre-#1690 422526. So the number here is the producer's reading of the
+# two changes together, 422364 plus this change's 86, and it ratchets the
+# leftover slack down with it. Re-derived from the producer, both readings
+# measured, never by arithmetic on the limit.
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 422450
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -1226,7 +1242,17 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # 100% of its limit again, so it has to move for the saving to be real.
 # Re-derived from the full-profile skill_context_cost_payload() producer,
 # never by subtracting fourteen line lengths by hand.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 977649
+# 977649 -> 977846: `todo-checklist` names `action=advance` in its
+# quality bar and its recovery note, and its reference describes the
+# single-item write #1730 added. The sentence those lines replace -- "there is
+# no partial update" -- was true when written and is not now, and it is the
+# sentence that made a session re-send a ten-item list to tick one item. The
+# guard, the refusals, and the byte-equality with `action=set` live in
+# `skills/omh-todo-checklist/references/checklist-discipline.md`, measured
+# outside this budget, alongside the requirements-quality checklist #1714 put
+# there. Re-derived from the full-profile skill_context_cost_payload()
+# producer, never by adding deltas.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 977846
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

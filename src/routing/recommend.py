@@ -1190,8 +1190,8 @@ _SKILL_POLICIES.update(
             ),
             wrapper_guidance=(
                 "Declare numbered phases in delivery order with one task per observable outcome, keep exactly one "
-                "item active, and send the whole list on every write because `action=set` replaces rather than "
-                "merges. Never present an item state as an observed result."
+                "item active, change a state with `action=advance`, and send the whole list on any `action=set` "
+                "write because it replaces rather than merges. Never present an item state as an observed result."
             ),
         ),
         "github-event-ops": RecommendationPolicy(

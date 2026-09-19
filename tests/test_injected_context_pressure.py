@@ -190,12 +190,18 @@ class FenceShapeTest(unittest.TestCase):
         # Stated as a number because the trade the issue makes is a fixed
         # per-turn cost against a per-plan repetition that had no bound, and
         # the two are close enough that the comparison only means something
-        # if both sides are pinned. The other side is the 153 characters
-        # `TODO_RECONCILIATION_FULL_TURNS` stops repeating.
+        # if both sides are pinned. The other side is the 219 characters
+        # `TODO_RECONCILIATION_FULL_TURNS` stops repeating -- 153 when the
+        # budget landed, and 219 since #1730 moved "either finish the
+        # remaining items or say which stay open and why" onto the budgeted
+        # side. Nothing was deleted to move it: the full rule below is within
+        # one character of what it was, and the clause moved because it is
+        # the one the drive beside it already makes.
         self.assertEqual(len(fence_omh_context(["X"])) - len("X"), 119)
         self.assertEqual(
-            len(TODO_RECONCILIATION_RULE) - len(TODO_RECONCILIATION_RULE_FIRST_CLAUSE), 153
+            len(TODO_RECONCILIATION_RULE) - len(TODO_RECONCILIATION_RULE_FIRST_CLAUSE), 219
         )
+        self.assertEqual(len(TODO_RECONCILIATION_RULE), 356)
 
 
 class FenceCannotBeClosedFromInsideTest(unittest.TestCase):

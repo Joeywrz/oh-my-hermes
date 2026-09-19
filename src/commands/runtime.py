@@ -95,6 +95,7 @@ from ..team_readiness import DEFAULT_RUNTIME_TARGET_SCAN_LIMIT, build_team_worke
 from ..hud import build_hud_payload
 from ..plugin_bundle.omh.todo_store import (
     TODO_CLAIM_BOUNDARY,
+    TodoContendedError,
     TodoStoreError,
     TodoValidationError,
     build_todo_record,
@@ -1298,6 +1299,12 @@ def cmd_runtime_todo_set(args: argparse.Namespace) -> int:
     try:
         record = build_todo_record(args.title, items, source="cli", session_ref=session_ref)
         write_todo(paths.omh_home, record)
+    except TodoContendedError as error:
+        # Its own status for the same reason the tool has one: the write did
+        # not happen and nothing about it was invalid. The exit code stays 1
+        # either way, because either way nothing was written.
+        _print_json({"status": "contended", "error": str(error)})
+        return 1
     except (TodoValidationError, TodoStoreError) as error:
         _print_json({"status": "invalid_todo", "error": str(error)})
         return 1

@@ -54,6 +54,11 @@ LOCK_MECHANISM_NONE = "none"
 _LOCK_BUSY_ERRNOS = frozenset(
     {errno.EACCES, errno.EAGAIN, errno.EDEADLK, getattr(errno, "EDEADLOCK", errno.EDEADLK)}
 )
+# The DEFAULT deadline, not the only one. It is sized for this module's own
+# caller -- best-effort telemetry on the model-dispatch path, where contention
+# should drop a counter rather than delay the user operation. A caller whose
+# write must not be dropped passes its own, which is why the two functions
+# below take it as an argument instead of reading this directly.
 _LOCK_TIMEOUT_SECONDS = 0.1
 _LOCK_POLL_INTERVAL = 0.001
 
@@ -142,7 +147,9 @@ def _valid_delivery_record(data: dict[str, Any]) -> bool:
     return int(data.get("route_hint_count", 0)) <= int(data.get("delivery_count", 0))
 
 
-def _acquire_delivery_lock(handle: Any, lock_path: Path) -> str:
+def _acquire_delivery_lock(
+    handle: Any, lock_path: Path, timeout_seconds: float = _LOCK_TIMEOUT_SECONDS
+) -> str:
     """Take an exclusive OS lock, on POSIX or Windows, and say which granted it.
 
     This module is vendored into the user's Hermes install and imports nothing
@@ -151,11 +158,21 @@ def _acquire_delivery_lock(handle: Any, lock_path: Path) -> str:
     took no lock at all here, and the read-modify-write below could interleave
     between concurrent turns and lose counter increments with nothing saying so.
 
-    Both backends use bounded non-blocking attempts. This is best-effort
-    telemetry on the model-dispatch path, so contention drops a counter rather
-    than delaying the user operation.
+    It is the bundle's one sanctioned lock, which is what makes the deadline a
+    parameter: `tool_bursts`, `approval_bypass`, `memory_open_reminders` and
+    `todo_store` all take it, and their writes are not all worth the same
+    wait. Telemetry that drops a counter under contention and a plan record
+    that must not lose a write want opposite answers, and forking the lock so
+    each could pick one is how a bundle ends up with three copies of it. So
+    the backends, the errno set and the release live here once, and the only
+    thing a caller chooses is how long it is willing to wait.
+
+    Both backends use bounded non-blocking attempts and raise `TimeoutError`
+    past the deadline rather than carrying on unlocked -- the one condition
+    the lock exists for must not be the one condition under which it does
+    nothing.
     """
-    deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
+    deadline = time.monotonic() + timeout_seconds
     if fcntl is not None:
         while True:
             try:
@@ -165,7 +182,9 @@ def _acquire_delivery_lock(handle: Any, lock_path: Path) -> str:
                 if exc.errno not in _LOCK_BUSY_ERRNOS:
                     raise
                 if time.monotonic() >= deadline:
-                    raise TimeoutError(f"timed out waiting for awareness delivery lock: {lock_path}")
+                    raise TimeoutError(
+                        f"timed out after {timeout_seconds:g}s waiting for lock: {lock_path}"
+                    ) from exc
                 time.sleep(_LOCK_POLL_INTERVAL)
     if msvcrt is None:
         return LOCK_MECHANISM_NONE
@@ -181,7 +200,9 @@ def _acquire_delivery_lock(handle: Any, lock_path: Path) -> str:
             if exc.errno not in _LOCK_BUSY_ERRNOS:
                 raise
             if time.monotonic() >= deadline:
-                raise TimeoutError(f"could not lock {lock_path} within {_LOCK_TIMEOUT_SECONDS}s") from exc
+                raise TimeoutError(
+                    f"timed out after {timeout_seconds:g}s waiting for lock: {lock_path}"
+                ) from exc
             time.sleep(_LOCK_POLL_INTERVAL)
 
 
@@ -195,12 +216,20 @@ def _release_delivery_lock(handle: Any, mechanism: str) -> None:
 
 
 @contextmanager
-def _awareness_delivery_lock(path: Path) -> Iterator[str]:
-    """Serialize the counter read-modify-write; yields the mechanism that held it.
+def _awareness_delivery_lock(
+    path: Path, *, timeout_seconds: float = _LOCK_TIMEOUT_SECONDS
+) -> Iterator[str]:
+    """Serialize a read-modify-write on ``path``; yields the mechanism that held it.
 
     A `none` yield means the host had neither backend and the mutual-exclusion
     guarantee did not hold. The block still runs -- refusing would disable
     awareness recording entirely -- but the caller can tell the difference.
+
+    ``timeout_seconds`` is how long this waits before raising `TimeoutError`,
+    and it defaults to the telemetry budget above so every caller that
+    predates the parameter keeps the wait it had. A caller whose write must
+    not be silently dropped passes a longer one and turns the timeout into
+    its own refusal; `todo_store` does exactly that.
     """
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     path.parent.chmod(0o700)
@@ -208,7 +237,7 @@ def _awareness_delivery_lock(path: Path) -> Iterator[str]:
     lock_path.touch(mode=0o600, exist_ok=True)
     lock_path.chmod(0o600)
     with lock_path.open("a+", encoding="utf-8") as handle:
-        mechanism = _acquire_delivery_lock(handle, lock_path)
+        mechanism = _acquire_delivery_lock(handle, lock_path, timeout_seconds)
         try:
             yield mechanism
         finally:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from .. import runtime_paths
 
 from collections.abc import Mapping
+from datetime import datetime, timezone
 import json
 from typing import Protocol, TypeGuard, runtime_checkable
 
@@ -17,6 +18,7 @@ from ..tool_bursts import (
     repeat_call_directive,
     tool_args_digest,
 )
+from ..toolcall_rule_faults import record_toolcall_rule_fault
 from ..toolcall_rules import toolcall_rule_directive
 
 
@@ -47,6 +49,58 @@ def _agent_board_bridge() -> _BoardBridge | None:
     except ImportError:
         return None
     return agent_board_bridge if isinstance(agent_board_bridge, _BoardBridge) else None
+
+
+def _rule_directive_or_recorded_fault(
+    *,
+    tool_name: object,
+    tool_input: object,
+    session_id: str,
+    omh_home: str,
+) -> dict[str, str] | None:
+    """Evaluate the person's tool-call rules; on an unexpected failure, allow and record.
+
+    ALLOW, deliberately, and the choice is the point of this handler.
+
+    `toolcall_rules` states its own contract as fail-open, and every failure it
+    anticipated already degrades to "no intervention". This covers the ones it
+    did not. Blocking instead was rejected twice over. It contradicts the
+    contract the rest of that module documents, and it is the shape of #1674:
+    one broken state, every tool call of every session refused.
+
+    The narrower "block only what a rule could have matched by tool name" was
+    evaluated and rejected on a fact about the schema, not on taste: `tools` is
+    optional and an empty scope matches every tool, so a single unscoped rule
+    -- the default shape -- makes that filter match every call. For the common
+    rules file it IS "block everything", wearing a narrower name.
+
+    What made allowing the worse surprise was that it was SILENT: the host
+    logs one WARNING and then DEBUG only, so the person's blocks stop and
+    nothing says so. That is what this removes. The fault is counted where
+    `omh doctor` reports it, by name, with the last error.
+
+    No context note is injected. A persistent fault fires on every tool call,
+    and a banner on that path would repeat for the whole session.
+    """
+    try:
+        return toolcall_rule_directive(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            session_id=session_id,
+            omh_home=omh_home,
+        )
+    except Exception as exc:  # noqa: BLE001 - classified in tests/test_broad_exception_policy.py
+        # Broad on purpose: the value here is catching what the rules module
+        # did NOT anticipate. A narrower tuple would re-raise exactly the
+        # unanticipated type this exists for, and that escape is the
+        # unreported allow.
+        record_toolcall_rule_fault(
+            tool_name=tool_name,
+            error=f"{type(exc).__name__}: {exc}",
+            observed_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            omh_home=omh_home,
+        )
+        return None
 
 
 def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
@@ -86,7 +140,7 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
     # for bundle-internal callers and tests.
     tool_input = kwargs.get("tool_input") if "tool_input" in kwargs else kwargs.get("args")
     session_id = str(kwargs.get("session_id", "") or kwargs.get("task_id", "") or "")
-    rule_directive = toolcall_rule_directive(
+    rule_directive = _rule_directive_or_recorded_fault(
         tool_name=kwargs.get("tool_name"),
         tool_input=tool_input,
         session_id=session_id,

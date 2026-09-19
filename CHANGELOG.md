@@ -198,6 +198,41 @@ All notable changes will be documented here.
   while the model is still inside the turn loop, so both exits are reachable.
   At most one directive per turn per cause, latched on the host's own turn id.
 
+- **`omh doctor` stops warning about work nobody can do, and starts seeing
+  the tool-call hot path.** Two truthfulness defects on the same surface.
+
+  The memory-consolidation warning could never clear. When Hermes' memory pack
+  is over its headroom floor and nothing in it is provably redundant --
+  measured on the owner machine at 14 entries, 67 chars of headroom against a
+  floor of 300, `reclaimable_chars: 0`, no duplicate clusters -- the planner
+  has nothing to propose and OMH cannot write Hermes memory by design. Doctor
+  still said consolidation was "due" on every run, and a standing warning is
+  how people learn to skip doctor. That state now reports what it is: the pack
+  is full, nothing can be reclaimed automatically, and the move that does
+  exist is shortening or removing an entry through Hermes' own memory tool. It
+  no longer counts as a warning. A brief with a duplicate cluster keeps
+  today's wording and today's severity, because there is a consolidation to
+  run.
+
+  Doctor could not see the tool-call hot path at all. A `toolcall-rules.json`
+  is how somebody tells OMH to block a tool call, and the enforcing hook fails
+  open: a wrong `schema_version` refuses the WHOLE document, a bad regex drops
+  one rule, and either way nothing is reported. Doctor now runs the same
+  validator `omh ops toolcall-rules-validate` runs, against the store it
+  already inspects, and names the file, the loaded and skipped counts, and the
+  first error. No rules file stays silent -- the file's presence is the
+  opt-in. Doctor also reads the plugin host observation journal it already has
+  and names a hook whose recorded calls did not come back observed.
+
+  Inside `pre_tool_call`, the rule gate gained its own handler. A failure
+  while evaluating somebody's rules used to escape to Hermes, which appends
+  nothing, logs one WARNING and then DEBUG only -- so the person's blocks
+  stopped running and nothing said so. The call is still allowed, which is the
+  module's documented fail-open contract and avoids the #1674 shape where one
+  broken state refuses every tool call in every session. What changes is that
+  it is no longer silent: the failure is counted with its own error text and
+  doctor reports it, naming the tool and saying the call was allowed.
+
 - **`omh --resume <id>` works, and the terminal now names the `omh` way
   back.** Bare `omh` is documented as the same door as `hermes`, but the door
   opened one way only: the parser rejected `omh --resume <id>` as an invalid

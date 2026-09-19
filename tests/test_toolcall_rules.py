@@ -15,8 +15,17 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from _cli_harness import run_cli
+
+from omh.plugin_bundle.omh import toolcall_rule_faults
+from omh.plugin_bundle.omh.hooks import tool_hooks
 from omh.plugin_bundle.omh.hooks.tool_hooks import pre_tool_call
+from omh.plugin_bundle.omh.toolcall_rule_faults import (
+    read_toolcall_rule_faults,
+    toolcall_rule_faults_path,
+)
 from omh.plugin_bundle.omh.toolcall_rules import (
     MAX_RULES,
     TOOLCALL_RULES_SCHEMA_VERSION,
@@ -379,6 +388,227 @@ class BurstLedgerOrderingTest(unittest.TestCase):
             omh_home=str(self.home),
         )
         self.assertTrue((self.home / "runtime" / "tool-bursts.json").exists())
+
+
+class RuleGateFaultTest(unittest.TestCase):
+    """An evaluation failure allows the call and is recorded, never silent.
+
+    The host does not report a raising `pre_tool_call`: it appends nothing,
+    logs one WARNING and then DEBUG only. So an escape here is an allow nobody
+    can see. These pin the two halves of the decision separately -- that the
+    call still proceeds, and that the failure lands where doctor reads it.
+    """
+
+    def setUp(self):
+        _reset_state()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _raise_in_the_gate(self, error: Exception):
+        return patch.object(tool_hooks, "toolcall_rule_directive", side_effect=error)
+
+    def test_an_evaluation_failure_allows_the_call(self):
+        _write_rules(self.home, [BOX_LEAK_RULE])
+        with self._raise_in_the_gate(RuntimeError("gate exploded")):
+            result = pre_tool_call(
+                tool_name="write_file",
+                tool_input={"content": "Box::leak(x)"},
+                session_id="session-a",
+                omh_home=str(self.home),
+            )
+        # No block directive: the module's contract is fail-open, and blocking
+        # every call on a broken gate is the #1674 outage.
+        self.assertIsNone(result)
+
+    def test_an_evaluation_failure_is_recorded_with_its_error(self):
+        _write_rules(self.home, [BOX_LEAK_RULE])
+        with self._raise_in_the_gate(RuntimeError("gate exploded")):
+            pre_tool_call(
+                tool_name="write_file",
+                tool_input={"content": "Box::leak(x)"},
+                session_id="session-a",
+                omh_home=str(self.home),
+            )
+        record = read_toolcall_rule_faults(str(self.home))
+        self.assertEqual(record["fault_count"], 1)
+        self.assertEqual(record["last_tool"], "write_file")
+        self.assertIn("RuntimeError: gate exploded", record["last_error"])
+        self.assertTrue(record["first_fault_at"])
+        self.assertFalse(record["unreadable"])
+
+    def test_a_clean_gate_records_nothing(self):
+        _write_rules(self.home, [BOX_LEAK_RULE])
+        pre_tool_call(
+            tool_name="write_file",
+            tool_input={"content": "Arc::new(x)"},
+            session_id="session-a",
+            omh_home=str(self.home),
+        )
+        self.assertEqual(read_toolcall_rule_faults(str(self.home))["fault_count"], 0)
+        self.assertFalse(toolcall_rule_faults_path(str(self.home)).exists())
+
+    def test_faults_accumulate_and_keep_the_first_time(self):
+        with self._raise_in_the_gate(RuntimeError("one")):
+            pre_tool_call(tool_name="terminal", tool_input={}, session_id="s", omh_home=str(self.home))
+        first = read_toolcall_rule_faults(str(self.home))
+        with self._raise_in_the_gate(ValueError("two")):
+            pre_tool_call(tool_name="read_file", tool_input={}, session_id="s", omh_home=str(self.home))
+        second = read_toolcall_rule_faults(str(self.home))
+        self.assertEqual(second["fault_count"], 2)
+        self.assertEqual(second["first_fault_at"], first["first_fault_at"])
+        self.assertEqual(second["last_tool"], "read_file")
+        self.assertIn("ValueError: two", second["last_error"])
+
+    def test_an_unreadable_record_reads_as_unreadable_not_as_zero(self):
+        path = toolcall_rule_faults_path(str(self.home))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not json", encoding="utf-8")
+        record = read_toolcall_rule_faults(str(self.home))
+        self.assertTrue(record["unreadable"])
+        self.assertEqual(record["fault_count"], 0)
+
+    def test_a_write_fault_in_the_recorder_is_swallowed_not_raised(self):
+        # The recorder reports on the hook; it must not become a second way
+        # for the hook to fail.
+        with patch.object(
+            toolcall_rule_faults, "_write_record", side_effect=OSError("disk gone")
+        ):
+            self.assertIsNone(
+                toolcall_rule_faults.record_toolcall_rule_fault(
+                    tool_name="terminal",
+                    error="RuntimeError: x",
+                    observed_at="2026-09-19T00:00:00Z",
+                    omh_home=str(self.home),
+                )
+            )
+
+
+class DoctorRulesVisibilityTest(unittest.TestCase):
+    """`omh doctor` sees the tool-call hot path it used to pass clean over."""
+
+    def setUp(self):
+        _reset_state()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.omh_home = self.root / ".omh"
+        self.hermes_home = self.root / ".hermes"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _checks(self) -> dict[str, dict]:
+        status, stdout, stderr = run_cli(
+            ["--omh-home", str(self.omh_home), "--hermes-home", str(self.hermes_home), "doctor"]
+        )
+        self.assertIn(status, (0, 1), stderr)
+        return {check["name"]: check for check in json.loads(stdout)["checks"]}
+
+    def test_no_rules_file_says_nothing_about_rules(self):
+        checks = self._checks()
+        self.assertNotIn("toolcall_rules", checks)
+        self.assertNotIn("toolcall_rule_gate", checks)
+
+    def test_a_wrong_schema_version_is_named_as_refusing_the_whole_document(self):
+        path = toolcall_rules_path(str(self.omh_home))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"schema_version": "omh_toolcall_rules/v0", "rules": [BOX_LEAK_RULE]}),
+            encoding="utf-8",
+        )
+        check = self._checks()["toolcall_rules"]
+        self.assertEqual(check["severity"], "warning")
+        self.assertIn(str(path), check["message"])
+        self.assertIn("0 rule(s) load", check["message"])
+        self.assertIn("WHOLE document", check["message"])
+
+    def test_one_bad_regex_among_three_reports_two_loaded_one_skipped(self):
+        _write_rules(
+            self.omh_home,
+            [
+                {"name": "a", "pattern": "rm -rf", "message": "no"},
+                {"name": "b", "pattern": "[unclosed", "message": "no"},
+                {"name": "c", "pattern": "curl", "message": "no"},
+            ],
+        )
+        check = self._checks()["toolcall_rules"]
+        self.assertEqual(check["severity"], "warning")
+        self.assertIn("2 rule(s) load, 1 skipped", check["message"])
+        self.assertIn("pattern does not compile", check["message"])
+
+    def test_a_clean_rules_file_is_reported_without_a_warning(self):
+        _write_rules(self.omh_home, [BOX_LEAK_RULE])
+        checks = self._checks()
+        self.assertEqual(checks["toolcall_rules"]["severity"], "ok")
+        self.assertIn("1 user tool-call rule(s) load", checks["toolcall_rules"]["message"])
+        self.assertNotIn("toolcall_rule_gate", checks)
+
+    def test_an_unparseable_rules_file_is_named(self):
+        path = toolcall_rules_path(str(self.omh_home))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not json", encoding="utf-8")
+        check = self._checks()["toolcall_rules"]
+        self.assertEqual(check["severity"], "warning")
+        self.assertIn("does not parse", check["message"])
+
+    def test_a_recorded_gate_fault_is_reported_by_doctor(self):
+        _write_rules(self.omh_home, [BOX_LEAK_RULE])
+        with patch.object(tool_hooks, "toolcall_rule_directive", side_effect=RuntimeError("gate exploded")):
+            pre_tool_call(
+                tool_name="write_file",
+                tool_input={"content": "Box::leak(x)"},
+                session_id="session-a",
+                omh_home=str(self.omh_home),
+            )
+        check = self._checks()["toolcall_rule_gate"]
+        self.assertEqual(check["severity"], "warning")
+        self.assertIn("failed 1 time(s)", check["message"])
+        self.assertIn("write_file", check["message"])
+        self.assertIn("gate exploded", check["message"])
+        self.assertIn("ALLOWED", check["message"])
+
+    def test_a_gate_fault_never_fails_the_install(self):
+        with patch.object(tool_hooks, "toolcall_rule_directive", side_effect=RuntimeError("boom")):
+            pre_tool_call(tool_name="terminal", tool_input={}, session_id="s", omh_home=str(self.omh_home))
+        self.assertTrue(self._checks()["toolcall_rule_gate"]["ok"])
+
+    def test_a_hook_call_that_did_not_come_back_observed_is_named(self):
+        status, _stdout, stderr = run_cli(
+            [
+                "--omh-home", str(self.omh_home),
+                "--hermes-home", str(self.hermes_home),
+                "plugin", "observe-host",
+                "--host", "hermes-agent",
+                "--session", "session-a",
+                "--event", "hook_call",
+                "--status", "blocked",
+                "--hook", "pre_tool_call",
+            ]
+        )
+        self.assertEqual(status, 0, stderr)
+        check = self._checks()["plugin_hook_errors"]
+        self.assertEqual(check["severity"], "warning")
+        self.assertIn("pre_tool_call", check["message"])
+        self.assertIn("blocked", check["message"])
+
+    def test_an_observed_hook_call_is_not_a_finding(self):
+        status, _stdout, stderr = run_cli(
+            [
+                "--omh-home", str(self.omh_home),
+                "--hermes-home", str(self.hermes_home),
+                "plugin", "observe-host",
+                "--host", "hermes-agent",
+                "--session", "session-a",
+                "--event", "hook_call",
+                "--status", "observed",
+                "--hook", "pre_tool_call",
+                "--evidence-ref", "log:1",
+            ]
+        )
+        self.assertEqual(status, 0, stderr)
+        self.assertNotIn("plugin_hook_errors", self._checks())
 
 
 if __name__ == "__main__":

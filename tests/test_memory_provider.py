@@ -1185,6 +1185,13 @@ class DoctorSurfacesTheBriefTests(unittest.TestCase):
 
     It is a warning, never a fault: OMH cannot run the consolidation, and it
     cannot tell whether Hermes already did.
+
+    Two states, not one. A brief raised because the pack is over its floor with
+    NOTHING provably redundant is not pending work: the planner has nothing to
+    propose, OMH cannot write Hermes memory, and the condition re-fires on
+    every check forever. That one is reported at `severity="ok"` and must not
+    say "due". A brief with a duplicate cluster keeps today's wording and
+    today's severity, because there is a consolidation to run.
     """
 
     def _checks(self, root: Path) -> dict[str, dict]:
@@ -1195,26 +1202,86 @@ class DoctorSurfacesTheBriefTests(unittest.TestCase):
         return {check["name"]: check for check in json.loads(stdout)["checks"]}
 
     def _fire_a_brief(self, root: Path) -> None:
+        """A full pack with one entry: over the floor, nothing reclaimable."""
         _write_hermes_memory(root / ".hermes", "x" * 2100)
         provider = OmhMemoryProvider(root / ".omh")
         provider.initialize("s", hermes_home=str(root / ".hermes"), agent_context="primary")
 
-    def test_a_pending_brief_is_reported_with_its_reasons(self) -> None:
+    def _fire_a_reclaimable_brief(self, root: Path) -> None:
+        """A full pack whose two entries restate each other: a cluster to shed."""
+        entry = "the owner prefers short commits and signed-off trailers on every change " * 15
+        _write_hermes_memory(root / ".hermes", entry, entry + "always")
+        provider = OmhMemoryProvider(root / ".omh")
+        provider.initialize("s", hermes_home=str(root / ".hermes"), agent_context="primary")
+
+    def test_a_reclaimable_brief_keeps_todays_wording_and_severity(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._fire_a_reclaimable_brief(root)
+            check = self._checks(root)["memory_consolidation"]
+            self.assertEqual(check["severity"], "warning")
+            self.assertIn("headroom_below_floor", check["message"])
+            self.assertIn("consolidation is due", check["message"])
+
+    def test_a_full_pack_with_nothing_reclaimable_is_not_called_due(self) -> None:
+        # "Due" promises an action. When nothing is redundant there is none
+        # from OMH's side, and the warning could never clear (#1728).
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             self._fire_a_brief(root)
             check = self._checks(root)["memory_consolidation"]
-            self.assertEqual(check["severity"], "warning")
-            self.assertIn("headroom_below_floor", check["message"])
-            self.assertIn("consolidat", check["message"].lower())
+            self.assertEqual(check["severity"], "ok")
+            self.assertNotIn("due", check["message"])
+            self.assertIn("Hermes memory is full", check["message"])
+            self.assertIn("reclaimable_chars=0", check["message"])
+            self.assertIn("shorten or remove an entry", check["message"])
+
+    def test_a_full_pack_advisory_does_not_count_against_the_summary(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._fire_a_brief(root)
+            status, stdout, stderr = run_cli(
+                ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes"), "doctor"]
+            )
+            self.assertIn(status, (0, 1), stderr)
+            payload = json.loads(stdout)
+            check = {row["name"]: row for row in payload["checks"]}["memory_consolidation"]
+            self.assertTrue(check["ok"])
+            self.assertEqual(check["severity"], "ok")
 
     def test_a_pending_brief_never_fails_the_install(self) -> None:
         # OMH cannot run the consolidation and cannot tell whether Hermes has,
         # so an outstanding brief is a thing to know, not a thing that is broken.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self._fire_a_brief(root)
+            self._fire_a_reclaimable_brief(root)
             self.assertTrue(self._checks(root)["memory_consolidation"]["ok"])
+
+    def test_another_reason_alongside_a_full_pack_keeps_the_warning(self) -> None:
+        # The downgrade is only for a brief whose ENTIRE reason is the standing
+        # headroom condition. A turn interval that also came due is real work.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._fire_a_brief(root)
+            path = root / ".omh" / "memory" / "consolidation.json"
+            brief = json.loads(path.read_text(encoding="utf-8"))
+            brief["reasons"] = [*brief["reasons"], "turn_interval_reached:20/20"]
+            path.write_text(json.dumps(brief), encoding="utf-8")
+            check = self._checks(root)["memory_consolidation"]
+            self.assertEqual(check["severity"], "warning")
+            self.assertIn("consolidation is due", check["message"])
+
+    def test_a_brief_without_an_eviction_plan_keeps_the_warning(self) -> None:
+        # A brief from a generation that did not carry the plan cannot prove
+        # nothing is reclaimable, so it is not downgraded on a guess.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._fire_a_brief(root)
+            path = root / ".omh" / "memory" / "consolidation.json"
+            brief = json.loads(path.read_text(encoding="utf-8"))
+            brief.pop("eviction_plan")
+            path.write_text(json.dumps(brief), encoding="utf-8")
+            self.assertEqual(self._checks(root)["memory_consolidation"]["severity"], "warning")
 
     def test_no_brief_reads_as_nothing_pending(self) -> None:
         with TemporaryDirectory() as tmp:

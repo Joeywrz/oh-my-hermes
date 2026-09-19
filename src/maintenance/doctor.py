@@ -4,6 +4,7 @@ from ..skills.catalog import omh_skill_install_path
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+import json
 from pathlib import Path
 
 from .advisory import AdvisoryReport, run_config_advisories
@@ -42,6 +43,7 @@ from ..plugin_observations import (
     PLUGIN_HOST_ACTIVE_OBSERVATION_EVENTS,
     latest_plugin_host_observation,
     plugin_host_runtime_readiness,
+    read_plugin_host_observations,
 )
 from ..plugin_pack import PLUGIN_NAME, inspect_plugin_bundle
 from ..runtime.artifacts import read_state, read_state_error
@@ -59,6 +61,10 @@ WARNING_NEXT_ACTION_PRIORITY = {
     "awareness_delivery": 70,
 }
 AWARENESS_ZERO_DELIVERY_WARNING_DAYS = 7
+# How far back doctor looks in the plugin host observation journal for a hook
+# call that did not come back observed. The same default the `omh plugin
+# observations` reader uses, so the two surfaces answer over one window.
+_HOOK_OBSERVATION_WINDOW = 20
 DEFAULT_DOCTOR_NEXT_ACTION = "Open Hermes Agent and try: Use OMH request-to-handoff for: I want to safely add a feature to this repo."
 
 
@@ -345,6 +351,8 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
         severity="warning" if activity["readiness"] == "unavailable" else "ok", observed=False,
     ))
     checks.append(_hook_integrity_check(paths))
+    checks.extend(_toolcall_rule_checks(paths))
+    checks.extend(_plugin_hook_error_checks(paths))
     checks.append(_retired_skill_install_check(paths))
     checks.append(_flat_skill_layout_check(paths))
     checks.append(_plugin_ulw_lifecycle_check(paths))
@@ -1057,6 +1065,217 @@ def _plugin_bundle_import_scan_check(scan: dict[str, object]) -> Check:
     )
 
 
+def _toolcall_rule_checks(paths: OmhPaths) -> list[Check]:
+    """Does the person's tool-call rules file still load, and did the gate fault?
+
+    A `toolcall-rules.json` is how somebody tells OMH to block a tool call, and
+    the enforcing hook fails open: a wrong `schema_version` refuses the WHOLE
+    document, a bad regex drops one rule, and either way the hook says nothing.
+    Until now the only surface that reported it was `omh ops
+    toolcall-rules-validate`, which a person has to already suspect in order to
+    run. Doctor runs the same validator, so a rules file that stopped blocking
+    is visible from the command people run when something feels wrong.
+
+    Absence is silence, deliberately. The file's presence is the opt-in, so
+    "you have no rules" is not a finding and emits no check at all -- the same
+    posture the optional-surface checks take, one step further, because a
+    permanently-green row about a feature nobody uses is noise on the surface
+    #1728 is about.
+
+    Two checks rather than one crowded message: `toolcall_rules` is about the
+    document, `toolcall_rule_gate` is about evaluating it at runtime. A person
+    whose file is valid and whose gate is crashing needs to read the second
+    without the first arguing otherwise.
+    """
+    from ..plugin_bundle.omh.toolcall_rule_faults import read_toolcall_rule_faults
+    from ..plugin_bundle.omh.toolcall_rules import (
+        MAX_RULES_FILE_BYTES,
+        TOOLCALL_RULES_SCHEMA_VERSION,
+        toolcall_rules_path,
+        validate_toolcall_rules_document,
+    )
+
+    checks: list[Check] = []
+    try:
+        path = toolcall_rules_path(str(paths.omh_home))
+        present = path.is_file()
+    except (OSError, RuntimeError):
+        path = paths.omh_home / "rules" / "toolcall-rules.json"
+        present = False
+    if present:
+        try:
+            size = path.stat().st_size
+            raw: object = json.loads(path.read_text(encoding="utf-8"))
+            read_error = ""
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            size = 0
+            raw = None
+            read_error = f"{type(exc).__name__}: {exc}"
+        if read_error:
+            checks.append(
+                Check(
+                    "toolcall_rules",
+                    True,
+                    f"{path} exists but does not parse ({read_error}), so the enforcing hook loads "
+                    "0 of its rules and every tool call it was written to block now proceeds.",
+                    severity="warning",
+                    remediation=f"Repair the JSON in {path}, then run `omh ops toolcall-rules-validate`.",
+                    next_action=f"Run `omh ops toolcall-rules-validate --path {path}` and fix the reported error.",
+                    observed=True,
+                )
+            )
+        else:
+            errors, accepted = validate_toolcall_rules_document(raw)
+            if size > MAX_RULES_FILE_BYTES:
+                # Mirrors `omh ops toolcall-rules-validate`: above this bound the
+                # enforcing hook refuses the file whole, so any "accepted" count
+                # would certify rules that never load.
+                errors = [
+                    *errors,
+                    f"rules file is {size} bytes; the enforcing hook ignores files over "
+                    f"{MAX_RULES_FILE_BYTES} bytes, so no rule is loaded",
+                ]
+                accepted = 0
+            if errors:
+                skipped = _toolcall_rules_declared_count(raw) - accepted
+                whole_document = (
+                    f" A wrong schema_version refuses the WHOLE document, so the expected value is "
+                    f"{TOOLCALL_RULES_SCHEMA_VERSION}."
+                    if accepted == 0
+                    else ""
+                )
+                checks.append(
+                    Check(
+                        "toolcall_rules",
+                        True,
+                        f"{path}: {accepted} rule(s) load, {max(skipped, 0)} skipped. "
+                        f"First error: {errors[0]}.{whole_document} "
+                        "The enforcing hook fails open, so a skipped rule blocks nothing and says nothing.",
+                        severity="warning",
+                        remediation=f"Fix the reported rule(s) in {path}; the hook never reports them itself.",
+                        next_action=f"Run `omh ops toolcall-rules-validate --path {path}` for the full error list.",
+                        observed=True,
+                    )
+                )
+            else:
+                checks.append(
+                    Check(
+                        "toolcall_rules",
+                        True,
+                        f"{path}: {accepted} user tool-call rule(s) load with no defect. "
+                        "Loading is not evidence that any rule matched or blocked a call.",
+                        severity="ok",
+                        next_action="",
+                        observed=True,
+                    )
+                )
+    faults = read_toolcall_rule_faults(str(paths.omh_home))
+    if faults.get("unreadable"):
+        checks.append(
+            Check(
+                "toolcall_rule_gate",
+                True,
+                "The tool-call rule-gate fault record is present but unreadable, so whether the "
+                "gate has failed cannot be answered from here.",
+                severity="warning",
+                remediation="Remove the unreadable record under <omh-home>/runtime/ and rerun `omh doctor`.",
+                next_action="Remove the unreadable rule-gate fault record, then run `omh doctor` again.",
+                observed=True,
+            )
+        )
+    elif int(faults.get("fault_count", 0) or 0) > 0:
+        checks.append(
+            Check(
+                "toolcall_rule_gate",
+                True,
+                f"Evaluating the tool-call rules failed {faults['fault_count']} time(s), last at "
+                f"{faults['last_fault_at'] or 'unknown time'} on tool "
+                f"{faults['last_tool'] or 'unknown'}: {faults['last_error'] or 'no error text'}. "
+                "Each failing call was ALLOWED, so the rules did not block it.",
+                severity="warning",
+                remediation=(
+                    "Validate the rules file, then restart Hermes Agent so the gate re-arms; "
+                    "the counter is cumulative and is not cleared by a fix."
+                ),
+                next_action="Run `omh ops toolcall-rules-validate`, then restart Hermes Agent.",
+                observed=True,
+            )
+        )
+    return checks
+
+
+def _toolcall_rules_declared_count(raw: object) -> int:
+    """How many rule entries the document declares, for the skipped count.
+
+    Not the validator's job: it returns how many were ACCEPTED, and the
+    difference is what a person wants to read. A document whose `rules` is not
+    a list declares nothing, which is also the truth.
+    """
+    if not isinstance(raw, dict):
+        return 0
+    entries = raw.get("rules")
+    return len(entries) if isinstance(entries, list) else 0
+
+
+def _plugin_hook_error_checks(paths: OmhPaths) -> list[Check]:
+    """Name a hook whose recent host-observed calls did not come back observed.
+
+    Doctor's only hook-runtime signal was `awareness_delivery`, which answers
+    one question about one hook. The plugin host observation journal already
+    carries per-hook records with a status, and a `hook_call` whose status is
+    `blocked` or `not_observed` is a hook the host tried and did not get a
+    clean call out of. Nothing new is written for this; it is the journal
+    `observe_plugin_hook_call` and `omh plugin observe-host` already append to.
+
+    Silent when there is nothing to say, for the same reason as the rules
+    checks: a row that is green on every machine forever is not information.
+
+    Claim boundary, kept narrow on purpose: these are host- and
+    wrapper-supplied records. A hook that raised inside Hermes without a
+    wrapper recording it leaves nothing here, and this check does not claim
+    otherwise.
+    """
+    records, errors = read_plugin_host_observations(paths, limit=_HOOK_OBSERVATION_WINDOW)
+    if errors:
+        return [
+            Check(
+                "plugin_hook_errors",
+                True,
+                f"plugin host observation ledger unreadable: {'; '.join(errors[:3])}",
+                severity="warning",
+                remediation="Repair or remove the unreadable observation ledger under <omh-home>/runtime/.",
+                next_action="Repair the plugin host observation ledger, then run `omh doctor` again.",
+                observed=True,
+            )
+        ]
+    failing: dict[str, list[str]] = {}
+    for record in records:
+        if str(record.get("event", "")) != "hook_call" or str(record.get("status", "")) == "observed":
+            continue
+        hook = str(record.get("hook", "")) or "unknown"
+        failing.setdefault(hook, []).append(str(record.get("status", "")) or "unknown")
+    if not failing:
+        return []
+    detail = "; ".join(
+        f"{hook}: {len(statuses)} of the last {_HOOK_OBSERVATION_WINDOW} record(s) "
+        f"({', '.join(sorted(set(statuses)))})"
+        for hook, statuses in sorted(failing.items())
+    )
+    return [
+        Check(
+            "plugin_hook_errors",
+            True,
+            f"Host-observed hook calls that did not come back observed -- {detail}. "
+            "These are host/wrapper-supplied records; a hook that raised with nothing recording it "
+            "leaves no trace here.",
+            severity="warning",
+            remediation="Read the records with `omh plugin observations` and fix the hook they name.",
+            next_action="Run `omh plugin observations` to read the failing hook records.",
+            observed=True,
+        )
+    ]
+
+
 def _memory_consolidation_check(paths: OmhPaths) -> Check:
     """Say what the newest consolidation brief is asking for.
 
@@ -1068,6 +1287,17 @@ def _memory_consolidation_check(paths: OmhPaths) -> Check:
     Never a fault. OMH cannot run the consolidation -- that needs a model -- and
     it cannot tell whether Hermes already did, so an outstanding brief is a
     thing to know rather than a thing that is broken.
+
+    Two states hide under one brief, and only one of them is pending work. When
+    the pack is over its floor AND something in it is provably redundant, there
+    is a consolidation to run and the brief names the clusters. When the pack is
+    over its floor and NOTHING is reclaimable, the planner has nothing to
+    propose, OMH cannot write Hermes memory by design, and the condition cannot
+    clear on its own -- so calling it "due" promises an action that does not
+    exist, and the warning stands forever. A standing warning is how people
+    learn to skip doctor, which costs more than this one line is worth. That
+    state is reported as the fact it is, at `severity="ok"`, naming the move
+    that does exist: shorten or remove an entry in Hermes memory.
     """
     brief = read_latest_consolidation(paths.omh_home)
     if not brief:
@@ -1078,6 +1308,9 @@ def _memory_consolidation_check(paths: OmhPaths) -> Check:
     at = str(brief.get("raised_at", "") or read_dreaming_state(paths.omh_home).get("last_consolidated_at", "") or "unknown time")
     record_expiry = brief.get("record_expiry", {}) if isinstance(brief.get("record_expiry"), dict) else {}
     expired = int(record_expiry.get("expired", 0) or 0)
+    full_pack = _unreclaimable_full_pack_message(reasons, brief)
+    if full_pack and expired == 0:
+        return Check("memory_consolidation", True, full_pack, severity="ok", observed=True)
     if expired > 0:
         # Expired records have an operator-runnable fix; consolidation does not.
         remedy = f"Run `omh memory retire` to archive {expired} expired record(s); OMH never deletes them."
@@ -1093,6 +1326,42 @@ def _memory_consolidation_check(paths: OmhPaths) -> Check:
         + remedy,
         severity="warning",
         observed=True,
+    )
+
+
+_HEADROOM_REASON_PREFIX = "headroom_below_floor:"
+
+
+def _unreclaimable_full_pack_message(reasons: list[str], brief: dict[str, object]) -> str:
+    """The full-pack wording, or "" when this brief is asking for real work.
+
+    Read off the brief's own fields, because those are the fields doctor
+    already has: the `headroom_below_floor:<chars><=<floor>` reason carries
+    both numbers, and the eviction plan the brief was built with carries
+    `reclaimable_chars` and `duplicate_clusters`.
+
+    Only a brief whose ENTIRE reason set is the headroom condition qualifies.
+    A brief also woken by the turn interval, a compaction, expiring records,
+    or a replay reminder is asking for work that can actually be done, and
+    downgrading it would hide that.
+    """
+    if not reasons or any(not reason.startswith(_HEADROOM_REASON_PREFIX) for reason in reasons):
+        return ""
+    plan = brief.get("eviction_plan")
+    if not isinstance(plan, dict):
+        return ""
+    reclaimable = plan.get("reclaimable_chars")
+    clusters = plan.get("duplicate_clusters")
+    if not isinstance(reclaimable, int) or isinstance(reclaimable, bool) or reclaimable > 0:
+        return ""
+    if not isinstance(clusters, list) or clusters:
+        return ""
+    return (
+        f"Hermes memory is full ({', '.join(reasons)}) and nothing in it is provably redundant "
+        f"(reclaimable_chars=0, 0 duplicate group(s) across {plan.get('entry_count', 'unknown')} entry/entries). "
+        "There is no consolidation for OMH to propose and OMH cannot write Hermes memory. "
+        "Your move: shorten or remove an entry in Hermes memory, through Hermes' own memory tool. "
+        "Reported as a standing fact, not as pending work."
     )
 
 

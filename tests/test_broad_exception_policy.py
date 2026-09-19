@@ -246,6 +246,19 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
         "path, any other exception returns `_observation_error(...)` with the error text.",
     ),
     ClassifiedSite(
+        "src/plugin_bundle/omh/hooks/tool_hooks.py",
+        "_rule_directive_or_recorded_fault",
+        INTENTIONAL,
+        "The point of the handler is the exception the rules module did not anticipate: a "
+        "narrower tuple would re-raise exactly that type, and the escape is an unreported "
+        "allow, because the host logs one WARNING and then DEBUG only. The failure is not "
+        "relabeled as a normal result -- it is counted in the rule-gate fault record with "
+        "the exception's own type and text, and `omh doctor` reports it under "
+        "`toolcall_rule_gate`, naming the last error and saying the call was allowed. "
+        "Allowing rather than blocking is the module's documented fail-open contract; this "
+        "verdict is about the breadth, and the breadth is what makes the report complete.",
+    ),
+    ClassifiedSite(
         "src/plugin_bundle/omh/tools/chat_tool.py",
         "omh_interact_handler",
         INTENTIONAL,

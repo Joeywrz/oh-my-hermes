@@ -1024,13 +1024,22 @@ OMH's setup footprint is intentionally bounded:
 - Interactive `omh setup` and `omh update` offer a default-Yes branded-TUI
   choice when the canonical config is not already
   `display.interface: tui` plus `display.skin: omh`. Accepting it (or passing
-  `--yes`) sets both values, so bare `omh` and `hermes` open the same
-  OH-MY-HERMES TUI. An already-active update does not ask. No or
-  `--no-omh-tui` preserves the current values. JSON suppresses prompting;
-  explicit canonical values remain unchanged unless `--yes` supplies consent.
-  Dry-run never persists a previewed change. Noncanonical/quoted YAML shapes
-  never prompt or change, even with `--yes`. Uninstall does not remove an
-  accepted display selection.
+  `--yes`) sets those two and a collapsed `display.sections`, so bare `omh`
+  and `hermes` open the same OH-MY-HERMES TUI and a long run does not bury
+  the conversation. An already-active install does not ask, so an install
+  branded before `display.sections` joined the bundle keeps its current
+  sections until it runs with `--yes`. No or `--no-omh-tui` preserves the
+  current values. JSON suppresses
+  prompting; explicit canonical values remain unchanged unless `--yes`
+  supplies consent. Dry-run never persists a previewed change.
+  Noncanonical/quoted YAML shapes never prompt or change, even with `--yes`.
+  Uninstall does not remove an accepted display selection.
+- `display.sections` is narrower than the other two keys of that bundle. The
+  two scalars may be migrated off a stock value under consent; each section
+  key is unset-only, so an existing `display.sections.tools: expanded` is
+  preserved while `thinking` and `subagents` are still collapsed. `collapsed`
+  is not `hidden`: counts stay visible and a click expands. Nothing is written
+  without the confirmation or `--yes`.
 - It adds `auxiliary.compression.fallback_chain` when the config pins
   compression to a single provider and already lists other fallback providers.
   Without a compression fallback, one unreachable endpoint leaves a session

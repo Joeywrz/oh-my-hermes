@@ -39,9 +39,11 @@ from ..coding.model_discovery import discover_local_models
 from ..coding.model_recommendations import resolve_model_recommendation
 from ..config_adapter import (
     ConfigChange,
+    activate_display_sections,
     activate_omh_skin,
     activate_tui_interface,
     display_interface_selection,
+    display_sections_selection,
     display_skin_selection,
     ensure_external_dir,
     ensure_omh_skin,
@@ -1755,6 +1757,12 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
         # unless the operator accepts the setup/update prompt; that consent
         # allows stock `cli`/`default` values to be migrated too.
         tui_choice = getattr(args, "_omh_tui_choice", None)
+        # Which section keys are OMH's to reverse is the difference between
+        # the reading before the bundle and the reading after, never the
+        # three it tried to write: a key the person already set is preserved
+        # and must stay theirs. The two display scalars below never touch
+        # this mapping, so reading it once here is the same reading.
+        display_sections_before = display_sections_selection(plugin_enable.text)
         if tui_choice is False:
             tui_interface = ConfigChange(
                 False,
@@ -1766,6 +1774,11 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
                 "operator declined the OH-MY-HERMES skin",
                 tui_interface.text,
             )
+            display_sections = ConfigChange(
+                False,
+                "operator declined the OH-MY-HERMES transcript sections",
+                skin_active.text,
+            )
         elif tui_choice is True:
             tui_interface = activate_tui_interface(plugin_enable.text)
             # Accepting the branded TUI must not undo a theme choice: an
@@ -1776,16 +1789,34 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
                 tui_interface.text,
                 chosen_skin if is_omh_skin_name(chosen_skin) else SKIN_NAME,
             )
+            # Third key of the same consented bundle. Hermes renders every
+            # tool call and every thinking block expanded by default, so on a
+            # long run the prompt scrolls out of sight and the transcript is
+            # a wall -- which is the thing that decides whether a person can
+            # see a run going wrong. Consent-only, and unset-only per key:
+            # unlike the two scalars above, an explicit `expanded` is never
+            # replaced, because there is no stock value here to migrate off.
+            display_sections = activate_display_sections(skin_active.text)
         else:
             tui_interface = ensure_tui_interface(plugin_enable.text)
             skin_active = ensure_omh_skin(tui_interface.text, SKIN_NAME)
+            # No `ensure_display_sections` twin on purpose. The two scalars
+            # above default without a prompt because a fresh install that
+            # lands in the classic REPL cannot show the HUD at all. Collapsing
+            # somebody's transcript is a change they should be told about, so
+            # it stays behind the confirmation rather than arriving silently.
+            display_sections = ConfigChange(
+                False,
+                "display.sections is set only under the branded-TUI confirmation or --yes",
+                skin_active.text,
+            )
         # Same reasoning one layer down. OMH's memory provider ships inside the
         # bundle, and a provider Hermes never selects is a provider that never
         # runs -- so requiring a control-plane command to switch it on meant the
         # people AGENTS.md says should only need setup/update/doctor would never
         # have it. Claims the slot only when it is free; `set_memory_provider`
         # refuses when another product holds it, because Hermes runs exactly one.
-        memory_provider = maybe_set_memory_provider(skin_active.text, MEMORY_PROVIDER_NAME, memory_mode)
+        memory_provider = maybe_set_memory_provider(display_sections.text, MEMORY_PROVIDER_NAME, memory_mode)
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
     if not args.dry_run and (
@@ -1794,6 +1825,7 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
         or plugin_enable.changed
         or tui_interface.changed
         or skin_active.changed
+        or display_sections.changed
         or memory_provider.changed
     ):
         write_config(paths.hermes_config_path, memory_provider.text)
@@ -1816,6 +1848,7 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
             or plugin_enable.changed
             or tui_interface.changed
             or skin_active.changed
+            or display_sections.changed
             or memory_provider.changed
         ),
         "message": change.message,
@@ -1833,6 +1866,19 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
             "changed": skin_active.changed,
             "message": skin_active.message,
             "selected": display_skin_selection(memory_provider.text),
+        },
+        # Recorded the way the other two consented display keys are, so
+        # `omh uninstall` (#1725) can later reverse what setup wrote without
+        # having to guess which section values were the person's own.
+        "display_sections": {
+            "changed": display_sections.changed,
+            "message": display_sections.message,
+            "selected": display_sections_selection(memory_provider.text),
+            "written": sorted(
+                key
+                for key in display_sections_selection(memory_provider.text)
+                if key not in display_sections_before
+            ),
         },
         "memory_provider": {
             "changed": memory_provider.changed,
@@ -2468,6 +2514,14 @@ def _ask_tui_identity_choice(args: argparse.Namespace, paths: OmhPaths, language
     # Any shipped theme counts as identity-active: asking a crimson user to
     # switch to the default skin is asking them to lose a choice they made.
     selected_skin = display_skin_selection(config_text)
+    # Deliberately NOT widened to include `display.sections`, though that key
+    # joined the bundle this prompt consents to. A plain non-interactive `omh
+    # setup` writes `interface` and `skin` and never the sections, because
+    # collapsing somebody's transcript stays behind the confirmation. So an
+    # "is the bundle complete" test here would be satisfied by nothing OMH
+    # writes on its own, and every later interactive run would ask again about
+    # a state OMH itself created. The trigger stays the two keys it always
+    # was; `--yes` is how an already-branded install takes the third.
     if display_interface_selection(config_text) == "tui" and is_omh_skin_name(selected_skin):
         return
     target_skin = selected_skin if is_omh_skin_name(selected_skin) else SKIN_NAME

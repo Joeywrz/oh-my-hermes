@@ -1020,6 +1020,293 @@ def check_workflow_engine_reach(
     )
 
 
+# ---------------------------------------------------------------------------
+# 9. turn_budget_loop_exposure and 10. loop_hard_stop_disabled
+# ---------------------------------------------------------------------------
+
+# Hermes' own defaults, read from the installed host and named here so the
+# advisory can state what is in force when the key is simply absent.
+# `cli.py` seeds `agent.max_turns: 500`; `agent/tool_guardrails.py` has
+# `hard_stop_enabled: False`, `non_interactive_hard_stop_enabled: True` and
+# `no_progress_block_after: 5`, and forces the hard stop on only for a
+# platform outside its attended set (cli, tui, desktop, acp, subagent,
+# api_server).
+HERMES_DEFAULT_MAX_TURNS = 500
+HERMES_LOOP_NO_PROGRESS_BLOCK_AFTER = 5
+
+# Where a turn budget stops bounding a mistake and starts bounding nothing.
+# Derived from the host's own halt point rather than picked: its loop detector
+# halts at `no_progress_block_after` laps (5) and detects cycles up to period
+# 4, so a loop it can see costs at most ~20 tool calls before the halt. Ten
+# times that is where the budget, not the detector, is what a loop runs into.
+# The measured incident reached 409 tool calls.
+TURN_BUDGET_LOOP_EXPOSURE_THRESHOLD = 200
+
+
+def check_turn_budget_loop_exposure(hermes_home: str | Path | None = None) -> AdviceEntry:
+    """Is `agent.max_turns` high enough that an undetected loop costs hundreds of calls?
+
+    This one fires on Hermes' own default, and that is deliberate rather than
+    an oversight. The rule of thumb is not to flag a default most people run,
+    but the reason has to hold for the default too, and here it does: the
+    measured loop ran to 409 tool calls under `agent.max_turns: 500`, which is
+    exactly the shipped default. Flagging everything else and staying quiet
+    about the value that produced the incident would be the wrong silence.
+
+    Report-only, as the whole advisory lane is. It names the key and the
+    observed value and changes nothing; `CONTEXT.md` keeps config rewriting to
+    the one consented branded-TUI exception.
+    """
+    home = _resolve_hermes_home(hermes_home)
+    config_path = home / "config.yaml"
+    evidence_boundary = (
+        "Local read of the Hermes config.yaml `agent.max_turns` key only. No session, "
+        "turn count, or loop is observed; this is what the budget would allow."
+    )
+    remediation = (
+        f"`agent.max_turns` at or above {TURN_BUDGET_LOOP_EXPOSURE_THRESHOLD} means a repeat loop "
+        "the host's detector does not catch runs until the budget is spent. Lower it in "
+        "`~/.hermes/config.yaml` under `agent:`, or turn on "
+        "`tool_loop_guardrails.hard_stop_enabled` so a detected loop halts at "
+        f"{HERMES_LOOP_NO_PROGRESS_BLOCK_AFTER} laps instead. OMH changes neither."
+    )
+    try:
+        if not config_path.exists():
+            return AdviceEntry(
+                "turn_budget_loop_exposure",
+                "unobserved",
+                remediation,
+                evidence_boundary,
+                f"{config_path} not found",
+            )
+        config_text = read_config(config_path)
+        verdict, observed = _nested_config_scalar(config_text, ("agent", "max_turns"))
+        if verdict == READ_AMBIGUOUS:
+            return AdviceEntry(
+                "turn_budget_loop_exposure",
+                "unobserved",
+                remediation,
+                evidence_boundary,
+                "agent.max_turns is not in a shape this read-only reader interprets",
+            )
+        if verdict == READ_ABSENT:
+            budget: int | None = HERMES_DEFAULT_MAX_TURNS
+            source = f"unset; Hermes' own default is {HERMES_DEFAULT_MAX_TURNS}"
+        else:
+            budget = _positive_int(observed)
+            source = f"agent.max_turns: {observed}"
+        if budget is None:
+            return AdviceEntry(
+                "turn_budget_loop_exposure",
+                "unobserved",
+                remediation,
+                evidence_boundary,
+                f"agent.max_turns is not a readable positive integer ({observed!r})",
+            )
+        if budget >= TURN_BUDGET_LOOP_EXPOSURE_THRESHOLD:
+            return AdviceEntry(
+                "turn_budget_loop_exposure",
+                "advice",
+                remediation,
+                evidence_boundary,
+                (
+                    f"{source}; at or above the {TURN_BUDGET_LOOP_EXPOSURE_THRESHOLD}-call threshold, "
+                    f"so an undetected repeat loop can spend up to {budget} tool calls"
+                ),
+            )
+        return AdviceEntry(
+            "turn_budget_loop_exposure",
+            "ok",
+            remediation,
+            evidence_boundary,
+            f"{source}; below the {TURN_BUDGET_LOOP_EXPOSURE_THRESHOLD}-call threshold",
+        )
+    except OSError as error:
+        return AdviceEntry(
+            "turn_budget_loop_exposure",
+            "unobserved",
+            remediation,
+            evidence_boundary,
+            f"config unreadable: {error}",
+        )
+
+
+def check_loop_hard_stop_disabled(hermes_home: str | Path | None = None) -> AdviceEntry:
+    """Is the host's loop detector allowed to halt a turn, or only to complain?
+
+    Hermes already has the stronger detector -- identical-call streaks and
+    repeating 2-to-4 call cycles over a 64-call history, compared on results
+    as well as arguments, with a poller allowlist. With
+    `tool_loop_guardrails.hard_stop_enabled` it HALTS the turn at
+    `no_progress_block_after` laps. Without it, the detector only appends a
+    note to the tool result, which a model is free to ignore; in the measured
+    session it ignored 185 of them.
+
+    The key defaults to false and the host flips it on only for a platform
+    outside its attended set, so a desktop or terminal install has it off
+    unless somebody set it. Absent and explicitly false are therefore the same
+    state in force and are reported the same way, with the observed value
+    naming which one it is.
+
+    Report-only. OMH does not set this key.
+    """
+    home = _resolve_hermes_home(hermes_home)
+    config_path = home / "config.yaml"
+    evidence_boundary = (
+        "Local read of the Hermes config.yaml `tool_loop_guardrails` block only. The "
+        "platform a session actually runs on is a runtime fact this does not observe, and "
+        "the host forces the hard stop on for unattended gateway and cron platforms "
+        "regardless of this key."
+    )
+    remediation = (
+        "Set `tool_loop_guardrails.hard_stop_enabled: true` in `~/.hermes/config.yaml` to let "
+        "Hermes' loop detector halt the turn at "
+        f"`no_progress_block_after` laps (default {HERMES_LOOP_NO_PROGRESS_BLOCK_AFTER}) instead "
+        "of only appending a note the model can ignore. OMH reports this key and never writes it."
+    )
+    try:
+        if not config_path.exists():
+            return AdviceEntry(
+                "loop_hard_stop_disabled",
+                "unobserved",
+                remediation,
+                evidence_boundary,
+                f"{config_path} not found",
+            )
+        config_text = read_config(config_path)
+        verdict, observed = _nested_config_scalar(
+            config_text, ("tool_loop_guardrails", "hard_stop_enabled")
+        )
+        if verdict == READ_AMBIGUOUS:
+            return AdviceEntry(
+                "loop_hard_stop_disabled",
+                "unobserved",
+                remediation,
+                evidence_boundary,
+                "tool_loop_guardrails.hard_stop_enabled is not in a shape this read-only reader interprets",
+            )
+        enabled = False if verdict == READ_ABSENT else _yaml_bool(observed)
+        if enabled is None:
+            return AdviceEntry(
+                "loop_hard_stop_disabled",
+                "unobserved",
+                remediation,
+                evidence_boundary,
+                f"tool_loop_guardrails.hard_stop_enabled is not a readable boolean ({observed!r})",
+            )
+        if enabled:
+            return AdviceEntry(
+                "loop_hard_stop_disabled",
+                "ok",
+                remediation,
+                evidence_boundary,
+                "tool_loop_guardrails.hard_stop_enabled: true; a detected loop halts the turn",
+            )
+        return AdviceEntry(
+            "loop_hard_stop_disabled",
+            "advice",
+            remediation,
+            evidence_boundary,
+            (
+                (
+                    "tool_loop_guardrails.hard_stop_enabled is unset; the host default is false on "
+                    "attended platforms"
+                    if verdict == READ_ABSENT
+                    else f"tool_loop_guardrails.hard_stop_enabled: {observed}"
+                )
+                + ", so a detected loop is only warned about and never halted"
+            ),
+        )
+    except OSError as error:
+        return AdviceEntry(
+            "loop_hard_stop_disabled",
+            "unobserved",
+            remediation,
+            evidence_boundary,
+            f"config unreadable: {error}",
+        )
+
+
+# What a nested-scalar read can conclude. "absent" and "ambiguous" are
+# different answers and the two advisories say different things about them:
+# an absent key means the host default is in force and can be named, while a
+# shape this reader refuses means nothing can be named at all.
+READ_ABSENT = "absent"
+READ_AMBIGUOUS = "ambiguous"
+READ_VALUE = "value"
+
+
+def _nested_config_scalar(config_text: str, key_path: tuple[str, str]) -> tuple[str, str]:
+    """One `<section>:` / `  <key>: <scalar>` reading, with its verdict.
+
+    Returns `(READ_VALUE, scalar)`, `(READ_ABSENT, "")` when the key is
+    genuinely not there, or `(READ_AMBIGUOUS, "")` when the shape is one this
+    reader must not interpret: tabs, an inline value on the section key, a
+    duplicated section or key, a flow or block value, a YAML node property.
+
+    Keeping the last two apart is the point. Collapsing them would let a
+    config the reader refused be reported as "unset, so the host default
+    applies", which is a guess about a file nobody read -- exactly what this
+    module's `unobserved` status exists to avoid.
+    """
+    if "\t" in config_text:
+        return (READ_AMBIGUOUS, "")
+    section, key = key_path
+    lines = config_text.splitlines()
+    section_indices = [
+        index
+        for index, line in enumerate(lines)
+        if not line.startswith(" ") and line.strip() == f"{section}:"
+    ]
+    if any(
+        not line.startswith(" ") and line.strip().startswith(f"{section}:") and line.strip() != f"{section}:"
+        for line in lines
+    ):
+        return (READ_AMBIGUOUS, "")
+    if len(section_indices) > 1:
+        return (READ_AMBIGUOUS, "")
+    if not section_indices:
+        return (READ_ABSENT, "")
+
+    values: list[str] = []
+    for line in lines[section_indices[0] + 1 :]:
+        if line.strip() and not line.startswith(" "):
+            break
+        if not line.startswith("  ") or line.startswith("    "):
+            continue
+        candidate, separator, rest = line.strip().partition(":")
+        if separator and candidate == key:
+            values.append(rest.strip())
+    if len(values) > 1:
+        return (READ_AMBIGUOUS, "")
+    if not values:
+        return (READ_ABSENT, "")
+    raw = values[0]
+    if not raw or raw.startswith(("{", "[", "|", ">", "&", "*", "!")):
+        return (READ_AMBIGUOUS, "")
+    scalar = raw.split("#")[0].strip() if not raw.startswith(("'", '"')) else raw.strip()
+    if len(scalar) >= 2 and scalar[0] == scalar[-1] and scalar[0] in {"'", '"'}:
+        scalar = scalar[1:-1]
+    return (READ_VALUE, scalar) if scalar else (READ_AMBIGUOUS, "")
+
+
+def _positive_int(value: str) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _yaml_bool(value: str) -> bool | None:
+    lowered = value.strip().lower()
+    if lowered in {"true", "yes", "on"}:
+        return True
+    if lowered in {"false", "no", "off"}:
+        return False
+    return None
+
+
 def run_config_advisories(
     hermes_home: str | Path | None = None,
     *,
@@ -1042,5 +1329,7 @@ def run_config_advisories(
             check_orphaned_project_scope_store(hermes_home),
             check_installed_skill_context_weight(hermes_home),
             check_workflow_engine_reach(hermes_home, omh_home=omh_home),
+            check_turn_budget_loop_exposure(hermes_home),
+            check_loop_hard_stop_disabled(hermes_home),
         ],
     )

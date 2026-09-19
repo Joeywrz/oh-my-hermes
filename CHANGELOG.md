@@ -198,6 +198,37 @@ All notable changes will be documented here.
   while the model is still inside the turn loop, so both exits are reachable.
   At most one directive per turn per cause, latched on the host's own turn id.
 
+- **The branded TUI collapses the transcript, and doctor names what bounds a
+  runaway loop.** Two halves of the same question: whether a person can see a
+  run going wrong.
+
+  Hermes renders every tool call and every thinking block expanded. On a long
+  run each call becomes its own row, the prompt scrolls out of sight, and the
+  transcript is a wall. OMH's branded-TUI choice already set two display keys
+  under one default-Yes confirmation, and `display.sections` now rides the
+  same consent: `thinking`, `tools` and `subagents` collapsed, under the same
+  rules as the other two. Only from the confirmation or `--yes`, never on a
+  noncanonical YAML shape, and `--dry-run` never persists. Narrower than the
+  other two in one way: every section key is unset-only, so an explicit
+  `display.sections.tools: expanded` survives while the other two are still
+  added. `collapsed` is not `hidden` -- counts stay visible and a click
+  expands. The prompt's trigger is unchanged, so an install already branded
+  before this existed takes the third key through `--yes` rather than being
+  re-asked. What setup wrote is recorded in the apply result, so
+  `omh uninstall` can reverse it later without guessing which values were the
+  person's own.
+
+  `omh doctor` gains two advisories in the read-only lane, which reports and
+  never rewrites. The first names `agent.max_turns` when it is at or above
+  200, the point where the turn budget rather than the host's loop detector
+  is what a repeat loop runs into. It fires on Hermes' own default of 500,
+  and says so, because the measured loop reached 409 tool calls under exactly
+  that value. The second names `tool_loop_guardrails.hard_stop_enabled` when
+  it is false or unset, which is the host default on an attended platform: in
+  that state Hermes' loop detector only appends a note, and the model ignored
+  185 of them in the measured session. Turning it on halts the turn at
+  `no_progress_block_after`. OMH changes neither key.
+
 - **`omh doctor` stops warning about work nobody can do, and starts seeing
   the tool-call hot path.** Two truthfulness defects on the same surface.
 

@@ -17,13 +17,18 @@ from omh.maintenance.advisory import (
     AdviceEntry,
     APPROX_TOKENS_PER_SKILL,
     CONTRACT,
+    HERMES_DEFAULT_MAX_TURNS,
+    HERMES_LOOP_NO_PROGRESS_BLOCK_AFTER,
     MEMORY_STALE_AFTER_DAYS,
+    TURN_BUDGET_LOOP_EXPOSURE_THRESHOLD,
     check_auxiliary_routing_unset,
     check_hermes_memory_staleness,
     check_installed_skill_context_weight,
     check_legacy_plan_artifacts,
     check_orphaned_project_scope_store,
+    check_loop_hard_stop_disabled,
     check_soul_missing_or_starter,
+    check_turn_budget_loop_exposure,
     check_workflow_engine_reach,
     run_config_advisories,
 )
@@ -44,6 +49,8 @@ ADVISORY_CHECK_IDS = {
     "orphaned_project_scope_store",
     "installed_skill_context_weight",
     "workflow_engine_reach",
+    "turn_budget_loop_exposure",
+    "loop_hard_stop_disabled",
 }
 
 ALL_AUTO_AUXILIARY = """version: 1
@@ -423,6 +430,11 @@ class MembershipGuardrailTests(unittest.TestCase):
                 # measured; the firing case is covered in
                 # WorkflowEngineReachTests.
                 "workflow_engine_reach": "unobserved",
+                # The fixture config sets neither key, so both read as the
+                # Hermes defaults in force: a 500-turn budget and a loop
+                # detector that only warns.
+                "turn_budget_loop_exposure": "advice",
+                "loop_hard_stop_disabled": "advice",
             },
         )
 
@@ -664,3 +676,120 @@ class RegistrationThroughCurrentPointerTests(unittest.TestCase):
             by_name = {check.name: check for check in run_doctor(paths)}
             self.assertTrue(by_name["external_dir"].ok, by_name["external_dir"].message)
             self.assertTrue(by_name["runtime_context"].ok, by_name["runtime_context"].message)
+
+
+class LoopExposureAdvisoryTests(unittest.TestCase):
+    """#1700 / #1719: report what bounds a runaway loop, and rewrite nothing.
+
+    Two user-config facts, read from `~/.hermes/config.yaml`. `agent.max_turns`
+    is what an undetected repeat loop runs into, and
+    `tool_loop_guardrails.hard_stop_enabled` decides whether the host's own
+    detector halts a turn or only appends a note the model can ignore. Both
+    live in the advisory lane, so neither can move `doctor_ok()`.
+    """
+
+    def _home(self, config_text: str | None) -> Path:
+        home = Path(tempfile.mkdtemp()) / ".hermes"
+        home.mkdir(parents=True)
+        if config_text is not None:
+            _write(home / "config.yaml", config_text)
+        return home
+
+    def test_the_shipped_hermes_default_is_flagged_and_named_as_the_default(self) -> None:
+        # The rule of thumb says not to flag a default most people run. The
+        # reason has to hold for the default too, and here it does: the
+        # measured loop reached 409 tool calls under exactly this value.
+        entry = check_turn_budget_loop_exposure(self._home(f"agent:\n  max_turns: {HERMES_DEFAULT_MAX_TURNS}\n"))
+        self.assertEqual(entry.status, "advice")
+        self.assertIn("agent.max_turns", entry.observed)
+        self.assertIn(str(HERMES_DEFAULT_MAX_TURNS), entry.observed)
+        self.assertIn(str(TURN_BUDGET_LOOP_EXPOSURE_THRESHOLD), entry.observed)
+
+    def test_an_unset_budget_reports_the_host_default_in_force(self) -> None:
+        entry = check_turn_budget_loop_exposure(self._home("version: 1\n"))
+        self.assertEqual(entry.status, "advice")
+        self.assertIn("unset", entry.observed)
+        self.assertIn(str(HERMES_DEFAULT_MAX_TURNS), entry.observed)
+
+    def test_a_budget_below_the_threshold_is_ok(self) -> None:
+        entry = check_turn_budget_loop_exposure(
+            self._home(f"agent:\n  max_turns: {TURN_BUDGET_LOOP_EXPOSURE_THRESHOLD - 1}\n")
+        )
+        self.assertEqual(entry.status, "ok")
+
+    def test_the_threshold_itself_is_the_first_flagged_value(self) -> None:
+        entry = check_turn_budget_loop_exposure(
+            self._home(f"agent:\n  max_turns: {TURN_BUDGET_LOOP_EXPOSURE_THRESHOLD}\n")
+        )
+        self.assertEqual(entry.status, "advice")
+
+    def test_a_shape_the_reader_refuses_is_unobserved_not_unset(self) -> None:
+        # Collapsing "refused to read" into "unset" would report the host
+        # default as being in force for a file nobody read.
+        for label, text in (
+            ("tabs", "agent:\n\tmax_turns: 500\n"),
+            ("flow mapping", "agent: {max_turns: 500}\n"),
+            ("duplicate section", "agent:\n  max_turns: 60\nagent:\n  max_turns: 900\n"),
+            ("anchor", "agent:\n  max_turns: &turns 500\n"),
+        ):
+            with self.subTest(label=label):
+                entry = check_turn_budget_loop_exposure(self._home(text))
+                self.assertEqual(entry.status, "unobserved")
+
+    def test_a_nonnumeric_budget_is_unobserved(self) -> None:
+        entry = check_turn_budget_loop_exposure(self._home("agent:\n  max_turns: soon\n"))
+        self.assertEqual(entry.status, "unobserved")
+
+    def test_a_missing_config_is_unobserved(self) -> None:
+        entry = check_turn_budget_loop_exposure(self._home(None))
+        self.assertEqual(entry.status, "unobserved")
+
+    def test_an_unset_hard_stop_is_flagged_as_the_host_default(self) -> None:
+        entry = check_loop_hard_stop_disabled(self._home("version: 1\n"))
+        self.assertEqual(entry.status, "advice")
+        self.assertIn("unset", entry.observed)
+        self.assertIn("never halted", entry.observed)
+        self.assertIn(str(HERMES_LOOP_NO_PROGRESS_BLOCK_AFTER), entry.remediation)
+        self.assertIn("never writes it", entry.remediation)
+
+    def test_an_explicit_false_hard_stop_is_flagged_with_its_value(self) -> None:
+        entry = check_loop_hard_stop_disabled(
+            self._home("tool_loop_guardrails:\n  hard_stop_enabled: false\n")
+        )
+        self.assertEqual(entry.status, "advice")
+        self.assertIn("hard_stop_enabled: false", entry.observed)
+
+    def test_an_enabled_hard_stop_is_ok(self) -> None:
+        for value in ("true", "yes", "on", "'true'"):
+            with self.subTest(value=value):
+                entry = check_loop_hard_stop_disabled(
+                    self._home(f"tool_loop_guardrails:\n  hard_stop_enabled: {value}\n")
+                )
+                self.assertEqual(entry.status, "ok")
+
+    def test_an_unreadable_hard_stop_value_is_unobserved(self) -> None:
+        entry = check_loop_hard_stop_disabled(
+            self._home("tool_loop_guardrails:\n  hard_stop_enabled: maybe\n")
+        )
+        self.assertEqual(entry.status, "unobserved")
+
+    def test_neither_advisory_changes_the_doctor_status(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        hermes_home = root / ".hermes"
+        _write(hermes_home / "config.yaml", "agent:\n  max_turns: 500\n")
+        paths = resolve_paths(root / ".omh", hermes_home)
+        checks = run_doctor(paths)
+        names = {check.name for check in checks}
+        self.assertNotIn("turn_budget_loop_exposure", names)
+        self.assertNotIn("loop_hard_stop_disabled", names)
+        statuses = {entry.check_id: entry.status for entry in run_doctor_advisories(paths).entries}
+        self.assertEqual(statuses["turn_budget_loop_exposure"], "advice")
+        self.assertEqual(statuses["loop_hard_stop_disabled"], "advice")
+        self.assertEqual(doctor_ok(checks), all(check.ok for check in checks))
+
+    def test_both_advisories_are_read_only_and_change_no_file(self) -> None:
+        home = self._home("agent:\n  max_turns: 500\n")
+        before = (home / "config.yaml").read_bytes()
+        check_turn_budget_loop_exposure(home)
+        check_loop_hard_stop_disabled(home)
+        self.assertEqual((home / "config.yaml").read_bytes(), before)

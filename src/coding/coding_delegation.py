@@ -380,6 +380,7 @@ def build_coding_delegation_payload(
     requested_effort: str = "",
     input_representation: object = "text_only",
     transformation: Mapping[str, object] | None = None,
+    now: str = "",
 ) -> dict[str, object]:
     """Prepare coding work through Maestro for external owners and natively for Hermes."""
 
@@ -470,6 +471,7 @@ def build_coding_delegation_payload(
         requested_effort=requested_effort,
         input_representation=input_representation,
         transformation=transformation,
+        now=now,
     )
 
 
@@ -506,6 +508,7 @@ def _build_coding_delegation_payload_native(
     requested_effort: str = "",
     input_representation: object = "text_only",
     transformation: Mapping[str, object] | None = None,
+    now: str = "",
 ) -> dict[str, object]:
     message = message.strip()
     if not message:
@@ -863,6 +866,7 @@ def _build_coding_delegation_payload_native(
                 snapshot=handoff.get("executor_capability_snapshot") if isinstance(handoff.get("executor_capability_snapshot"), Mapping) else None,
                 route=modality_route,
                 transformation=transformation,
+                now=now,
             )
             if modality_route is not None:
                 decision_route = decision.get("route")

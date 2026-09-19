@@ -18,6 +18,7 @@ from typing import Any
 
 from ..paths import OmhPaths
 from ..skin_pack import SKIN_NAME, theme_for_skin_name
+from ..system.hermes_install import hermes_install_dir, installed_hermes_version, read_bounded_text
 from ..tui_widget_pack import MANIFEST_FILENAME, WIDGET_FILENAME
 
 HERMES_TUI_PREFLIGHT_SCHEMA_VERSION = "omh_hermes_tui_preflight/v1"
@@ -38,34 +39,8 @@ REQUIRED_WIDGET_SDK_KEYS = (
     "updateWidget",
 )
 
-# Reading caps: userWidgets.ts is ~8KB and config.yaml tens of KB today.
-_MAX_INSPECT_BYTES = 512_000
-
-_HERMES_INSTALL_DIRNAME = "hermes-agent"
 _WIDGET_LOADER_RELATIVE = Path("ui-tui") / "src" / "sdk" / "userWidgets.ts"
 _PREBUILT_BUNDLE_RELATIVE = Path("hermes_cli") / "tui_dist" / "entry.js"
-_VERSION_MODULE_RELATIVE = Path("hermes_cli") / "__init__.py"
-
-
-def _read_text_bounded(path: Path) -> str | None:
-    try:
-        if not path.is_file() or path.stat().st_size > _MAX_INSPECT_BYTES:
-            return None
-        return path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-
-
-def _hermes_install_dir(paths: OmhPaths) -> Path:
-    return paths.hermes_home / _HERMES_INSTALL_DIRNAME
-
-
-def _hermes_version(install_dir: Path) -> str:
-    text = _read_text_bounded(install_dir / _VERSION_MODULE_RELATIVE)
-    if text is None:
-        return ""
-    match = re.search(r"__version__\s*=\s*[\"']([^\"']+)[\"']", text)
-    return match.group(1) if match else ""
 
 
 def _widget_sdk_block(loader_text: str) -> str | None:
@@ -156,12 +131,12 @@ def _widget_interpreter(widget_text: str) -> str:
 
 def hermes_tui_preflight(paths: OmhPaths) -> dict[str, Any]:
     """Inspect the Hermes side of the OMH TUI surface. Read-only."""
-    install_dir = _hermes_install_dir(paths)
+    install_dir = hermes_install_dir(paths.hermes_home)
     install_found = install_dir.is_dir()
 
     loader_path = install_dir / _WIDGET_LOADER_RELATIVE
     bundle_path = install_dir / _PREBUILT_BUNDLE_RELATIVE
-    loader_text = _read_text_bounded(loader_path) if install_found else None
+    loader_text = read_bounded_text(loader_path) if install_found else None
     loader_marker = ""
     if loader_text is not None:
         loader_marker = "ui-tui-source"
@@ -174,13 +149,13 @@ def hermes_tui_preflight(paths: OmhPaths) -> dict[str, Any]:
         missing_keys = _missing_sdk_keys(loader_text)
         sdk_parsed = missing_keys is not None
 
-    config_text = _read_text_bounded(paths.hermes_config_path) or ""
+    config_text = read_bounded_text(paths.hermes_config_path) or ""
     interface = _display_interface(config_text)
     skin = _display_skin(config_text)
 
     widget_path = paths.hermes_home / "tui-widgets" / WIDGET_FILENAME
     manifest_path = paths.hermes_home / "tui-widgets" / MANIFEST_FILENAME
-    widget_text = _read_text_bounded(widget_path)
+    widget_text = read_bounded_text(widget_path)
     interpreter = _widget_interpreter(widget_text) if widget_text is not None else ""
     interpreter_ok = bool(interpreter) and Path(interpreter).is_file()
 
@@ -189,7 +164,7 @@ def hermes_tui_preflight(paths: OmhPaths) -> dict[str, Any]:
         "install": {
             "found": install_found,
             "path": str(install_dir),
-            "version": _hermes_version(install_dir) if install_found else "",
+            "version": installed_hermes_version(install_dir) if install_found else "",
         },
         "widget_loader": {
             "present": bool(loader_marker),

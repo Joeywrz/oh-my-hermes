@@ -73,21 +73,31 @@ intended -- it is a change-detector on the mapping, not a drift-detector on the
 host -- and two copies written from one reading agree by construction, so
 neither proves the reading was right.
 
-The range binding also does less than its presence suggests, on two counts, and
-both belong here rather than in a reader's assumptions. `requires_hermes` is an
-OMH convention, not a Hermes field: it is absent from Hermes'
+The range binding also does less than its presence suggests, and that belongs
+here rather than in a reader's assumptions. `requires_hermes` is an OMH
+convention, not a Hermes field: it is absent from Hermes'
 `_KNOWN_MANIFEST_FIELDS` (plugins_manifest.py:31-38) and no code under
 `hermes_cli/` or `agent/` reads it. 0 of the 105 manifests shipped at v2026.9.7
 declare it -- not merely none of the ten hook-bearing ones -- so for a
-third-party plugin the range is `undeclared` and this table applies by default. And nothing here consults the installed host: the audit is offline by
-design, so `supported_range` describes the mapping, never the Hermes the
-operator is actually running.
+third-party plugin the range is `undeclared` and this table applies by default.
+
+The host an operator would enable the plugin on is a separate claim, and
+`observe_host_version` is where it enters. It takes a version the operator
+states or one local installation whose version module it reads -- never a
+discovered path, and never the manifest's own `requires_hermes`, which says
+what the package asks for and not what the operator runs. It answers one of
+four ways: `compatible`, `incompatible`, `unreadable`, or, when no host was
+named, `not_observed`. The first and last leave the classification alone; the
+middle two hold it, because presenting this table as established for a host it
+was never read against is what a machine-readable verdict must not do. A
+version read off disk can be stale or edited, so the observation names the
+method it came from and is never evidence about a running host.
 
 What an operator does with `unknown` is therefore load-bearing: it means "not
 established here", never "safe" and never "not a real hook". A hook added after
-the pinned revision classifies exactly like a name the host never had. Check the
-running Hermes version against the `supported_range` the audit reports, and read
-the host's own `VALID_HOOKS`, before concluding anything about the plugin.
+the pinned revision classifies exactly like a name the host never had. On a
+host outside `supported_range`, read the host's own `VALID_HOOKS` before
+concluding anything about the plugin.
 
 Re-pinning, when Hermes moves: update `PLUGIN_HOOK_CONTRACT_VERSION`,
 `PLUGIN_HOOK_CONTRACT_RANGE` and `PLUGIN_HOOK_CONTRACT_SOURCE`, re-read the four
@@ -100,10 +110,12 @@ bumping that matrix without re-reading the hook table fails.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 import re
 from typing import Final, Literal, TypeAlias, get_args
 
 from ..plugin_bundle.omh.host_compat import parse_range, version_satisfies
+from ..system.hermes_install import installed_hermes_version
 from .plugin_manifest_yaml import ManifestEntry, entry_values, read_plugin_manifest_entries
 
 
@@ -125,6 +137,11 @@ HERMES_RANGE_FIELD: Final = "requires_hermes"
 
 MAX_DECLARED_HOOKS: Final = 64
 MAX_DECLARED_RANGE_CHARS: Final = 64
+# The same reason as the line above, for the other version string that reaches
+# this module: an installation's `__version__` value is file content, and an
+# operator's `--hermes-version` is argv. Neither is echoed once it fails to
+# parse, and neither is matched at unbounded length.
+MAX_HOST_VERSION_CHARS: Final = 32
 _HOOK_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}")
 
 HookEffect: TypeAlias = Literal[
@@ -141,6 +158,13 @@ HookDeclarationField: TypeAlias = Literal["hooks", "provides_hooks"]
 DeclarationStatus: TypeAlias = Literal["absent", "declared", "invalid"]
 ClassificationStatus: TypeAlias = Literal["classified", "unknown"]
 RangeStatus: TypeAlias = Literal["supported", "undeclared", "unparsable", "unsupported"]
+# The host the operator would enable the plugin on, which is a different claim
+# from `RangeStatus` above. That one answers "does the mapping cover the host
+# this package asks for"; this one answers "does the mapping cover the host
+# that was inspected". A package's request is not an observation of an
+# environment, so the two never substitute for one another.
+HostVersionStatus: TypeAlias = Literal["compatible", "incompatible", "not_observed", "unreadable"]
+HostVersionMethod: TypeAlias = Literal["installation_version_module", "not_supplied", "operator_declared"]
 
 # Derived from the types above, never restated. A second hand-written copy of a
 # closed vocabulary is a copy that can drift from the one the annotations use,
@@ -169,6 +193,27 @@ class DeclaredHook:
 
 
 @dataclass(frozen=True, slots=True)
+class HostVersionObservation:
+    """What was established about the host a plugin would be enabled on.
+
+    `method` names the evidence source the operator selected, not that reading
+    it succeeded: an installation that yields no version keeps
+    `installation_version_module` with status `unreadable`. Folding that into
+    `not_supplied` would make a failed explicit request indistinguishable from
+    never having asked, and only one of those two is a pass.
+
+    `version` is None whenever no version was established, so a value that
+    failed to parse is dropped rather than echoed. An installation's
+    `__version__` is file content and an operator's flag value is argv; the
+    payload keeps neither once it is not a version.
+    """
+
+    version: str | None
+    method: HostVersionMethod
+    status: HostVersionStatus
+
+
+@dataclass(frozen=True, slots=True)
 class HookDeclaration:
     hooks: tuple[DeclaredHook, ...]
     declared_range: str | None
@@ -176,6 +221,14 @@ class HookDeclaration:
 
 
 UNKNOWN_HOOK_CONTRACT: Final = HookContract("unknown", "unknown", "unknown")
+# The default, and the only honest answer when the operator named no host. It
+# is not a pass: it says the mapping was never bound to an environment.
+NO_HOST_VERSION_OBSERVED: Final = HostVersionObservation(None, "not_supplied", "not_observed")
+# The two statuses that hold the hook-semantics decision. `not_observed` is
+# deliberately absent: holding it would make the default path -- every caller
+# that names no host -- report an unestablished contract for a manifest the
+# audit read fine, which says nothing an operator can act on.
+HOST_VERSION_HOLD_STATUSES: Final[frozenset[str]] = frozenset({"incompatible", "unreadable"})
 
 # The 37 names of VALID_HOOKS (hermes_cli/plugins.py:107-188), each classified
 # by the rules in the module docstring. Grouped by effect so a reviewer reads
@@ -239,6 +292,40 @@ def hook_contract(name: str, *, range_status: RangeStatus = "supported") -> Hook
     if range_status in ("unparsable", "unsupported"):
         return UNKNOWN_HOOK_CONTRACT
     return HERMES_HOOK_CONTRACTS.get(name, UNKNOWN_HOOK_CONTRACT)
+
+
+def observe_host_version(
+    *, declared_version: str | None = None, install_dir: Path | None = None
+) -> HostVersionObservation:
+    """Bind the pinned hook mapping to one host, from operator input only.
+
+    Exactly one source, or none. Nothing is discovered: no installation is
+    searched for, and an unsupplied host stays `not_observed` rather than
+    borrowing the plugin's own `requires_hermes`, which states what the package
+    asks for and never what the operator runs.
+
+    Reading an installation is a bounded file read through the one seam in
+    `system.hermes_install`. Hermes is not imported, its binary is not
+    executed, no subprocess is spawned and no socket is opened, so this stays
+    inside the static audit's bounds.
+    """
+    if declared_version is not None and install_dir is not None:
+        raise ValueError("inspect a Hermes version from a declared version or an installation, not both")
+    if declared_version is not None:
+        return _host_version_observation(declared_version, "operator_declared")
+    if install_dir is not None:
+        return _host_version_observation(installed_hermes_version(install_dir), "installation_version_module")
+    return NO_HOST_VERSION_OBSERVED
+
+
+def _host_version_observation(version: str, method: HostVersionMethod) -> HostVersionObservation:
+    if len(version) > MAX_HOST_VERSION_CHARS:
+        return HostVersionObservation(None, method, "unreadable")
+    try:
+        satisfied = version_satisfies(version, PLUGIN_HOOK_CONTRACT_RANGE)
+    except ValueError:
+        return HostVersionObservation(None, method, "unreadable")
+    return HostVersionObservation(version, method, "compatible" if satisfied else "incompatible")
 
 
 def host_range_status(declared_range: str | None) -> RangeStatus:

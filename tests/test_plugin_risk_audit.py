@@ -10,7 +10,13 @@ from _cli_harness import run_cli
 from omh.routing import recommend as recommend_module
 from omh.skill_pack import builtin_definitions, builtin_harnesses
 from omh.wrapper.contract import VISIBLE_ACTIONS, build_chat_interaction_payload
-from omh.workflows.plugin_hook_contract import PLUGIN_HOOK_CONTRACT_RANGE
+from omh.system.hermes_install import VERSION_MODULE_RELATIVE, installed_hermes_version
+from omh.workflows.plugin_hook_contract import (
+    MAX_HOST_VERSION_CHARS,
+    PLUGIN_HOOK_CONTRACT_RANGE,
+    PLUGIN_HOOK_CONTRACT_VERSION,
+    observe_host_version,
+)
 from omh.workflows.plugin_risk_audit import audit_plugin_risk
 
 from _platform_support import requires_secure_dir_io
@@ -941,6 +947,264 @@ class SelfUpdatePathTests(unittest.TestCase):
         self.assertEqual(payload["self_update"]["classification"], "detected")
         self.assertEqual(payload["self_update"]["composition"], "remote_retrieval_and_code_replacement")
         self.assertIn("self_update_or_code_replacement", payload["summary"]["risk_categories"])
+
+
+class InspectedHostVersionTests(unittest.TestCase):
+    """The host leg: which Hermes the mapping was established for, if any.
+
+    Every fixture supplies the host the way an operator does -- a stated
+    version, or a directory whose version module is read as a file. Nothing
+    here imports Hermes, runs its binary, spawns a subprocess or opens a
+    socket, which is what keeps this inside the static audit's bounds.
+    """
+
+    _MANIFEST = "name: gate\nprovides_hooks:\n  - pre_tool_call\n"
+
+    def _audit(self, manifest: str | None = None, **observed: object) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "plugin.yaml").write_text(manifest or self._MANIFEST, encoding="utf-8")
+            return audit_plugin_risk(root, host_version=observe_host_version(**observed))  # type: ignore[arg-type]
+
+    def _install(self, directory: str, version_module: str | None) -> Path:
+        install = Path(directory).resolve() / "hermes-agent"
+        if version_module is not None:
+            (install / VERSION_MODULE_RELATIVE.parent).mkdir(parents=True)
+            (install / VERSION_MODULE_RELATIVE).write_text(version_module, encoding="utf-8")
+        else:
+            install.mkdir()
+        return install
+
+    @requires_secure_dir_io
+    def test_an_inspected_host_inside_the_range_binds_the_classification_to_it(self) -> None:
+        declared = self._audit(declared_version=PLUGIN_HOOK_CONTRACT_VERSION)["declared_hooks"]
+        inspected = declared["host_contract"]["inspected_host"]
+
+        self.assertEqual(inspected["compatibility"], "compatible")
+        self.assertEqual(inspected["observation_method"], "operator_declared")
+        self.assertEqual(inspected["version"], PLUGIN_HOOK_CONTRACT_VERSION)
+        self.assertEqual(declared["classification_status"], "classified")
+
+    @requires_secure_dir_io
+    def test_a_host_outside_the_range_cannot_produce_an_established_classification(self) -> None:
+        payload = self._audit(declared_version="0.30.0")
+        declared = payload["declared_hooks"]
+
+        self.assertEqual(declared["host_contract"]["inspected_host"]["compatibility"], "incompatible")
+        self.assertEqual(declared["classification_status"], "unknown")
+        self.assertIn("undetermined_hook_contract", payload["summary"]["risk_categories"])
+        self.assertTrue(
+            any("never established for it" in line for line in declared["diagnostics"]),
+            declared["diagnostics"],
+        )
+
+    @requires_secure_dir_io
+    def test_an_incompatible_host_holds_the_decision_without_erasing_the_declaration(self) -> None:
+        # The three claims stay apart. What the manifest declares was read and
+        # is still reported; what the mapping says about those names on the
+        # pinned revision is still reported; only the overall decision is held,
+        # because the mapping was never read against the inspected host.
+        declared = self._audit(declared_version="0.30.0")["declared_hooks"]
+
+        self.assertEqual(declared["declaration_status"], "declared")
+        self.assertEqual(declared["unknown_hook_count"], 0)
+        self.assertEqual(declared["hooks"][0]["effect"], "policy_gate")
+        self.assertEqual(declared["hooks"][0]["timeout_semantics"], "fail_closed")
+        self.assertEqual(declared["classification_status"], "unknown")
+
+    @requires_secure_dir_io
+    def test_an_unreadable_host_version_is_never_reported_compatible(self) -> None:
+        cases = {
+            "not-a-version": "later than 0.21",
+            "two-part": "7.7",
+            "empty": "",
+            # Long enough to trip the character cap, and otherwise a version
+            # the range parser accepts -- `int("000...0")` is 0, so without the
+            # cap this string reports `compatible` and lands in the payload.
+            "oversized": "0" * (MAX_HOST_VERSION_CHARS - 2) + ".21.1",
+        }
+        for case, value in cases.items():
+            with self.subTest(case=case):
+                payload = self._audit(declared_version=value)
+                declared = payload["declared_hooks"]
+
+                self.assertEqual(declared["host_contract"]["inspected_host"]["compatibility"], "unreadable")
+                self.assertEqual(declared["host_contract"]["inspected_host"]["version"], "<invalid>")
+                self.assertEqual(declared["classification_status"], "unknown")
+                self.assertIn("undetermined_hook_contract", payload["summary"]["risk_categories"])
+                if value:
+                    self.assertNotIn(value, json.dumps(payload))
+
+    @requires_secure_dir_io
+    def test_no_host_input_reports_not_observed_and_leaves_the_classification_alone(self) -> None:
+        payload = self._audit()
+        declared = payload["declared_hooks"]
+        inspected = declared["host_contract"]["inspected_host"]
+
+        self.assertEqual(inspected["compatibility"], "not_observed")
+        self.assertEqual(inspected["observation_method"], "not_supplied")
+        self.assertEqual(inspected["version"], "<absent>")
+        # Not a pass and not a hold: the default path stays usable, and the
+        # result says out loud that nothing bound it to a host.
+        self.assertEqual(declared["classification_status"], "classified")
+        self.assertNotIn("undetermined_hook_contract", payload["summary"]["risk_categories"])
+        self.assertTrue(
+            any("not bound to the host" in line for line in declared["diagnostics"]),
+            declared["diagnostics"],
+        )
+
+    @requires_secure_dir_io
+    def test_a_plugin_declaring_no_hooks_is_not_told_about_an_uninspected_host(self) -> None:
+        declared = self._audit("name: quiet\n")["declared_hooks"]
+
+        self.assertEqual(declared["hook_count"], 0)
+        self.assertEqual(declared["diagnostics"], [])
+
+    @requires_secure_dir_io
+    def test_a_declared_requires_hermes_range_does_not_substitute_for_an_inspected_host(self) -> None:
+        # A manifest that asks for the pinned revision is not evidence that the
+        # operator runs it: with no host named, the host leg stays unobserved
+        # however precisely the package states its requirement.
+        declared = self._audit(f'name: gate\nrequires_hermes: "{PLUGIN_HOOK_CONTRACT_RANGE}"\nprovides_hooks:\n  - pre_tool_call\n')[
+            "declared_hooks"
+        ]
+
+        self.assertEqual(declared["host_contract"]["declared_range_status"], "supported")
+        self.assertEqual(declared["host_contract"]["inspected_host"]["compatibility"], "not_observed")
+
+    @requires_secure_dir_io
+    def test_an_inspected_host_does_not_substitute_for_a_declared_requires_hermes_range(self) -> None:
+        # And the other direction: a compatible host does not rescue a package
+        # that asks for a revision the mapping does not cover. Two independent
+        # legs, each able to hold the decision on its own.
+        declared = self._audit(
+            'name: future-host\nrequires_hermes: ">=0.30.0,<0.31.0"\nprovides_hooks:\n  - pre_tool_call\n',
+            declared_version=PLUGIN_HOOK_CONTRACT_VERSION,
+        )["declared_hooks"]
+
+        self.assertEqual(declared["host_contract"]["declared_range_status"], "unsupported")
+        self.assertEqual(declared["host_contract"]["inspected_host"]["compatibility"], "compatible")
+        self.assertEqual(declared["classification_status"], "unknown")
+
+    @requires_secure_dir_io
+    def test_a_named_installation_is_read_as_a_file_and_never_reaches_the_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as host_directory:
+            install = self._install(host_directory, f'__version__ = "{PLUGIN_HOOK_CONTRACT_VERSION}"\n')
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                (root / "plugin.yaml").write_text(self._MANIFEST, encoding="utf-8")
+                payload = audit_plugin_risk(root, host_version=observe_host_version(install_dir=install))
+
+            inspected = payload["declared_hooks"]["host_contract"]["inspected_host"]
+
+            self.assertEqual(inspected["compatibility"], "compatible")
+            self.assertEqual(inspected["observation_method"], "installation_version_module")
+            self.assertEqual(inspected["version"], PLUGIN_HOOK_CONTRACT_VERSION)
+            # The operator's own path is not the audit's to publish.
+            self.assertNotIn(str(install), json.dumps(payload))
+            self.assertNotIn(str(host_directory), json.dumps(payload))
+
+    @requires_secure_dir_io
+    def test_an_installation_that_yields_no_version_is_unreadable_not_unobserved(self) -> None:
+        cases = {
+            "absent-module": None,
+            "no-assignment": "HERMES = 1\n",
+            "unparsable-value": '__version__ = "nightly"\n',
+        }
+        for case, module in cases.items():
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as host_directory:
+                install = self._install(host_directory, module)
+                declared = self._audit(install_dir=install)["declared_hooks"]
+                inspected = declared["host_contract"]["inspected_host"]
+
+                # An explicit request that produced nothing must not read like
+                # never having asked: the method still names what was selected.
+                self.assertEqual(inspected["compatibility"], "unreadable")
+                self.assertEqual(inspected["observation_method"], "installation_version_module")
+                self.assertEqual(declared["classification_status"], "unknown")
+
+    @requires_secure_dir_io
+    def test_an_incompatible_installation_holds_the_decision(self) -> None:
+        with tempfile.TemporaryDirectory() as host_directory:
+            install = self._install(host_directory, '__version__ = "0.22.3"\n')
+            payload = self._audit(install_dir=install)
+
+            inspected = payload["declared_hooks"]["host_contract"]["inspected_host"]
+            self.assertEqual(inspected["compatibility"], "incompatible")
+            self.assertEqual(inspected["version"], "0.22.3")
+            self.assertEqual(payload["declared_hooks"]["classification_status"], "unknown")
+            self.assertIn("undetermined_hook_contract", payload["summary"]["risk_categories"])
+
+    @requires_secure_dir_io
+    def test_the_version_reader_is_the_seam_the_tui_preflight_already_uses(self) -> None:
+        # Reuse proved by behaviour rather than by an import assertion: the
+        # preflight and the audit read the same file the same way, so a change
+        # to one reader moves both.
+        from omh.maintenance.hermes_tui import hermes_tui_preflight
+        from omh.paths import OmhPaths
+
+        with tempfile.TemporaryDirectory() as host_directory:
+            home = Path(host_directory).resolve()
+            install = self._install(host_directory, f'__version__ = "{PLUGIN_HOOK_CONTRACT_VERSION}"\n')
+            preflight = hermes_tui_preflight(OmhPaths(home / ".omh", home))
+
+            self.assertEqual(preflight["install"]["version"], PLUGIN_HOOK_CONTRACT_VERSION)
+            self.assertEqual(installed_hermes_version(install), preflight["install"]["version"])
+
+    def test_two_host_sources_are_refused_rather_than_ranked(self) -> None:
+        with self.assertRaisesRegex(ValueError, "not both"):
+            observe_host_version(declared_version="0.21.1", install_dir=Path("hermes-agent"))
+
+    @requires_secure_dir_io
+    def test_the_audit_records_that_the_inspected_host_was_never_run(self) -> None:
+        payload = self._audit(declared_version=PLUGIN_HOOK_CONTRACT_VERSION)
+
+        self.assertEqual(payload["not_observed"]["hermes_host_execution"]["status"], "not_observed")
+        self.assertEqual(payload["not_observed"]["hermes_plugin_admission"]["status"], "not_observed")
+        self.assertIn("never imported, executed, or asked for its version", payload["claim_boundary"])
+
+    @requires_secure_dir_io
+    def test_the_cli_binds_the_audit_to_a_stated_version_or_a_named_installation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "plugin.yaml").write_text(self._MANIFEST, encoding="utf-8")
+            install = self._install(directory, '__version__ = "0.30.0"\n')
+
+            status, stdout, stderr = run_cli(
+                ["ops", "plugin-risk-audit", "--path", str(root), "--hermes-version", PLUGIN_HOOK_CONTRACT_VERSION]
+            )
+            self.assertEqual(status, 0, stderr)
+            declared = json.loads(stdout)["declared_hooks"]
+            self.assertEqual(declared["host_contract"]["inspected_host"]["compatibility"], "compatible")
+            self.assertEqual(declared["classification_status"], "classified")
+
+            status, stdout, stderr = run_cli(
+                ["ops", "plugin-risk-audit", "--path", str(root), "--hermes-install", str(install)]
+            )
+            self.assertEqual(status, 0, stderr)
+            declared = json.loads(stdout)["declared_hooks"]
+            self.assertEqual(declared["host_contract"]["inspected_host"]["compatibility"], "incompatible")
+            self.assertEqual(declared["classification_status"], "unknown")
+
+            # Both at once is refused at the parser, so no audit runs against
+            # two host claims and no rule has to rank one over the other. The
+            # two single-flag runs above passed the same parser, so the exit is
+            # this conflict rather than any other parse error.
+            with self.assertRaises(SystemExit) as refused:
+                run_cli(
+                    [
+                        "ops",
+                        "plugin-risk-audit",
+                        "--path",
+                        str(root),
+                        "--hermes-version",
+                        PLUGIN_HOOK_CONTRACT_VERSION,
+                        "--hermes-install",
+                        str(install),
+                    ]
+                )
+
+            self.assertEqual(refused.exception.code, 2)
 
 
 class PluginRiskAuditSurfaceTests(unittest.TestCase):

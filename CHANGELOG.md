@@ -33,6 +33,45 @@ All notable changes will be documented here.
   `_JOB_EMPTY_DEADLINE_SECONDS = 30`. The Windows path itself is unverified
   from this change -- macOS cannot reach `WindowsJobObjectOwner` at all.
 
+- **`omh ops plugin-risk-audit` can now bind its hook classification to the
+  Hermes you would enable the plugin on.** The hook-semantics mapping is pinned
+  to one host revision and the audit published that range, but it had no input
+  or result field for the host an operator is actually running. A plugin on a
+  newer or older Hermes still came back `classification_status: classified`,
+  and the public documentation told the reader to compare the two versions by
+  hand — so the one safety condition the audit describes sat outside the
+  machine-readable verdict (#1597).
+
+  `--hermes-version <x.y.z>` states the host; `--hermes-install <dir>` names
+  one local installation and reads the `__version__` its version module
+  declares. The two are mutually exclusive, so nothing ranks one host claim
+  over another, and neither is inferred: the plugin's own `requires_hermes`
+  says what the package asks for and is never read as an observation of an
+  environment. Reading an installation goes through the bounded seam the TUI
+  preflight already used, now shared rather than copied. It is a file read —
+  Hermes is not imported, its binary is not run, no subprocess is spawned, no
+  socket is opened, and no installation is discovered by scanning.
+
+  `declared_hooks.host_contract.inspected_host` reports the version that was
+  established, the method it came from, and one of four compatibilities.
+  `incompatible` and `unreadable` hold the verdict at
+  `classification_status: unknown` and put `undetermined_hook_contract` in
+  `summary.risk_categories`, so a mapping that was never read against your host
+  cannot render as an established contract. `not_observed` is the default when
+  no host is named and is not a pass: the audit says so in a diagnostic
+  whenever the plugin declares hooks. An explicit request that yielded nothing
+  stays distinguishable from never having asked, because the method names the
+  source that was selected either way.
+
+  The three claims stay apart. A manifest that parsed cleanly keeps its
+  `declaration_status`, its per-hook rows and its effects while the overall
+  decision is held, and the declared range and the inspected host are separate
+  fields that are tested not to substitute for one another. No operator path,
+  installation path, or version string that failed to parse reaches the result.
+  `hermes_host_execution` and `hermes_plugin_admission` join `not_observed`,
+  because a compatible mapping is static pre-enable evidence and never proof
+  that the host would admit, load, register or run the plugin.
+
 - **`omh ops plugin-risk-audit` now says whether a plugin can replace its own
   installed code.** The audit reported dependencies, dynamic execution, hook
   capability, network requests, committed secrets and process execution as six

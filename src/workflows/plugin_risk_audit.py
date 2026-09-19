@@ -6,15 +6,19 @@ from pathlib import Path
 import re
 from typing import Final, Literal, TypeAlias
 
+from ..system.hermes_install import VERSION_MODULE_RELATIVE
 from .plugin_audit_source_io import PluginAuditSource, read_static_plugin_sources, resolve_plugin_audit_root
 from .plugin_hook_contract import (
     CANONICAL_HOOK_FIELD,
+    HOST_VERSION_HOLD_STATUSES,
     MANIFEST_FILENAME,
+    NO_HOST_VERSION_OBSERVED,
     PLUGIN_HOOK_CONTRACT_HOST,
     PLUGIN_HOOK_CONTRACT_RANGE,
     PLUGIN_HOOK_CONTRACT_SOURCE,
     SECONDARY_HOOK_FIELD,
     HookDeclaration,
+    HostVersionObservation,
     PluginHookDeclarationError,
     read_hook_declaration,
 )
@@ -179,11 +183,22 @@ class _StaticSource:
     self_update_signals: frozenset[SelfUpdateSignal]
 
 
-def audit_plugin_risk(plugin_root: Path) -> JsonObject:
+def audit_plugin_risk(
+    plugin_root: Path, *, host_version: HostVersionObservation = NO_HOST_VERSION_OBSERVED
+) -> JsonObject:
+    """Audit one local plugin directory, optionally bound to an inspected host.
+
+    `host_version` arrives already observed rather than as a path this function
+    would read, and that is deliberate: the claim boundary below says the audit
+    reads one explicitly named local plugin directory, and reading a second
+    directory here would quietly widen it. `observe_host_version` owns that
+    read; this function only reports what it established and holds the
+    hook-semantics decision when the mapping was never established for it.
+    """
     root = resolve_plugin_audit_root(plugin_root)
     raw_sources = read_static_plugin_sources(root)
     sources = tuple(_audit_static_source(source) for source in raw_sources)
-    manifest_yaml_status, declared_hooks = _declared_hook_report(_root_manifest_text(raw_sources))
+    manifest_yaml_status, declared_hooks = _declared_hook_report(_root_manifest_text(raw_sources), host_version)
     self_update = _self_update_report(sources)
     categories = sorted(
         {category for source in sources for category in source.risk_categories}
@@ -215,6 +230,8 @@ def audit_plugin_risk(plugin_root: Path) -> JsonObject:
             "plugin_hook_failure_handling": {"status": "not_observed"},
             "plugin_code_replacement": {"status": "not_observed"},
             "plugin_self_update_execution": {"status": "not_observed"},
+            "hermes_host_execution": {"status": "not_observed"},
+            "hermes_plugin_admission": {"status": "not_observed"},
             "dependency_installation": {"status": "not_observed"},
             "network_access": {"status": "not_observed"},
             "ci_annotation_publication": {"status": "not_observed"},
@@ -231,7 +248,11 @@ def audit_plugin_risk(plugin_root: Path) -> JsonObject:
             "installed code outside the host-managed update path, never that the plugin retrieved, verified, "
             "staged, or replaced anything, that any checksum or signature was computed or valid, or that the "
             "host accepted a revision, and no matched composition is not evidence that the plugin cannot "
-            "replace its own code."
+            "replace its own code. The inspected-host projection is static pre-enable evidence of one more "
+            "thing only: whether the pinned hook mapping covers a Hermes version an operator stated or a "
+            "local installation declares. That Hermes is never imported, executed, or asked for its version, "
+            "a declared version can be stale or edited, and a compatible result is not evidence that the "
+            "host would admit, load, register, or run this plugin."
         ),
     }
 
@@ -392,7 +413,9 @@ def _root_manifest_text(sources: tuple[PluginAuditSource, ...]) -> str | None | 
     return None
 
 
-def _declared_hook_report(manifest_text: str | None | _Undecodable) -> tuple[ManifestYamlStatus, JsonObject]:
+def _declared_hook_report(
+    manifest_text: str | None | _Undecodable, host_version: HostVersionObservation
+) -> tuple[ManifestYamlStatus, JsonObject]:
     """Classify the manifest's declared hooks, or say why it could not.
 
     A hostile or broken manifest is a finding about the plugin, not a failure of
@@ -403,22 +426,25 @@ def _declared_hook_report(manifest_text: str | None | _Undecodable) -> tuple[Man
     malformed hook declaration is `present` with an invalid declaration.
     """
     if manifest_text is None:
-        return "absent", _hook_report("absent", None, (), manifest_present=False)
+        return "absent", _hook_report("absent", None, (), host_version, manifest_present=False)
     if isinstance(manifest_text, _Undecodable):
-        return "unreadable", _hook_report("invalid", None, ("plugin manifest is not valid UTF-8",))
+        return "unreadable", _hook_report("invalid", None, ("plugin manifest is not valid UTF-8",), host_version)
     try:
         declaration = read_hook_declaration(manifest_text)
     except PluginManifestFormatError as exc:
-        return "unreadable", _hook_report("invalid", None, (str(exc)[:200],))
+        return "unreadable", _hook_report("invalid", None, (str(exc)[:200],), host_version)
     except PluginHookDeclarationError as exc:
-        return "present", _hook_report("invalid", None, (str(exc)[:200],))
-    return "present", _hook_report("declared" if declaration.hooks else "absent", declaration, ())
+        return "present", _hook_report("invalid", None, (str(exc)[:200],), host_version)
+    return "present", _hook_report(
+        "declared" if declaration.hooks else "absent", declaration, (), host_version
+    )
 
 
 def _hook_report(
     declaration_status: str,
     declaration: HookDeclaration | None,
     diagnostics: tuple[str, ...],
+    host_version: HostVersionObservation,
     *,
     manifest_present: bool = True,
 ) -> JsonObject:
@@ -426,6 +452,7 @@ def _hook_report(
     unknown = sum(1 for hook in hooks if hook.contract.effect == "unknown")
     range_state = declaration.range_status if declaration is not None else "undeclared"
     findings = list(diagnostics) + _hook_diagnostics(declaration, unknown)
+    findings.extend(_host_version_diagnostics(host_version, len(hooks)))
     if not manifest_present:
         findings.append(
             "no root plugin.yaml was scanned, so the plugin's declared hook contract was never established"
@@ -436,11 +463,18 @@ def _hook_report(
     # NEVER READ, which is a gap. Both produce an empty hook list, so a consumer
     # keying on `classification_status` alone must not see the second as a
     # positive verdict.
+    # The host leg is a separate conjunct on purpose. A declaration the reader
+    # parsed cleanly stays parsed -- `declaration_status`, the per-hook rows and
+    # the effects still say what the mapping says -- while the overall decision
+    # is held because the mapping was never established for the host that was
+    # inspected. Blanking the rows instead would fold host-version evidence into
+    # declaration evidence, and the two answer different questions.
     classified = (
         manifest_present
         and declaration_status != "invalid"
         and not unknown
         and range_state in ("supported", "undeclared")
+        and host_version.status not in HOST_VERSION_HOLD_STATUSES
     )
     return {
         "declaration_status": declaration_status,
@@ -451,6 +485,7 @@ def _hook_report(
             "contract_source": PLUGIN_HOOK_CONTRACT_SOURCE,
             "declared_range": _declared_range_value(declaration),
             "declared_range_status": range_state,
+            "inspected_host": _inspected_host(host_version),
         },
         "hook_count": len(hooks),
         "unknown_hook_count": unknown,
@@ -467,6 +502,62 @@ def _hook_report(
         ],
         "diagnostics": findings,
     }
+
+
+def _inspected_host(observation: HostVersionObservation) -> JsonObject:
+    """The host leg of the contract block, kept beside the declaration leg.
+
+    Three values, none of which restates another: what version was established,
+    where it came from, and whether the pinned mapping covers it. The version
+    uses the same sentinels as `declared_range` one field up -- `<absent>` when
+    no host was named, `<invalid>` when one was and no version came out of it --
+    so a reader who knows one field knows the other, and neither ever echoes a
+    string that failed to parse.
+    """
+    if observation.version is not None:
+        version = observation.version
+    elif observation.status == "not_observed":
+        version = "<absent>"
+    else:
+        version = "<invalid>"
+    return {
+        "version": version,
+        "observation_method": observation.method,
+        "compatibility": observation.status,
+    }
+
+
+def _host_version_diagnostics(observation: HostVersionObservation, hook_count: int) -> list[str]:
+    """Name the host leg's finding, in one fixed sentence per outcome.
+
+    `not_observed` speaks only when hooks were declared, the same condition the
+    undeclared-range diagnostic one function up already uses: with no hooks
+    there is no semantics decision for a host to bind, so the line would be
+    noise on every audit of a plugin that declares none.
+    """
+    if observation.status == "incompatible":
+        return [
+            f"the inspected {PLUGIN_HOOK_CONTRACT_HOST} version is outside the supported host contract "
+            f"{PLUGIN_HOOK_CONTRACT_RANGE}; the hook mapping was never established for it, so the declared "
+            "hook semantics are held unknown"
+        ]
+    if observation.status == "unreadable":
+        if observation.method == "operator_declared":
+            return [
+                f"the supplied {PLUGIN_HOOK_CONTRACT_HOST} version is not a readable version, so coverage by "
+                f"{PLUGIN_HOOK_CONTRACT_RANGE} was not established and the declared hook semantics are held unknown"
+            ]
+        return [
+            f"the named {PLUGIN_HOOK_CONTRACT_HOST} installation declares no readable version in "
+            f"{VERSION_MODULE_RELATIVE.as_posix()}, so coverage by {PLUGIN_HOOK_CONTRACT_RANGE} was not "
+            "established and the declared hook semantics are held unknown"
+        ]
+    if observation.status == "not_observed" and hook_count:
+        return [
+            f"no {PLUGIN_HOOK_CONTRACT_HOST} version was inspected, so these hook semantics are not bound to the "
+            "host this plugin would be enabled on"
+        ]
+    return []
 
 
 def _declared_range_value(declaration: HookDeclaration | None) -> str:

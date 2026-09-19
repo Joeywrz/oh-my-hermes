@@ -4,6 +4,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from json import JSONDecodeError
+from pathlib import Path
 from typing import Any
 
 from ..paths import OmhPaths
@@ -23,8 +24,26 @@ _CLAIM_BOUNDARY = (
 )
 
 
+def hermes_state_db_path(paths: OmhPaths) -> Path:
+    return paths.hermes_home / "state.db"
+
+
+def hermes_state_watch_paths(paths: OmhPaths) -> tuple[Path, ...]:
+    """The files whose stamp moves when Hermes records session activity.
+
+    The reader below opens `state.db`, but Hermes runs it in WAL mode, so an
+    ordinary write lands in the `-wal` sidecar and leaves the database file's
+    own mtime where it was until a checkpoint. On the owner machine the two
+    stamps were four minutes apart while sessions were live, so a watcher
+    that stats only the database goes blind for exactly the window it exists
+    to cover.
+    """
+    db_path = hermes_state_db_path(paths)
+    return (db_path, db_path.with_name(f"{db_path.name}-wal"))
+
+
 def observe_hermes_sessions(paths: OmhPaths, *, now: datetime | str | None = None) -> dict[str, Any]:
-    db_path = paths.hermes_home / "state.db"
+    db_path = hermes_state_db_path(paths)
     if not db_path.exists():
         return _unobserved("state_db_missing")
 

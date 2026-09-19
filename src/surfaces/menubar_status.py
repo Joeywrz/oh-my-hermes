@@ -15,7 +15,7 @@ from ..routing.action_copy import next_action_label
 from ..targets import read_target_registry_result
 from .hermes_model_settings import HERMES_AUX_ALIASES, read_hermes_model_settings
 from .hermes_processes import HERMES_PROCESS_SCHEMA_VERSION, observe_hermes_processes
-from .hermes_sessions import observe_hermes_sessions
+from .hermes_sessions import hermes_state_watch_paths, observe_hermes_sessions
 
 
 MENUBAR_STATUS_SCHEMA_VERSION = "menubar_status/v2"
@@ -78,6 +78,7 @@ def build_menubar_status_payload(
         "package": "oh-my-hermes",
         "omh_home": str(paths.omh_home),
         "hermes_home": str(paths.hermes_home),
+        "watch_paths": menubar_watch_paths(paths),
         "display": _display(settings, hermes_processes, hermes_sessions, model_settings, current_executor),
         "sections": {
             "hermes_agents": {
@@ -116,6 +117,26 @@ def build_menubar_status_payload(
         ),
         "privacy": "metadata_only",
     }
+
+
+def menubar_watch_paths(paths: OmhPaths) -> list[str]:
+    """Files a poller can stat to notice a change without paying for a read.
+
+    This is a latency hint, not the payload's input set. Building this
+    payload costs about 0.7s, almost all of it interpreter start, importing
+    the CLI, and the `ps` scan behind `--observe-local-processes`; every file
+    it reads together costs about 4ms. So the menu bar helper backs its timer
+    off while nothing changes, and stats these paths on a short tick to catch
+    the one kind of change that happens while nobody is typing: Hermes
+    session activity.
+
+    The other inputs (`config.yaml`, `targets.json`, the routing files) move
+    only because the operator just ran a command in a terminal they are
+    already looking at, so the helper's backoff ceiling is soon enough for
+    them and they stay off this list. Correctness does not rest here: the
+    helper re-reads on its own ladder regardless of what these stamps say.
+    """
+    return [str(path) for path in hermes_state_watch_paths(paths)]
 
 
 def read_process_overlay_file(path: str) -> dict[str, Any]:

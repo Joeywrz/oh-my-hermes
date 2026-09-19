@@ -1759,6 +1759,56 @@ All notable changes will be documented here.
   model follows the note. That needs a live run, and none was done. The note
   is prepared instruction, never evidence that a region was read. (#1723)
 
+- **The menu bar helper stops spawning a Python CLI every 8 seconds to learn
+  that nothing changed.** The macOS helper ran `omh menubar status
+  --observe-local-processes --json` on a flat 8 s timer under launchd, about
+  10,800 times a day, whether or not a session existed. One reading measures
+  0.69 s wall and 0.53 s user; profiled, that is about 0.46 s of interpreter
+  start plus importing the CLI, 0.24 s of the `ps` scan, and 4 ms for every
+  file the payload reads put together. It was the largest steady-state cost
+  on the owner machine.
+
+  The helper now backs off while the menu is not changing. Each consecutive
+  reading that renders the same menu doubles the gap -- 8 s, 16 s, 32 s, then
+  a 60 s ceiling -- and any change drops straight back to the active
+  interval. `--interval` still means the active cadence, and the ceiling
+  never polls faster than an operator who asked for something slower.
+  Measured side by side against the old helper for 25 minutes with nothing
+  changing: 190 readings became 27, or 456 an hour to 65. A machine whose
+  Hermes agent count actually moves restarts the ladder each time and lands
+  nearer 4x, which is the intended behaviour rather than a shortfall.
+
+  What it compares is the rendered `display`, not the payload. Comparing
+  payloads was the obvious design and does not work: `hermes_processes`
+  stamps `observed_at` and the process overlay recomputes `age_seconds` on
+  every reading, so two readings of an untouched machine are never equal and
+  the ladder would have sat on rung 0 forever.
+
+  The ceiling would otherwise cost lateness, so the payload now names its own
+  `watch_paths` and the helper stats them on a 2 s tick, spawning nothing
+  unless one moved. Those paths come from the module that opens them rather
+  than a list kept by hand, and they include the write-ahead log: Hermes runs
+  `state.db` in WAL mode, so a session write lands in the sidecar and leaves
+  the database's own mtime untouched until a checkpoint -- on the owner
+  machine the two stamps were four minutes apart. What the ceiling does still
+  cost is a change only the `ps` scan can see, such as a Hermes process that
+  has not touched its session store: that waits for the next scheduled
+  reading.
+
+  That wake is floored at the active interval, and the floor is not a detail.
+  Hermes writes its session store every few seconds while a session is live,
+  so waking on any moved stamp reads far more often than the rung allows.
+  Measured over 15 minutes against a home with one live session writing once
+  a second: unfloored 169 readings, the flat 8 s timer it replaces 102,
+  floored 93. Without the floor this change would have cost two thirds more
+  than the timer it removes, precisely when the machine is busiest. A
+  reading woken by a moved file also restarts the ladder at the active rung,
+  so it cannot climb through a live session.
+
+  A failed reading steps the ladder too. A machine where `omh` cannot be run
+  was spawning the failure 450 times an hour; the attention mark still
+  arrives on the third consecutive failure. (#1726)
+
 ## 2.0.3 - 2026-09-12
 
 Everything merged since the 2.0.2 tag (2026-09-07). Highlights, grouped:

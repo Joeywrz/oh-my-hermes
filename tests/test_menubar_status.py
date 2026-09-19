@@ -17,7 +17,8 @@ load_local_package()
 from omh.cli import build_parser
 from omh.menubar_status import build_menubar_status_payload, model_icon_descriptor, source_icon_descriptor
 from omh.paths import resolve_paths
-from omh.surfaces.menubar_status import _display, _models_card, _sessions_card
+from omh.surfaces.hermes_sessions import hermes_state_watch_paths
+from omh.surfaces.menubar_status import _display, _models_card, _sessions_card, menubar_watch_paths
 from omh.targets import record_target_observation
 
 
@@ -846,6 +847,53 @@ class MenubarStatusTests(unittest.TestCase):
             self.assertFalse(slack_rows[0]["status_observed"])
             self.assertIsNone(slack_rows[0]["pid"])
             self.assertFalse(slack_rows[0]["pid_observed"])
+
+    def test_watch_paths_name_the_wal_sidecar_not_only_the_database(self) -> None:
+        # Hermes runs state.db in WAL mode, so an ordinary session write
+        # lands in the sidecar and leaves the database's own mtime where it
+        # was until a checkpoint. A poller that stats only the database is
+        # blind for exactly the window it exists to cover.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            paths.hermes_home.mkdir(parents=True, exist_ok=True)
+            connection = sqlite3.connect(paths.hermes_home / "state.db")
+            connection.execute("pragma journal_mode=wal")
+            connection.execute("create table probe (value integer)")
+            connection.commit()
+            database = paths.hermes_home / "state.db"
+            before = database.stat().st_mtime_ns
+            connection.execute("insert into probe values (1)")
+            connection.commit()
+            after = database.stat().st_mtime_ns
+            connection.close()
+
+            payload = build_menubar_status_payload(paths)
+
+        watch_paths = payload["watch_paths"]
+        self.assertEqual(before, after, "this test is pointless if a WAL write does move the database mtime")
+        self.assertEqual(
+            watch_paths,
+            [str(database), str(database) + "-wal"],
+        )
+        for candidate in watch_paths:
+            self.assertTrue(Path(candidate).is_absolute())
+
+    def test_watch_paths_are_derived_from_the_reader_that_opens_them(self) -> None:
+        # Not a hand-kept list: the producer and the session reader call the
+        # same expression, so renaming the store cannot leave a watcher
+        # pointing at a path nothing reads.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+
+            derived = menubar_watch_paths(paths)
+            from_reader = [str(path) for path in hermes_state_watch_paths(paths)]
+            payload = build_menubar_status_payload(paths)
+
+        self.assertEqual(derived, from_reader)
+        self.assertEqual(payload["watch_paths"], from_reader)
+        self.assertIn(str(paths.hermes_home), from_reader[0])
 
     def test_icon_descriptors_keep_logo_ids_and_tooltips_separate(self) -> None:
         self.assertEqual(source_icon_descriptor("chat:telegram", channel_ref="room-7")["icon_id"], "source.telegram")

@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from tempfile import TemporaryDirectory
 import textwrap
 import unittest
 
 from _local_package import load_local_package
+from _test_temp_root import make_test_tempdir
 
 load_local_package()
 
@@ -117,7 +117,10 @@ else:
 
 class HermesModelConfigTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp = TemporaryDirectory(prefix="omh-hermes-model-config-")
+        # Nested under the shared, swept parent (issue #1731): this is the
+        # dir that held the "hermes.py config path" fake host a killed run
+        # left alive for 8 days on the owner's machine (measured 2026-09-19).
+        self.temp = make_test_tempdir(prefix="omh-hermes-model-config-")
         self.addCleanup(self.temp.cleanup)
         self.home = Path(self.temp.name) / "hermes-home"
         self.home.mkdir()

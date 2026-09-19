@@ -48,11 +48,12 @@ BOX_LEAK_RULE = {
 class LoadAndValidateTest(unittest.TestCase):
     def setUp(self):
         _reset_state()
+        # addCleanup (not tearDown): registered immediately so a later
+        # exception in this same setUp still tears the directory down
+        # (issue #1731).
         self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         self.home = Path(self._tmp.name)
-
-    def tearDown(self):
-        self._tmp.cleanup()
 
     def test_missing_file_yields_no_rules(self):
         self.assertEqual(load_toolcall_rules(toolcall_rules_path(str(self.home))), ())
@@ -172,11 +173,12 @@ class LoadAndValidateTest(unittest.TestCase):
 class DirectiveTest(unittest.TestCase):
     def setUp(self):
         _reset_state()
+        # addCleanup (not tearDown): registered immediately so a later
+        # exception in this same setUp still tears the directory down
+        # (issue #1731).
         self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         self.home = Path(self._tmp.name)
-
-    def tearDown(self):
-        self._tmp.cleanup()
 
     def test_matching_call_is_blocked_with_rule_text(self):
         _write_rules(self.home, [BOX_LEAK_RULE])
@@ -262,11 +264,12 @@ class DirectiveTest(unittest.TestCase):
 class HookWiringTest(unittest.TestCase):
     def setUp(self):
         _reset_state()
+        # addCleanup (not tearDown): registered immediately so a later
+        # exception in this same setUp still tears the directory down
+        # (issue #1731).
         self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         self.home = Path(self._tmp.name)
-
-    def tearDown(self):
-        self._tmp.cleanup()
 
     def test_pre_tool_call_returns_block_directive_for_matching_rule(self):
         _write_rules(self.home, [BOX_LEAK_RULE])
@@ -303,11 +306,12 @@ class HookWiringTest(unittest.TestCase):
 class ValidateCliTest(unittest.TestCase):
     def setUp(self):
         _reset_state()
+        # addCleanup (not tearDown): registered immediately so a later
+        # exception in this same setUp still tears the directory down
+        # (issue #1731).
         self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         self.home = Path(self._tmp.name)
-
-    def tearDown(self):
-        self._tmp.cleanup()
 
     def _run(self, *argv):
         return subprocess.run(
@@ -356,11 +360,12 @@ class ValidateCliTest(unittest.TestCase):
 class BurstLedgerOrderingTest(unittest.TestCase):
     def setUp(self):
         _reset_state()
+        # addCleanup (not tearDown): registered immediately so a later
+        # exception in this same setUp still tears the directory down
+        # (issue #1731).
         self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         self.home = Path(self._tmp.name)
-
-    def tearDown(self):
-        self._tmp.cleanup()
 
     def test_blocked_calls_do_not_tick_the_burst_ledger(self):
         _write_rules(self.home, [BOX_LEAK_RULE])

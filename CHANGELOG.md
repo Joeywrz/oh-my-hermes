@@ -4,6 +4,30 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **Killed test runs no longer scatter thousands of temp directories and an
+  orphaned process across a developer's machine.** Measured on 2026-09-19:
+  2,926 `omh-worktree-diagnostic-*` dirs (`tests/test_fanout_worktree_diagnostics.py`),
+  494 `omh-test-home-*` dirs (`tests/_local_package.py`), and an 8-day-old
+  `hermes.py config path` fake-host process (#1731). Both directory sources
+  held a `TemporaryDirectory` in the system temp directory with no shared
+  parent and, in several other test files, no `addCleanup` registered right
+  after creation, so a later exception in the same `setUp` -- or the
+  interpreter being killed before `tearDown` ran at all -- left them behind.
+  Every test-owned temp dir under `tests/` with this shape now nests under
+  one fixed, sweepable parent (`tests/_test_temp_root.py`): a best-effort
+  sweep, run once per process, removes entries older than 24h, never follows
+  a symlink out of the parent, ignores every error so two sweepers racing
+  never raise into each other, and leaves anything younger than the bound
+  alone. Before removing a stale entry it also makes a POSIX-only,
+  best-effort attempt to kill any process whose command line still names a
+  path inside it -- the fake-host mitigation, since a killed test process
+  cannot run the `subprocess.run(timeout=...)` kill its own library code
+  already performs on a normal timeout. A new `ast`-derived policy test,
+  `tests/test_test_resource_cleanup_policy.py`, fails when a future test
+  holds a `TemporaryDirectory` without registered cleanup or spawns a
+  `subprocess.Popen` with no reachable bounded kill, in the style of
+  `tests/test_broad_exception_policy.py`.
+
 - **`omh --resume <id>` works, and the terminal now names the `omh` way
   back.** Bare `omh` is documented as the same door as `hermes`, but the door
   opened one way only: the parser rejected `omh --resume <id>` as an invalid

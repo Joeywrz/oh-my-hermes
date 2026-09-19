@@ -715,7 +715,15 @@ class NpmBunDistributionTests(unittest.TestCase):
             )
             for _ in range(2)
         ]
-        results = [process.communicate(timeout=120) for process in processes]
+        try:
+            results = [process.communicate(timeout=120) for process in processes]
+        finally:
+            # A timeout or assertion failure below must not orphan a still-running
+            # child (issue #1731): kill and reap anything left over.
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+                    _ = process.communicate()
         for process, (stdout, stderr) in zip(processes, results, strict=True):
             self.assertEqual(process.returncode, 0, stderr)
             self.assertIn(PROJECT_VERSION, stdout)

@@ -64,12 +64,14 @@ category used to hide:
 The `declared_hooks` block carries `declaration_status` (`absent`, `declared`,
 `invalid`), `classification_status` (`classified`, `unknown`), the host contract
 it was classified against, the per-hook rows, and bounded diagnostics. Nothing in
-it echoes manifest content, plugin source, or the audited path.
+it echoes manifest content, plugin source, the audited path, or the path of an
+inspected Hermes installation.
 
 `classification_status` is `unknown` whenever any hook is unknown, the plugin
 declares a Hermes range the supported contract does not cover, the range is
-unreadable, or the declaration itself is malformed. Absence from the mapping is
-never reported as safe.
+unreadable, the declaration itself is malformed, or the Hermes version you
+inspected is one the mapping was never established for. Absence from the mapping
+is never reported as safe.
 
 That status also reaches `summary.risk_categories`, as
 `undetermined_hook_contract`. This matters more than it looks. The summary is
@@ -156,10 +158,7 @@ cross-check: the pinned version must match `HERMES_COMPAT_MATRIX`, the
 separately maintained record of the Hermes version this repository tests
 against, so bumping that without re-reading the hook contract fails.
 
-### The range gate rarely fires, and the audit never reads your Hermes
-
-Two limits that together mean the version binding does less work on real input
-than its presence suggests.
+### The declared range rarely fires
 
 **`requires_hermes` is an OMH convention, not a Hermes field.** It is absent
 from Hermes' `_KNOWN_MANIFEST_FIELDS` and no code under `hermes_cli/` or
@@ -170,11 +169,56 @@ population this audit exists to examine, the declared range is `undeclared` and
 the hooks are classified against the pinned revision by default. The diagnostic
 saying so is honest, but the gate does not engage on any plugin Hermes ships.
 
-**The audit does not consult the Hermes you are running.** It is offline and
-host-independent by design, so `supported_range` describes the mapping, not your
-install. On a host running 0.22 every verdict is still measured against 0.21.1
-while `contract_source` reports this repository's pinned copy. Comparing the two
-is the reader's job, which is what the next section is for.
+## Binding the result to the host you would enable the plugin on
+
+`requires_hermes` says what a package asks for. It is not evidence of the Hermes
+you will enable it on, and the audit never reads it as one. Name that host and
+the result binds to it:
+
+```sh
+omh ops plugin-risk-audit --path <plugin-dir> --hermes-version 0.21.1
+omh ops plugin-risk-audit --path <plugin-dir> --hermes-install ~/.hermes/hermes-agent
+```
+
+`--hermes-install` takes the installation directory — the one containing
+`hermes_cli/` — and reads the `__version__` that module declares. It is a file
+read. Hermes is not imported, its binary is not run, no subprocess is spawned
+and no socket is opened, which is what keeps the audit usable on a machine you
+are still deciding about. The two flags are mutually exclusive, so nothing has
+to rank one host claim over another.
+
+The result reports what was established under `declared_hooks.host_contract
+.inspected_host`, beside the plugin's own declared range and never mixed into
+it:
+
+| Field | Meaning |
+| --- | --- |
+| `version` | The version that was established. `<absent>` when no host was named, `<invalid>` when one was and no version came out of it. A string that failed to parse is never echoed. |
+| `observation_method` | `operator_declared`, `installation_version_module`, or `not_supplied`. It names the source that was selected, not that reading it succeeded. |
+| `compatibility` | `compatible`, `incompatible`, `unreadable`, or `not_observed`. |
+
+Two of those four hold the verdict. `incompatible` and `unreadable` force
+`classification_status: unknown` and put `undetermined_hook_contract` in
+`summary.risk_categories`, because a mapping that was never read against your
+host must not render as an established contract. `compatible` and
+`not_observed` leave the classification alone.
+
+**`not_observed` is not a pass.** It is what you get when you name no host, and
+it means only that nothing bound the mapping to an environment. The audit says
+so in a diagnostic whenever the plugin declares hooks, rather than letting the
+default path read as a clean result.
+
+**The declaration survives the hold.** A manifest that parsed cleanly stays
+parsed: `declaration_status`, the per-hook rows and `effects` still report what
+the mapping says on the pinned revision. Only the overall decision is held.
+Declaration evidence, host-version evidence and runtime behaviour are three
+separate claims, and folding one into another would lose the one you needed.
+
+**A version read off disk can be stale or edited.** That is why the result names
+its observation method. A compatible verdict is static pre-enable evidence about
+one mapping, never evidence that the host would admit, load, register or run the
+plugin; the audit records `hermes_host_execution` and `hermes_plugin_admission`
+as `not_observed` and keeps saying so.
 
 ### So what does an operator do with `unknown`?
 
@@ -182,11 +226,12 @@ is the reader's job, which is what the next section is for.
 and it never means the name is not a real hook. A hook added after the pinned
 revision looks exactly like a name the host never had.
 
-When you see it, compare the Hermes version you are running against the
-`supported_range` in the result. On a newer Hermes the mapping is behind and the
-hook may well be real, so read the host's own `VALID_HOOKS` before concluding
-anything about the plugin. Inside the supported range, the name is one the host
-contract does not contain, which is itself worth asking the plugin author about.
+When the hold came from the host leg, the mapping is simply behind or ahead of
+your install, and the hook may well be real: read the host's own `VALID_HOOKS`
+before concluding anything about the plugin. When the host is inside
+`supported_range` and a name still classifies `unknown`, that name is one the
+host contract does not contain, which is itself worth asking the plugin author
+about.
 
 ### Re-pinning when Hermes moves
 

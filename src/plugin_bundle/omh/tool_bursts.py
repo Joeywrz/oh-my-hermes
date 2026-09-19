@@ -47,8 +47,18 @@ The repeat streak is the one part that IS keyed by session, and it has to
 be for the same reason the rest is not: in a ledger every session writes
 to, an unkeyed consecutive counter would read two sessions running the
 same search as one session looping. Each session holds exactly one entry,
-carrying only its last call's tool, argument digest, count, and tick, so
+carrying only its last call's tool, argument digest, counts, and tick, so
 the keyed part cannot accumulate per session beyond that single row.
+
+What the streak is for, stated without overclaiming. It feeds two stages
+at ``pre_tool_call``: a ``block``, whose message goes back to the model,
+and then an ``approve``, which the host routes to the human-approval gate
+instead. The evidence says the first stage may do nothing at all -- in the
+session this was built from, a model read 185 of the host's own refusals
+on one tool and 100+ on another and reissued the identical call every
+time. So the claim here is detection and refusal, not that the loop ends:
+one stage the model can ignore, one it cannot answer by itself, and a
+count a later surface can show the person.
 """
 from __future__ import annotations
 
@@ -117,22 +127,44 @@ TOOL_ACTIVITY_CLAIM_BOUNDARY = (
     "install observed opening and closing, not a complete accounting of "
     "every tool call Hermes ran."
 )
-# Consecutive identical calls a session may make before `pre_tool_call`
-# refuses the next one. Sized against the two observed numbers rather than
-# picked as a round figure. A legitimate immediate retry runs two or three
-# times: a transient tool failure, or an argument edited and changed back.
-# The failure this guard exists for ran the SAME search 180+ times in a row
-# with identical arguments, each returning in ~0.0s, until the session's
-# budget was gone and the work it was asked to do had never started -- and
-# the tool result already said "BLOCKED: you have run this exact search N
-# times in a row", which the model read and ignored, so the refusal has to
-# be the hook's, not a warning's.
-# Four is one past the top of the legitimate band, so no retry pattern
-# observed here ever meets it, and it caps the pathological case at four
-# wasted calls instead of 180. A larger threshold buys nothing: the loop is
-# unbounded, so every value in this gap ends it, just later. Three would
-# refuse the next call after the longest legitimate retry run.
-REPEAT_CALL_BLOCK_THRESHOLD = 4
+# Consecutive identical calls before `pre_tool_call` refuses the next one.
+# Nothing here claims this refusal is stronger than the host's. It is not:
+# a `block` becomes the tool result, exactly as Hermes' own guard's error
+# did, and a model that ignores one can ignore the other the same way.
+# Two reasons put it at 8 rather than at the host's own 4.
+#
+# First, Hermes already refuses a repeated `search_files` at the 4th
+# identical call (`tools/file_tools.py`, `if count >= 4`, warning at the
+# 3rd) and guards a repeated `read_file` region too. A second refusal at
+# the same point is the same message in another voice, not a second
+# mechanism. Engaging four calls later means engaging on evidence the
+# host's refusal did not produce: that it was ignored.
+#
+# Second, and this is the binding reason, an identical repeated call is
+# not always a loop. Polling is the legitimate case -- `terminal` running
+# `gh pr checks <n>` back to back while waiting on CI has byte-identical
+# arguments every time, and so does any status check -- and OMH cannot
+# tell it from a loop, because the digest covers the ARGUMENTS and this
+# module never sees a result. So the ladder has to leave room for a poll
+# rather than price it as a fault: a short one passes under 8, a long one
+# reaches a person at 12 who can answer `[a]lways`, and the digest-scoped
+# rule key is what makes that answer cover exactly that poll.
+#
+# 8 is still far outside an immediate retry, which runs two or three
+# times, and far short of the measured failure, which ran the same
+# `search_files` call 203 times and one `read_file` region 100+ times.
+REPEAT_CALL_BLOCK_THRESHOLD = 8
+# Where the call stops going to the model at all and goes to a person.
+# Derived, because the distance is the meaning: the call count freezes
+# once stage one starts refusing, so four more consecutive attempts are
+# exactly four stage-one blocks that were ignored. One ignored block can
+# be a model recovering -- a retry already in flight, a message that
+# crossed the refusal -- and two can be the same. Four is not: measured,
+# session 20260919_140745_db409e ignored 185 of the host's refusals on
+# `search_files` and 100+ on `read_file`. At that point the only response
+# in the `pre_tool_call` contract a model cannot answer by itself is the
+# human-approval gate.
+REPEAT_CALL_APPROVAL_THRESHOLD = REPEAT_CALL_BLOCK_THRESHOLD + 4
 # Arguments are canonicalized and capped before hashing so a single huge
 # call (a whole-file write body) cannot make the digest step expensive.
 # Two calls whose arguments differ only past the cap share a digest and so
@@ -156,6 +188,21 @@ REPEAT_CALL_BLOCK_SUFFIX = (
     "This tool call was blocked by OMH before execution because it exactly "
     "repeats the calls just before it. A blocked call did not run, and any "
     "different tool call clears the guard immediately."
+)
+# The `[a]lways` allowlist grain for an escalated call. Explicit, because
+# the host derives one from the tool name plus a hash of the reason when
+# this is empty (`tools/approval.py`, `request_tool_approval`), and this
+# reason carries a count that changes every call -- which would mint a new
+# key each time and re-prompt a person who already answered "always". Keyed
+# by digest instead, an informed "always" covers exactly this one call with
+# these arguments and nothing wider. The digest, never the arguments.
+REPEAT_CALL_RULE_KEY_PREFIX = "omh_repeat"
+REPEAT_CALL_CLAIM_BOUNDARY = (
+    "A repeat streak counts consecutive identical calls this OMH install "
+    "saw at pre_tool_call, keyed by session and compared by argument "
+    "digest. It is evidence that the same call was attempted again, never "
+    "evidence of what any call returned, and an intercepted call is not "
+    "evidence of what the host or the person then did with it."
 )
 _MAX_TOOL_NAME_CHARS = 48
 _MAX_ID_CHARS = 128
@@ -199,16 +246,96 @@ def tool_args_digest(tool_input: object) -> str:
     ).hexdigest()
 
 
-def _repeat_block_message(tool_name: str, count: int) -> str:
+def _repeat_stage(ran: int, intercepted: int) -> str:
+    """Which stage this streak is in. One rule, one place.
+
+    The gate and the reader both call this, so a surface cannot render a
+    stage the gate would not act on.
+
+    The two counts are read on different rungs, which is the whole design.
+    Calls that RAN decide whether to intervene at all: that many identical
+    calls reached the host. Attempts INCLUDING the intercepted ones decide
+    whether the intervention still goes to the model, because once stage
+    one starts no further call runs, so a rung reading the call count
+    alone would freeze there and nothing could ever escalate.
+    """
+    if ran + intercepted >= REPEAT_CALL_APPROVAL_THRESHOLD:
+        return "approval"
+    if ran >= REPEAT_CALL_BLOCK_THRESHOLD:
+        return "blocking"
+    return "watching"
+
+
+def _repeat_block_message(tool_name: str, ran: int) -> str:
+    """Stage one, addressed to the model. Says only what was measured.
+
+    What was measured is the ARGUMENTS: this module digests them and never
+    sees a result. So the message may say the same call was issued this
+    many times in a row, and may not say the results were the same or that
+    another one cannot differ. That claim is false for `terminal`, for
+    `web_search`, for any status poll, and for `read_file` on a file
+    another process is writing. The host's guard can say "the file has NOT
+    changed" because it sits inside the tool and checks; this sits outside
+    and does not.
+
+    It also does not say "you already have this information", the host's
+    wording in the measured session, which was false there for the
+    opposite reason: the pattern named functions that do not exist, so the
+    search returned nothing and there was nothing the model already had.
+
+    Advice therefore branches, because the guard cannot tell a loop from a
+    poll and both are worth acting on. A refusal that misdescribes the
+    situation is one the model can be right to disagree with, and the
+    measured session is what disagreeing looks like.
+    """
     return (
-        f"[OMH Repeat Guard] `{tool_name}` has already run {count} times in a "
-        "row in this session with exactly these arguments, and returned the "
-        "same result each time. Running it again returns that same result, so "
-        "stop repeating it and get the answer another way: read the file "
-        "directly, or run the search once in the terminal and use that "
-        "output. Then continue the work you were asked to do.\n"
-        f"{REPEAT_CALL_BLOCK_SUFFIX}"
+        f"[OMH Repeat Guard] `{tool_name}` has been issued {ran} times in a "
+        "row with exactly these arguments. OMH compares arguments, not "
+        "results, so it cannot tell which of these you are doing. If the "
+        "call keeps returning the same thing, including nothing, repeating "
+        "it will not help: when nothing comes back, what you are looking "
+        "for is not there under that name, so read the file directly or "
+        "list what it does define. If you are waiting on something that "
+        "changes, do other work between checks instead of re-issuing the "
+        f"same call back to back.\n{REPEAT_CALL_BLOCK_SUFFIX}"
     )
+
+
+def _repeat_approval_message(tool_name: str, ran: int, intercepted: int) -> str:
+    """Stage two, addressed to a person, not the model.
+
+    The host turns this into "Tool '<name>' requires approval (<this>)" at
+    the same gate as a dangerous shell command, so it has to read as a
+    question someone can answer without the session in front of them: what
+    is being repeated, how far it has gone, and what each answer does.
+
+    "Refused or escalated", not "refused": the first interventions were
+    refusals, but once this prompt has been shown, later ones are
+    escalations whose outcome a person decided and OMH never observes.
+    Calling them all refusals would claim an answer this module does not
+    have.
+
+    It says nothing about the results either, for the reason given in
+    `_repeat_block_message`: the digest covers arguments only, so "the
+    result has not changed" would be a claim nothing here measured, and a
+    person deciding whether to allow a poll is exactly who should not be
+    told it.
+    """
+    return (
+        f"repeat guard: this session has issued `{tool_name}` "
+        f"{ran + intercepted} times in a row with identical arguments. The "
+        f"first {ran} reached the tool; OMH has refused or escalated the "
+        f"{intercepted} since, and the session issues the same call again "
+        "after each one. OMH compares arguments only, so it cannot say "
+        "whether the result is changing -- a stuck loop and a status poll "
+        "look the same from here. Denying ends the repetition; allowing "
+        "runs that same call once more."
+    )
+
+
+def repeat_call_rule_key(tool_name: str, args_digest: str) -> str:
+    """The allowlist grain for an escalated call: one tool, one digest."""
+    return f"{REPEAT_CALL_RULE_KEY_PREFIX}:{tool_name}:{args_digest}"
 
 
 def repeat_call_directive(
@@ -219,21 +346,34 @@ def repeat_call_directive(
     omh_home: str = "",
     now: float | None = None,
 ) -> dict[str, str] | None:
-    """Block a call this session has already made and had answered, or None.
+    """Intervene on a call this session keeps repeating, or None to allow.
 
-    Read-only: the streak this reads is advanced by ``record_tool_call`` on
-    the calls that actually dispatch, so a blocked call ticks nothing and
-    the count in the message is the number of times the call really ran.
+    Two stages, because a refusal is only as strong as the model's
+    willingness to read it, and the measured session read 185 of the
+    host's and repeated the call anyway. Stage one returns ``block``: the
+    message becomes the tool result, which a better-behaved model can act
+    on and this one may ignore. Stage two returns ``approve``, which the
+    host routes to the same human gate as a dangerous shell command
+    (``tools/approval.py``, ``request_tool_approval``) -- it does not go
+    back to the model as text at all, and in a context with no human to
+    ask it fails closed.
+
+    Read-only. ``record_tool_call`` counts the calls that dispatched and
+    ``record_repeat_refusal`` counts the ones this guard intercepted, so
+    the message can say how many times the call actually RAN while the
+    stage ladder still advances on attempts that never ran.
 
     Every path out of the narrow positive case is ``None`` -- allow. The
     conjunction is: this session is identified, the arguments produced a
     digest, the session's last recorded call used the same tool and the
     same digest, that call is recent enough to still be the same loop, and
-    the count has reached the threshold. A missing session id, an
-    unreadable or absent ledger, a malformed row, and a path that will not
-    resolve all land here as allow, because the cost of a wrong refusal is
-    the one #1674 already charged: a veto that ends sessions it was never
-    meant to touch.
+    the streak has reached a stage. A missing session id, an unreadable or
+    absent ledger, a malformed row, and a path that will not resolve all
+    land here as allow. That matters more at stage two than at stage one:
+    an escalation in an unattended session waits for a human and then
+    fails closed, which is right for a real loop and wrong for everything
+    else, and #1674 is what a veto costs when it fires on a session it was
+    never meant to touch.
     """
     name = _normalized_name(tool_name)
     session = _normalized_id(session_id)
@@ -255,10 +395,61 @@ def repeat_call_directive(
         return None
     if tick - streak["ts"] > REPEAT_STREAK_WINDOW_SECONDS:
         return None
-    count = int(streak["count"])
-    if count < REPEAT_CALL_BLOCK_THRESHOLD:
-        return None
-    return {"action": "block", "message": _repeat_block_message(name, count)}
+    ran = int(streak["count"])
+    intercepted = int(streak["intercepted"])
+    stage = _repeat_stage(ran, intercepted)
+    if stage == "approval":
+        return {
+            "action": "approve",
+            "message": _repeat_approval_message(name, ran, intercepted),
+            "rule_key": repeat_call_rule_key(name, digest),
+        }
+    if stage == "blocking":
+        return {"action": "block", "message": _repeat_block_message(name, ran)}
+    return None
+
+
+def repeat_call_streak(
+    omh_home: str = "",
+    *,
+    session_id: object = "",
+    now: float | None = None,
+) -> dict[str, Any]:
+    """This session's current repeat streak, or an idle marker.
+
+    The read side of the same row the gate reads, so a later surface can
+    render `repeat xN` without reaching into the stored shape or
+    re-deriving the stage rule. Adding that surface must not need a change
+    here or in what is written.
+    """
+    current = float(now if now is not None else time.time())
+    session = _normalized_id(session_id)
+    idle: dict[str, Any] = {"status": "idle"}
+    if not session:
+        return idle
+    try:
+        record = _read_record(tool_bursts_path(omh_home))
+    except (OSError, ValueError, TypeError, RuntimeError):
+        return idle
+    streak = _prune_stale_streaks(record["repeat_streaks"], now=current).get(session)
+    if streak is None:
+        return idle
+    ran = int(streak["count"])
+    intercepted = int(streak["intercepted"])
+    return {
+        "status": "observed",
+        "tool": streak["tool"],
+        "args_digest": streak["args_digest"],
+        # Calls the host dispatched, and calls this guard did not let
+        # through. Kept apart because only the first is evidence that a
+        # call ran, and their sum is what the stage ladder reads.
+        "ran": ran,
+        "intercepted": intercepted,
+        "consecutive": ran + intercepted,
+        "stage": _repeat_stage(ran, intercepted),
+        "observed_at": _iso(streak["ts"]),
+        "claim_boundary": REPEAT_CALL_CLAIM_BOUNDARY,
+    }
 
 
 def record_tool_call(
@@ -319,6 +510,64 @@ def record_tool_call(
                     "entries": entries,
                     "open_calls": open_calls,
                     "repeat_streaks": repeat_streaks,
+                    "post_tool_call_observed_at": record["post_tool_call_observed_at"],
+                },
+            )
+    except (OSError, ValueError, TypeError):
+        return
+
+
+def record_repeat_refusal(
+    *,
+    tool_name: object,
+    args_digest: object,
+    session_id: object,
+    omh_home: str = "",
+    now: float | None = None,
+) -> None:
+    """Count one call the repeat guard did not let through.
+
+    Separate from ``record_tool_call`` because the two facts are
+    different, and collapsing them would cost the block message its
+    honesty: that one records a call the host went on to dispatch, this
+    one records a call it did not. Keeping them apart is what lets the
+    message say how many times the call actually RAN while the stage
+    ladder still advances on attempts nobody ran.
+
+    Only ever updates a row that already matches this tool and digest. It
+    creates none: a refusal can only follow a streak, so a missing row
+    means the caller and the ledger disagree and the safe reading is that
+    there is nothing to count. Best-effort, like every writer here.
+    """
+    name = _normalized_name(tool_name)
+    session = _normalized_id(session_id)
+    digest = str(args_digest or "")[:_MAX_DIGEST_CHARS]
+    if not name or not session or not digest:
+        return
+    tick = float(now if now is not None else time.time())
+    path = tool_bursts_path(omh_home)
+    try:
+        with _awareness_delivery_lock(path):
+            record = _read_record(path)
+            streaks = _prune_stale_streaks(record["repeat_streaks"], now=tick)
+            current = streaks.get(session)
+            if current is None or current["tool"] != name or current["args_digest"] != digest:
+                return
+            streaks[session] = {
+                **current,
+                "intercepted": int(current["intercepted"]) + 1,
+                # The loop is still live, so the streak is too. Without
+                # this a long enough sequence of refused calls would age
+                # past the window and hand the model a fresh budget.
+                "ts": tick,
+            }
+            _write_delivery_record(
+                path,
+                {
+                    "schema_version": TOOL_BURSTS_SCHEMA_VERSION,
+                    "entries": record["entries"],
+                    "open_calls": _prune_expired_opens(record["open_calls"], now=tick),
+                    "repeat_streaks": streaks,
                     "post_tool_call_observed_at": record["post_tool_call_observed_at"],
                 },
             )
@@ -450,13 +699,28 @@ def _sanitized_repeat_streaks(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
         digest = str(item.get("args_digest", "") or "")[:_MAX_DIGEST_CHARS]
         count = item.get("count")
         tick = item.get("ts")
+        intercepted = item.get("intercepted")
         if not key or not tool or not digest:
             continue
         if not isinstance(count, int) or isinstance(count, bool) or count < 1:
             continue
         if not isinstance(tick, (int, float)) or isinstance(tick, bool):
             continue
-        streaks[key] = {"tool": tool, "args_digest": digest, "count": int(count), "ts": float(tick)}
+        streaks[key] = {
+            "tool": tool,
+            "args_digest": digest,
+            "count": int(count),
+            # The one field that defaults instead of dropping the row. A
+            # row written before this field existed, or one hand-edited
+            # without it, has observed no interceptions, and 0 delays the
+            # next stage rather than inventing evidence for it.
+            "intercepted": (
+                int(intercepted)
+                if isinstance(intercepted, int) and not isinstance(intercepted, bool) and intercepted >= 0
+                else 0
+            ),
+            "ts": float(tick),
+        }
     return streaks
 
 
@@ -479,10 +743,11 @@ def _advance_repeat_streak(
     """Count this call against the session's consecutive-repeat streak.
 
     The row holds the LAST call only, so a call with a different tool or a
-    different digest overwrites it at count 1. That is the whole of the
-    self-clearing behavior: one different call disarms the guard, nothing
-    has to expire for it to work, and a session cannot be left stuck
-    because a count somewhere outlived the loop it described.
+    different digest overwrites it at count 1 with no interceptions. That
+    is the whole of the self-clearing behavior, and it clears both stages
+    at once: one different call disarms the guard, nothing has to expire
+    for it to work, and a session cannot be left stuck at the approval
+    stage because a count somewhere outlived the loop it described.
 
     No streak at all when the host named no session or the arguments
     produced no digest -- the gate needs both to identify a repeat, and a
@@ -493,7 +758,14 @@ def _advance_repeat_streak(
     current = streaks.get(session)
     repeats = current is not None and current["tool"] == tool and current["args_digest"] == args_digest
     count = int(current["count"]) + 1 if repeats and current is not None else 1
-    streaks[session] = {"tool": tool, "args_digest": args_digest, "count": count, "ts": now}
+    intercepted = int(current["intercepted"]) if repeats and current is not None else 0
+    streaks[session] = {
+        "tool": tool,
+        "args_digest": args_digest,
+        "count": count,
+        "intercepted": intercepted,
+        "ts": now,
+    }
     return _cap_repeat_streaks(streaks)
 
 

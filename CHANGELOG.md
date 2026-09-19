@@ -196,35 +196,91 @@ All notable changes will be documented here.
   burned its budget and never started the work it was asked to do. A warning
   inside a tool result is advice; the loop ends only when something refuses.
 
-  `pre_tool_call` now counts consecutive identical calls per session and
-  returns a block directive on the one after the fourth, telling the model the
-  call has already run that many times and returned the same thing each time,
-  so it should read the file directly or run the search once in the terminal
-  and use that output. Four is one past the top of the legitimate band: an
-  immediate retry runs two or three times, so no retry pattern meets the
-  threshold, and the pathological case costs four calls instead of 180. The
-  count is per session because the ledger is machine-wide, and an unkeyed
-  counter would read two sessions running the same search as one loop.
+- **A tool call a session keeps repeating is now refused, and then put to
+  the person.** Measured session 20260919_140745_db409e, 409 tool calls and
+  2.12M input tokens: 203 `search_files` calls with identical arguments, 185
+  of them refused by Hermes' own guard with its counter escalating past 99,
+  and the model issued the same call again every time. The same session then
+  repeated one `read_file` region 100+ times against the host's second guard.
+  The session burned its budget and never started the work it was asked to
+  do. So the loop is not a search quirk, and a refusal message is something
+  this model demonstrably reads and ignores.
 
-  The guard clears itself. One call with different arguments, or to a
-  different tool, resets the count to one, and a streak whose last call is
-  more than five minutes old stops counting, so a session that hits the
-  refusal and does something else proceeds normally and a returning session is
-  never greeted with a refusal it earned much earlier. Only calls that
-  actually reached dispatch are counted, so the number in the message is what
-  really ran.
+  `pre_tool_call` now counts consecutive identical calls per session, keyed by
+  tool and by a digest of the arguments, and intervenes in two stages. Stage
+  one, at the 8th identical call, returns a block directive whose message
+  becomes the tool result. Stage two, after four of those blocks have been
+  ignored, returns an approve directive instead, which Hermes routes to the
+  same human-approval gate as a dangerous shell command; the host documents
+  that gate as one the model cannot skip, and in a context with no human to
+  ask it fails closed. The escalation carries an explicit
+  `omh_repeat:<tool>:<digest>` rule key, so a person who answers "always" is
+  answering about exactly that one call rather than about a key that changes
+  with every prompt.
+
+  Eight and twelve, not four, for two reasons. Hermes already refuses a
+  repeated `search_files` at the 4th identical call, so a second refusal at
+  that point is the same message in another voice; engaging four calls later
+  engages on evidence the host's refusal did not produce, namely that it was
+  ignored. The binding reason is the other one: an identical repeated call is
+  not always a loop. Polling is the legitimate case, since `terminal` running
+  `gh pr checks <n>` back to back while waiting on CI has byte-identical
+  arguments every time, and OMH cannot tell it from a loop because the digest
+  covers arguments and this code never sees a result. So the ladder leaves
+  room for a poll: a short one passes under 8, a long one reaches a person at
+  12 who can answer "always", and the digest-scoped rule key is what makes
+  that answer cover exactly that poll and nothing else.
+
+  Stage one is not a stronger mechanism than the host's, and the code says so:
+  a block becomes the tool result exactly as the host's error did, and a model
+  that ignores one can ignore the other. Four ignored blocks is where that
+  stops being a model recovering and starts being a refusal nobody is reading,
+  and the only response in the host's contract that a model cannot answer by
+  itself is the person.
+
+  Both messages say only what was measured, which is the arguments. Neither
+  claims the results were the same or that another call cannot differ: that
+  would be false for a status poll, for `web_search`, and for `read_file` on a
+  file another process is writing, and OMH has no way to know. The host's
+  guard can say "the file has NOT changed" because it sits inside the tool;
+  this sits outside it. The block message says the call has been issued that
+  many times with these arguments, says OMH compares arguments and not
+  results, and then branches: if the same thing keeps coming back, including
+  nothing, then what is being looked for is not there under that name, so read
+  the file directly or list what it does define; if something is being waited
+  on, do other work between checks instead of re-issuing the call back to
+  back. It also never says "you already have this information", the host's
+  wording, which was false in the measured case because the pattern named
+  functions that do not exist.
+
+  The guard clears itself. One call with different arguments or to a different
+  tool resets both counters to nothing, and a streak whose last call is more
+  than five minutes old stops counting. Calls that dispatched and calls this
+  guard intercepted are counted in separate fields, which is also what makes
+  stage two reachable at all: once stage one starts refusing, no further call
+  runs, so a count of calls would freeze and only a count of ignored refusals
+  can escalate. A reader function exposes both, and the stage, for a later HUD
+  surface without changing what is stored.
+
+  Telling a loop from a poll by digesting results is deliberately not built
+  here; it is the right next step and is filed separately.
 
   Identifying a repeat needs the arguments, and the ledger still never holds
-  them: the arguments are canonicalized, capped at 8 KiB and stored as a
-  16-character BLAKE2b digest, which says only "identical" or "different" and
-  keeps the record inside the plugin's `privacy: metadata_only` contract. The
-  claim is stated exactly in the module, because a digest is confirmable by
-  guessing rather than readable, which is the ordinary property of a
-  fingerprint and the reason the field is a digest and not a truncated copy.
-  Every path out of the positive case allows the call: no session id, no
-  digest, an unreadable ledger, a malformed row, or a binding fault. #1674 is
-  what an over-broad `pre_tool_call` veto costs, and the allow side is pinned
-  by tests at least as hard as the block side.
+  them: they are canonicalized, capped at 8 KiB and stored as a 16-character
+  BLAKE2b digest that says only "identical" or "different", which keeps the
+  record inside the plugin's `privacy: metadata_only` contract. No argument
+  text reaches the ledger, the block message, the approval prompt, or the rule
+  key. Every path out of the positive case allows the call: no session id, no
+  digest, an unreadable ledger, a malformed row, or a binding fault. That
+  matters most at stage two, where an escalation in an unattended session
+  waits for a human and then fails closed, and #1674 is what an over-broad
+  `pre_tool_call` veto already cost once.
+
+  What this does not claim: that the loop ends. Stage one is a refusal with
+  the same mechanism as the two host refusals this model ignored 185 and 100+
+  times. Stage two takes the decision away from the model, but no live Hermes
+  session was run here, so the prompt rendering and a person's deny ending a
+  real loop are untested.
 
 - **`/omh-model` and the `omh` CLI now edit the store a bot profile
   dispatches from.** A Hermes bot profile may select its own OMH store with

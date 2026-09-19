@@ -1,17 +1,19 @@
 """Contracts for the repeated-tool-call circuit breaker at pre_tool_call.
 
-The motivating failure: a Hermes session searching a repo called
-`search_files` with one identical pattern more than 180 times in a row,
-each returning in ~0.0s, while the tool result itself printed "BLOCKED:
-You have run this exact search N times in a row". The model read that
-warning and issued the same call again until the session's budget was
-gone and the work it was asked to do had never started. A warning inside a
-tool result is not enough, so the hook refuses the call instead.
+The motivating session, measured: 20260919_140745_db409e, 409 tool calls,
+203 of them `search_files`. The host's own guard refused 185 and the model
+issued the identical call again every time; the same session then repeated
+one `read_file` region 100+ times against the host's second guard. So the
+loop is tool-agnostic, and a refusal message is something this model
+demonstrably ignores.
 
-Everything outside the narrow positive case -- same session, same tool,
-same argument digest, consecutive, at the threshold -- must allow. #1674
-is what an over-broad pre_tool_call veto costs, and these tests pin the
-allow side at least as hard as the block side.
+Hence two stages, and these tests pin both: a `block` whose message the
+model may ignore, and then an `approve`, which the host routes to the
+human-approval gate instead of back to the model. Everything outside the
+narrow positive case -- same session, same tool, same argument digest,
+consecutive, at a stage -- must allow. #1674 is what an over-broad
+pre_tool_call veto costs, and an escalation in an unattended session fails
+closed, so the allow side is pinned harder than the intervene side.
 """
 
 import json
@@ -22,10 +24,13 @@ from pathlib import Path
 from omh.plugin_bundle.omh.hooks.tool_hooks import post_tool_call, pre_tool_call
 from omh.plugin_bundle.omh.tool_bursts import (
     MAX_DIGEST_INPUT_BYTES,
+    REPEAT_CALL_APPROVAL_THRESHOLD,
     REPEAT_CALL_BLOCK_THRESHOLD,
     REPEAT_STREAK_WINDOW_SECONDS,
+    record_repeat_refusal,
     record_tool_call,
     repeat_call_directive,
+    repeat_call_streak,
     tool_args_digest,
     tool_bursts_path,
 )
@@ -55,6 +60,18 @@ class RepeatCallBreakerTest(unittest.TestCase):
         for index in range(REPEAT_CALL_BLOCK_THRESHOLD):
             self.assertIsNone(self._call(**kwargs), f"call {index + 1} must proceed")
 
+    def _run_to_escalation(self, **kwargs):
+        """Leave the streak one call short of the approval stage.
+
+        Every refusal in between must be a block: ignoring a block is what
+        earns the escalation, so a test that skipped them would be
+        checking a stage nothing had reached.
+        """
+        self._run_to_threshold(**kwargs)
+        for index in range(REPEAT_CALL_APPROVAL_THRESHOLD - REPEAT_CALL_BLOCK_THRESHOLD):
+            directive = self._call(**kwargs)
+            self.assertEqual(directive["action"], "block", f"refusal {index + 1} is stage one")
+
     def _ledger(self):
         return json.loads(tool_bursts_path(str(self.home)).read_text(encoding="utf-8"))
 
@@ -65,20 +82,168 @@ class RepeatCallBreakerTest(unittest.TestCase):
 
         self.assertEqual(blocked["action"], "block")
         message = str(blocked["message"])
-        # The count is what actually ran: a refused call never dispatches
-        # and never advances the streak.
-        self.assertIn(f"{REPEAT_CALL_BLOCK_THRESHOLD} times in a row", message)
+        # The count is what actually ran: an intercepted call never
+        # dispatches, so it is counted apart from the calls that did.
+        self.assertIn(f"issued {REPEAT_CALL_BLOCK_THRESHOLD} times in a row", message)
         self.assertIn("search_files", message)
         # The observed failure was a model repeating a search instead of
-        # switching tactic, so the refusal has to say what to do instead.
-        self.assertIn("read the file directly", message)
-        self.assertIn("run the search once in the terminal", message)
+        # switching tactic, so the refusal has to say what to do instead --
+        # both ways, because the guard cannot tell a loop from a poll.
+        self.assertIn("read the file directly", message.lower())
+        self.assertIn("list what it does define", message)
+        self.assertIn("do other work between checks", message)
         self.assertIn("A blocked call did not run", message)
+        # Two sentences this message must never contain. The host's
+        # refusal said "You already have this information", false in the
+        # measured case because the pattern named functions that do not
+        # exist. And OMH digests ARGUMENTS, never results, so any claim
+        # about what came back is unmeasured -- and wrong for a poll.
+        self.assertNotIn("already have this information", message)
+        self.assertNotIn("same result", message)
+        self.assertNotIn("cannot return anything different", message)
+        self.assertIn("compares arguments, not results", message)
         # Still refused on the next attempt, and still reporting the number
-        # of calls that ran rather than the number attempted.
+        # of calls that reached the tool rather than the number attempted.
         again = self._call()
         self.assertEqual(again["action"], "block")
-        self.assertIn(f"{REPEAT_CALL_BLOCK_THRESHOLD} times in a row", str(again["message"]))
+        self.assertIn(f"issued {REPEAT_CALL_BLOCK_THRESHOLD} times in a row", str(again["message"]))
+
+    def test_the_second_stage_escalates_to_the_human_approval_gate(self):
+        self._run_to_escalation()
+
+        escalated = self._call()
+
+        self.assertEqual(escalated["action"], "approve")
+        self.assertEqual(
+            escalated["rule_key"],
+            f"omh_repeat:search_files:{tool_args_digest(BURN_ARGS)}",
+        )
+        message = str(escalated["message"])
+        self.assertTrue(message)
+        # Written for a person: which tool, how far it has gone, how many
+        # times OMH already intervened, and what each answer does.
+        self.assertIn("search_files", message)
+        refusals = REPEAT_CALL_APPROVAL_THRESHOLD - REPEAT_CALL_BLOCK_THRESHOLD
+        self.assertIn(f"{REPEAT_CALL_APPROVAL_THRESHOLD} times in a row", message)
+        self.assertIn(f"first {REPEAT_CALL_BLOCK_THRESHOLD} reached the tool", message)
+        self.assertIn(f"refused or escalated the {refusals}", message)
+        self.assertIn("Denying ends the repetition", message)
+        # The person deciding whether to allow a poll is exactly who must
+        # not be told the result is unchanged, which OMH never measured.
+        self.assertNotIn("same result", message)
+        self.assertIn("cannot say whether the result is changing", message)
+        # And it stays escalated, at one stable rule key, so a person who
+        # answered "always" is not re-prompted by a key that changed.
+        self.assertEqual(self._call()["rule_key"], escalated["rule_key"])
+
+    def test_the_second_stage_is_not_reached_before_the_blocks_are_ignored(self):
+        self._run_to_threshold()
+
+        # One short of the escalation: every one of these is stage one.
+        for _ in range(REPEAT_CALL_APPROVAL_THRESHOLD - REPEAT_CALL_BLOCK_THRESHOLD - 1):
+            self.assertEqual(self._call()["action"], "block")
+
+        self.assertEqual(self._call()["action"], "block")
+        self.assertEqual(self._call()["action"], "approve")
+
+    def test_no_argument_text_reaches_the_approval_prompt_or_its_rule_key(self):
+        marker = "OMH-APPROVAL-ARGUMENT-CANARY"
+        args = {"pattern": f"{marker}|{BURN_PATTERN}", "path": f"/private/{marker}"}
+        self._run_to_escalation(args=args)
+
+        escalated = self._call(args=args)
+
+        self.assertEqual(escalated["action"], "approve")
+        for field in ("message", "rule_key"):
+            self.assertNotIn(marker, str(escalated[field]))
+            self.assertNotIn(BURN_PATTERN, str(escalated[field]))
+            self.assertNotIn("/private/", str(escalated[field]))
+        self.assertIn(tool_args_digest(args), escalated["rule_key"])
+
+    def test_a_different_call_between_the_stages_returns_to_the_start(self):
+        self._run_to_escalation()
+        self.assertEqual(self._call()["action"], "approve")
+
+        self.assertIsNone(self._call(tool="read_file"))
+
+        # Back to allowing, not back to stage one: both counters cleared.
+        self.assertIsNone(self._call())
+        streak = repeat_call_streak(str(self.home), session_id="session-a")
+        self.assertEqual(streak["stage"], "watching")
+        self.assertEqual(streak["intercepted"], 0)
+        self.assertEqual(streak["consecutive"], 1)
+
+    def test_the_staleness_window_clears_both_counters(self):
+        digest = tool_args_digest(BURN_ARGS)
+        for _ in range(REPEAT_CALL_BLOCK_THRESHOLD):
+            record_tool_call(
+                "search_files",
+                omh_home=str(self.home),
+                now=NOW,
+                args_digest=digest,
+                session_id="session-a",
+            )
+        for _ in range(REPEAT_CALL_APPROVAL_THRESHOLD - REPEAT_CALL_BLOCK_THRESHOLD):
+            record_repeat_refusal(
+                tool_name="search_files",
+                args_digest=digest,
+                session_id="session-a",
+                omh_home=str(self.home),
+                now=NOW,
+            )
+        self.assertEqual(
+            repeat_call_directive(
+                tool_name="search_files",
+                args_digest=digest,
+                session_id="session-a",
+                omh_home=str(self.home),
+                now=NOW,
+            )["action"],
+            "approve",
+        )
+
+        stale = NOW + REPEAT_STREAK_WINDOW_SECONDS + 1
+
+        self.assertIsNone(
+            repeat_call_directive(
+                tool_name="search_files",
+                args_digest=digest,
+                session_id="session-a",
+                omh_home=str(self.home),
+                now=stale,
+            )
+        )
+        self.assertEqual(
+            repeat_call_streak(str(self.home), session_id="session-a", now=stale)["status"],
+            "idle",
+        )
+
+    def test_two_sessions_do_not_add_up_at_the_approval_stage_either(self):
+        self._run_to_escalation(session="session-a")
+        # session-b has made this call once and must be nowhere near a
+        # stage, however far session-a has gone with the identical call.
+        self.assertIsNone(self._call(session="session-b"))
+
+        self.assertEqual(self._call(session="session-a")["action"], "approve")
+        self.assertIsNone(self._call(session="session-b"))
+
+    def test_the_streak_reader_exposes_the_consecutive_count(self):
+        self.assertEqual(repeat_call_streak(str(self.home), session_id="session-a")["status"], "idle")
+        self._run_to_threshold()
+        self._call()
+
+        streak = repeat_call_streak(str(self.home), session_id="session-a")
+
+        self.assertEqual(streak["status"], "observed")
+        self.assertEqual(streak["tool"], "search_files")
+        self.assertEqual(streak["args_digest"], tool_args_digest(BURN_ARGS))
+        self.assertEqual(streak["ran"], REPEAT_CALL_BLOCK_THRESHOLD)
+        self.assertEqual(streak["intercepted"], 1)
+        self.assertEqual(streak["consecutive"], REPEAT_CALL_BLOCK_THRESHOLD + 1)
+        self.assertEqual(streak["stage"], "blocking")
+        self.assertIn("never evidence of what any call returned", streak["claim_boundary"])
+        # A reader for another session sees nothing of this one.
+        self.assertEqual(repeat_call_streak(str(self.home), session_id="session-b")["status"], "idle")
 
     def test_repeats_below_the_threshold_proceed(self):
         for _ in range(REPEAT_CALL_BLOCK_THRESHOLD - 1):

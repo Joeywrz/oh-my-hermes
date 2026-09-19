@@ -10,7 +10,13 @@ from ..degradation import runtime_binding_degradation
 from ..approval_bypass import record_approval_bypass
 from ..host_observation import observe_plugin_hook_call
 from ..omh_roles import extract_role_marker, resolve_role_name, role_aliases, role_names
-from ..tool_bursts import record_tool_call, record_tool_call_close, repeat_call_directive, tool_args_digest
+from ..tool_bursts import (
+    record_repeat_refusal,
+    record_tool_call,
+    record_tool_call_close,
+    repeat_call_directive,
+    tool_args_digest,
+)
 from ..toolcall_rules import toolcall_rule_directive
 
 
@@ -92,10 +98,15 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
         # dispatched the calls as one batch").
         return dict(rule_directive)
     # The repeat guard runs after the user's own rules and before anything
-    # that observes a dispatch, for the same reason: it refuses a call, so
-    # nothing downstream may record that call as having happened. Hashed
-    # once here and handed to both the gate and the ledger, so a tool call
-    # canonicalizes its arguments exactly once.
+    # that observes a dispatch, for the same reason: it intervenes on a
+    # call, so nothing downstream may record that call as having happened.
+    # Hashed once here and handed to the gate, the interception counter and
+    # the ledger, so a tool call canonicalizes its arguments exactly once.
+    # `block` at the first stage and `approve` at the second are both
+    # host-supported here (hermes_cli/plugins.py,
+    # `_get_pre_tool_call_directive_details`: "``{"action": "approve",
+    # "message", "rule_key"?}`` (escalate ANY tool to the human-approval
+    # gate; ``rule_key`` picks the ``[a]lways`` allowlist grain)").
     args_digest = tool_args_digest(tool_input)
     repeat_directive = repeat_call_directive(
         tool_name=kwargs.get("tool_name"),
@@ -104,6 +115,16 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
         omh_home=omh_home,
     )
     if repeat_directive is not None:
+        # Counted as intercepted, not as a call: it is what moves the
+        # streak from the block stage to the approval stage, and it is
+        # deliberately not evidence that the call ran or that the person
+        # denied it. OMH never observes how the host's gate was answered.
+        record_repeat_refusal(
+            tool_name=kwargs.get("tool_name"),
+            args_digest=args_digest,
+            session_id=session_id,
+            omh_home=omh_home,
+        )
         return dict(repeat_directive)
     # Only the normal host loop invokes native Kanban tools. Correlation runs
     # after OMH's user veto; it never dispatches or grants a native permission.

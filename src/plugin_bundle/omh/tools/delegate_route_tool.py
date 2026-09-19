@@ -147,10 +147,12 @@ OMH_DELEGATE_ROUTE_SCHEMA = {
         "writing the delegation.model / "
         "delegation.reasoning_effort keys Hermes reads per dispatch. Sequence per lane: "
         "set the route, call delegate_task for that lane, then set the next lane's route. "
-        "SET THE ROUTE IN THE SAME TURN THAT DISPATCHES: the route is turn-local and OMH "
-        "puts the previous values back when the turn ends, so a route set in one turn and "
-        "dispatched in the next runs on the previous model, not yours. You do NOT have to "
-        "clear at the end; call clear only to put the previous values back sooner. "
+        "SET THE ROUTE IN THE SAME TURN THAT DISPATCHES. How long a route lives depends on "
+        "the surface: in the Hermes TUI and CLI it is put back when the turn ends, so a "
+        "route set in one turn and dispatched in the next runs on the previous model rather "
+        "than yours; on a chat platform it lasts the session. Routing in the dispatching "
+        "turn is correct on both, so do not rely on a route you set earlier. You do NOT "
+        "have to clear at the end; call clear only to put the previous values back sooner. "
         "A restore is skipped, and says so, when the keys no longer hold what OMH wrote -- "
         "a value someone else set is never overwritten. Children already running keep their model. "
         "Hermes has NO provider-side fallback: a child whose model the billing account "
@@ -158,8 +160,10 @@ OMH_DELEGATE_ROUTE_SCHEMA = {
         "the error text as the result — a completed child with no recorded model usage "
         "means exactly this. When that happens call action=fallback with the category "
         "returned by set to advance the route and re-dispatch; shared routes fail "
-        "closed without that origin. An exhausted chain "
-        "clears the route so the next dispatch inherits the parent's working model."
+        "closed without that origin. An exhausted chain restores what the delegation keys "
+        "held before OMH first wrote them, which is the user's own pinned model when they "
+        "had one and parent inheritance when they did not; if it cannot prove OMH wrote "
+        "the current value it changes nothing and reports unrecorded_value_not_ours."
     ),
     "parameters": {
         "type": "object",
@@ -349,6 +353,12 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
             payload = {
                 "status": "error",
                 "error": "no active route to fall back from; use set with a category first",
+                # This is the return that fires when the position could not
+                # be recovered AT ALL, so it is the one an operator most
+                # needs the source on. `_fallback_position` reports "none"
+                # here rather than omitting the field.
+                "position_source": position_source,
+                "from": current_model,
             }
             return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
         category = str(args.get("category", "") or "").strip()

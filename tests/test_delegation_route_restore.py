@@ -31,7 +31,10 @@ from omh.plugin_bundle.omh.delegation_route_restore import (
     write_route_with_baseline,
     writer_session_liveness,
 )
-from omh.plugin_bundle.omh.hermes_delegation import append_delegation_route_provenance
+from omh.plugin_bundle.omh.hermes_delegation import (
+    append_delegation_route_provenance,
+    load_delegation_route_provenance,
+)
 from omh.plugin_bundle.omh.delegation_routing import read_delegation_route
 from omh.plugin_bundle.omh.hooks.session_hooks import on_session_end, on_session_start
 from omh.plugin_bundle.omh.live_session import LIVE_TUI_SESSION_FRESH_SECONDS
@@ -939,7 +942,9 @@ class FallbackAfterRestoreTest(RouteRestoreTestCase):
             omh_home=str(self.omh_home),
             hermes_home=str(self.hermes_home),
         )
-        self.assertEqual(ended["route_restore"]["status"], "restored")
+        # `restored` when a pin came back, `cleared` when the baseline had no
+        # keys to put back. Both are the turn end doing its job.
+        self.assertIn(ended["route_restore"]["status"], ("restored", "cleared"))
 
     def test_a_pin_that_is_the_chain_s_own_second_entry_still_advances_to_it(self) -> None:
         # The worst case. Reading the restored pin as the position reported
@@ -996,6 +1001,42 @@ class FallbackAfterRestoreTest(RouteRestoreTestCase):
 
         self.assertEqual(exhausted["status"], "unrecorded_value_not_ours")
         self.assertEqual(self.current(), {"model": "person-pin"})
+
+    def test_an_exhausted_chain_in_a_later_turn_with_no_pin_reports_and_supersedes(self) -> None:
+        # The ordinary flow, and the case the two existing exhaustion tests
+        # between them missed: a later turn, no record left, and nothing in
+        # the three keys. Empty keys are nothing to protect, so the guard
+        # that stops exhaustion deleting a pin must not fire here -- it gave
+        # the model a status no description mentions, skipped the
+        # `exhausted_to_inherit` rename, and skipped the superseding
+        # provenance record.
+        (self.omh_home / "routing" / "model-chains.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "mixture_chain_overrides/v1",
+                    "categories": {"quick": [{"model": "head-model", "reasoning_effort": "low"}]},
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.route_then_end_turn()
+        self.assertEqual(self.current(), {})
+        self.assertEqual(self.record(), {})
+
+        exhausted = self.call(action="fallback", category="quick")
+
+        self.assertEqual(exhausted["status"], "exhausted_to_inherit")
+        self.assertEqual(exhausted["route_provenance"], "recorded")
+        self.assertEqual(exhausted["position_source"], "provenance")
+        self.assertEqual(self.current(), {})
+        origins = [
+            record["origin"]
+            for record in load_delegation_route_provenance(self.omh_home)
+        ]
+        # The supersede the neighbouring `clear` branch calls necessary, or a
+        # later child on a coincidentally matching model still inherits the
+        # head record's label.
+        self.assertEqual(origins[-1], "exhausted_to_inherit")
 
     def test_an_error_return_still_says_where_it_thought_it_was(self) -> None:
         # Nothing routed at all: no live keys OMH owns and no provenance.

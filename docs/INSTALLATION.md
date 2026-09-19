@@ -534,7 +534,7 @@ evidence), and is safe to delete — an absent or invalid file only means HUD
 rows fall back to plain category projection.
 
 Beside it, `~/.omh/routing/route-restore.json`
-(`delegation_route_restore/v1`) holds the way back out of a route. The first
+(`delegation_route_restore/v2`) holds the way back out of a route. The first
 time OMH writes `delegation.*` over values it did not write, it records what
 those three keys held — a key the file did not carry is recorded by being
 absent, so putting the baseline back removes the key rather than writing an
@@ -559,18 +559,24 @@ and the CLI a task is one turn, so a route lasts one turn. On a gateway
 platform (Slack, Discord, Telegram, Feishu, the API server) the task id is
 the session id, so a route lasts the session.
 
+Every one of those is gated on the same recorded value: if the keys no
+longer hold what OMH wrote, someone else set them, and OMH reports that and
+changes nothing. The session-start path additionally asks the writer's own
+`state.db` row whether it is still running. Only a row the host closed
+answers that it is not; a row the host never closed, which is what a killed
+TUI and most gateway sessions leave behind, falls back to a six-hour bound
+on the route's own age. Such a route can outlive its session by that long
+rather than risk being taken back while the writer is still dispatching.
+
 What returns is the previous values, not the previous bytes: the writer
 normalises quoting, emits the three keys in a fixed order, and drops an
-inline comment on one of those lines, leaving every other byte untouched. Every one of those is gated on the same
-recorded value: if the keys no longer hold what OMH wrote, someone else set
-them, and OMH reports that and changes nothing. The session-start path asks
-the writer's own `state.db` row whether it is still running; only a row the
-host closed answers that it is not, and a row the host never closed -- what a
-killed TUI and most gateway sessions leave behind -- falls back to a six-hour
-bound on the route's own age, so such a route can outlive its session by up to
-that long rather than risk being taken back while the writer is still
-dispatching. Deleting the file is safe and
-means only that OMH stops claiming it knows what the keys held before it.
+inline comment on one of those lines, leaving every other byte untouched.
+
+If the record itself fails to write after a route has landed, the route is
+reported as unrecorded and whatever the keys held before it is gone with the
+record, so a model pinned by hand will not come back. Deleting the file by
+hand is safe and means only that OMH stops claiming it knows what the keys
+held before it.
 
 A fourth sibling, `~/.omh/routing/dispatch-models.json`
 (`omh_dispatch_model_preferences/v1`), applies to a different surface:

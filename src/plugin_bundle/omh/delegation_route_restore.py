@@ -519,6 +519,13 @@ def _store_record(path: Path, *, note: str, **fields: Any) -> str:
     failure is named in the returned note instead. The route then reads as
     unrecorded, and the next write recognises it through provenance rather
     than enshrining it as a baseline.
+
+    That recovers the leak half and not the other one: whatever the three
+    keys held before this write is gone with the record, so a model the
+    person had pinned will not come back. Nothing can recover it once the
+    only copy failed to reach disk, which is why the note is returned rather
+    than swallowed -- an operator who sees `unrecorded: <reason>` has been
+    told their pin is at risk while they can still act on it.
     """
     record = {"schema_version": DELEGATION_ROUTE_RESTORE_SCHEMA_VERSION, **fields}
     try:
@@ -600,12 +607,25 @@ def restore_delegation_baseline(
             enforced = mechanism != LOCK_MECHANISM_NONE
             record = load_route_restore_record(omh_home)
             if not record:
-                if unrecorded_clear == "if_omh_wrote" and not omh_wrote_current_keys(
-                    read_delegation_route(hermes_home), omh_home, record={}
-                ):
+                unprotected = (
+                    unrecorded_clear == "if_omh_wrote"
+                    and (keys := read_delegation_route(hermes_home))
+                    and not omh_wrote_current_keys(keys, omh_home, record={})
+                )
+                if unprotected:
                     # Automatic removal of a value OMH cannot prove it wrote
                     # is how the person's pinned model got deleted the moment
                     # a lane failed. Report instead.
+                    #
+                    # EMPTY keys are nothing to protect, not a value that is
+                    # not ours, and the difference is the ordinary flow: a
+                    # route, its turn end, then fallback until the chain runs
+                    # out leaves the three keys absent. Refusing there gave
+                    # the model a status no description mentions, skipped the
+                    # `exhausted_to_inherit` rename, and skipped the
+                    # superseding provenance record the neighbouring `clear`
+                    # branch needs -- all over a file that was already in the
+                    # state being asked for.
                     return {
                         "status": "unrecorded_value_not_ours",
                         "trigger": trigger,

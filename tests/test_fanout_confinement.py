@@ -23,6 +23,7 @@ from omh.coding.fanout_confinement import (  # noqa: E402
 )
 from omh.quality.cross_harness_adapter_sandbox import (  # noqa: E402
     ChildContext,
+    read_roots_are_safe,
     runtime_roots,
     sandbox_command,
 )
@@ -98,6 +99,32 @@ class _ConfinedSpawnContract:
             self.assertEqual(confinement.receipt["probe"]["inside_write_exit_code"], 0)
             self.assertEqual(confinement.receipt["probe"]["outside_write_exit_code"], 1)
             self.assertIn(self.probe_refusal, confinement.receipt["probe"]["refusal"])
+
+    def test_owner_cli_under_a_sensitive_directory_is_really_fenced(self) -> None:
+        """#1602: a CLI installed at `~/.claude/local/<cli>` gets a fence, not an exemption."""
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            worktree = root / "worktree"
+            worktree.mkdir()
+            install = root / ".claude" / "local"
+            install.mkdir(parents=True)
+            executable = install / "claude"
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o700)
+
+            confinement = prepare_fanout_filesystem_confinement(
+                worktree,
+                {},
+                ((str(executable),), ("/bin/sh", "-c", "exit 0")),
+            )
+
+            # The install directory is in the read roots and the screen still
+            # calls that set unsafe; the run is fenced by its own probe anyway.
+            self.assertIn(install, confinement.roots)
+            self.assertFalse(read_roots_are_safe(confinement.roots))
+            self.assertTrue(confinement.receipt["enforced"])
+            self.assertEqual(confinement.receipt["probe"]["inside_write_exit_code"], 0)
+            self.assertEqual(confinement.receipt["probe"]["outside_write_exit_code"], 1)
 
     def test_confined_command_can_exec_a_real_binary_without_widening_writes(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -431,6 +458,57 @@ class FanoutConfinementPolicyTests(unittest.TestCase):
         environment = confinement.command_environment({"PATH": "/usr/bin"})
 
         self.assertEqual(environment, {"PATH": "/usr/bin"})
+
+    def test_owner_cli_in_a_sensitive_directory_is_fenced_like_any_other(self) -> None:
+        """#1602: where the executable lives must not decide whether writes are fenced.
+
+        Reads are broad in this lane whatever `roots` say, so the read screen
+        could only ever have removed the write fence.
+        """
+        with TemporaryDirectory() as temporary:
+            home = Path(temporary).resolve()
+            worktree = home / "worktree"
+            worktree.mkdir()
+            directories = {"sensitive": home / ".claude" / "local", "ordinary": home / "opt" / "local"}
+            receipts: dict[str, dict[str, object]] = {}
+            children: dict[str, ChildContext | None] = {}
+            with mock.patch("omh.coding.fanout_confinement.Path.home", return_value=home):
+                for label, directory in directories.items():
+                    directory.mkdir(parents=True)
+                    executable = directory / "claude"
+                    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                    executable.chmod(0o700)
+                    with (
+                        mock.patch("omh.coding.fanout_confinement.backend", return_value="sandbox-exec"),
+                        mock.patch("omh.coding.fanout_confinement.backend_available", return_value=True),
+                        mock.patch("omh.coding.fanout_confinement.preflight", return_value=(True, "digest")),
+                        mock.patch(
+                            "omh.coding.fanout_confinement.sandbox_command",
+                            side_effect=lambda argv, *_args, **_kwargs: argv,
+                        ),
+                        mock.patch(
+                            "omh.coding.fanout_confinement.subprocess.run",
+                            return_value=subprocess.CompletedProcess((), 1, "", "refused"),
+                        ),
+                    ):
+                        confinement = prepare_fanout_filesystem_confinement(
+                            worktree, {}, ((str(executable),),)
+                        )
+                    receipts[label] = confinement.receipt
+                    children[label] = confinement.child
+
+            # The detector still calls this shape unsafe. What changed is that
+            # the fanout lane no longer answers it by dropping the fence.
+            self.assertFalse(read_roots_are_safe((directories["sensitive"],)))
+            self.assertIsNotNone(children["sensitive"])
+            self.assertNotEqual(receipts["sensitive"]["reason_code"], "unsafe_sandbox_read_root")
+            # The probe entry carries a per-run token, so compare the fence the
+            # receipt reports rather than the receipt verbatim.
+            fence_keys = ("status", "backend", "write_root", "write_roots", "write_literals", "enforced", "reason_code")
+            self.assertEqual(
+                {key: receipts["sensitive"][key] for key in fence_keys},
+                {key: receipts["ordinary"][key] for key in fence_keys},
+            )
 
     def test_host_without_a_trusted_bwrap_has_no_backend_rather_than_a_failed_preflight(self) -> None:
         with TemporaryDirectory() as temporary:

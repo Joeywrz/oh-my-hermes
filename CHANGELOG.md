@@ -128,6 +128,26 @@ All notable changes will be documented here.
   recorded reason remains a declaration -- never evidence that something is
   actually blocking.
 
+- **A coding CLI installed under a sensitive directory no longer dispatches
+  without a write fence.** Fanout screened its sandbox read roots with
+  `read_roots_are_safe`, while every fanout spawn passes
+  `allow_broad_file_read=True`, which makes both backends ignore those roots
+  for reads. The screen could therefore narrow nothing, and its one remaining
+  effect was to answer a sensitive read root by leaving the run unconfined: an
+  owner CLI at `~/.claude/local/claude`, a standard Claude Code install
+  location, put `.claude` into a read root and the dispatch lost its write
+  fence while still reading the whole host tree. The more sensitive the
+  executable's location, the less confined the run (#1602).
+
+  The fanout lane no longer runs that screen, with the reason recorded at the
+  code, and its confinement receipt now says outright that reads are not part
+  of the boundary it attests, so the record still states what was and was not
+  confined. The strict cross-harness-adapter lane, where the same screen does
+  narrow reads, is unchanged and still refuses an unsafe read root; the
+  `~/.claude/local` shape is pinned there as a refusal. The fanout
+  data-boundary row no longer names `read_roots_are_safe` as an enforcer,
+  which moves the safety-profile revision.
+
 - **`/omh-model` and the `omh` CLI now edit the store a bot profile
   dispatches from.** A Hermes bot profile may select its own OMH store with
   `plugins.entries.omh.settings.omh_home`, and its native plugin resolves that

@@ -515,7 +515,6 @@ DATA_BOUNDARY_LIMITS: Final = (
         "host_confinement",
         (
             "omh.quality.cross_harness_adapter_sandbox.sandbox_command",
-            "omh.quality.cross_harness_adapter_sandbox.read_roots_are_safe",
             "omh.coding.fanout_confinement.prepare_fanout_filesystem_confinement",
         ),
         _FANOUT_FILESYSTEM_CONFINEMENT_BLOCKER,

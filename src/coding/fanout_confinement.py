@@ -18,7 +18,6 @@ from ..quality.cross_harness_adapter_sandbox import (
     backend,
     backend_available,
     preflight,
-    read_roots_are_safe,
     runtime_roots,
     sandbox_command,
     unique_roots,
@@ -30,7 +29,8 @@ FANOUT_FILESYSTEM_CONFINEMENT_CLAIM_BOUNDARY = (
     "and every selected owner state directory, then was refused outside every write root. Owner state may also "
     "include an exact file literal and the two named credential mach-lookup allowances; neither expands into a "
     "directory or broader IPC permission. Backend availability, preflight, and a prepared command alone are not "
-    "confinement evidence."
+    "confinement evidence. Reads are not part of this boundary: every command this confinement returns runs with "
+    "broad host read, so no receipt here reports a read boundary, whatever its write verdict."
 )
 # Fanout confines writes, not reads: an invited coding CLI needs its own toolchain,
 # configuration, credentials, and caches. The receipt attests only the write boundary.
@@ -261,11 +261,20 @@ def prepare_fanout_filesystem_confinement(
     roots = unique_roots(
         (worktree, *(Path(executable).parent for executable in executables.values()), *runtime_roots(selected))
     )
-    if not read_roots_are_safe(roots):
-        return _unconfined(
-            worktree, selected, environment, "unsafe_sandbox_read_root", roots=roots,
-            write_roots=write_roots, write_literals=write_literals, executables=executables,
-        )
+    # `read_roots_are_safe` deliberately does not gate this lane, unlike the
+    # strict adapter lane (`cross_harness_adapters._prelaunch_failure`), where
+    # narrow read roots are the policy and an unsafe one refuses the launch.
+    # Here `command()` passes `allow_broad_file_read=True` unconditionally, and
+    # both backends then ignore `roots` for reads -- `(allow file-read*)` on
+    # macOS, `--ro-bind / /` on Linux -- so screening `roots` cannot narrow what
+    # a dispatched child reads. `roots` feed read rules only; the fence is
+    # `write_roots` and `write_literals`. The screen's one remaining effect was
+    # therefore inverted: an owner CLI under a `_SENSITIVE_PARTS` directory --
+    # `~/.claude/local/claude` is a standard Claude Code install location --
+    # returned `unsafe_sandbox_read_root`, and the run lost its write fence
+    # while still reading the whole host tree (#1602). The macOS probe keeps its
+    # narrow read layout, so such a directory is readable to the probe; it is
+    # the directory the same executable is about to run from under broad read.
     if selected in {"sandbox-exec", "bwrap"}:
         scratch_directory = worktree / _FANOUT_TOOLCHAIN_TEMP_DIRECTORY
         scratch_directory.mkdir(parents=True, exist_ok=True)

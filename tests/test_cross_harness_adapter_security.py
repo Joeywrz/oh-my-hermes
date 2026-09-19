@@ -385,8 +385,10 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             request, spec = _spec(root, "passing")
-            for unsafe in (Path("/"), Path.home(), Path.home() / ".ssh"):
-                with self.subTest(unsafe=unsafe.name):
+            # `~/.claude/local` is the fanout lane's #1602 shape, kept here to
+            # pin that the strict lane still answers it by refusing the launch.
+            for unsafe in (Path("/"), Path.home(), Path.home() / ".ssh", Path.home() / ".claude" / "local"):
+                with self.subTest(unsafe=str(unsafe)):
                     candidate = ExecutionSpec(spec.argv, (unsafe,), root, spec.backend)
                     outcome = self._run_fake_adapter(request, candidate, _output(root))
                     self.assertEqual(outcome.reason_code, "unsafe_read_root")

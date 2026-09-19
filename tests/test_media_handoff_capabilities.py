@@ -6,7 +6,6 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from omh.coding.coding_delegation import build_coding_delegation_payload
-from omh.local_store import utc_now
 from omh.coding.executor_capability_snapshots import (
     build_executor_capability_snapshot,
     complete_executor_capability_snapshot,
@@ -74,10 +73,7 @@ def _primary_handoff_decision(
     transformation: dict[str, str] | None = None,
     recommendation: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    # The delegation payload judges freshness against the real clock (it has
-    # no `now` seam), so the fixture must be stamped at test time: a fixed
-    # date crossed the 24-hour evidence horizon the day after it was written.
-    stamp = utc_now()
+    stamp = "2026-09-03T00:00:00Z"
     with TemporaryDirectory() as temporary:
         directory = Path(temporary)
         snapshot = build_executor_capability_snapshot(
@@ -103,6 +99,7 @@ def _primary_handoff_decision(
             transformation=transformation,
             model_recommendation=recommendation or _PRIMARY_RECOMMENDATION,
             capability_snapshot_directory=directory,
+            now=stamp,
         )
     return payload["executor_handoff"]["executor_modality_decision"]  # type: ignore[index]
 

@@ -542,8 +542,12 @@ class DelegateRouteToolTest(unittest.TestCase):
             )
             return write_delegation_route(*args, **kwargs)
 
+        # The fallback write goes through `delegation_route_restore` now, so
+        # the compare-and-set this pins is patched where it is actually
+        # called; patching the tool module would leave the guard unexercised
+        # and the test green.
         with mock.patch(
-            "omh.plugin_bundle.omh.tools.delegate_route_tool."
+            "omh.plugin_bundle.omh.delegation_route_restore."
             "write_delegation_route",
             side_effect=concurrent_write,
         ):

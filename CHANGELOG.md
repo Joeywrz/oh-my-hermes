@@ -267,6 +267,54 @@ All notable changes will be documented here.
   text from whatever raised, so it can quote the person's own rule pattern or
   a tool argument, and that ledger is metadata-only.
 
+- **A delegation route now has a way back, so one lane's model stops being
+  every later session's default.** `omh_delegate_route` writes
+  `delegation.model` / `provider` / `reasoning_effort` into `config.yaml`
+  because Hermes re-reads those keys per dispatch. Nothing put them back.
+  Clearing was a sentence in the tool description rather than something the
+  code did, so on the machine this was measured on, 28 of 32 recorded routes
+  were never cleared and a route written for one lane two days earlier was
+  what every delegation inherited -- including sessions that never called the
+  tool.
+
+  OMH now records, under the same lock as the route write, what the three
+  keys held the first time it wrote over values it did not write. A key the
+  file did not carry is recorded by being absent, so putting the baseline
+  back removes the key rather than writing an empty string. The baseline is
+  captured once and survives later routes; only a person's own edit between
+  two routes re-captures it, because at that moment OMH is again writing over
+  a value it did not write.
+
+  Three paths put it back: `action=clear`, the end of the session that wrote
+  the route, and the start of a later session when the writing session is
+  gone. Chain exhaustion restores the baseline instead of clearing, so the
+  next dispatch runs on the model the user had rather than on plain
+  inheritance. Every one of them is gated on the same recorded value, never
+  on wording: OMH compares the file's current three keys with what it
+  recorded writing, and a value someone else set is reported and left alone.
+
+  The session-start path exists because a killed TUI never reaches
+  `on_session_end`. It restores only a route whose recorded writer is not a
+  live session, read from Hermes' own `state.db` rows. When that surface
+  cannot answer at all, liveness is unknown and an age bound decides instead
+  -- the same six hours the approval-bypass ledger uses -- and the returned
+  `liveness` field says which one answered, so a bound is never reported as a
+  liveness observation. OMH registers `on_session_start` for this; it is the
+  host's own first-turn lifecycle callback, bounded and fail-open.
+
+  Two sessions routing at once is ordinary on one machine, so the whole
+  read-through-replace is inside the plugin's existing file lock. A writer
+  that cannot take it returns a refusal the tool surfaces and never reports
+  `routed`. The interleave that motivated the recorded writer -- A routes, B
+  routes over it, A ends -- leaves B's route in place and B's session end
+  restores the user's own baseline.
+
+  A machine that already carries a route written before this change has no
+  baseline record. OMH cannot know what those keys held, so the automatic
+  paths report `no_baseline_recorded` and change nothing. An explicit
+  `action=clear` still removes the keys, which is what it did before and the
+  only way to settle a route nothing recorded.
+
 - **`omh --resume <id>` works, and the terminal now names the `omh` way
   back.** Bare `omh` is documented as the same door as `hermes`, but the door
   opened one way only: the parser rejected `omh --resume <id>` as an invalid

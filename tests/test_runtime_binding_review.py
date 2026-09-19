@@ -133,7 +133,8 @@ class RuntimeBindingReviewTests(unittest.TestCase):
 
     def test_binding_fault_precedes_hook_io_and_pre_tool_blocks(self):
         for module, name in ((llm_hooks, 'pre_llm_call'), (tool_hooks, 'pre_tool_call'),
-                             (tool_hooks, 'post_tool_call'), (session_hooks, 'on_session_end')):
+                             (tool_hooks, 'post_tool_call'), (session_hooks, 'on_session_end'),
+                             (session_hooks, 'on_session_start')):
             for home_key in ('omh_home', 'hermes_home'):
                 with self.subTest(hook=name, home=home_key):
                     def bind(value=None, *, hermes=False):
@@ -203,7 +204,8 @@ class RuntimeBindingReviewTests(unittest.TestCase):
         # is no rules file to leave unread -- the hook degrades exactly as the
         # observer hooks already did.
         for module, name in ((llm_hooks, 'pre_llm_call'), (tool_hooks, 'pre_tool_call'),
-                             (tool_hooks, 'post_tool_call'), (session_hooks, 'on_session_end')):
+                             (tool_hooks, 'post_tool_call'), (session_hooks, 'on_session_end'),
+                             (session_hooks, 'on_session_start')):
             with self.subTest(hook=name):
                 with patch.object(paths, 'plugin_home',
                                   side_effect=paths.UnattributableSessionError('PRIVATE_PATH')), \

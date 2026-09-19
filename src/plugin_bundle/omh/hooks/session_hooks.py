@@ -8,9 +8,14 @@ import os
 from pathlib import Path
 import uuid
 
-from ..degradation import runtime_binding_degradation
+from ..degradation import (
+    COMPONENT_DELEGATION_ROUTE_RESTORE,
+    degradation_payload,
+    runtime_binding_degradation,
+)
+from ..delegation_route_restore import restore_delegation_baseline
 from ..engagement_nudges import record_engagement_observer_failure
-from ..host_observation import observe_plugin_hook_call
+from ..host_observation import host_session_id, observe_plugin_hook_call
 from .nudge_budget import note_delegated_session
 
 
@@ -46,22 +51,69 @@ def subagent_start(**kwargs) -> None:
     return None
 
 
+def on_session_start(**kwargs) -> dict[str, object] | None:
+    """Put back a delegation route whose writing session is gone.
+
+    `on_session_end` is the ordinary way back, and a TUI that is killed never
+    reaches it, so a route written two days ago can still be every later
+    session's delegation default (#1724). This is the second path, and the
+    reason it is a second path rather than the only one: it may act only on a
+    route whose recorded writer is NOT a live session, so it cannot pull a
+    baseline out from under a session that is still dispatching.
+
+    OMH did not register `on_session_start` before this. It is the host's own
+    first-turn lifecycle callback (`hermes_cli.plugins.VALID_HOOKS`), bounded
+    and fail-open, and it carries the `session_id` the decision needs -- which
+    is why the restore rides it rather than the first `pre_llm_call`, where the
+    same work would have to re-derive "is this the first turn" on a hot path
+    that runs every turn.
+
+    Nothing here can stop a session starting. A binding failure returns the
+    same bounded degradation block the sibling hooks return, a restore that
+    fails returns its own, and the host discards the return either way -- the
+    point of returning it is that the failure is named rather than absent.
+    """
+    try:
+        omh_home = runtime_paths.plugin_home(kwargs.get("omh_home"))
+        hermes_home = runtime_paths.plugin_home(kwargs.get("hermes_home"), hermes=True)
+    except (runtime_paths.RuntimeBindingError, OSError, RuntimeError) as exc:
+        return runtime_binding_degradation(exc)
+    observe_plugin_hook_call("on_session_start", kwargs)
+    restore = _restore_route(hermes_home, omh_home, trigger="session_start", orphaned=True)
+    payload: dict[str, object] = {"status": "session_start", "route_restore": restore}
+    _attach_restore_degradation(payload, restore)
+    return payload
+
+
 def on_session_end(**kwargs) -> dict[str, object] | None:
-    """Record a metadata-only plugin checkpoint when OMH runtime state exists."""
+    """Restore this session's delegation route, then checkpoint OMH runtime state."""
     try:
         home = runtime_paths.plugin_home(kwargs.get("omh_home"))
-        runtime_paths.plugin_home(kwargs.get("hermes_home"), hermes=True)
+        hermes_home = runtime_paths.plugin_home(kwargs.get("hermes_home"), hermes=True)
     except (runtime_paths.RuntimeBindingError, OSError, RuntimeError) as exc:
         return runtime_binding_degradation(exc)
     observe_plugin_hook_call("on_session_end", kwargs)
+    # Scoped to the session that wrote the route. A session that ended while a
+    # later session's route is in the file must not put the baseline back
+    # underneath it, and the recorded writer is what says which one this is.
+    restore = _restore_route(
+        hermes_home,
+        home,
+        trigger="session_end",
+        writer_session=host_session_id(kwargs),
+    )
     runtime_dir = home / "runtime"
     if not runtime_dir.exists():
-        return None
+        payload: dict[str, object] = {"status": "no_runtime_state", "route_restore": restore}
+        _attach_restore_degradation(payload, restore)
+        return payload
     runs_dir = runtime_dir / "runs"
     run_count = len(list(runs_dir.glob("*/run.json"))) if runs_dir.exists() else 0
     state = _read_json(runtime_dir / "state.json")
     if not state and run_count == 0:
-        return None
+        payload = {"status": "no_runtime_state", "route_restore": restore}
+        _attach_restore_degradation(payload, restore)
+        return payload
     payload = {
         "schema_version": "omh_plugin_session_end/v1",
         "observed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -73,7 +125,57 @@ def on_session_end(**kwargs) -> dict[str, object] | None:
     }
     path = runtime_dir / "plugin-session-end.json"
     _atomic_write_json(path, payload)
-    return {"status": "checkpoint_written", "path": str(path)}
+    checkpoint: dict[str, object] = {
+        "status": "checkpoint_written",
+        "path": str(path),
+        "route_restore": restore,
+    }
+    _attach_restore_degradation(checkpoint, restore)
+    return checkpoint
+
+
+def _restore_route(
+    hermes_home: Path,
+    omh_home: Path,
+    *,
+    trigger: str,
+    writer_session: str | None = None,
+    orphaned: bool = False,
+) -> dict[str, object]:
+    """Call the restore and never let its failure reach the host as a raise.
+
+    The restore module already turns its own expected faults into a `status`,
+    so the narrow catch here is for the unexpected one. It is narrow on
+    purpose: a bare `except Exception` would also hide a contract break in the
+    caller, and this hook is fail-open at the host anyway -- the value added
+    by catching is the named status, not the survival.
+    """
+    try:
+        return restore_delegation_baseline(
+            hermes_home,
+            omh_home=omh_home,
+            trigger=trigger,
+            require_writer_session=writer_session,
+            require_writer_not_live=orphaned,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        return {"status": "error", "trigger": trigger, "error": type(exc).__name__}
+
+
+def _attach_restore_degradation(payload: dict[str, object], restore: dict[str, object]) -> None:
+    """Name a failed restore in the hook payload instead of leaving an absence.
+
+    Only a real failure degrades. `no_baseline_recorded`, `foreign_edit`,
+    `not_last_writer` and `writer_live` are the restore working: each is a
+    decision not to touch a value, and reporting them as degradation would put
+    a permanent warning in front of every healthy session.
+    """
+    if str(restore.get("status", "")) not in ("error", "lock_unavailable"):
+        return
+    error_type = str(restore.get("error", "")) or str(restore.get("status", ""))
+    payload["omh_degradation"] = degradation_payload(
+        [(COMPONENT_DELEGATION_ROUTE_RESTORE, error_type)]
+    )
 
 
 def _expand_path(value: str) -> Path:

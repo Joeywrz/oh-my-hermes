@@ -141,6 +141,17 @@ HOOK_REVIEWS: dict[str, dict[str, Any]] = {
         "reviewed_timeout_ms": 2000,
         "capability": "the OMH end-of-session summary record",
     },
+    "on_session_start": {
+        "source_path": "hooks/session_hooks.py",
+        "event_scope": ("on_session_start",),
+        "reviewed_timeout_ms": 2000,
+        "capability": (
+            "restoring the delegation.* keys a killed session left in "
+            "config.yaml back to the baseline OMH recorded before it first "
+            "wrote them, and only when the recorded writer is not live and "
+            "the keys still hold what OMH wrote"
+        ),
+    },
     "pre_llm_call": {
         "source_path": "hooks/llm_hooks.py",
         "event_scope": ("pre_llm_call",),

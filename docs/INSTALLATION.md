@@ -533,6 +533,21 @@ carries its own `claim_boundary` (prepared routes only, never dispatch
 evidence), and is safe to delete — an absent or invalid file only means HUD
 rows fall back to plain category projection.
 
+Beside it, `~/.omh/routing/route-restore.json`
+(`delegation_route_restore/v1`) holds the way back out of a route. The first
+time OMH writes `delegation.*` over values it did not write, it records what
+those three keys held — a key the file did not carry is recorded by being
+absent, so putting the baseline back removes the key rather than writing an
+empty string — together with what OMH wrote and which session wrote it. The
+baseline is captured once and survives later routes. `action=clear`, the end
+of the session that wrote the route, and the start of a later session when
+the writing session is gone all put it back; chain exhaustion puts it back
+instead of clearing, so the next dispatch runs on the model the user had
+rather than on one more rejection. Every one of those is gated on the same
+recorded value: if the keys no longer hold what OMH wrote, someone else set
+them, and OMH reports that and changes nothing. Deleting the file is safe and
+means only that OMH stops claiming it knows what the keys held before it.
+
 A fourth sibling, `~/.omh/routing/dispatch-models.json`
 (`omh_dispatch_model_preferences/v1`), applies to a different surface:
 `omh coding fanout dispatch`'s `--model` fallback for a spawned agent CLI,

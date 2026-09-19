@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import os
 
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
+import random
 import re
+import time
+from typing import Callable
 
 from omh.skin_pack import SKIN_NAME, is_omh_skin_name
 
-from ..system.local_store import atomic_write_text
+from ..core.errors import OmhError
+
+from ..system.local_store import atomic_replace_text, atomic_write_text
 
 
 @dataclass(frozen=True)
@@ -1330,4 +1336,230 @@ def read_config(path: Path) -> str:
 
 
 def write_config(path: Path, text: str) -> None:
+    """Replace `config.yaml` with no lock and no compare; `update_config` instead.
+
+    Kept only for tests that build a fixture config from nothing, where
+    there is no other writer to race. Every writer in `src/` goes through
+    `update_config`, and `tests/test_config_write_discipline.py` re-derives
+    that from source and fails on a new bare call (#1742).
+    """
     atomic_write_text(path, text)
+
+
+class ConfigWriteRefused(OmhError):
+    """`update_config` declined to write, for a reason its subclass names.
+
+    An `OmhError` so every CLI surface already reports it the same way -- a
+    one-line `omh: ...` and exit 2. A refusal is a real outcome here, not an
+    internal fault: the alternative is writing over something OMH must not.
+    Callers that care about "did the write happen" catch this; callers that
+    care why catch one of the two below.
+    """
+
+
+class ConfigConcurrentUpdate(ConfigWriteRefused):
+    """Another writer replaced `config.yaml` between this writer's read and its write."""
+
+
+class ConfigMutationFailed(ConfigWriteRefused):
+    """The caller's mutation timed out while deciding what to write.
+
+    Narrow on purpose. Every other exception a mutation raises already
+    propagated before `update_config` existed and its callers already map
+    it -- `ensure_external_dir` raises `ValueError` on a shape it refuses,
+    and `omh setup` turns that into an `OmhError`. `TimeoutError` is the one
+    that changed: the lock handler used to swallow it and report a lock
+    timeout that had not happened, and narrowing that handler to the
+    acquisition left it escaping as a traceback instead of one line. It is
+    neither, now: the write is refused and the message says the mutation,
+    not the lock.
+    """
+
+
+class ConfigUnwritable(ConfigWriteRefused):
+    """The config could not be read, or is a shape OMH refuses to replace.
+
+    Separate from `ConfigConcurrentUpdate` because it names a different
+    cause: an unreadable file and a symlinked config both used to raise the
+    concurrency class, so a traceback or a log line reported a race that had
+    not happened. The person saw the right message either way; the record
+    did not.
+    """
+
+
+@dataclass(frozen=True)
+class ConfigUpdate:
+    """What one `update_config` call decided and did."""
+
+    changed: bool
+    written: bool
+    message: str
+    text: str
+    attempts: int
+    lock_enforced: bool
+
+
+def update_config(
+    path: Path,
+    mutate: Callable[[str], ConfigChange],
+    *,
+    omh_home: str | Path | None = None,
+    dry_run: bool = False,
+    attempts: int = 3,
+    sleep: Callable[[float], None] = time.sleep,
+) -> ConfigUpdate:
+    """Read, mutate and replace one Hermes `config.yaml` under one discipline.
+
+    OMH used to write this file from two families that did not know about
+    each other. The delegation route writer read, compared a file signature
+    and replaced atomically; `write_config` rewrote the whole file with no
+    lock and no compare, from `omh setup`, `omh theme`, `omh memory`,
+    self-update and `system/targets`. One of those could read the file, have
+    a route land, and write back its stale copy -- erasing the route, after
+    which the restore record saw a value it had not written and dropped the
+    person's baseline as a foreign edit (#1742).
+
+    `mutate` receives the text just read and returns the text to write. It
+    runs again on every retry, and that is what makes retrying safe: the
+    second attempt derives its change from the OTHER writer's file, so
+    neither update is lost. Keep it pure with respect to the config; it may
+    be called more than once.
+
+    Two mechanisms, and they are not redundant:
+
+    * The signature compare is the contract. It holds for every writer,
+      including one in a process that never heard of the lock.
+    * The lock is taken when `omh_home` names an existing OMH home AND this
+      is not a dry run, and it is the SAME lock the route writer holds
+      (`route_write_lock`), so the two families serialize rather than
+      merely detecting each other. It turns a retry that would have
+      happened into one that never has to.
+
+    Symlinks are refused before any of this, which is also what keeps the
+    compare's two sides describing one file: the read stamps the opened
+    descriptor and the guard stamps the path without following it, and
+    those agree for every shape except a link. Aligning them the other way
+    -- following the link on both sides -- would weaken the guard, because
+    a file swapped for a symlink between the read and the replace would
+    stop being detected.
+
+    What the compare cannot do, stated because it decides how a caller has
+    to be written: it guards the window between the text handed to `mutate`
+    and the replace, and nothing earlier. A mutation that ignores that text
+    and returns bytes derived from some earlier read writes a stale copy no
+    signature can detect, because the file has not moved since this writer
+    read it. `tests/test_config_write_discipline.py` fails a mutation that
+    never names its argument; the rest is a review question.
+
+    A file that keeps moving for `attempts` rounds raises
+    `ConfigConcurrentUpdate` rather than writing, and so does a lock this
+    command could not take in time. A config that cannot be read, or that is
+    a symlink, raises `ConfigUnwritable`. A mutation that times out raises
+    `ConfigMutationFailed`. All three are `ConfigWriteRefused` and all three
+    are `OmhError`, so every CLI surface reports them as one line and exit
+    2. Refusing is the honest end: the alternative is the lost update this
+    exists to prevent. Any OTHER exception from the mutation belongs to the
+    caller and propagates unchanged, as it did before this function existed.
+    """
+    from ..plugin_bundle.omh.delegation_route_restore import route_write_lock
+    from ..plugin_bundle.omh.delegation_routing import config_file_signature, read_config_snapshot
+
+    def _attempt() -> ConfigUpdate | None:
+        if path.is_symlink():
+            # Before the read, on every round, and not left to the reader.
+            # `read_config_snapshot` refuses a symlink by opening with
+            # `O_NOFOLLOW` and catching the `OSError`, and `os.O_NOFOLLOW`
+            # does not exist on Windows -- `getattr(os, "O_NOFOLLOW", 0)`
+            # makes the flag a no-op there, so the open follows the link
+            # and succeeds. The refusal then never fires, and the two sides
+            # of the compare stop describing the same file: the read
+            # signature comes from `fstat` on the followed descriptor (the
+            # target) and the guard's from `lstat` on the path (the link),
+            # which differ in inode and size. Every round mismatched, and a
+            # symlinked config failed with "kept changing" after three
+            # attempts instead of being refused as the symlink it is.
+            #
+            # Only the final component. The temp file is created in
+            # `path.parent` and renamed within it, so a symlinked parent
+            # directory cannot produce the link-destruction this prevents,
+            # and people do symlink dotfile directories. `O_NOFOLLOW`
+            # guards only the final component too, so both writer families
+            # refuse the same thing.
+            raise ConfigUnwritable("config.yaml is a symlink; refusing to rewrite it")
+        text, signature, error = read_config_snapshot(path)
+        if error:
+            raise ConfigUnwritable(error)
+        try:
+            change = mutate(text)
+        except TimeoutError as exc:
+            raise ConfigMutationFailed(f"the config mutation timed out: {exc}") from exc
+        if not change.changed or dry_run:
+            return ConfigUpdate(change.changed, False, change.message, change.text, 1, False)
+        if not atomic_replace_text(
+            path, change.text, guard=lambda: config_file_signature(path) == signature
+        ):
+            return None
+        return ConfigUpdate(True, True, change.message, change.text, 1, False)
+
+    rounds = max(attempts, 1)
+
+    def _loop() -> ConfigUpdate:
+        for attempt in range(1, rounds + 1):
+            result = _attempt()
+            if result is not None:
+                return ConfigUpdate(
+                    result.changed, result.written, result.message, result.text, attempt, False
+                )
+            if attempt < rounds:
+                # Jittered, and short. Without the lock -- no OMH home yet,
+                # or `system/targets` writing a home this invocation is not
+                # bound to -- three immediate rounds burn out in microseconds
+                # against a writer that would have finished a millisecond
+                # later, and the refusal then means "I was fast", not "the
+                # file kept moving". Jitter rather than a fixed delay for the
+                # reason `_with_windows_retry` records: writers that collided
+                # once re-collide in lockstep on a deterministic wait.
+                # `sleep` is a seam so a test can hold this: timing cannot
+                # be asserted without flakiness, and a comment explaining
+                # the jitter survives a refactor that deletes the sleep.
+                sleep(0.005 * attempt * (0.5 + random.random()))
+        raise ConfigConcurrentUpdate(
+            f"config.yaml kept changing during {rounds} update "
+            f"{'attempt' if rounds == 1 else 'attempts'}: {path}"
+        )
+
+    home = Path(omh_home).expanduser() if omh_home else None
+    if dry_run or home is None or not home.is_dir():
+        # A dry run writes nothing, so it has nothing to serialize against.
+        # Taking the lock anyway made a read-only command create
+        # `routing/` and a lock file inside it, force that directory to
+        # 0700, and acquire a five-second wait and a way to exit non-zero --
+        # none of which "the same --dry-run semantics" allows. It reads
+        # without the lock and reports a snapshot, which is what a preview
+        # is.
+        #
+        # No OMH home is the other case: no home to key the shared lock on
+        # means no plugin is bound to one either, so there is no route
+        # writer on the other side of it. The signature compare stands on
+        # its own in both.
+        return _loop()
+    with ExitStack() as stack:
+        try:
+            # Only the acquisition is inside this `try`. `FileLockTimeout`
+            # in this repo is a `TimeoutError`, so wrapping `_loop()` too
+            # would report any future mutation that touches a locked store
+            # as a lock timeout here.
+            mechanism = stack.enter_context(route_write_lock(home))
+        except TimeoutError as exc:
+            raise ConfigConcurrentUpdate(
+                f"timed out waiting for the OMH config lock: {exc}"
+            ) from exc
+        result = _loop()
+    return ConfigUpdate(
+        result.changed,
+        result.written,
+        result.message,
+        result.text,
+        result.attempts,
+        mechanism != "none",
+    )

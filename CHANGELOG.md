@@ -1944,6 +1944,152 @@ All notable changes will be documented here.
   A failed reading steps the ladder too. A machine where `omh` cannot be run
   was spawning the failure 450 times an hour; the attention mark still
   arrives on the third consecutive failure. (#1726)
+- **The repeat guard can see a cycle, and can tell a loop from a poll.** It
+  counted CONSECUTIVE identical calls, so an A,B,A,B alternation reset the
+  streak on every call and the guard sat armed and silent through the whole
+  failure -- which is the loop the reporting session actually burned its turn
+  on, two `terminal` commands alternating to the end. And it compared
+  arguments only, so a status poll and a stuck loop looked the same from
+  outside, which is why its ladder had to leave room for the poll and its
+  message had to hedge about the result.
+
+  Both are one defect, and the fix is one mechanism. A bounded per-session
+  history of recent calls replaces the single counter, and a repeating cycle
+  of period 1 to 4 replaces the streak -- period 1 IS the streak, so there is
+  one detector, not a second one bolted beside it. The periods are the host's
+  own (`agent/tool_guardrails.py`), matched deliberately: two detectors that
+  disagreed about what a cycle is would refuse different sequences and a
+  person comparing the two notes could not tell which was wrong.
+
+  A call now counts toward the ladder only when its ARGUMENTS and its RESULT
+  both repeat. `post_tool_call` digests the result under the same privacy
+  rule as the arguments -- a length and a bounded one-way hash, never the
+  text -- so a poll whose output is changing never reaches a stage however
+  long it runs, and the block message may now say the results were identical,
+  and says it only when they were compared. A result this seam cannot digest
+  leaves the call unknown, which falls back to the argument comparison that
+  shipped before and to the message that claims nothing about results.
+
+  Two things the host does that a simpler reading of those seams misses, both
+  found by driving the ladder through a worker pool rather than one call at a
+  time. Hermes fires `post_tool_call` for a BLOCKED call too, with the
+  refusal as the result -- OMH's own message, on OMH's own blocks -- and that
+  digest was landing in the history of a sibling call that really ran, which
+  broke the cycle chain and restarted the ladder; the host marks that post
+  `status="blocked"`, so the structured field is read and the refusal is not
+  digested. And a call still in flight has no result yet, which the
+  comparison was reading as "no evidence, fall back to arguments" -- so an
+  eight-wide poll with a different answer every call was blocked at call 9.
+  The ladder is now computed over the calls that have returned, with the
+  fallback kept for the host it was written for: one that fires no
+  `post_tool_call` at all, where nothing has a result and the guard is the
+  argument-only one it has always been.
+
+  Stated limit, unchanged and now plainer: a result carrying a timestamp, an
+  elapsed duration or a progress percentage never repeats byte-for-byte, so
+  it reads as progress forever. A single-call loop whose output is
+  timestamped -- a `terminal` loop returning `1 failed in 0.4Ns` -- was
+  blocked at call 9 before this change and is not caught now. That is the
+  price of telling a poll from a loop by its output, and OMH does not
+  normalize result text to avoid it: deciding which bytes of a result do not
+  count is wording inference.
+
+  What the ladder costs, per period: 8 calls at period 1 (unchanged), 8 at
+  period 2, 9 at period 3, 12 at period 4. Counting laps alone would have
+  given a period-4 cycle 32 calls before anyone noticed, four times a
+  period-1 streak's budget, bought by padding the loop.
+
+  Dispatch width shifts where the rungs land, because a call in flight is not
+  yet evidence. For a period-1 loop of 24 identical calls, allowed `.`,
+  blocked `B`, escalated `A`:
+
+  ```
+  width 1: ........BBBBAAAAAAAAAAAA
+  width 2: .........BBBBAAAAAAAAAAA
+  width 8: ...............BBBBAAAAA
+  ```
+
+  The same poll at every width is `........................`.
+
+  A tool the host exempts from its own identical-call notice is exempt here
+  too, by the host's predicate rather than a second list: `process_manage`
+  and any tool ending `_poll` or `_get_result`
+  (`agent/tool_guardrails.py`). Result-awareness covers a poll whose output
+  moves; it does not cover the case the host actually names, a status poll
+  returning the same line, which is the tool a model is told to use while it
+  waits. A cycle that only partly polls is still a loop.
+
+  Stage two, the human-approval gate, is withheld where no person can answer.
+  Measured at `tools/approval.py`, an unattended context does not park on a
+  card -- at the `approvals.unattended_mode` default of `deny` it returns the
+  host's own block text, losing OMH's advice, and at `approve` it returns
+  `_approved()`, running the very call stage one was refusing.
+
+  Which lanes those are is the approval layer's question, and the answer is
+  taken from the code that decides it (`tools/approval_context.py`): the
+  three programmatic platforms whose adapters can neither raise a card nor
+  receive an `/approve` reply, plus a single-query (`-q`) process. Every chat
+  gateway escalates, because a person can answer there. So does an unknown
+  platform, which is the host's own answer for a surface added later. The
+  platform comes from `pre_llm_call`, the one hook OMH registers that is
+  passed one; `pre_tool_call` is not. A delegated child is withheld too, by
+  choice rather than by measurement: its card names a session the person did
+  not start.
+
+  **Cron cannot be detected from a plugin, so a cron turn escalates.**
+  `HERMES_CRON_SESSION` is a ContextVar name and never a process variable --
+  the in-process ticker binds it through `gateway.session_context`, the
+  detached worker's environment is built without it, and Hermes' own
+  regression test asserts the process environment stays clean after a job --
+  and a plugin cannot read a host ContextVar. An earlier draft read the
+  variable anyway and claimed the dedicated-process case worked; that was a
+  gate frozen on a state the host never produces, and it is gone rather than
+  kept as a line that cannot fire. The cost is bounded and is not a
+  regression, since every lane escalated before this: at the
+  `approvals.cron_mode` default of `deny` the host resolves the escalation as
+  a block, so the loop still stops with the host's wording instead of OMH's
+  advice; at `approve` it auto-approves the looping call. Single-query is
+  different and does work, because Hermes exports that marker on both of its
+  entry paths.
+
+  The projection a surface reads (`repeat_call_streak`, which #1687's HUD row
+  will be the first caller of) requires the attendance answer as an argument
+  with no default, so a caller cannot render an escalation the gate is
+  withholding by omitting it.
+
+  The escalation's `[a]lways` key is derived from the cycle's elements in
+  their lexicographically smallest rotation, so A,B,A,B and B,A,B,A are one
+  key and a person who answered once is not re-prompted by a key that moved.
+
+  Once a cycle is engaged, every call belonging to it is refused, not only
+  the one the cycle would run next. Driving the ladder through the two
+  registered hooks found the difference: a blocked call never runs, so the
+  cycle's phase does not advance, and a model that answered the block by
+  issuing the OTHER element got eight more calls before the guard re-armed.
+  The observed ladder for a period-2 cycle is now calls 1-8 allowed, 9-12
+  blocked, 13 escalated -- the same shape a period-1 streak has. A call that
+  is not in the cycle still clears the guard, which is the only thing that
+  ever did.
+
+  The refusal the model reads says that now. It used to end "any different
+  tool call clears the guard immediately", which was true while the guard
+  watched a single repeated call and false the moment membership replaced
+  position: under a cycle the other element IS a different tool call and is
+  refused, so the message was telling the model to do the one thing this
+  change made it stop doing. It now names a call outside the cycle.
+
+  Hook cost, measured before and after on the same machine with the ledger at
+  its caps, median of three back-to-back passes, both hooks. At 64
+  simultaneously live sessions `pre_tool_call` goes from 3.11 ms to 3.89 ms
+  p50 and `post_tool_call` from 2.28 ms to 2.96 ms, with the ledger growing
+  from 57.8 KiB to 119.6 KiB. At the everyday two-session shape both hooks
+  are unchanged and the ledger SHRINKS, from 47.1 KiB to 33.4 KiB. Four
+  things hold the ceiling down: a session that is not repeating anything is
+  trimmed to the shortest window a cycle can be found in, the gate reads one
+  session's row instead of rebuilding every row, a write carries other
+  sessions' rows through untouched, and this one ledger is now written
+  without the pretty-printing every other OMH ledger keeps -- it is rewritten
+  on every tool call and nothing reads it as text. (#1719, #1706)
 
 ## 2.0.3 - 2026-09-12
 

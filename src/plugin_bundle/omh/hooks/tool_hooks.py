@@ -16,8 +16,10 @@ from ..tool_bursts import (
     record_tool_call_close,
     repeat_call_directive,
     tool_args_digest,
+    tool_result_digest,
 )
 from ..toolcall_rules import toolcall_rule_directive
+from .session_attendance import escalation_can_reach_a_person
 
 
 @runtime_checkable
@@ -84,7 +86,7 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
     # outright (the message becomes the tool result the model sees)"). The
     # host passes the tool arguments as ``args``; ``tool_input`` is accepted
     # for bundle-internal callers and tests.
-    tool_input = kwargs.get("tool_input") if "tool_input" in kwargs else kwargs.get("args")
+    tool_input = _tool_arguments(kwargs)
     session_id = str(kwargs.get("session_id", "") or kwargs.get("task_id", "") or "")
     rule_directive = toolcall_rule_directive(
         tool_name=kwargs.get("tool_name"),
@@ -113,6 +115,13 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
         args_digest=args_digest,
         session_id=session_id,
         omh_home=omh_home,
+        # Stage two asks a person. Where there is none, the host resolves
+        # the gate without one -- blocking with its own wording under the
+        # `deny` default, and AUTO-APPROVING under
+        # `approvals.unattended_mode: approve`, which would run the very
+        # call stage one was refusing. So the escalation is withheld and
+        # stage one's block stands (`session_attendance`).
+        escalation_allowed=escalation_can_reach_a_person(session_id),
     )
     if repeat_directive is not None:
         # Counted as intercepted, not as a call: it is what moves the
@@ -169,6 +178,14 @@ def post_tool_call(**kwargs: object) -> dict[str, object] | None:
     running" and keeps the parallel-shot badge from lingering past the ring
     ceiling. A host that omits tool_call_id is a silent no-op here; the
     entry pre_tool_call never opened simply never closes early.
+
+    It also digests what the call returned, which is the one thing
+    `pre_tool_call` structurally cannot see and the whole of what tells a
+    loop from a poll (#1706). The digest is metadata under the same rule
+    as the argument digest -- a length and a bounded one-way hash, never
+    the text -- and a result this seam cannot digest leaves the entry
+    unknown, which degrades the guard to the argument comparison it
+    shipped with rather than to a refusal.
     """
     try:
         omh_home = str(runtime_paths.plugin_home(kwargs.get("omh_home")))
@@ -182,8 +199,57 @@ def post_tool_call(**kwargs: object) -> dict[str, object] | None:
     record_tool_call_close(
         kwargs.get("tool_call_id"),
         omh_home=omh_home,
+        session_id=str(kwargs.get("session_id", "") or kwargs.get("task_id", "") or ""),
+        tool_name=kwargs.get("tool_name"),
+        # The same canonicalization `pre_tool_call` applied to the same
+        # dict: the host coerces a call's arguments once, before either
+        # hook sees them (`model_tools.handle_function_call` runs
+        # `coerce_tool_args` first), so the two digests agree. If another
+        # plugin rewrote them in between with a `modify` directive they
+        # will not, and the entry simply stays unknown.
+        args_digest=tool_args_digest(_tool_arguments(kwargs)),
+        # A blocked call's "result" is the refusal, not the tool's answer,
+        # and on this guard's own blocks it is OMH's message about the
+        # loop. Digesting it wrote a foreign value into the history of a
+        # SIBLING call that really ran -- they match on tool and
+        # arguments, which is all `_fill_result_digest` can compare -- so
+        # the cycle chain broke and the ladder restarted. Measured on a
+        # period-1 loop of 20 calls: dispatched two at a time the guard
+        # blocked once and never escalated, where #1708 escalated at call
+        # 13 at any width. The host states this in a structured field
+        # rather than in the text (`model_tools.handle_function_call`
+        # emits `status="blocked"` on exactly that path), so the field is
+        # what is read -- never the wording of the message.
+        #
+        # This guard is exactly one host string wide, and the degradation
+        # is silent, so it is worth naming: a `post_tool_call` that omits
+        # `status`, or sends anything other than `blocked`, restores the
+        # defect in full -- one block and no escalation under concurrent
+        # dispatch -- and the symptom looks like a guard that is working.
+        # It is correct on this host because
+        # `model_tools.handle_function_call` is the only emitter and the
+        # literal is lowercase `blocked`; a host that changes either
+        # needs this read changed with it.
+        result_digest=(
+            ""
+            if str(kwargs.get("status", "") or "").strip().lower() == "blocked"
+            else tool_result_digest(kwargs.get("result"))
+        ),
     )
     return None
+
+
+def _tool_arguments(kwargs: Mapping[str, object]) -> object:
+    """This call's arguments, read the same way on both tool hooks.
+
+    The host passes them as ``args``; ``tool_input`` is the bundle-internal
+    and test spelling. One order, in one place, because the two hooks
+    reading it in opposite orders meant a caller supplying both digested
+    two different dicts at `pre_tool_call` and `post_tool_call`, so the
+    history entry stayed unknown -- degrading correctly, for the wrong
+    reason, invisibly.
+    """
+    return kwargs.get("tool_input") if "tool_input" in kwargs else kwargs.get("args")
 
 
 class _JsonDecoder(Protocol):

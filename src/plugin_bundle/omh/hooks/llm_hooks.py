@@ -35,6 +35,7 @@ from ..kanban_board_reader import conversation_session_ids, kanban_db_path, read
 from ..omh_roles import extract_role_marker, role_context_payload
 from ..dispatch_outcomes import unacknowledged_outcomes
 from ..runtime_reader import read_omh_activity, read_omh_hud, read_omh_status, read_omh_todo
+from .session_attendance import note_session_platform
 from ..todo_reconciliation import (
     answer_first_turn,
     continuation_claim_without_resume,
@@ -365,6 +366,11 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     except (runtime_paths.RuntimeBindingError, OSError, RuntimeError) as exc:
         return runtime_binding_degradation(exc)
     record_active_main_agent_model(kwargs.get("model"))
+    # The only hook OMH registers that is passed a platform and fires once
+    # per turn before that turn's tool calls. `pre_tool_call` is passed the
+    # five identity ids and nothing else, so this is where the repeat guard
+    # learns whether its stage-two escalation would have a reader.
+    note_session_platform(kwargs.get("session_id"), kwargs.get("platform"))
     observe_plugin_hook_call("pre_llm_call", kwargs)
     # Turn start is the freshest in-process view of the Shift+Tab yolo flag:
     # a toggle shows on the HUD at the user's next message, not only at the

@@ -215,13 +215,28 @@ def _awareness_delivery_lock(path: Path) -> Iterator[str]:
             _release_delivery_lock(handle, mechanism)
 
 
-def _write_delivery_record(path: Path, data: dict[str, Any]) -> None:
+def _write_delivery_record(path: Path, data: dict[str, Any], *, compact: bool = False) -> None:
+    """Atomically replace a ledger. `compact` drops the pretty-printing.
+
+    The default stays indented because these files are read by people
+    debugging a session. `compact` exists for the one ledger that is
+    rewritten on every single tool call and holds a per-session call
+    history: indentation put each of its fields on its own line, which
+    multiplied the bytes that hot path parses and writes. Nothing reads
+    any of these files as text -- every reader is `json.loads` -- so the
+    only cost is legibility, and only for that one file.
+    """
     tmp = path.with_name(f".{path.name}.{os.getpid()}-{secrets.token_hex(8)}.tmp")
     created = False
+    encoded = (
+        json.dumps(data, sort_keys=True, separators=(",", ":"))
+        if compact
+        else json.dumps(data, indent=2, sort_keys=True)
+    )
     try:
         with tmp.open("x", encoding="utf-8") as handle:
             created = True
-            handle.write(json.dumps(data, indent=2, sort_keys=True) + "\n")
+            handle.write(encoded + "\n")
         tmp.chmod(0o600)
         tmp.replace(path)
         path.chmod(0o600)

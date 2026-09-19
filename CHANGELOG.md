@@ -16,6 +16,23 @@ All notable changes will be documented here.
   read `not_observed` as an absent record rather than a record, would have
   flipped it with every existing case green (#1554).
 
+- **A Windows diagnostic-owner test no longer lets tempdir teardown replace
+  the verdict it exists to report.** In
+  `tests/test_local_diagnostic_process_cleanup.py`, both tests asserted their
+  outcome after their `TemporaryDirectory` block had already closed, so a
+  `PermissionError` from a still-exiting child holding the directory open
+  came back as the whole failure and hid whether cleanup actually verified
+  (#1644). Both tests now assert inside the `with` block, and
+  `WindowsJobObjectOwner` records which of its two waits did not resolve --
+  the Job Object never reporting empty, or the process handle not reporting
+  exit once it did -- on a new `termination_diagnostic` attribute the test
+  surfaces in its failure message, with no change to what `terminate()`
+  returns. Separately, `_await_empty_job`'s 1.0s deadline was a correctness
+  bound sized like a performance budget on a shared runner, the same class of
+  defect as #1599/#1604; it is now its own named constant,
+  `_JOB_EMPTY_DEADLINE_SECONDS = 30`. The Windows path itself is unverified
+  from this change -- macOS cannot reach `WindowsJobObjectOwner` at all.
+
 - **`/omh-model` and the `omh` CLI now edit the store a bot profile
   dispatches from.** A Hermes bot profile may select its own OMH store with
   `plugins.entries.omh.settings.omh_home`, and its native plugin resolves that

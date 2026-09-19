@@ -17,6 +17,13 @@ from .local_diagnostic_windows_job import CtypesWindowsJobApi
 _CREATE_SUSPENDED = 0x00000004
 _CREATE_NEW_PROCESS_GROUP = 0x00000200
 _TERMINATE_GRACE_SECONDS = 1.0
+# Correctness bound, not a performance budget: how long _await_empty_job may
+# keep polling before it gives up on the Job Object's kill-on-close finishing
+# asynchronously. A 1.0s shared deadline (the old behavior) can be exhausted
+# by ordinary scheduling delay on a loaded CI runner, not just a stuck child.
+# Same class of defect as #1599 (fixed in #1604 via
+# timeout=2 -> _THREAD_DEADLINE_SECONDS = 30); see #1644.
+_JOB_EMPTY_DEADLINE_SECONDS = 30.0
 
 WINDOWS_OWNED_PROCESS_FLAGS = _CREATE_SUSPENDED | _CREATE_NEW_PROCESS_GROUP
 
@@ -73,6 +80,12 @@ class WindowsJobObjectOwner:
         self._job = job
         self._lock = Lock()
         self._result: bool | None = None
+        # Diagnostic only -- never read by terminate()'s own control flow, and
+        # never changes what terminate() returns. Distinguishes the two waits
+        # a bare `False` result collapses together (#1644): the Job Object
+        # never reporting empty vs. the leader process handle not reporting
+        # exit within the grace period once the job did empty.
+        self.termination_diagnostic: str | None = None
 
     @classmethod
     def attach(
@@ -103,10 +116,13 @@ class WindowsJobObjectOwner:
             if active is not None and active > 0:
                 terminated = self._api.terminate_job(self._job)
             empty = terminated and _await_empty_job(self._api, self._job)
+            self.termination_diagnostic = None if empty else "job_did_not_empty"
             try:
                 self._process.wait(timeout=_TERMINATE_GRACE_SECONDS)
             except subprocess.TimeoutExpired:
                 reaped = False
+                if empty:
+                    self.termination_diagnostic = "process_wait_timed_out"
             else:
                 reaped = True
             self._api.close_job(self._job)
@@ -150,7 +166,7 @@ def start_owned_process(
 
 
 def _await_empty_job(api: WindowsJobApi, job: int) -> bool:
-    deadline = time.monotonic() + _TERMINATE_GRACE_SECONDS
+    deadline = time.monotonic() + _JOB_EMPTY_DEADLINE_SECONDS
     while True:
         active = api.active_processes(job)
         if active is None:

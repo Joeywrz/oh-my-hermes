@@ -340,6 +340,63 @@ _HISTORY_TICK_KEY = "s"
 # escalation stage instead of assuming it (`_recorded_escalation`).
 _ROW_ESCALATION_KEY = "esc"
 
+# Write failures this ledger has swallowed, by kind. Every writer below is
+# best-effort and must stay that way -- a hook that raised would disappear
+# into Hermes's own try/except-and-log wrapper -- but a swallow with nothing
+# counting it makes the HUD's liveness signal unfalsifiable: an entry left
+# open reads identically whether the call is still running or its close lost
+# the lock. Measured 2026-09-20: at eight concurrent writers no write is lost
+# at all; at twenty-four, 466 of 9,648 are, and before this nothing said so.
+WRITE_FAILURE_LOCK_TIMEOUT = "lock_timeout"
+WRITE_FAILURE_OTHER = "other"
+WRITE_FAILURE_KINDS: tuple[str, ...] = (WRITE_FAILURE_LOCK_TIMEOUT, WRITE_FAILURE_OTHER)
+# Capped like every other counter in this bundle: a machine-wide file the hot
+# path rewrites on every tool call must not carry a field that grows without
+# bound, and past this the exact number has stopped meaning anything.
+MAX_WRITE_FAILURE_COUNT = 10**9
+WRITE_FAILURE_CLAIM_BOUNDARY = (
+    "Counts ledger writes this OMH install dropped rather than blocking a "
+    "hook on them. A LOWER bound: the count is folded in by the next write "
+    "that does take the lock, so failures a process never followed with a "
+    "successful write are not in it. It says a tick was lost, never which "
+    "call lost it."
+)
+
+# Failures observed in THIS process and not yet folded into the file. They
+# cannot be recorded where they happen -- the write is what failed -- so the
+# next writer that does take the lock carries them in. Process-local, which
+# is why the boundary above calls the number a lower bound.
+_PENDING_WRITE_FAILURES: dict[str, int] = {kind: 0 for kind in WRITE_FAILURE_KINDS}
+
+
+def _note_write_failure(exc: BaseException) -> None:
+    """Remember one swallowed ledger write, classified by why it failed.
+
+    `TimeoutError` is the lock giving up after `_LOCK_TIMEOUT_SECONDS`, and
+    it is an `OSError`, which is how it reached the swallow unnoticed in the
+    first place. Everything else the writers catch is a genuine filesystem or
+    serialization failure, counted apart because the two call for different
+    answers: contention is a tuning question, a write error is a broken home.
+    """
+    kind = WRITE_FAILURE_LOCK_TIMEOUT if isinstance(exc, TimeoutError) else WRITE_FAILURE_OTHER
+    _PENDING_WRITE_FAILURES[kind] = min(
+        MAX_WRITE_FAILURE_COUNT, _PENDING_WRITE_FAILURES[kind] + 1
+    )
+
+
+def _merged_write_failures(recorded: dict[str, int]) -> dict[str, int]:
+    """The file's counts plus whatever this process is still carrying."""
+    return {
+        kind: min(MAX_WRITE_FAILURE_COUNT, recorded.get(kind, 0) + _PENDING_WRITE_FAILURES[kind])
+        for kind in WRITE_FAILURE_KINDS
+    }
+
+
+def _clear_pending_write_failures() -> None:
+    """Called only after a write returns; a failed write keeps them pending."""
+    for kind in WRITE_FAILURE_KINDS:
+        _PENDING_WRITE_FAILURES[kind] = 0
+
 
 def _runtime_dir(omh_home: str = "") -> Path:
     root = Path(omh_home).expanduser() if omh_home else runtime_paths.default_omh_home()
@@ -1003,8 +1060,9 @@ def record_tool_call(
     The direction is unchanged -- a lost write can only delay a refusal,
     never invent one -- and the same contention that loses the write is a
     machine where several sessions share one OMH home, which is where the
-    guard is least likely to be the thing that matters. #1734 covers
-    counting these; nothing here adds a new silent swallow."""
+    guard is least likely to be the thing that matters. The loss is no
+    longer silent: the swallow counts it under `write_failures`, which
+    `tool_call_activity` reports beside the liveness it bounds."""
     name = _normalized_name(tool_name)
     if not name:
         return
@@ -1051,12 +1109,19 @@ def record_tool_call(
                     "open_calls": open_calls,
                     "repeat_streaks": repeat_streaks,
                     "post_tool_call_observed_at": record["post_tool_call_observed_at"],
+                    "write_failures": _merged_write_failures(record["write_failures"]),
                 },
                 # The one ledger written on every tool call, and the only
                 # one holding a per-session call history. See the writer.
                 compact=True,
             )
-    except (OSError, ValueError, TypeError):
+            _clear_pending_write_failures()
+    except (OSError, ValueError, TypeError) as exc:
+        # The swallow stays exactly as wide as it was -- this hook must not
+        # raise. What changes is that the failure is now RECORDED before it
+        # is dropped, which is what `CLAUDE.md` means by widening the report
+        # rather than the except.
+        _note_write_failure(exc)
         return
 
 
@@ -1129,12 +1194,16 @@ def record_repeat_refusal(
                     "open_calls": _prune_expired_opens(record["open_calls"], now=tick),
                     "repeat_streaks": streaks,
                     "post_tool_call_observed_at": record["post_tool_call_observed_at"],
+                    "write_failures": _merged_write_failures(record["write_failures"]),
                 },
                 # The one ledger written on every tool call, and the only
                 # one holding a per-session call history. See the writer.
                 compact=True,
             )
-    except (OSError, ValueError, TypeError):
+            _clear_pending_write_failures()
+    except (OSError, ValueError, TypeError) as exc:
+        # Same width, same failing-open contract; the drop is counted now.
+        _note_write_failure(exc)
         return
 
 
@@ -1201,12 +1270,18 @@ def record_tool_call_close(
                     "open_calls": open_calls,
                     "repeat_streaks": streaks,
                     "post_tool_call_observed_at": observed_at,
+                    "write_failures": _merged_write_failures(record["write_failures"]),
                 },
                 # The one ledger written on every tool call, and the only
                 # one holding a per-session call history. See the writer.
                 compact=True,
             )
-    except (OSError, ValueError, TypeError):
+            _clear_pending_write_failures()
+    except (OSError, ValueError, TypeError) as exc:
+        # A close that loses the lock strands its entry open until the TTL
+        # expires it, and the HUD cannot tell that from a call still
+        # running. This is the count that makes the difference knowable.
+        _note_write_failure(exc)
         return
 
 
@@ -1287,7 +1362,25 @@ def _read_record(path: Path) -> dict[str, Any]:
         "open_calls": _sanitized_open_calls(raw),
         "repeat_streaks": _raw_repeat_streaks(raw),
         "post_tool_call_observed_at": _sanitized_observed_at(raw),
+        "write_failures": _sanitized_write_failures(raw),
     }
+
+
+def _sanitized_write_failures(raw: dict[str, Any]) -> dict[str, int]:
+    """The swallowed-write counters, defaulting to zero for an older file.
+
+    A file written before this key existed reads as "none counted", which is
+    the truth about that file: no one was counting. It is not a claim that
+    none were lost.
+    """
+    source = raw.get("write_failures")
+    source = source if isinstance(source, dict) else {}
+    counts: dict[str, int] = {}
+    for kind in WRITE_FAILURE_KINDS:
+        value = source.get(kind)
+        usable = isinstance(value, int) and not isinstance(value, bool) and value > 0
+        counts[kind] = min(MAX_WRITE_FAILURE_COUNT, value) if usable else 0
+    return counts
 
 
 def _sanitized_observed_at(raw: dict[str, Any]) -> float:
@@ -1706,6 +1799,10 @@ def _read_snapshot(omh_home: str, *, now: float) -> dict[str, Any]:
         # read nothing beyond the dictionary lookup for that row.
         "repeat_streaks": _prune_stale_streaks(record["repeat_streaks"], now=now),
         "post_tool_call_observed_at": record["post_tool_call_observed_at"],
+        # Merged with this process's pending count so a reader in the same
+        # process as the writer is not told zero while the writer is still
+        # carrying failures it has not managed to record.
+        "write_failures": _merged_write_failures(record["write_failures"]),
     }
 
 
@@ -1733,6 +1830,15 @@ def _activity_from_snapshot(snapshot: dict[str, Any], shot: dict[str, Any], *, n
         # either way and the HUD must render liveness as unanswerable
         # rather than inverting silence into a false stall.
         "post_tool_call_observed": snapshot["post_tool_call_observed_at"] > 0,
+        # The error bar on everything above it. A nonzero `lock_timeout`
+        # says some pre- or post-tick never reached the file, so an open
+        # count can be low, and an entry can be open because its close was
+        # dropped rather than because the call is still running. Zero is
+        # the ordinary state -- no write is lost below roughly a dozen
+        # concurrent writers -- and it is what makes a nonzero reading mean
+        # something.
+        "write_failures": dict(snapshot["write_failures"]),
+        "write_failures_claim_boundary": WRITE_FAILURE_CLAIM_BOUNDARY,
         "latest_shot": shot,
         "claim_boundary": TOOL_ACTIVITY_CLAIM_BOUNDARY,
     }

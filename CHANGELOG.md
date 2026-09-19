@@ -79,6 +79,52 @@ All notable changes will be documented here.
   never what it was. Asserted against the serialized payload with a sentinel
   in the arguments and in the results.
 
+- **The per-turn fanout scan stops growing with the machine's history, a
+  dropped ledger tick is counted, and an unchanged approval-bypass flag is no
+  longer rewritten on every hook call.** Three costs on the path every turn
+  and every tool call takes, measured together because they share a harness.
+
+  `pre_llm_call` read the fanout root twice -- the running-work board and the
+  unacknowledged-dispatch reminder -- and the board opened four JSON files for
+  every fanout directory the machine had ever created. Nothing prunes that
+  root, so the cost only ever grew: 0.8 ms on a fresh home, 147 ms on one with
+  a thousand fanouts. Both readers now keep the eight most recently active
+  directories and open only those, which takes the same turn to 7.2 ms at a
+  thousand and 2.0 ms at the dozen a working home has.
+
+  The bound is by recency and not by name, which matters more than it looks: a
+  fanout id is `fanout-<sha256(goal)[:12]>`, a content hash carrying no order
+  at all, so sorting the names and slicing would have kept an arbitrary eight
+  of a thousand and silently dropped running units. The running-work board
+  orders by when a fanout's in-flight markers last changed, because that is the
+  stamp its own question moves; the dispatch reminder keeps ordering by when a
+  summary was written. The board reports how many directories the bound passed
+  over, so a truncated scan cannot read as a complete one. Pruning that root is
+  still nothing's job, and a bounded scan is what makes that survivable rather
+  than fixed.
+
+  The tool-bursts ledger's three writers are best-effort and must stay that way
+  -- a hook that raised would vanish into the host's own try/except-and-log
+  wrapper -- but the lock's `TimeoutError` is an `OSError`, so a write lost to
+  contention left no trace at all. An entry left open then read identically
+  whether the call was still running or its close had been dropped. The swallow
+  is unchanged in width; what it now does before returning is count the drop,
+  classified as a lock timeout or a write error, folded into the ledger by the
+  next write that does take the lock and reported beside the liveness it
+  bounds. Measured: eight concurrent writers lose nothing at all, twenty-four
+  lose 477 of 9,648 writes, and the counter reads back 477. It is a lower bound
+  by construction, and says so.
+
+  `record_approval_bypass` took a lock, wrote a temp file and renamed it on
+  every hook call -- twice per tool call, once per turn -- for a boolean that
+  changes when a person presses Shift+Tab. It now writes only when the
+  observation is news: 0.201 ms to 0.020 ms. The timestamp is load-bearing in
+  exactly one place, the six-hour staleness cut in `latest_approval_bypass`, so
+  an unchanged value is still refreshed every half hour and can never age into
+  that cut while the hooks are still observing it. No other reader reads the
+  stamp: the widget renders the state and the flag, and the permission
+  rehearsal reads the same two.
+
 - **Fourteen skills stop telling the model to record a coding handoff for work
   that is not coding.** A skill body rendered "Preferred harness for this
   skill: `coding-handling`" and an `omh runtime record --harness

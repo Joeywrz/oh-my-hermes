@@ -5,13 +5,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import shutil
-import subprocess
-import sys
 import time
 import unittest
 
-from _test_temp_root import _kill_stale_occupants, _sweep, make_test_tempdir, test_temp_root
-from _platform_support import requires_posix
+from _test_temp_root import _sweep, make_test_tempdir, test_temp_root
 
 
 def _age(path: Path, seconds: float) -> None:
@@ -77,38 +74,6 @@ class TestTempRootTests(unittest.TestCase):
         racing.rmdir()  # simulate a sibling sweeper winning the race
 
         _sweep(self.root, stale_after_seconds=24 * 60 * 60)  # must not raise
-
-    @requires_posix
-    def test_kill_stale_occupants_signals_a_process_naming_the_directory(self) -> None:
-        directory = self.root / "omh-selftest-occupant"
-        directory.mkdir()
-        self.addCleanup(lambda: directory.rmdir())
-        marker = directory / "hermes.py"
-        child = subprocess.Popen(
-            [sys.executable, "-c", f"import time,sys; sys.argv[0]={str(marker)!r}; time.sleep(60)"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        self.addCleanup(lambda: child.poll() is None and child.kill())
-        try:
-            for _ in range(50):
-                probe = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True, timeout=5)
-                if str(directory) in probe.stdout:
-                    break
-                time.sleep(0.1)
-            else:
-                self.skipTest("spawned child's argv did not surface in `ps` in time")
-
-            _kill_stale_occupants(directory)
-
-            deadline = time.time() + 5
-            while time.time() < deadline and child.poll() is None:
-                time.sleep(0.1)
-            self.assertIsNotNone(child.poll(), "stale occupant was not signalled")
-        finally:
-            if child.poll() is None:
-                child.kill()
-            child.wait(timeout=5)
 
 
 if __name__ == "__main__":

@@ -20,31 +20,23 @@ deliberately conservative:
 * it ignores every error, so two test processes sweeping at the same moment
   never raise into each other (a directory disappearing mid-scan, one still
   open on Windows -- see the CLAUDE.md note on why Windows will not unlink a
-  file another process still holds open);
+  file another process still holds open, and its own `ignore_errors=True`
+  deferral to the next sweep rather than raising);
 * it stays off anything younger than the bound, so a parallel suite's own
-  live directories are never touched.
-
-Before removing a stale directory, `_kill_stale_occupants` makes a
-POSIX-only, best-effort attempt to signal any process whose command line
-still names a path inside it -- the mitigation for issue #1731's second
-finding, an 8-day-old `hermes.py config path` fake-host process left behind
-by a killed `tests/test_hermes_model_config.py` run. The library call that
-spawns it (`_run` in `src/coding/hermes_model_config.py`) already bounds and
-kills the child on a normal timeout or interruption; what a killed *test*
-process cannot run is that in-process cleanup, exactly the same class of gap
-as the leaked directories, so the same sweep mitigates it. On Windows this
-step is a no-op: the follow-up `shutil.rmtree(..., ignore_errors=True)`
-simply leaves a still-open file for the next sweep instead of raising.
+  live directories are never touched;
+* it only ever removes files and directories. It does not inspect or signal
+  processes -- this repository already has a rule against pattern-matched
+  process killing (`pkill -f "unittest discover"` once took out a sibling
+  worktree's suite), and a directory sweep does not need one: an orphaned
+  process that still has a stale directory open loses its own files when the
+  directory is removed, which is enough.
 """
 
 from __future__ import annotations
 
-from contextlib import suppress
 import os
 from pathlib import Path
 import shutil
-import signal
-import subprocess
 import tempfile
 from tempfile import TemporaryDirectory
 from threading import Lock
@@ -102,44 +94,4 @@ def _sweep(root: Path, *, stale_after_seconds: float = _STALE_AFTER_SECONDS) -> 
             continue  # raced with another sweeper or the owner; ignore and move on
         if age < stale_after_seconds:
             continue  # stay off anything younger than the bound
-        _kill_stale_occupants(Path(entry.path))
         shutil.rmtree(entry.path, ignore_errors=True)
-
-
-def _kill_stale_occupants(directory: Path) -> None:
-    """Best-effort: signal any process whose command line still names a path in `directory`.
-
-    POSIX only. Matching is by substring against `ps`'s own argv rendering,
-    scoped to a per-test-run temp directory name that is effectively unique,
-    so a false match would require another process to have that exact path
-    on its command line by coincidence.
-    """
-    if os.name != "posix":
-        return
-    needle = str(directory)
-    try:
-        listing = subprocess.run(
-            ["ps", "-eo", "pid=,args="],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return
-    if listing.returncode != 0:
-        return
-    own_pid = os.getpid()
-    for line in listing.stdout.splitlines():
-        stripped = line.strip()
-        if needle not in stripped:
-            continue
-        pid_text = stripped.split(None, 1)[0]
-        try:
-            pid = int(pid_text)
-        except ValueError:
-            continue
-        if pid == own_pid:
-            continue
-        with suppress(ProcessLookupError, PermissionError):
-            os.kill(pid, signal.SIGKILL)

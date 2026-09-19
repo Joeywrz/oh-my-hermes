@@ -1489,8 +1489,25 @@ grouped as Sessions and Models tables with a compact coding metadata footer
 instead of a raw text list. The helper explicitly requests the bounded local
 process scan so its header can show observed Hermes agent/process counts; plain
 `omh menubar status` does not scan processes unless
-`--observe-local-processes` is supplied. Use explicit commands when you want to
-manage it yourself:
+`--observe-local-processes` is supplied.
+
+One reading costs about 0.7 s of wall time, most of it interpreter start and
+importing the CLI, so the helper does not take one every 8 s regardless. It
+polls at the `--interval` cadence while the menu keeps changing, and each
+consecutive reading that renders the same menu doubles the gap up to a ceiling
+of 60 s; any change drops it straight back to `--interval`. Between readings a
+2 s timer stats the paths the payload names in `watch_paths` (Hermes'
+`state.db` and its write-ahead log) and reads as soon as one moves, so a
+session starting shows up within one `--interval` plus a tick however long
+the machine has been idle. That wake never reads sooner than `--interval`,
+because a live session writes its store every few seconds and an unfloored
+wake would read on every tick; a busy machine therefore costs exactly what
+it cost before this backoff existed. A change only the process scan can see,
+such as a Hermes process that has not touched its session store, waits for
+the next scheduled reading instead. Setting `--interval` higher than 60 s keeps that
+cadence; the ceiling never polls faster than you asked for.
+
+Use explicit commands when you want to manage it yourself:
 
 ```sh
 omh menubar install

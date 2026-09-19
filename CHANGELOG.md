@@ -104,6 +104,48 @@ All notable changes will be documented here.
   OMH, a network index, or ownership of the working tree; a coverage map is
   something a model fills and a person or CI checks, never evidence by itself.
 
+- **OMH no longer routes on rows no person wrote.** Hermes opens turns for
+  rows it writes itself -- a background process finishing, an async
+  delegation batch, a model switch -- and each arrives as a `role="user"` row
+  carrying real text. OMH's awareness rail and route hint read that text as a
+  request. Measured in the owner's `state.db`: 282 of 1,869 user rows are
+  host-synthesized, 259 of them `async_delegation_complete`, and 272 of the
+  282 match the awareness vocabulary. One background-process notice drew
+  `intent=meta_discussion; selected=workflow-learning` with 3,297 characters
+  of routing behind it.
+
+  On a turn the host opened for itself there is no request, so `pre_llm_call`
+  now derives one value -- the message read AS a request -- and gives every
+  routing surface absence on such a turn: no `[OMH Route Hint]`, no awareness
+  vocabulary match, no structured route hint in the context brief, and the
+  per-fingerprint claim ledger is not spent. That last one is the tail of the
+  bug rather than its bulk: the ledger holds one route per session, so a
+  claim spent on a notice silences the same hint later, when a person
+  actually asks for it.
+
+  The discriminator is `display_kind`, the record field Hermes stamps when
+  the row is written, and never wording. `steer` is input typed for the
+  renderer and routes exactly as an untyped row does; an absent or unreadable
+  row keeps today's behaviour, because a plugin that cannot tell who wrote
+  must not start claiming the host did. Measured on a completion-notice turn
+  by driving the real hook: 3,484 characters before and 798 after for a
+  `process_complete` notice, 3,852 before and 798 after for an async
+  delegation batch. The identical text on an untyped row is unchanged at
+  3,656 and 4,024.
+
+  What is deliberately untouched is everything that reads the turn as an
+  event rather than a request -- the plan drive, the dispatch outcome lines,
+  the active-workflow line, the role marker -- because a completion notice is
+  exactly the turn on which those matter. The first-turn primer is unchanged
+  too, including when the opening row is a notice: Hermes computes
+  `is_first_turn` as "no prior history", so withholding the primer there
+  would drop it for the whole session rather than defer it, and the host
+  replays it in `api_content` for the person's later turns anyway.
+
+  The predicate #1739 introduced moved from `todo_reconciliation` to a
+  neutral `turn_authorship` module, since a routing surface importing "who
+  opened this turn" from the plan-checklist module reads wrong. The old
+  import surface is re-exported unchanged.
 - **`omh --resume <id>` works, and the terminal now names the `omh` way
   back.** Bare `omh` is documented as the same door as `hermes`, but the door
   opened one way only: the parser rejected `omh --resume <id>` as an invalid

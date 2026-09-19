@@ -40,6 +40,7 @@ from ..todo_reconciliation import (
     continuation_claim_without_resume,
     open_todo_reminder,
 )
+from ..turn_authorship import host_synthesized_turn
 from ..status_board_reader import (
     last_running_work_board_fingerprint,
     read_running_work_board,
@@ -379,15 +380,33 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     route_hint_payload: dict[str, object] | None = None
     route_fingerprint = ""
     session_id = str(kwargs.get("session_id", "") or "")
-    # Read once per turn and handed to both surfaces that branch on it, so the
-    # plan line and the claim-finding suppression cannot disagree about who
-    # opened this turn.
+    # Read once per turn and handed to every surface that branches on it, so
+    # the plan line, the claim-finding suppression and the router cannot
+    # disagree about who opened this turn.
     turn_display_kind = _turn_display_kind(kwargs.get("conversation_history"))
+    # Hermes opens turns for rows it writes itself -- a background process
+    # finishing, an async delegation batch, a model switch -- and each is a
+    # `role="user"` row carrying real text. There is no request on such a
+    # turn, so there is nothing to route: every surface below that reads the
+    # message AS A REQUEST reads this instead, and gets absence. Measured in
+    # the owner's `state.db`, 272 of the 282 host-synthesized rows match the
+    # awareness vocabulary, one of them producing a `selected=` verdict and
+    # 3,297 characters of routing on a background-process notice (#1741).
+    #
+    # One derived value rather than a condition per surface: the route hint,
+    # the vocabulary match, the per-fingerprint claim and the structured
+    # brief all ask "what is this turn asking for", and a gate on three of
+    # the four is how the fourth keeps routing. What is NOT re-pointed is
+    # everything that reads the turn as an event rather than a request -- the
+    # plan drive, the dispatch outcome lines, the active-workflow line, the
+    # role marker, the first-turn primer -- because a completion notice is
+    # exactly the turn on which those matter.
+    request_message = "" if host_synthesized_turn(turn_display_kind) else user_message
     message_matches_awareness = False
     degraded: list[tuple[str, str]] = []
     if include_awareness:
         if is_first_turn:
-            route_hint_payload = awareness_route_hint(user_message)
+            route_hint_payload = awareness_route_hint(request_message)
             route_hint_context = awareness_route_hint_context_from_payload(route_hint_payload)
             message_matches_awareness = bool(route_hint_context)
             route_degradation = route_hint_payload.get("degradation")
@@ -400,12 +419,12 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
             # `is_first_turn` short circuit is preserved because the cache-count
             # tests depend on it. The accessor reads the same cache entry the
             # matcher just populated, so it costs a hit and never a miss.
-            message_matches_awareness = awareness_context_matches_message(user_message)
-            match_error = awareness_context_match_degradation(user_message)
+            message_matches_awareness = awareness_context_matches_message(request_message)
+            match_error = awareness_context_match_degradation(request_message)
             if match_error:
                 degraded.append((COMPONENT_LOCALIZED_ROUTING_TEXT, match_error))
         if message_matches_awareness and route_hint_payload is None:
-            route_hint_payload = awareness_route_hint(user_message)
+            route_hint_payload = awareness_route_hint(request_message)
             route_hint_context = awareness_route_hint_context_from_payload(route_hint_payload)
         if route_hint_context:
             route_fingerprint = hashlib.sha256(route_hint_context.encode("utf-8")).hexdigest()
@@ -434,6 +453,21 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     # that matched nothing still contributes no hint text, and the
     # per-fingerprint claim above still decides whether guidance already went
     # out. This widens what the primer reaches, not what counts as a route.
+    #
+    # `is_first_turn` therefore stays unqualified by who opened that turn. A
+    # session whose first row is a notice -- a cron, a resumed run picking up
+    # a finished background process -- still gets the primer on it, and that
+    # is the reachable choice rather than the tidy one: Hermes computes
+    # `is_first_turn` as "no prior history" (`_collect_pre_llm_call_context`,
+    # `agent/turn_context.py`), so it is true on exactly one turn per
+    # session. Withholding the primer there does not defer it to the first
+    # person turn, it drops it for the whole session and puts that session
+    # back on the vocabulary gate the paragraph above describes. Delivering
+    # it costs nothing later either: the host replays it in `api_content`, so
+    # `_primer_already_in_api_history` finds it and the person's turns read
+    # the primer they would have got. What the notice does NOT get is the
+    # routing -- `request_message` is empty above, so the brief's route hint
+    # is the no-hint shape and no `[OMH Route Hint]` block is built.
     should_include_awareness = (
         include_awareness
         and (bool(route_hint_context) or message_matches_awareness or is_first_turn)
@@ -443,7 +477,7 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         if not _primer_already_in_api_history(kwargs.get("conversation_history"), primer):
             context_parts.append(primer)
         payload["omh_context_brief"] = build_context_brief(
-            user_message,
+            request_message,
             source=str(kwargs.get("source") or kwargs.get("host") or "pre_llm_call"),
             max_hints=2,
             include_prompt_context=False,

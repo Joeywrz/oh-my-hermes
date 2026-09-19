@@ -33,6 +33,11 @@ from _local_package import load_local_package
 
 load_local_package()
 
+from omh.plugin_bundle.omh import turn_authorship
+from omh.plugin_bundle.omh.awareness_delivery import (
+    awareness_delivery_path,
+    read_awareness_delivery,
+)
 from omh.plugin_bundle.omh.hooks import nudge_budget
 from omh.plugin_bundle.omh.hooks.llm_hooks import (
     OMH_CONTEXT_FENCE_CLOSE,
@@ -582,6 +587,262 @@ class ReconciliationTurnBudgetTest(_InjectionTestCase):
             self.assertIn(TODO_RECONCILIATION_RULE, open_todo_reminder(**homes))
         # And having read it six times did not spend the hook's budget.
         self.assertEqual(self._plan_line_rule(), "full")
+
+
+# The two shapes the routing gate is measured on, taken from the owner's
+# `state.db` read-only. The `process_complete` line is verbatim; the async
+# batch keeps the host's real header and stands in for the subagent results,
+# which is where that shape's routable text actually sits. Both are here as
+# module constants so nobody "fixes" one of them into a string that stops
+# matching the router, which would turn every assertion below into a tautology
+# -- the whole point is that this text DOES route when a person sends it.
+PROCESS_NOTICE = (
+    "[IMPORTANT: 2 background processes completed. Review their output before continuing.]"
+)
+ASYNC_NOTICE = (
+    "[ASYNC DELEGATION BATCH COMPLETE \u2014 deleg_5c8baa08]\n"
+    "A background fan-out of 1 subagent(s) you dispatched earlier has finished.\n\n"
+    "--- Result 1 ---\n"
+    "Refactored the frontend components and wrote the tests; review the diff before merging."
+)
+A_PERSON_ASKING = (
+    "Refactor the frontend components and write the tests; review the diff before merging."
+)
+
+
+class NoRoutingOnHostWrittenRowsTest(_InjectionTestCase):
+    """A turn the host opened for itself carries no request, so nothing routes.
+
+    #1739 read `display_kind` for the plan line's answer-first rule and
+    deliberately stopped there. The router kept reading the same rows as
+    requests: measured across the owner's `state.db`, 272 of the 282
+    host-synthesized user rows match the awareness vocabulary, and one
+    background-process notice drew `intent=meta_discussion;
+    selected=workflow-learning` with 3,297 characters behind it.
+
+    Three surfaces had to move together and are asserted together, because a
+    gate on two of them is not a gate. The `[OMH Route Hint]` block is the
+    visible one; the vocabulary match is what opens the awareness rail at all;
+    and the per-fingerprint claim is the one with a tail -- spending a
+    session's single slot on a notice silences the SAME hint later, when a
+    person finally asks for it.
+
+    Every assertion pairs the typed row with the identical text on an untyped
+    row. That pairing is the contract: the gate reads a record field, and a
+    wording test would pass these too. Each half runs under its own
+    `session_id` for the same reason -- the claim ledger holds one route per
+    session, so reusing one session would suppress the counterexample and the
+    test would agree with a gate that does nothing.
+    """
+
+    def _row(self, text, kind=None):
+        row = {"role": "user", "content": text}
+        if kind is not None:
+            row["display_kind"] = kind
+        return row
+
+    def _turn(self, text, kind=None, *, session=SESSION, history=..., **kwargs):
+        if history is ...:
+            history = [self._row(text, kind)]
+        nudge_budget.reset_nudge_budget()
+        payload = pre_llm_call(
+            omh_home=str(self.home),
+            hermes_home=str(self.hermes),
+            session_id=session,
+            user_message=text,
+            conversation_history=history,
+            **kwargs,
+        )
+        return str((payload or {}).get("context", ""))
+
+    def _fingerprints(self, omh_home=None):
+        return read_awareness_delivery(omh_home or str(self.home)).get(
+            "session_route_fingerprints", {}
+        )
+
+    def test_a_synthesized_row_gets_no_route_hint_and_the_same_text_typed_does(self):
+        for index, kind in enumerate(("process_complete", "async_delegation_complete")):
+            for offset, text in enumerate((PROCESS_NOTICE, ASYNC_NOTICE)):
+                with self.subTest(kind=kind, text=text[:40]):
+                    context = self._turn(text, kind, session=f"synth-{index}-{offset}")
+                    self.assertNotIn("[OMH Route Hint]", context)
+        # The counterexample, and the reason this is not a wording test: byte
+        # for byte the same strings, on a row the host did not type.
+        for offset, text in enumerate((PROCESS_NOTICE, ASYNC_NOTICE)):
+            with self.subTest(text=text[:40]):
+                context = self._turn(text, session=f"typed-{offset}")
+                self.assertIn("[OMH Route Hint]", context)
+
+    def test_the_claim_ledger_is_not_spent_on_a_row_nobody_wrote(self):
+        # The tail of the bug. The ledger holds one route fingerprint per
+        # session, so a hint claimed by a notice is a hint the person cannot
+        # be given afterwards. A plan is open so the hook has something to
+        # return on the notice turn and the delivery counters actually move --
+        # otherwise "the ledger did not change" would be true for the boring
+        # reason that nothing was written at all.
+        _ = self.write_plan([("land the fix", "done"), ("open the PR", "active")])
+        self.assertEqual(self._fingerprints(), {})
+
+        _ = self._turn(ASYNC_NOTICE, "async_delegation_complete")
+
+        self.assertEqual(self._fingerprints(), {})
+        # Not the whole file: `record_awareness_delivery` still counted the
+        # turn, and it should -- the hook did return context. What must not
+        # move is the claim.
+        self.assertGreater(read_awareness_delivery(str(self.home))["delivery_count"], 0)
+
+        # And the consequence, stated as behaviour rather than as a count: the
+        # person asks for that very route on the same session next turn and
+        # still gets it.
+        self.assertIn("[OMH Route Hint]", self._turn(ASYNC_NOTICE))
+
+    def test_a_notice_claiming_the_route_is_what_would_silence_the_person(self):
+        # The counterfactual the assertion above rests on, run forward: when
+        # the claim IS spent on a session, the identical request that follows
+        # gets nothing. Unchanged behaviour, pinned here because it is what
+        # makes an unspent claim worth asserting.
+        self.assertIn("[OMH Route Hint]", self._turn(ASYNC_NOTICE))
+
+        self.assertNotIn("[OMH Route Hint]", self._turn(ASYNC_NOTICE))
+
+    def test_the_awareness_rail_does_not_open_on_a_synthesized_row(self):
+        # `should_include_awareness` is the rail and the primer block is what
+        # it delivers. On a non-first turn a notice must not open it at all,
+        # so the saving is the hint AND the primer, not the hint alone.
+        self.assertNotIn(
+            "[OMH Awareness]", self._turn(ASYNC_NOTICE, "process_complete", session="a")
+        )
+
+        self.assertIn("[OMH Awareness]", self._turn(ASYNC_NOTICE, session="b"))
+
+    def test_steer_is_a_person_typing_and_routes_exactly_as_an_untyped_row(self):
+        # `steer` is input typed for the renderer. Hermes' own /rewind filter
+        # keeps it for the same reason, and equality is the assertion: not
+        # "also routes", but renders the identical turn.
+        steered = self._turn(A_PERSON_ASKING, "steer", session="steered")
+        untyped = self._turn(A_PERSON_ASKING, session="untyped")
+
+        self.assertIn("[OMH Route Hint]", steered)
+        self.assertEqual(steered, untyped)
+
+    def test_a_host_that_hands_over_no_row_routes_as_it_did_before(self):
+        # Every caller predating the reader, and any host whose history the
+        # hook cannot read. Absence is not evidence that the host wrote it.
+        for index, history in enumerate(
+            (None, [], "not a list", [{"role": "assistant", "content": "ok"}])
+        ):
+            with self.subTest(history=history):
+                context = self._turn(
+                    ASYNC_NOTICE, history=history, session=f"nohistory-{index}"
+                )
+                self.assertIn("[OMH Route Hint]", context)
+
+    def test_a_malformed_display_kind_keeps_todays_behaviour_through_the_hook(self):
+        # #1739 answered this at two layers and they point opposite ways, on
+        # purpose. `_turn_display_kind` normalizes a non-string field to
+        # absence, so through Hermes a corrupt value reads as a person and
+        # routes; `host_synthesized_turn` called directly on the raw field
+        # reads it as synthetic, because its caller there is the plan line and
+        # the cheaper error is the other one. Both are pinned so a later
+        # simplification cannot quietly pick one and call it a tidy-up.
+        for index, kind in enumerate((7, {"a": 1}, ["x"])):
+            with self.subTest(kind=kind):
+                context = self._turn(ASYNC_NOTICE, kind, session=f"malformed-{index}")
+                self.assertIn("[OMH Route Hint]", context)
+                self.assertTrue(host_synthesized_turn(kind))
+
+    def test_a_first_turn_the_host_opened_keeps_the_primer_and_drops_the_routing(self):
+        # Hermes computes `is_first_turn` as "no prior history", so it is true
+        # on exactly one turn per session. Withholding the primer on a session
+        # whose opening row is a notice -- a cron, a resumed run picking up a
+        # finished process -- does not defer it to the first person turn, it
+        # drops it for that session entirely. So the primer goes out and the
+        # routing does not.
+        context = self._turn(ASYNC_NOTICE, "process_complete", is_first_turn=True)
+
+        self.assertIn("[OMH Awareness]", context)
+        self.assertNotIn("[OMH Route Hint]", context)
+        self.assertEqual(self._fingerprints(), {})
+
+    def test_the_first_person_turn_after_a_synthesized_opener_still_routes(self):
+        # The other half of that decision: the session is not left mute. The
+        # primer it already carries is replayed by the host in `api_content`,
+        # and the person's turn gets the hint the notice did not spend.
+        first = self._turn(ASYNC_NOTICE, "process_complete", is_first_turn=True)
+
+        person = self._turn(
+            A_PERSON_ASKING,
+            history=[
+                {
+                    "role": "user",
+                    "content": ASYNC_NOTICE,
+                    "display_kind": "process_complete",
+                    "api_content": ASYNC_NOTICE + "\n\n" + first,
+                },
+                {"role": "assistant", "content": "확인했습니다."},
+                self._row(A_PERSON_ASKING),
+            ],
+        )
+
+        self.assertIn("[OMH Route Hint]", person)
+        # And not a second copy of the primer, which the host is already
+        # replaying: that is what `_primer_already_in_api_history` is for.
+        self.assertNotIn("[OMH Awareness]", person)
+
+    def test_the_plan_drive_and_dispatch_lines_survive_the_gate(self):
+        # A completion notice is exactly the turn on which those matter, so
+        # the gate has to be narrow enough to leave them. #1739 owns their
+        # content; what is checked here is only that routing's removal did not
+        # take them with it.
+        record = self.write_plan([("land the fix", "done"), ("open the PR", "active")])
+        _ = self.write_finished_dispatch(record["updated_at"], 1)
+
+        context = self._turn(ASYNC_NOTICE, "async_delegation_complete")
+
+        self.assertIn("[OMH plan todo]", context)
+        self.assertIn(TODO_CONTINUATION_RULE, context)
+        self.assertIn(DISPATCH_COMPLETION_RULE, context)
+        self.assertNotIn(TODO_ANSWER_FIRST_RULE, context)
+
+    def test_the_ledger_file_is_not_created_by_a_turn_that_claims_nothing(self):
+        # The narrowest statement of "not spent": with no plan and nothing
+        # else to say, a notice turn leaves the hook with nothing to return
+        # and no ledger on disk at all.
+        path = awareness_delivery_path(str(self.home))
+        self.assertFalse(path.exists())
+
+        self.assertEqual(self._turn(ASYNC_NOTICE, "async_delegation_complete"), "")
+
+        self.assertFalse(path.exists())
+
+
+class TurnAuthorshipHasOneHomeTest(unittest.TestCase):
+    """The predicate moved out of the plan module; it did not get copied.
+
+    A routing surface importing "who opened this turn" from a module about
+    plan checklists is what prompted the move (#1741). The failure mode a move
+    invites is the one this pins: two definitions that drift apart, so that
+    the plan line and the router disagree about whether anybody spoke.
+    """
+
+    def test_the_plan_module_re_exports_the_same_objects(self):
+        for name in (
+            "PERSON_AUTHORED_DISPLAY_KINDS",
+            "host_synthesized_turn",
+            "turn_opened_by_message",
+            "turn_opened_by_person",
+        ):
+            with self.subTest(name=name):
+                from omh.plugin_bundle.omh import todo_reconciliation
+
+                self.assertIs(
+                    getattr(todo_reconciliation, name), getattr(turn_authorship, name)
+                )
+
+    def test_the_hook_reads_the_moved_module_and_not_a_second_copy(self):
+        from omh.plugin_bundle.omh.hooks import llm_hooks
+
+        self.assertIs(llm_hooks.host_synthesized_turn, turn_authorship.host_synthesized_turn)
 
 
 if __name__ == "__main__":  # pragma: no cover - module entry point

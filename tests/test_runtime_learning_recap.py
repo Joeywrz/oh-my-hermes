@@ -495,6 +495,59 @@ class RuntimeLearningRecapTest(unittest.TestCase):
             self.assertEqual(recap["observed_completion"]["run_termination"], "none")
             self.assertEqual(recap["observed_completion"]["state"], "completed")
 
+    def test_a_retracted_failure_yields_to_a_live_cancellation(self) -> None:
+        """Severity ranks live facts, which holds only while per-type selection
+        runs first.
+
+        The sibling case above fixes severity over arrival: a cancellation
+        appended after a failure does not erase the failure. This is the case
+        that keeps that honest in the other direction. Once the failure is
+        retracted -- a second `failed` record, written `not_observed` -- the
+        cancellation is the only terminal fact the run still asserts, and it
+        decides. Nothing held the ordering these two rules compose in, so a
+        change that compared the groups before resolving each one, or that read
+        `not_observed` as an absent record rather than a record, would let the
+        retracted failure outrank the live cancellation with every other case
+        green.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = self._run(paths)
+            self._observe(paths, run_id, "worker_result", "observed", worker_ref="worker-1", evidence_refs=["commit:abc1234"])
+            self._observe(paths, run_id, "failed", "failed", evidence_refs=["failed-ref"])
+            self._observe(paths, run_id, "failed", "not_observed")
+            self._observe(paths, run_id, "cancelled", "cancelled", evidence_refs=["operator-stop"])
+            recap = build_runtime_learning_recap(paths, run_id)
+            self.assertEqual(recap["run_lifecycle"]["termination"]["kind"], "cancelled")
+            self.assertEqual(recap["observed_completion"]["run_termination"], "cancelled")
+            self.assertEqual(recap["observed_completion"]["state"], "partial")
+            # The retraction is kept as the failed group's record, not dropped:
+            # what it says is that the failure was not observed, which is the
+            # statement severity then declines to rank.
+            self.assertEqual(
+                recap["run_lifecycle"]["termination"]["failed"]["observation_status"], "not_observed"
+            )
+
+    def test_a_retracted_cancellation_leaves_the_run_unterminated(self) -> None:
+        """The same rule with nothing left behind it.
+
+        Retract the only terminal fact and the run records no termination at
+        all -- not the cancellation it no longer asserts, and not a failure it
+        never had. This is the case that catches a retraction read as absent:
+        drop the `not_observed` record instead of letting it win its group and
+        the earlier live cancellation comes back.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = self._run(paths)
+            self._observe(paths, run_id, "merge", "observed", evidence_refs=["merge_commit:deadbee"])
+            self._observe(paths, run_id, "cancelled", "cancelled", evidence_refs=["operator-stop"])
+            self._observe(paths, run_id, "cancelled", "not_observed")
+            recap = build_runtime_learning_recap(paths, run_id)
+            self.assertEqual(recap["run_lifecycle"]["termination"]["kind"], "none")
+            self.assertEqual(recap["observed_completion"]["run_termination"], "none")
+            self.assertEqual(recap["observed_completion"]["state"], "completed")
+
     def test_a_block_is_reported_and_changes_no_state(self) -> None:
         """A block is recoverable by definition, so it is surfaced without
         moving completion, the same reasoning the runtime projection uses.

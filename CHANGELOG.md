@@ -4,6 +4,18 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The rule that keeps a retracted failure from outranking a live
+  cancellation is now held by a test.** Runtime recap ranks the two terminal
+  event groups by severity rather than arrival, so a `cancelled` appended
+  after a `failed` does not erase the failure. That much was pinned. The case
+  that keeps severity honest was not: a failure since retracted -- a second
+  `failed` record written `not_observed` -- must yield to a live cancellation.
+  The code gets this right only because per-type selection runs before the
+  severity comparison, and nothing recorded that the two rules compose in one
+  order and not the other. A change that compared the groups first, or that
+  read `not_observed` as an absent record rather than a record, would have
+  flipped it with every existing case green (#1554).
+
 - **`/omh-model` and the `omh` CLI now edit the store a bot profile
   dispatches from.** A Hermes bot profile may select its own OMH store with
   `plugins.entries.omh.settings.omh_home`, and its native plugin resolves that

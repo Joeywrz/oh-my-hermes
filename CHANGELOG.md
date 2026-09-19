@@ -103,6 +103,74 @@ All notable changes will be documented here.
   bmad-code-org/BMAD-METHOD, all MIT. Nothing here needs a model judge inside
   OMH, a network index, or ownership of the working tree; a coverage map is
   something a model fills and a person or CI checks, never evidence by itself.
+- **What keeping a plan costs: one item per write, and a shorter block per
+  turn.** Two costs measured against the real hooks. Ticking one item cost a
+  whole-list write: `action=set` was `omh_todo`'s only write, so a ten-step
+  plan paid one declaration plus ten re-sends of every item's text, state and
+  phase, about 1.5 KB of arguments per advance and one chance per advance to
+  drop or reword an item nobody meant to touch. And the per-turn plan block
+  restated the drive in full on every turn for the life of a plan; a
+  one-character message in the owner's own history carried 854 characters of
+  it.
+
+  `action=advance` changes one item's state: the item number, the start of
+  that item's current text as a guard, and the new state, with
+  `blocked_reason` riding along and `deferred_reason` behaving exactly as it
+  does on a `set`. The reference is an index plus a guard rather than an id,
+  because the record has no item id and needs none for anything else, and
+  because what a bare index cannot do is refuse when the list moved
+  underneath it -- a guard that no longer describes the text at that position
+  is refused rather than applied. Out-of-range, a finished plan, an absent
+  record, a bad state and a guard mismatch are each refused with the field
+  named, and a refused call leaves the record byte-identical.
+
+  It is the same write by a narrower route, and that is a test rather than a
+  claim: a plan walked entirely through `advance` produces a record byte-equal
+  to the same plan walked through `set`, under a fixed clock. There is one
+  validator, one stamp and one schema, because the new path rebuilds the item
+  list and hands it to `build_todo_record` like every other write. Every
+  reader of "the plan changed" -- the reconciliation turn budget, the HUD's
+  unchanged duration, the turn-end nudge budget -- sees it as it sees a `set`.
+  The read-modify-write this introduced is serialized by a per-record lock
+  that `set` now takes too, so a whole-list write can no longer be overwritten
+  by a list read before it. It is the bundle's existing two-backend lock, the
+  one `tool_bursts`, `approval_bypass` and `memory_open_reminders` already
+  take, with the wait it allows made a parameter rather than a constant: that
+  lock's own default is sized for telemetry that would rather drop a counter
+  than delay a turn, and a plan write is the opposite trade. A copy here
+  would have been the bundle's third, which is the shape that let a Windows
+  host once take no lock at all while reading as though it had one.
+
+  That is a new way for `set` to fail, and it did not have one before: it
+  wrote through `os.replace` and took no lock. A writer that waits more than
+  two seconds for the record is refused with `"status": "contended"` and an
+  error naming the record, saying the write did not happen and to send the
+  same call again. It is not `invalid_todo`, and the separate status is the
+  point: a writer told its payload was invalid rewrites the list it just
+  sent, which is the whole-list rewrite this change exists to stop, while the
+  right response to a busy record is the identical call. The record is
+  untouched either way, `TodoContendedError` subclasses `TodoStoreError` so
+  every caller written before the lock still catches it, and `omh runtime
+  todo set` reports the same status and still exits 1. Nothing counts or
+  surfaces refusals: no reader has anywhere to put one.
+
+  The block was then measured sentence by sentence for what each one does, and
+  three places said one thing twice: the drive's premise and its imperative
+  were two sentences for one ask, its stop criterion re-stated "an answer does
+  not discharge the turn" one clause after the drive said it, the stall
+  framing ended with the drive repeated, and "either finish the remaining
+  items or say which stay open and why" is what the drive already asks, so it
+  moved to the budgeted half of the reconciliation rule. Nothing was deleted
+  from the full rule to move it. Per turn, driving `pre_llm_call` against a
+  temp home: the drive variant falls from 694 to 654 characters on the turns
+  that carry the full rule and from 541 to 435 after, the stalled variant from
+  887 to 807 and from 734 to 588, and a 40-turn session with one plan pays
+  18,057 characters instead of 22,099 on the drive variant and 24,177 instead
+  of 29,819 on the stalled one. The answer-first and deferred rules were
+  measured and left alone; the reasons are recorded beside them. What may not
+  be shortened away is pinned per variant and past the budget: the drive
+  clause and its stop criterion where the plan drives, the message ordering
+  and the record-first way back where it does not.
 
 - **`omh --resume <id>` works, and the terminal now names the `omh` way
   back.** Bare `omh` is documented as the same door as `hermes`, but the door

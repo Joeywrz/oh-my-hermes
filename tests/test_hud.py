@@ -2415,9 +2415,27 @@ class TodoSessionIsolationTests(_TodoSessionFixture, unittest.TestCase):
         self.assertFalse(old.exists())
         self.assertFalse(leftover.exists())
         self.assertTrue(foreign.exists())
-        self.assertEqual(len(survivors), 41)
+        # 40 records, one lock beside each, the pruned session's now-orphaned
+        # lock, and the foreign file. The locks arrived with #1730, which put
+        # every write to a record through one, and they are counted here
+        # rather than filtered out so that a change to how many files a write
+        # leaves behind has to be looked at.
+        self.assertEqual(len(survivors), 82)
         for index in range(40):
             self.assertIn(todo_path(self.omh_home, f"session-{index}").name, survivors)
+
+        # The orphan goes on the same stale bound, and only once the record it
+        # guarded is gone: a lock removed while it is still coordinating
+        # writers would let two of them into one record.
+        orphan = directory / f".{old.name}.lock"
+        self.assertTrue(orphan.exists())
+        live_lock = directory / f".{todo_path(self.omh_home, 'session-0').name}.lock"
+        for path in (orphan, live_lock):
+            os.utime(path, (stale_at, stale_at))
+        self._declare("session-40", "Plan 40")
+
+        self.assertFalse(orphan.exists())
+        self.assertTrue(live_lock.exists())
 
     def test_a_symlinked_session_directory_is_refused_on_write_and_read(self) -> None:
         from omh.plugin_bundle.omh.todo_store import (

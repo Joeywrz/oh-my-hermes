@@ -153,8 +153,17 @@ REVIEWED_OVERLAP_DECISIONS: dict[str, str] = {
         "default is not visible in a member list."
     ),
     "omh_todo.action:OVERLAP_ENUM_RESTATED": (
-        "keep — set/clear/show are named with their effect on the stored list and the rendered "
-        "projection, which is output shape, not member names."
+        "keep — set/advance/clear/show are named with their effect on the stored list and the "
+        "rendered projection, which is output shape, not member names. The sentence after them "
+        "carries the routing rule the members cannot: a state change goes through advance, "
+        "because set replaces the whole list and a caller that reaches for it to tick one item "
+        "drops the ones it forgets to re-send."
+    ),
+    "omh_todo.item:OVERLAP_BOUND_RESTATED": (
+        "keep — the numeral says the list is 1-based, which the clamp does not. `minimum: 1` "
+        "is the smallest legal value and is equally true of a 0-based list whose first index "
+        "is unusable; a caller that read only the bound would be off by one on every advance, "
+        "and the item_text guard would refuse the write rather than explain it."
     ),
     "omh_todo.items[].depth:OVERLAP_BOUND_RESTATED": (
         "keep — the numerals carry meaning the clamp cannot: 0 is a top-level task and 1-3 render "

@@ -1739,6 +1739,20 @@ All notable changes will be documented here.
   than a calibration and holds whatever a measurement shows, and a sample too
   small to separate 0.4 from 0.6 is itself the reportable result. The
   measurement remains open. (#1612)
+- Clamped the TUI plan dock to the terminal it renders in. The panel capped
+  items at eight but nothing capped rows, and each distinct phase adds a
+  header of its own, so eight items could be twenty rows above the composer at
+  any terminal height. On a 24-row terminal that left three lines of
+  transcript and pushed the session banner off entirely. The dock-top render
+  now reads the `rows` the host already passes it (the same RenderCtx both
+  docks get, `stdout.rows`) and takes at most a third of it, the split shared
+  with the transcript and with the bottom dock plus composer. The window
+  shrinks outward from the active item, an item and the phase header it
+  introduces leave together, and whatever leaves is counted on the existing
+  earlier/later fold lines. A terminal too short even for that gets the
+  header-and-rule summary the panel already had rather than a truncated
+  checklist. From 60 rows up the budget covers the tallest frame the renderer
+  can produce, so a roomy terminal is unchanged. (#1727)
 
 - **A refused re-read of a TRUNCATED file now names the offset instead of
   claiming the model already has the content.** Measured in session

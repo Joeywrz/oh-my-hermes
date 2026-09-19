@@ -948,7 +948,7 @@ export default function register(sdk) {
     )
   }
 
-  function TodoPanel({ columns, state, t }) {
+  function TodoPanel({ columns, state, t, viewportRows }) {
     const payload = state.payload
     if (!payload || payload.error || payload.privacy !== 'metadata_only') return null
     // Deliberately not gated on payload.active: a declared plan outlives
@@ -1038,15 +1038,83 @@ export default function register(sdk) {
     const total = shown.length
     const firstRemaining = shown.findIndex(item => item.state !== 'done')
     const anchor = firstRemaining < 0 ? 0 : Math.max(0, firstRemaining - 1)
-    const start = total > TODO_DISPLAY_ROWS ? Math.min(anchor, total - TODO_DISPLAY_ROWS) : 0
-    const end = Math.min(total, start + TODO_DISPLAY_ROWS)
-    const groups = []
-    for (const item of shown.slice(start, end)) {
-      const phase = safeText(item.phase)
-      const last = groups[groups.length - 1]
-      // A subtask with no phase of its own continues its parent's group.
-      if (last && (last.phase === phase || (!phase && depthOf(item) > 0))) last.items.push(item)
-      else groups.push({ phase, items: [item] })
+    let start = total > TODO_DISPLAY_ROWS ? Math.min(anchor, total - TODO_DISPLAY_ROWS) : 0
+    let end = Math.min(total, start + TODO_DISPLAY_ROWS)
+    const groupsBetween = (from, to) => {
+      const built = []
+      for (const item of shown.slice(from, to)) {
+        const phase = safeText(item.phase)
+        const last = built[built.length - 1]
+        // A subtask with no phase of its own continues its parent's group.
+        if (last && (last.phase === phase || (!phase && depthOf(item) > 0))) last.items.push(item)
+        else built.push({ phase, items: [item] })
+      }
+      return built
+    }
+    // Rows a window actually occupies, which the item cap on its own never
+    // answered: every group carrying a phase spends a header row, and each
+    // side that hides anything spends a fold line. Eight items are therefore
+    // up to eighteen rows, which is the whole of #1727.
+    const windowRows = (from, to) =>
+      to - from +
+      groupsBetween(from, to).filter(group => group.phase).length +
+      (from > 0 ? 1 : 0) +
+      (to < total ? 1 : 0)
+    // This dock's share of the terminal. `viewportRows` is the FULL terminal
+    // height -- the host builds one RenderCtx from `stdout.rows` and hands
+    // the same object to every zone, so it is not a per-zone allotment -- and
+    // three claimants sit on it: this dock above the composer, the
+    // transcript, and the bottom dock together with the composer frame (the
+    // bottom dock already keeps five rows out of its own budget for chrome
+    // and prompt margin, `viewportBudget` in Hud above). A third each is the
+    // split, and it is chosen so the clamp only ever bites on a short
+    // terminal: the tallest frame this renderer can produce is 20 rows
+    // (header + earlier fold + eight phase headers + eight items + later
+    // fold + rule), so from 60 rows up the budget already covers it and the
+    // frame is byte-identical to what it was before the clamp existed. A
+    // host that answers with no height makes every comparison below
+    // NaN-false, which leaves that same unclamped frame rather than an empty
+    // one.
+    const dockRowBudget = Math.max(1, Math.floor(viewportRows / 3))
+    // The header line and the composer-frame rule are not negotiable: the
+    // header IS the summary form, and the rule is what tops the input frame.
+    const bodyRowBudget = dockRowBudget - 2
+    // Shrink outward from the row the panel exists to show. An item and the
+    // phase header it introduces leave together -- an item whose header was
+    // dropped would read as belonging to the phase above it -- which
+    // `windowRows` accounts for on its own, because a header exists only
+    // while its first item does. Fold counts follow the window, so whatever
+    // leaves is counted on the `... (N earlier/later tasks)` line it leaves
+    // through.
+    const activeIndex = shown.findIndex(item => item.state === 'active')
+    const focus = Math.min(
+      Math.max(activeIndex >= 0 ? activeIndex : Math.max(firstRemaining, 0), start),
+      end - 1,
+    )
+    while (end - start > 1 && windowRows(start, end) > bodyRowBudget) {
+      if (end - 1 - focus >= focus - start) end -= 1
+      else start += 1
+    }
+    const groups = groupsBetween(start, end)
+    const planHeader = h(
+      Text,
+      { wrap: 'truncate-end' },
+      h(Text, { bold: true, color: t.color.primary }, '[Plan]'),
+      title ? h(Text, { color: t.color.muted }, ` ${title}`) : null,
+      h(Text, { color: t.color.border }, SEPARATOR),
+      h(Text, { color: t.color.warn }, `${counts.done ?? 0}/${counts.total ?? 0}`),
+      phaseCount > 1 ? h(Text, { color: t.color.muted }, ` · ${phaseCount} phases`) : null,
+      planShotBadge(payload, t),
+      hasActive && live ? h(PlanPulse, { t }) : null,
+    )
+    // Below the minimum -- one item, the phase header it needs, and the folds
+    // that account for everything else -- there is no honest checklist left
+    // to draw, so the dock falls back to the form it already has for a
+    // finished plan: the header line, which carries done/total and the phase
+    // count, over the rule. A checklist that dropped rows without saying so
+    // would be worse than the summary.
+    if (windowRows(start, end) > bodyRowBudget) {
+      return h(Box, { flexDirection: 'column', width: '100%' }, planHeader, h(Rule, { columns, t }))
     }
     // The reason an item records for not proceeding, rendered on the row that
     // carries it. Without this an item sits in `active` with nothing saying it
@@ -1155,17 +1223,7 @@ export default function register(sdk) {
     return h(
       Box,
       { flexDirection: 'column', width: '100%' },
-      h(
-        Text,
-        { wrap: 'truncate-end' },
-        h(Text, { bold: true, color: t.color.primary }, '[Plan]'),
-        title ? h(Text, { color: t.color.muted }, ` ${title}`) : null,
-        h(Text, { color: t.color.border }, SEPARATOR),
-        h(Text, { color: t.color.warn }, `${counts.done ?? 0}/${counts.total ?? 0}`),
-        phaseCount > 1 ? h(Text, { color: t.color.muted }, ` · ${phaseCount} phases`) : null,
-        planShotBadge(payload, t),
-        hasActive && live ? h(PlanPulse, { t }) : null,
-      ),
+      planHeader,
       ...rows,
       h(Rule, { columns, t }),
     )
@@ -1219,9 +1277,14 @@ export default function register(sdk) {
     zone: 'dock-top',
     init: sharedInit,
     reduce: sharedReduce,
-    render: ({ cols, state, t }) => {
+    render: ({ cols, rows, state, t }) => {
       if (!state.payload || state.payload.error || state.payload.privacy !== 'metadata_only') return null
-      return h(TodoPanel, { columns: Math.max(20, cols), state, t })
+      // `rows` reaches a dock-top render the same way it reaches dock-bottom:
+      // the host builds one RenderCtx (`useRenderCtx`, ui-tui/src/sdk/host.tsx)
+      // from `stdout.rows` and hands the same object to every zone. It is the
+      // terminal's height, not this zone's allotment, so the panel has to
+      // budget its own share of it -- see TodoPanel.
+      return h(TodoPanel, { columns: Math.max(20, cols), state, t, viewportRows: Math.max(1, rows) })
     },
   })
 

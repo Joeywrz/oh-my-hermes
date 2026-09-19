@@ -60,15 +60,16 @@ def _tree(root: Path) -> dict[str, bytes]:
 class RehearsalTestCase(unittest.TestCase):
     def setUp(self) -> None:
         _reset_state()
+        # addCleanup (not tearDown): registered immediately so a later
+        # exception in this same setUp still tears the directory down
+        # (issue #1731).
         self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         root = Path(self._tmp.name)
         self.omh_home = root / "omh"
         self.hermes_home = root / "hermes"
         self.omh_home.mkdir()
         self.hermes_home.mkdir()
-
-    def tearDown(self) -> None:
-        self._tmp.cleanup()
 
     def write_rules(self, rules: list[dict], *, schema_version: str = TOOLCALL_RULES_SCHEMA_VERSION) -> Path:
         path = toolcall_rules_path(str(self.omh_home))

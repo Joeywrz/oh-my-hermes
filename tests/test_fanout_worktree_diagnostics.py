@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from _local_package import load_local_package
+from _test_temp_root import make_test_tempdir
 
 load_local_package()
 
@@ -21,7 +22,11 @@ from omh.system.paths import OmhPaths
 class WorktreeDiagnosticsTests(unittest.TestCase):
     def __init__(self, methodName: str = "runTest") -> None:
         super().__init__(methodName)
-        self.temp: TemporaryDirectory[str] = TemporaryDirectory(prefix="omh-worktree-diagnostic-")
+        # Nested under the shared, swept parent (issue #1731): a bare
+        # `TemporaryDirectory(prefix=...)` per test here left 2,926 stale
+        # directories behind on the owner's machine (measured 2026-09-19)
+        # whenever the interpreter was killed instead of exiting normally.
+        self.temp: TemporaryDirectory[str] = make_test_tempdir(prefix="omh-worktree-diagnostic-")
         self.root: Path = Path(self.temp.name)
         self.addCleanup(self.cleanup_root)
         self.repo: Path = self.root / "repo"

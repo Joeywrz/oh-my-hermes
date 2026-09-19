@@ -453,7 +453,11 @@ class AggregateTests(unittest.TestCase):
     LANES = ("linux-3.11", "linux-3.12", "windows-3.12")
 
     def setUp(self) -> None:
+        # addCleanup (not tearDown): registered immediately so a later
+        # exception in this same setUp still tears the directory down
+        # (issue #1731).
         self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         root = Path(self._tmp.name)
         self.plan_path = root / "plan.json"
         write_json(
@@ -474,9 +478,6 @@ class AggregateTests(unittest.TestCase):
             self._write_result(lane, "s0.json", ResultSpec("shard", 0, ("a.A.t1",)))
             self._write_result(lane, "s1.json", ResultSpec("shard", 1, ("a.A.t2",)))
             self._write_result(lane, "q.json", ResultSpec("quarantine", None, ("a.A.t3",)))
-
-    def tearDown(self) -> None:
-        self._tmp.cleanup()
 
     def _write_result(self, lane: str, name: str, specification: ResultSpec) -> None:
         ran = specification.planned if specification.executed is None else specification.executed

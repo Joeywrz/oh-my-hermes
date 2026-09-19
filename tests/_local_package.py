@@ -4,9 +4,10 @@ import atexit
 from importlib.machinery import ModuleSpec
 import os
 import sys
-import tempfile
 from types import ModuleType
 from pathlib import Path
+
+from _test_temp_root import make_test_tempdir
 
 
 def _redirect_home_env_to_temp_root() -> None:
@@ -21,8 +22,15 @@ def _redirect_home_env_to_temp_root() -> None:
     The override is unconditional. Honouring a pre-existing OMH_HOME would let a
     developer's own export reintroduce the leak, which is the exact failure this
     guards against.
+
+    `atexit` (rather than `addCleanup`, which needs a `TestCase` instance) is
+    the correct registration here: this runs once at import time for the
+    whole process, not per test. It still does not run when the interpreter
+    is killed outright, which is why the directory is nested under the
+    shared, swept parent from `_test_temp_root` (issue #1731) instead of a
+    bare `tempfile.TemporaryDirectory(prefix=...)` in the system temp dir.
     """
-    holder = tempfile.TemporaryDirectory(prefix="omh-test-home-")
+    holder = make_test_tempdir(prefix="omh-test-home-")
     atexit.register(holder.cleanup)
     root = Path(holder.name)
     os.environ["OMH_HOME"] = str(root / "omh")

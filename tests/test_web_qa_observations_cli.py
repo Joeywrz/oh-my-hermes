@@ -26,7 +26,11 @@ PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI
 
 class WebQaObservationCliTests(unittest.TestCase):
     def setUp(self) -> None:
+        # addCleanup (not tearDown): registered immediately so a later
+        # exception in this same setUp (e.g. `git init` failing) still tears
+        # the directory down (issue #1731).
         self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / "project"
         self.root.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
@@ -34,9 +38,6 @@ class WebQaObservationCliTests(unittest.TestCase):
         parent = self.parser.add_subparsers(dest="top", required=True)
         web_qa = parent.add_parser("web-qa")
         add_web_qa_observation_commands(web_qa.add_subparsers(dest="web_qa", required=True))
-
-    def tearDown(self) -> None:
-        self.temp.cleanup()
 
     def test_plan_import_show_and_compare_are_attachable_and_json_only(self) -> None:
         raw_plan = observation_request()

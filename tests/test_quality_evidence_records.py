@@ -28,7 +28,11 @@ class _CompletedProcess:
 
 class QualityEvidenceRecordsTests(unittest.TestCase):
     def setUp(self) -> None:
+        # addCleanup (not tearDown): registered immediately so a later
+        # exception in this same setUp still tears the directory down
+        # (issue #1731).
         self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         self.omh_home = Path(self._tmp.name)
         self.package = build_quality_evidence_package(
             repository_id="local/omh",
@@ -61,9 +65,6 @@ class QualityEvidenceRecordsTests(unittest.TestCase):
         observation["record_ref"] = f"runtime/{observation['evidence_id']}.json"
         self._write_record(observation)
         return observation
-
-    def tearDown(self) -> None:
-        self._tmp.cleanup()
 
     def _write_record(self, observation: dict[str, object]) -> None:
         ref = str(observation.get("record_ref") or "")

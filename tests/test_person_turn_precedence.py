@@ -65,21 +65,27 @@ REDIRECTED = "the person asked for the release notes first"
 A_QUESTION = "왜 이게 모델 레벨 문제일 수 있다는 거야?"
 AN_INSTRUCTION = "stop asking me things and finish the plan"
 
-# What a turn no message opened renders, byte for byte, measured against
-# `origin/main`. Written out rather than composed from the rule constants: a
-# claim assembled from the values it checks agrees with any change to them.
+# What a turn no message opened renders, byte for byte. Written out rather
+# than composed from the rule constants: a claim assembled from the values it
+# checks agrees with any change to them.
+#
+# It moved once, in #1730, and the move is the point of that change rather
+# than a side effect: 694 characters became 654, and 541 became 435 once the
+# reconciliation budget is spent. What the drive says did not move with it --
+# `PlanLineForceTest` below pins the drive clause and the stop criterion
+# against this same literal, so a future trim that shortens this line by
+# taking either of them out fails there rather than being absorbed here.
 LINE_WITH_NO_INBOUND_MESSAGE = (
-    "[OMH plan todo] 1/2 done · active: open the PR. "
-    "Open items mean this plan is not finished. Unless something is blocking "
-    "it, advance the next item in this turn rather than ending on a status "
-    "report. This stops when every item is done or an item carries an "
-    "omh_todo blocked_reason -- not when a turn has produced an answer. "
-    "Before claiming this work is finished, reconcile the checklist with "
-    "omh_todo: mark completed items done, keep exactly one item active, and "
-    "either finish the remaining items or say which stay open and why. A "
-    "completion claim in chat while the HUD checklist shows open items is a "
-    "visible contradiction. Todo updates are declarations, never execution "
-    "evidence."
+    "[OMH plan todo] 1/2 done · active: open the PR. Open items mean this "
+    "plan is not finished: unless something is blocking it, advance the "
+    "next item in this turn rather than ending on a status report. It "
+    "stops only when every item is done or an item carries an omh_todo "
+    "blocked_reason. Before claiming this work is finished, reconcile the "
+    "checklist with omh_todo: mark completed items done and keep exactly "
+    "one item active. Either finish the remaining items or say which stay "
+    "open and why. A completion claim in chat while the HUD checklist "
+    "shows open items is a visible contradiction. Todo updates are "
+    "declarations, never execution evidence."
 )
 
 
@@ -338,6 +344,136 @@ class MessageReachesTheLineTest(_PlanHomeTest):
 
         self.assertIn(TODO_CONTINUATION_RULE, context)
         self.assertNotIn(TODO_ANSWER_FIRST_RULE, context)
+
+
+class PlanLineForceTest(_PlanHomeTest):
+    """What every turn's line must still say, whatever its length.
+
+    #1730 shortened the block. These pin the part that may not be shortened
+    away, as clauses rather than as whole constants: a rewording is allowed to
+    change any sentence here, and is not allowed to leave a variant without
+    the job the clause names. They run PAST the reconciliation budget on the
+    real hook, because the budget is the one mechanism in this module that can
+    legitimately remove text from a turn, and the drive is not what it removes.
+
+    Each variant is pinned for what IT owes, not for one shared list. The
+    drive and its stop criterion belong to the two variants that drive; the
+    message and deferral variants replace the drive on purpose, and what they
+    owe instead is the ordering plus a named way back to the plan, which is
+    what keeps a replacement inside the stop-criterion contract rather than
+    back at the observe-only reminder the owner rejected.
+    """
+
+    # The imperative, and the two record conditions that end the plan. Both
+    # are phrases out of `TODO_CONTINUATION_RULE`; the point of quoting them
+    # instead of the constant is that importing the constant would agree with
+    # a change that deleted either half of it.
+    DRIVE_CLAUSE = "advance the next item in this turn"
+    STOP_CRITERION = "every item is done or an item carries an omh_todo blocked_reason"
+    # The answer-first variant's two: who the turn is owed to, and the branch
+    # back to the plan, record-first.
+    PRECEDENCE_CLAUSE = "ahead of the next plan item"
+    RESUME_BRANCH = "record an omh_todo deferred_reason"
+
+    def _turns(self, count, **kwargs):
+        """`count` real turns through the hook, each one spending the budget."""
+        lines = []
+        for _ in range(count):
+            payload = pre_llm_call(
+                omh_home=str(self.home),
+                hermes_home=str(self.hermes),
+                session_id=SESSION,
+                **kwargs,
+            )
+            lines.append(str((payload or {}).get("context", "")))
+        return lines
+
+    def test_the_drive_and_its_stop_criterion_survive_the_budget(self):
+        _ = self._open_plan()
+
+        for index, line in enumerate(self._turns(todo_reconciliation.TODO_RECONCILIATION_FULL_TURNS + 3)):
+            with self.subTest(turn=index):
+                self.assertIn(self.DRIVE_CLAUSE, line)
+                self.assertIn(self.STOP_CRITERION, line)
+        # And the budget really did spend, so the loop above proved something.
+        self.assertNotIn("visible contradiction", self._turns(1)[0])
+
+    def test_a_stalled_plan_keeps_the_drive_and_says_it_once(self):
+        # The stall variant renders the drive AND the stall framing. The
+        # framing lost its own "if nothing is blocking it, move it" in #1730
+        # because the drive one sentence earlier is the same ask; what must
+        # not happen is the drive going with it.
+        todo = {
+            "status": "established",
+            "counts": {"total": 2, "done": 1, "active": 1, "pending": 0, "phases": 0},
+            "items": [
+                {"text": "land the fix", "state": "done"},
+                {"text": "open the PR", "state": "active"},
+            ],
+            "updated_age_seconds": 4000.0,
+            "stall": {"status": "unchanged"},
+        }
+
+        with patch.object(todo_reconciliation, "read_omh_todo", return_value=todo):
+            line = self._reminder()
+
+        self.assertIn(self.DRIVE_CLAUSE, line)
+        self.assertIn(self.STOP_CRITERION, line)
+        self.assertIn("not evidence that the work failed", line)
+        # Once, not twice. The echo is what was removed.
+        self.assertEqual(line.count("move it"), 0)
+        self.assertEqual(line.count(self.DRIVE_CLAUSE), 1)
+
+    def test_a_message_turn_keeps_the_ordering_and_the_way_back(self):
+        _ = self._open_plan()
+
+        for index, line in enumerate(
+            self._turns(
+                todo_reconciliation.TODO_RECONCILIATION_FULL_TURNS + 3,
+                user_message=A_QUESTION,
+            )
+        ):
+            with self.subTest(turn=index):
+                self.assertIn(self.PRECEDENCE_CLAUSE, line)
+                self.assertIn(self.RESUME_BRANCH, line)
+                self.assertIn("resume the plan", line)
+                # The drive is replaced on this variant by design, and the
+                # order of the two branches is what #1549 settled.
+                self.assertNotIn(self.DRIVE_CLAUSE, line)
+                self.assertLess(line.index(self.RESUME_BRANCH), line.index("resume the plan"))
+
+    def test_a_deferred_plan_keeps_saying_why_it_is_not_driving(self):
+        _ = self._write_plan(
+            [("land the fix", "done"), ("open the PR", "active")],
+            deferred_reason=REDIRECTED,
+        )
+
+        for index, line in enumerate(
+            self._turns(todo_reconciliation.TODO_RECONCILIATION_FULL_TURNS + 3)
+        ):
+            with self.subTest(turn=index):
+                self.assertIn(REDIRECTED, line)
+                self.assertIn("not asking you to advance the next item", line)
+                self.assertIn("Do what they asked for", line)
+                self.assertNotIn(self.DRIVE_CLAUSE, line)
+
+    def test_the_reconciliation_instruction_is_on_every_turn_of_every_variant(self):
+        # The half of the completion-claim guard that survives the budget. It
+        # is the standing invariant of the RECORD, which is why it is the half
+        # that stayed: nothing else in the block says it.
+        cases = {
+            "drive": {},
+            "answer_first": {"user_message": A_QUESTION},
+        }
+        for name, kwargs in cases.items():
+            with self.subTest(variant=name):
+                self.setUp()
+                _ = self._open_plan()
+                for line in self._turns(
+                    todo_reconciliation.TODO_RECONCILIATION_FULL_TURNS + 3, **kwargs
+                ):
+                    self.assertIn("reconcile the checklist with omh_todo", line)
+                    self.assertIn("keep exactly one item active", line)
 
 
 class TurnEndDirectiveUnaffectedTest(_PlanHomeTest):

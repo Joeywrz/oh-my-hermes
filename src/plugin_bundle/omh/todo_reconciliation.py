@@ -114,9 +114,16 @@ _MAX_OUTCOME_LINES = 3
 # it. This sentence states what the reader observed and asks for one sentence
 # of accounting. It rides a turn that is already happening and starts
 # nothing, which is exactly why it is a context line and not a driver.
+#
+# It asks for the accounting and stops there. It used to end "and if nothing
+# is blocking it, move it", which is `TODO_CONTINUATION_RULE`'s own drive
+# repeated about forty characters after that rule says it -- this variant
+# renders both, always, in one block. The drive is not weakened by dropping
+# the echo: the sentence asking for the next item is still in the same line,
+# in its stronger record-backed form.
 TODO_UNCHANGED_RULE = (
-    "The checklist standing still is an observation, not evidence that the work "
-    "failed: say where the plan stands, and if nothing is blocking it, move it."
+    "The checklist standing still is an observation, not evidence that the "
+    "work failed: say where the plan stands."
 )
 
 # The half that was missing. The reconciliation rule below guards a COMPLETION
@@ -134,11 +141,20 @@ TODO_UNCHANGED_RULE = (
 # this is a long loop with a stop condition, not an unbounded one. It ends when
 # every item is done, or when an item carries a `blocked_reason`. It does not
 # end because a turn happened to produce a paragraph.
+#
+# Two sentences, not four, and the join is where the characters went. The
+# premise and the drive were separate sentences saying one thing, so they are
+# one sentence with a colon; and "-- not when a turn has produced an answer"
+# said, in the stop criterion, what "rather than ending on a status report"
+# already says in the drive one clause earlier. The exclusivity that clause
+# carried is now carried by "only", which is the stronger form of it: a stop
+# criterion that names its two conditions and says they are the only ones
+# rules out an answer without having to list it.
 TODO_CONTINUATION_RULE = (
-    "Open items mean this plan is not finished. Unless something is blocking "
+    "Open items mean this plan is not finished: unless something is blocking "
     "it, advance the next item in this turn rather than ending on a status "
-    "report. This stops when every item is done or an item carries an "
-    "omh_todo blocked_reason -- not when a turn has produced an answer."
+    "report. It stops only when every item is done or an item carries an "
+    "omh_todo blocked_reason."
 )
 
 # What the turn-end directive adds to the rule above. The host appends the
@@ -191,6 +207,13 @@ TODO_DEFERRED_RULE = (
 # criterion and changes which one the sentence defaults to. Nothing here reads
 # the message: two messages meaning opposite things still produce this exact
 # string, which `tests/test_person_turn_precedence.py` pins.
+# Measured and left alone. Its four sentences are four distinct jobs -- the
+# precedence statement, the ask to investigate rather than defer, the guard
+# against agreeing with an unchecked claim, and the record-first resume branch
+# -- each written against a different half of one observed failure, and the
+# only fold available in it ("do not defer it, and do not ask to be asked
+# again" into one clause) is worth nine characters and deletes the phrase
+# `tests/test_person_turn_precedence.py` pins against the incident wording.
 TODO_ANSWER_FIRST_RULE = (
     "A message started this turn, so answering it completely is this turn's "
     "work, ahead of the next plan item. Investigate what it asks with the "
@@ -206,14 +229,34 @@ TODO_ANSWER_FIRST_RULE = (
 # for the instruction and the evidence boundary on todo writes -- worth saying
 # while a plan is new, not worth restating on every turn for the life of the
 # plan (a 40-turn session with one plan repeated the whole rule 40 times).
+#
+# Where the split sits moved once, and nothing was deleted to move it: "either
+# finish the remaining items or say which stay open and why" went from the
+# always-on half to the budgeted one, so the full rule still says every word
+# it said. It belongs on the budgeted side because it is the only clause here
+# that DUPLICATES the drive standing beside it -- `TODO_CONTINUATION_RULE`
+# already asks for the next item and already names the two conditions that end
+# the plan, in record terms rather than in prose. What is left in the
+# always-on half is the standing invariant of the record itself (completed
+# items marked done, exactly one active), which nothing else states.
 TODO_RECONCILIATION_RULE_FIRST_CLAUSE = (
     "Before claiming this work is finished, reconcile the checklist with "
-    "omh_todo: mark completed items done, keep exactly one item active, and "
-    "either finish the remaining items or say which stay open and why."
+    "omh_todo: mark completed items done and keep exactly one item active."
 )
 
+# The evidence boundary stays on the budgeted side rather than moving to every
+# turn, and the reason is when it can be acted on. It guards a specific
+# misreading -- that writing `done` on an item is proof the item ran -- and
+# that misreading is only available to a turn that is WRITING todo updates,
+# which is the turn right after the record moved. That is exactly the window
+# `TODO_RECONCILIATION_FULL_TURNS` keeps open. A quiet turn in between has no
+# todo write to mistake for evidence, and the boundary is also carried at the
+# two other moments it can be acted on: `omh_todo`'s own result payload
+# (`TODO_CLAIM_BOUNDARY`) and the turn-end directive
+# (`PLAN_CONTINUATION_BOUNDARY`).
 TODO_RECONCILIATION_RULE = (
-    f"{TODO_RECONCILIATION_RULE_FIRST_CLAUSE} A "
+    f"{TODO_RECONCILIATION_RULE_FIRST_CLAUSE} Either finish the remaining "
+    "items or say which stay open and why. A "
     "completion claim in chat while the HUD checklist shows open items is a "
     "visible contradiction. Todo updates are declarations, never execution "
     "evidence."

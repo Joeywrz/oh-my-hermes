@@ -5,6 +5,14 @@ on:
   push:
     branches: [main]
 
+# One run per pull request: a new push cancels the run for the commit it
+# superseded, which nobody will merge and which otherwise holds the runners the
+# current commit is waiting for (#1752: 14 of 25 active runs were stale). A push
+# to main groups by commit, so a main run is never cancelled by a later merge.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Shard planner (issue #1294). Static source discovery never imports test
   # modules; syntax or unsupported dynamic discovery shapes fail here before

@@ -4,6 +4,36 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A long line in a diff no longer makes every short line pay for it.** The
+  full-width diff band pads painted `+`/`-` lines with trailing spaces out to
+  the block's widest line, and that padded string is the tool result, so the
+  spaces are read by the model as well as painted on screen. `MAX_BAND_CELLS`
+  caps the band at 160 cells, but under the cap the widest line still sets it
+  for everything else. A 3,310-char patch result with 118 short lines and one
+  152-cell line became 18,682 chars, 5.6 times its own size, in whitespace.
+
+  Padding is now bounded by `MAX_BAND_PADDING_RATIO`: it may not exceed the
+  diff's own length in characters, so the transform can never more than double
+  what it is handed. Over the budget the band steps down to the widest painted
+  line whose padding fits, and the lines above it keep the unpadded right edge
+  the cap already leaves on an outlier. The band only ever lands on a width
+  some line actually has, because a band between two of them covers no line
+  the lower one misses -- which is why the case above recovers to 3,562 chars,
+  1.08x, rather than merely stopping at the budget.
+
+  The band is a cell width, since that is what makes the rectangle uniform on
+  screen, but the budget is characters, since that is what the result costs.
+  Padding is spaces, one character and one cell each, so the spend is the same
+  number in either unit; only the diff it is measured against differs, and a
+  double-width line is two cells per character. A cell-denominated budget
+  would therefore bound nothing the result is billed in: a CJK-heavy diff
+  reaches 2.28x in characters under one.
+
+  Diffs whose padding already fits the budget are untouched, byte for byte.
+  Across 1,853 per-file diffs from this repository's last 300 commits, 1,531
+  render identically and 322 lose padding, for 2.27 million fewer characters
+  of trailing space in total. None loses its band entirely.
+
 - **`omh --resume <id>` works, and the terminal now names the `omh` way
   back.** Bare `omh` is documented as the same door as `hermes`, but the door
   opened one way only: the parser rejected `omh --resume <id>` as an invalid

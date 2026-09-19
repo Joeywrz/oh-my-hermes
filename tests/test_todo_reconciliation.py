@@ -22,8 +22,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from omh.plugin_bundle.omh.hooks.llm_hooks import pre_llm_call
+from omh.plugin_bundle.omh.hooks.nudge_budget import reset_nudge_budget
 from omh.plugin_bundle.omh.todo_reconciliation import (
-    CONTINUATION_CLAIM_FINDING,
+    CONTINUATION_CLAIM_OUTSTANDING_FACT,
+    CONTINUATION_CLAIM_STALLED_FACT,
+    DISPATCH_AFTER_ANSWER_RULE,
     DISPATCH_COMPLETION_RULE,
     TODO_CONTINUATION_RULE,
     TODO_RECONCILIATION_RULE,
@@ -299,11 +302,29 @@ class DispatchOutcomeReminderTest(unittest.TestCase):
     def test_pre_llm_call_carries_the_outcome_line_and_the_rule(self):
         fanout_id = self._write_finished_units(1)
 
-        payload = pre_llm_call(user_message="상태 어때?", omh_home=str(self.home))
+        payload = pre_llm_call(omh_home=str(self.home))
 
         context = str((payload or {}).get("context", ""))
         self.assertIn(f"dispatch {fanout_id}-unit-0/unit-0 ended", context)
         self.assertIn(DISPATCH_COMPLETION_RULE, context)
+
+    def test_the_dispatch_block_is_ordered_behind_an_answer_it_owes(self):
+        # Same home, same outcome, one message. Both heads owe the identical
+        # chain -- what changes is whether the block claims this turn against
+        # `TODO_ANSWER_FIRST_RULE` sitting directly above it.
+        fanout_id = self._write_finished_units(1)
+
+        payload = pre_llm_call(user_message="상태 어때?", omh_home=str(self.home))
+
+        context = str((payload or {}).get("context", ""))
+        self.assertIn(f"dispatch {fanout_id}-unit-0/unit-0 ended", context)
+        self.assertIn(DISPATCH_AFTER_ANSWER_RULE, context)
+        self.assertNotIn(DISPATCH_COMPLETION_RULE, context)
+        self.assertIn(
+            "verify its result, record the outcome on the plan "
+            "(done or blocked with reason)",
+            context,
+        )
 
 
 class ContinuationClaimGuardTest(unittest.TestCase):
@@ -317,24 +338,63 @@ class ContinuationClaimGuardTest(unittest.TestCase):
         self.assertEqual(TODO_UNCHANGED_STATUSES, {"unchanged", "unchanged_while_busy"})
         for status in sorted(TODO_UNCHANGED_STATUSES):
             with self.subTest(status=status):
-                self.assertEqual(
-                    continuation_claim_without_resume(
-                        "확인했습니다. 계속 진행하겠습니다.",
-                        todo_stall_status=status,
-                        unacknowledged=0,
-                    ),
-                    CONTINUATION_CLAIM_FINDING,
+                finding = continuation_claim_without_resume(
+                    "확인했습니다. 계속 진행하겠습니다.",
+                    todo_stall_status=status,
+                    unacknowledged=0,
                 )
 
+                self.assertIsNotNone(finding)
+                assert finding is not None
+                self.assertIn(CONTINUATION_CLAIM_STALLED_FACT, finding)
+                # The half that does not hold is not asserted: nothing is
+                # outstanding here, so the sentence must not report a count.
+                self.assertNotIn("unacknowledged on the plan", finding)
+
     def test_a_claim_with_an_unacknowledged_outcome_is_a_finding(self):
-        self.assertEqual(
-            continuation_claim_without_resume(
-                "Worker 2 finished. Continuing with the remaining lanes.",
-                todo_stall_status="advanced",
-                unacknowledged=1,
-            ),
-            CONTINUATION_CLAIM_FINDING,
+        finding = continuation_claim_without_resume(
+            "Worker 2 finished. Continuing with the remaining lanes.",
+            todo_stall_status="advanced",
+            unacknowledged=1,
         )
+
+        self.assertIsNotNone(finding)
+        assert finding is not None
+        self.assertIn(
+            CONTINUATION_CLAIM_OUTSTANDING_FACT.format(count=1, plural=""), finding
+        )
+        self.assertNotIn(CONTINUATION_CLAIM_STALLED_FACT, finding)
+
+    def test_the_finding_states_the_record_and_accuses_nobody(self):
+        # The rewrite, pinned by what it must NOT say. The trigger fires on
+        # ordinary narration -- "continuing to read the router tests" is a
+        # sentence written while working -- and "announced a continuation but
+        # nothing resumed" told that turn it broke a promise, which is the
+        # shape that produces an apology and a pivot instead of a next step.
+        finding = continuation_claim_without_resume(
+            "continuing to read the router tests",
+            todo_stall_status="unchanged",
+            unacknowledged=2,
+        )
+
+        self.assertIsNotNone(finding)
+        assert finding is not None
+        for accusation in (
+            "announced a continuation but nothing resumed",
+            "A promise to continue is not a continuation",
+            "nothing resumed",
+            "promise",
+        ):
+            with self.subTest(accusation=accusation):
+                self.assertNotIn(accusation, finding)
+        # Both record facts hold here, so both are named, with the count.
+        self.assertIn(CONTINUATION_CLAIM_STALLED_FACT, finding)
+        self.assertIn(
+            CONTINUATION_CLAIM_OUTSTANDING_FACT.format(count=2, plural="es"), finding
+        )
+        # And the stop criterion the owner's decision requires is still here,
+        # still explicit, still an alternative rather than a suggestion.
+        self.assertIn("say plainly that the work is stopped and why", finding)
 
     def test_a_claim_on_a_live_plan_with_nothing_outstanding_is_not_a_finding(self):
         self.assertIsNone(
@@ -361,7 +421,68 @@ class ContinuationClaimGuardTest(unittest.TestCase):
             )
         )
 
+    def _home_with_a_crashed_unit(self, tmp):
+        """A plan with one open item and one finished dispatch nobody named."""
+        home = Path(tmp) / "omh"
+        fanout_id = "fanout-0123456789ab"
+        record = build_todo_record(
+            "plan", [{"text": "wait", "state": "active"}], source="test"
+        )
+        write_todo(home, record)
+        plan_at = datetime.fromisoformat(record["updated_at"].replace("Z", "+00:00"))
+        directory = home / "coding" / "fanout" / fanout_id
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "dispatch_summary.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "fanout_dispatch_summary/v1",
+                    "fanout_id": fanout_id,
+                    "units": [
+                        {
+                            "unit_id": "unit-0",
+                            "run_ref": f"{fanout_id}-unit-0",
+                            "status": "failed",
+                            "failure_kind": "crash",
+                            "finished_at": (plan_at + timedelta(seconds=30))
+                            .isoformat()
+                            .replace("+00:00", "Z"),
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return home
+
+    def test_pre_llm_call_holds_the_finding_back_on_a_turn_someone_opened(self):
+        # The "one this turn" contract. With a message and an open plan the
+        # plan line is `TODO_ANSWER_FIRST_RULE` and the dispatch block is
+        # ordered behind the answer, so a third block claiming the same turn
+        # has nothing left to add -- its two record facts are the two lines
+        # directly above it.
+        reset_nudge_budget()
+        self.addCleanup(reset_nudge_budget)
+        with tempfile.TemporaryDirectory() as tmp:
+            home = self._home_with_a_crashed_unit(tmp)
+
+            payload = pre_llm_call(
+                user_message="어떻게 되고 있어?",
+                omh_home=str(home),
+                conversation_history=[
+                    {"role": "user", "content": "상태 알려줘"},
+                    {"role": "assistant", "content": "워커 2 종료. 계속 진행하겠습니다."},
+                ],
+            )
+
+            context = str((payload or {}).get("context", ""))
+            self.assertNotIn("[OMH continuation claim]", context)
+            # And the block that IS still there says so in the right order.
+            self.assertIn("the event to act on once that answer is given", context)
+            self.assertNotIn(DISPATCH_COMPLETION_RULE, context)
+
     def test_pre_llm_call_flags_last_turns_unkept_promise(self):
+        reset_nudge_budget()
+        self.addCleanup(reset_nudge_budget)
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "omh"
             fanout_id = "fanout-0123456789ab"
@@ -393,8 +514,9 @@ class ContinuationClaimGuardTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            # No inbound message: nobody is owed an answer, so the finding is
+            # the only block claiming the turn and it is still delivered.
             payload = pre_llm_call(
-                user_message="어떻게 되고 있어?",
                 omh_home=str(home),
                 conversation_history=[
                     {"role": "user", "content": "상태 알려줘"},

@@ -161,7 +161,32 @@ class MessageOpenedTurnTest(_PlanHomeTest):
         self.assertIn("Do not agree with a claim you have not checked", line)
         # And it still ends on the plan, which is what keeps this a reordering
         # of the drive rather than the observe-only reminder that was rejected.
-        self.assertIn("Then resume the plan", line)
+        self.assertIn("or resume the plan", line)
+
+    def test_the_last_clause_offers_the_record_before_the_resume(self):
+        # The gate above is presence-only and must stay so, which means one
+        # sentence answers "stop, forget the plan" and "carry on" alike. While
+        # the resume came first it was therefore the DEFAULT reply to someone
+        # who had just said stop, and the only way out of it was a
+        # `deferred_reason` write they never asked for. Both options and the
+        # stop criterion are unchanged; which one leads is the whole change,
+        # so the order is pinned by position rather than by membership.
+        _ = self._open_plan()
+
+        line = self._reminder(A_QUESTION)
+
+        self.assertLess(
+            line.index("record an omh_todo deferred_reason"), line.index("resume the plan")
+        )
+        self.assertIn(
+            "Then either record an omh_todo deferred_reason, if they steered "
+            "the work elsewhere, or resume the plan.",
+            line,
+        )
+        # The clause that made the resume the default is gone, and so is the
+        # one that framed the alternative as an argument to be won.
+        self.assertNotIn("Then resume the plan", line)
+        self.assertNotIn("rather than arguing for the next item", line)
 
     def test_a_turn_no_message_opened_renders_exactly_what_it_did_before(self):
         # The regression pin for every session OMH drives by itself. Equality,

@@ -23,6 +23,21 @@ the verb it owes, plus `DISPATCH_COMPLETION_RULE`. Same boundary: the
 lines are instruction and a pointer at a record, never evidence that a
 unit did anything.
 
+Those two halves both used to claim the turn, so the dispatch rule has a
+second head (`DISPATCH_AFTER_ANSWER_RULE`) that orders it behind the
+answer whenever the plan line is the answer-first variant below. One
+chain, two heads, and `_open_plan_line` hands the variant back rather
+than letting the caller re-derive it.
+
+One more thing is counted rather than repeated. The reconciliation rule
+is the only sentence here that fired on every turn for as long as a plan
+existed, so it now spends a per-plan turn budget
+(`TODO_RECONCILIATION_FULL_TURNS`) and drops to its first clause once
+that is out, coming back in full on every write to the plan record. Both
+inputs are records -- the plan's `updated_at` and a per-session turn
+count in `hooks/nudge_budget` -- and a caller that is not a turn renders
+the rule whole.
+
 The per-turn line has one structural limit: it is read at the start of a
 turn, so nothing observes a turn that ENDS with open items, and continuation
 then waits for the person. `plan_continuation_reading` is the same policy
@@ -68,6 +83,11 @@ from __future__ import annotations
 from typing import Any
 
 from .dispatch_outcomes import unacknowledged_outcomes
+# The per-session turn counter the reconciliation rule's budget spends lives
+# with the other bounded per-session maps rather than in a second one here:
+# one eviction policy, one key derivation, one reset seam a new test has to
+# remember (`reset_nudge_budget`).
+from .hooks.nudge_budget import plan_line_turns_on_record
 from .runtime_reader import (
     DECLARED_TODO_STATUSES,
     TODO_UNCHANGED_STATUSES,
@@ -154,43 +174,114 @@ TODO_DEFERRED_RULE = (
 # It replaces the whole rule rather than softening it, for the reason
 # `TODO_DEFERRED_RULE` records: a line that both serves the person and asks
 # for the next item is the argument to avoid. The drive is ordered, not
-# dropped -- the last sentence still ends the turn on the plan. That is what
-# keeps this inside the stop-criterion contract instead of back at the
-# observe-only reminder, and it is why the rule has to be a replacement and
-# still carry a resume: `pre_verify` fires only on a turn that changed files,
-# so for every non-coding plan this line is the only thing driving at all.
+# dropped -- the last sentence still names both ways the turn ends on the
+# plan. That is what keeps this inside the stop-criterion contract instead of
+# back at the observe-only reminder, and it is why the rule has to be a
+# replacement and still carry a resume: `pre_verify` fires only on a turn that
+# changed files, so for every non-coding plan this line is the only thing
+# driving at all.
+#
+# The two branches of that last sentence are ordered record-first, and the
+# order is the whole of the fix. The gate above is presence-only by design and
+# must stay that way, so `그만해, 오늘은 여기까지`, `stop, forget the plan`,
+# `thanks!` and `what time is it in Seoul?` all reach this identical sentence.
+# Resume-first therefore made "resume the plan" the DEFAULT answer to a person
+# who had just said stop, and the only way out of it was a `deferred_reason`
+# write they had not asked for. Record-first keeps both options and the stop
+# criterion and changes which one the sentence defaults to. Nothing here reads
+# the message: two messages meaning opposite things still produce this exact
+# string, which `tests/test_person_turn_precedence.py` pins.
 TODO_ANSWER_FIRST_RULE = (
     "A message started this turn, so answering it completely is this turn's "
     "work, ahead of the next plan item. Investigate what it asks with the "
     "tools you have and answer from what you found: do not defer it, and do "
     "not ask to be asked again. Do not agree with a claim you have not "
     "checked -- check it, or say exactly what checking it would need. Then "
-    "resume the plan, and if the work was redirected record an omh_todo "
-    "deferred_reason rather than arguing for the next item."
+    "either record an omh_todo deferred_reason, if they steered the work "
+    "elsewhere, or resume the plan."
+)
+
+# The instruction half of the reconciliation rule, split out because it is the
+# half that survives the turn budget below. Everything after it is the reason
+# for the instruction and the evidence boundary on todo writes -- worth saying
+# while a plan is new, not worth restating on every turn for the life of the
+# plan (a 40-turn session with one plan repeated the whole rule 40 times).
+TODO_RECONCILIATION_RULE_FIRST_CLAUSE = (
+    "Before claiming this work is finished, reconcile the checklist with "
+    "omh_todo: mark completed items done, keep exactly one item active, and "
+    "either finish the remaining items or say which stay open and why."
 )
 
 TODO_RECONCILIATION_RULE = (
-    "Before claiming this work is finished, reconcile the checklist with "
-    "omh_todo: mark completed items done, keep exactly one item active, and "
-    "either finish the remaining items or say which stay open and why. A "
+    f"{TODO_RECONCILIATION_RULE_FIRST_CLAUSE} A "
     "completion claim in chat while the HUD checklist shows open items is a "
     "visible contradiction. Todo updates are declarations, never execution "
     "evidence."
 )
 
-# The chain a finished dispatch owes. Written as an obligation for THIS turn
-# because the failure it replaces was structurally polite: a status report,
-# then the turn ended, and the unit's result sat unverified while the next
-# item never started.
-DISPATCH_COMPLETION_RULE = (
-    "A finished dispatch is an event to act on in this turn: verify its "
-    "result, record the outcome on the plan (done or blocked with reason), "
-    "then run the recovery or the next item. Do not announce continuation "
-    "you have not started."
+# How many turns of ONE plan record carry the whole reconciliation rule before
+# the line drops to its first clause. Every other injection in this bundle
+# latches, caps or decays -- code-mode once per session, engagement nudges at
+# two and then permanently, the board card once, the route hint per
+# fingerprint, the repeat streak after 300 s, dispatch outcomes after 24 h --
+# and the plan line was the one that fired on every turn for as long as a plan
+# existed, uncapped.
+#
+# Three, and the count restarts on every write to the plan record, because the
+# rule guards a COMPLETION CLAIM and a completion claim is most likely in the
+# turns right after the record moves: the model has just marked something done
+# and is deciding whether the whole thing is done. So the full rule rides the
+# turns that follow a write and the quiet turns in between carry the
+# instruction alone. What is counted is a record -- the plan's own
+# `updated_at` and a per-session turn count -- never anything read out of the
+# conversation.
+TODO_RECONCILIATION_FULL_TURNS = 3
+
+# The chain a finished dispatch owes, shared by both heads below so the two
+# can never come to owe different verbs.
+_DISPATCH_CHAIN = (
+    "verify its result, record the outcome on the plan (done or blocked with "
+    "reason), then run the recovery or the next item. Do not announce "
+    "continuation you have not started."
+)
+
+# Written as an obligation for THIS turn because the failure it replaces was
+# structurally polite: a status report, then the turn ended, and the unit's
+# result sat unverified while the next item never started.
+DISPATCH_COMPLETION_RULE = f"A finished dispatch is an event to act on in this turn: {_DISPATCH_CHAIN}"
+
+# What the dispatch block says instead while `TODO_ANSWER_FIRST_RULE` is the
+# plan line. Both claim "this turn" and nothing used to subordinate either to
+# the other, so a turn someone opened mid-plan carried two competing answers
+# to "what is this turn for". The plan line already says the message is the
+# turn's work AHEAD of the next plan item; this says the same ordering about
+# the dispatch instead of restating the competing claim. Only the head
+# differs -- the chain is the same object.
+DISPATCH_AFTER_ANSWER_RULE = (
+    "A finished dispatch is the event to act on once that answer is given: "
+    f"{_DISPATCH_CHAIN}"
 )
 
 # Closing phrasings that promise a next step. Matched only to ask whether the
 # step was actually armed -- never to suppress the sentence.
+#
+# Why this match survives while the accusation it used to carry did not. With
+# the finding rewritten to state the record, everything left in it is already
+# on the same turn: a stall verdict exists only for an established plan, so
+# the plan line is rendered beside it, and an unacknowledged outcome is what
+# puts the dispatch lines and `DISPATCH_COMPLETION_RULE` there -- and that
+# rule already ends "Do not announce continuation you have not started". Key
+# this on the record alone and it becomes a third copy of two sentences the
+# model is reading anyway, on every turn, uncapped, which is the shape
+# `TODO_RECONCILIATION_FULL_TURNS` exists to stop. The phrase is the only
+# thing the finding knows that the two lines beside it do not, so it is what
+# earns the line its place.
+#
+# It is not the inference the owner's rule bars. That rule is about STOP
+# criteria read from record fields; this is a start criterion, it reads the
+# model's OWN closing text rather than anything the person wrote, and a match
+# can only ADD an instruction -- no wording, in any language, can stop a plan
+# through this path.
 CONTINUATION_CLAIM_PHRASES = (
     "계속 진행",
     "이어서 진행",
@@ -199,13 +290,26 @@ CONTINUATION_CLAIM_PHRASES = (
     "proceeding with",
 )
 
-CONTINUATION_CLAIM_FINDING = (
-    "The previous turn announced a continuation but nothing resumed: the plan "
-    "did not change, or a finished dispatch is still unacknowledged. Start the "
-    "next step in this turn -- verify the finished result, record it on the "
-    "plan, then dispatch or advance -- or say plainly that the work is stopped "
-    "and why. A promise to continue is not a continuation."
+# What the finding says now, and what it no longer says. "The previous turn
+# announced a continuation but nothing resumed" and "A promise to continue is
+# not a continuation" are verdicts on the model, and the trigger above fires
+# on ordinary narration: "continuing to read the router tests" is a sentence
+# somebody writes while working, and being told it broke a promise is the
+# shape that produces an apology and a pivot instead of the next step. So the
+# finding reports what was read and what the record says, and asks. The stop
+# criterion is unchanged and still explicit: start it, or say it is stopped
+# and why.
+CONTINUATION_CLAIM_FINDING_TEMPLATE = (
+    "The previous turn's closing text names a continuation, and the record "
+    "reads: {facts}. Start the next step now -- verify a finished result, "
+    "record it on the plan, then dispatch or advance -- or say plainly that "
+    "the work is stopped and why."
 )
+# Each fact is the record it came from, named as a reading rather than as a
+# failure. The stall half is the reader's own verdict (`todo.stall`), not an
+# elapsed time this function was given, so it may not claim an interval.
+CONTINUATION_CLAIM_STALLED_FACT = "the plan checklist is recorded unchanged"
+CONTINUATION_CLAIM_OUTSTANDING_FACT = "{count} finished dispatch{plural} unacknowledged on the plan"
 
 
 def open_todo_reminder(
@@ -215,6 +319,8 @@ def open_todo_reminder(
     session_ref: str = "",
     outcomes: list[dict[str, Any]] | None = None,
     user_message: str = "",
+    turn_display_kind: object = "",
+    count_turn: bool = False,
 ) -> str:
     """The per-turn plan line, plus any dispatch outcome nobody wrote down.
 
@@ -226,15 +332,25 @@ def open_todo_reminder(
 
     ``user_message`` is the message the host says opened this turn, and the
     only thing taken from it is whether there is one (``turn_opened_by_message``
-    says why). It defaults to absent so a caller that does not know stays on
-    the behaviour it has today.
+    says why). ``turn_display_kind`` is the host's own typing of the row that
+    message arrived on, which is what separates a person from a background
+    notice (``host_synthesized_turn``). Both default to absent so a caller
+    that does not know stays on the behaviour it has today.
+
+    ``count_turn`` says this call IS one of the session's turns, which is what
+    `TODO_RECONCILIATION_FULL_TURNS` counts. Only `pre_llm_call` can say that
+    -- Hermes invokes it exactly once per turn -- so it defaults to false and
+    every other caller renders the full rule and records nothing, keeping this
+    function a pure read for anyone inspecting a plan out of band.
     """
     lines: list[str] = []
-    head = _open_plan_line(
+    head, answer_first = _open_plan_line(
         omh_home=omh_home,
         hermes_home=hermes_home,
         session_ref=session_ref,
         user_message=user_message,
+        turn_display_kind=turn_display_kind,
+        count_turn=count_turn,
     )
     if head:
         lines.append(head)
@@ -242,10 +358,50 @@ def open_todo_reminder(
         _dispatch_outcome_lines(
             unacknowledged_outcomes(omh_home, hermes_home, session_ref)
             if outcomes is None
-            else outcomes
+            else outcomes,
+            after_answer=answer_first,
         )
     )
     return "\n".join(lines)
+
+
+def answer_first_turn(
+    *,
+    user_message: str = "",
+    turn_display_kind: object = "",
+    omh_home: str = "",
+    hermes_home: str = "",
+    session_ref: str = "",
+) -> bool:
+    """Whether this turn's plan line is the answer-first variant.
+
+    The one place the question is asked, so the hook's decision to hold the
+    continuation-claim finding back cannot drift from the line that made the
+    claim. It re-reads the plan rather than taking a record, because the only
+    caller already pays for that read inside `open_todo_reminder` and passing
+    a record through would put the same projection in two signatures.
+    """
+    try:
+        todo = read_omh_todo(omh_home or None, hermes_home or None, session_ref=session_ref)
+    except _READ_FAILURES:
+        return False
+    return _answer_first_variant(todo, user_message, turn_display_kind)
+
+
+def _answer_first_variant(
+    todo: dict[str, Any], user_message: str, turn_display_kind: object = ""
+) -> bool:
+    """The branch test `_open_plan_line` applies, factored out so both read it.
+
+    Order matters and mirrors the rendering below: no open work means no
+    plan line at all, a live deferral outranks the message, and a blocked next
+    item vetoes the deferral and hands the turn back to the message branch.
+    """
+    if not isinstance(todo, dict) or open_plan_position(todo) is None:
+        return False
+    if plan_deferral_reason(todo) and not recorded_blocked_reason(next_open_item(todo)):
+        return False
+    return turn_opened_by_person(user_message, turn_display_kind)
 
 
 def plan_is_established(todo: dict[str, Any]) -> bool:
@@ -386,8 +542,73 @@ def turn_opened_by_message(user_message: object) -> bool:
     writing -- leave this false and the continuation drive exactly as it was.
     A plugin that cannot see whether anyone wrote must not begin claiming they
     did.
+
+    Presence alone is not enough to say a PERSON wrote it; that is
+    ``turn_opened_by_person`` below, and this stays the presence half.
     """
     return bool(user_message.strip()) if isinstance(user_message, str) else False
+
+
+# Which `display_kind` values on a user row mean a person typed it. Taken from
+# Hermes, which asks the same question in two places and answers it the same
+# way: `split_user_originated_turn` (`agent/context_compressor.py`) returns no
+# human-authored view for a user row whose `display_kind` is set to anything
+# but this, with the comment "other kinds are synthetic"; and
+# `list_recent_user_messages` (`hermes_state_search.py`), which feeds /rewind
+# and /undo, filters on `display_kind IS NULL OR display_kind = '' OR
+# display_kind = 'steer'` because "bookkeeping rows (display_kind set) are
+# excluded" while "a /steer row is typed for the renderer but is human input".
+#
+# Copied rather than imported, the way `engagement_nudges` copies the host's
+# tool-name sets and for the same reason: Hermes is a different repository and
+# the bundle may not import from it, so no parity test can exist and the
+# source is named here instead. Measured against hermes-agent 577990c3a0.
+PERSON_AUTHORED_DISPLAY_KINDS = frozenset({"", "steer"})
+
+
+def host_synthesized_turn(display_kind: object) -> bool:
+    """Whether the host wrote this turn's opening row rather than a person.
+
+    A record field, never wording. Hermes opens a turn for its own rows as
+    well as for a person's: a background-process completion
+    (`display_kind="process_complete"`), an async delegation batch
+    (`"async_delegation_complete"`), a model switch (`"model_switch"`), a
+    crash-recovery or auto-continue note (`"auto_continue"`), a diagnostic
+    (`"internal_notification"`). Each arrives as a `role="user"` row carrying
+    real text, so presence cannot tell them apart -- measured in the owner's
+    `state.db`, 282 of 1,869 user rows carry such a kind.
+
+    The typing is available in time. `persist_user_display_kind` exists
+    precisely so a synthesized turn is typed when its row is WRITTEN rather
+    than when the turn ends (`tests/agent/test_synthetic_turn_display_kind.py`
+    in the host states the reason: an untyped row mid-turn "paints the raw
+    `[System note: ...]` text as if the user had typed it"). The stamp happens
+    in `_stage_turn_user_message` at turn start, before `pre_llm_call` runs.
+
+    An unknown or malformed value reads as synthetic, which is the safe
+    direction here and the opposite of most guards in this module: the cost of
+    calling a person's turn synthetic is one turn rendering the drive it
+    rendered before this change, while the cost of the other error is telling
+    the model to answer a person who does not exist.
+    """
+    if display_kind is None:
+        return False
+    if not isinstance(display_kind, str):
+        return True
+    return display_kind.strip() not in PERSON_AUTHORED_DISPLAY_KINDS
+
+
+def turn_opened_by_person(user_message: object, display_kind: object = "") -> bool:
+    """Whether a PERSON opened this turn, which is who the answer-first rule serves.
+
+    Both halves are records: that text arrived, and the host's own typing of
+    the row it arrived on. Neither reads what the message says.
+
+    ``display_kind`` defaults to absent so a caller that cannot see the row --
+    every caller that predates this parameter -- keeps the behaviour it had.
+    A plugin that cannot tell who wrote must not start claiming the host did.
+    """
+    return turn_opened_by_message(user_message) and not host_synthesized_turn(display_kind)
 
 
 def plan_deferral_reason(todo: dict[str, Any]) -> str:
@@ -510,12 +731,27 @@ def plan_continuation_reading(
 
 
 def _open_plan_line(
-    *, omh_home: str, hermes_home: str, session_ref: str, user_message: str = ""
-) -> str:
+    *,
+    omh_home: str,
+    hermes_home: str,
+    session_ref: str,
+    user_message: str = "",
+    turn_display_kind: object = "",
+    count_turn: bool = False,
+) -> tuple[str, bool]:
+    """The plan line, and whether it is the answer-first variant.
+
+    The flag rides back rather than being re-derived by the caller: the
+    dispatch block's head depends on which variant this chose, and a second
+    copy of the branch test would let the two disagree about the same turn.
+    """
     todo = read_omh_todo(omh_home or None, hermes_home or None, session_ref=session_ref)
     position = open_plan_position(todo)
     if position is None:
-        return ""
+        return "", False
+    reconciliation = _reconciliation_rule(
+        todo, session_ref=session_ref, count_turn=count_turn
+    )
     done, total = position
     items = todo.get("items") if isinstance(todo.get("items"), list) else []
     # The context line names the ACTIVE item and stops there; the directive
@@ -537,7 +773,7 @@ def _open_plan_line(
         # already bounded twice, by the write cap and by the reader's
         # projection of it. Cutting a reason mid-clause can invert what the
         # person asked for, which an item's text cannot do.
-        return f"{head} · deferred: {deferred}. {TODO_DEFERRED_RULE} {TODO_RECONCILIATION_RULE}"
+        return f"{head} · deferred: {deferred}. {TODO_DEFERRED_RULE} {reconciliation}", False
     # Below the deferral and above the drive. The recorded redirection is the
     # more specific statement and says what was asked for, so it keeps the
     # line when both hold; a message arriving now still beats the drive. The
@@ -546,11 +782,11 @@ def _open_plan_line(
     # breath, the ask this branch exists to subordinate. The reconciliation
     # rule stays, being about a completion claim rather than about who is
     # owed the turn.
-    if turn_opened_by_message(user_message):
-        return f"{head}. {TODO_ANSWER_FIRST_RULE} {TODO_RECONCILIATION_RULE}"
+    if turn_opened_by_person(user_message, turn_display_kind):
+        return f"{head}. {TODO_ANSWER_FIRST_RULE} {reconciliation}", True
     unchanged = todo_unchanged_text(todo)
     if not unchanged:
-        return f"{head}. {TODO_CONTINUATION_RULE} {TODO_RECONCILIATION_RULE}"
+        return f"{head}. {TODO_CONTINUATION_RULE} {reconciliation}", False
     stall = todo.get("stall") if isinstance(todo.get("stall"), dict) else {}
     # "no tool call in flight" is only true of the quiet finding. The busy one
     # is the more interesting reading and saying the wrong one would make the
@@ -562,11 +798,37 @@ def _open_plan_line(
     )
     return (
         f"{head} · {observed}. "
-        f"{TODO_CONTINUATION_RULE} {TODO_RECONCILIATION_RULE} {TODO_UNCHANGED_RULE}"
-    )
+        f"{TODO_CONTINUATION_RULE} {reconciliation} {TODO_UNCHANGED_RULE}"
+    ), False
 
 
-def _dispatch_outcome_lines(outcomes: list[dict[str, Any]]) -> list[str]:
+def _reconciliation_rule(
+    todo: dict[str, Any], *, session_ref: str, count_turn: bool
+) -> str:
+    """The whole reconciliation rule, or its first clause once the budget is spent.
+
+    Two records decide it and nothing else: the plan's own ``updated_at``,
+    which restarts the budget every time the plan is written, and a per-session
+    count of turns already rendered against that same stamp.
+
+    Every way of not knowing renders the FULL rule -- a caller that is not a
+    turn, a session with no usable id, a record with no stamp, an evicted row.
+    That is the opposite of the direction `nudge_budget` fails in for its other
+    counters, and deliberately: losing a completion-claim guard is worse than
+    repeating it, while losing a nudge costs nothing.
+    """
+    if not count_turn:
+        return TODO_RECONCILIATION_RULE
+    stamp = todo.get("updated_at", "")
+    already = plan_line_turns_on_record(session_ref, stamp if isinstance(stamp, str) else "")
+    if already < TODO_RECONCILIATION_FULL_TURNS:
+        return TODO_RECONCILIATION_RULE
+    return TODO_RECONCILIATION_RULE_FIRST_CLAUSE
+
+
+def _dispatch_outcome_lines(
+    outcomes: list[dict[str, Any]], *, after_answer: bool = False
+) -> list[str]:
     if not outcomes:
         return []
     lines = [
@@ -581,7 +843,7 @@ def _dispatch_outcome_lines(outcomes: list[dict[str, Any]]) -> list[str]:
     remaining = len(outcomes) - len(lines)
     if remaining > 0:
         lines.append(f"(+{remaining} more)")
-    lines.append(DISPATCH_COMPLETION_RULE)
+    lines.append(DISPATCH_AFTER_ANSWER_RULE if after_answer else DISPATCH_COMPLETION_RULE)
     return lines
 
 
@@ -604,6 +866,10 @@ def continuation_claim_without_resume(
     still unacknowledged. Either one is enough, because either one means the
     promised step did not start. Pure: the caller supplies both states, so
     this never reads a file and never decides on its own that a run is stuck.
+
+    The returned sentence names only the facts that actually hold, so a
+    finding raised on an outstanding dispatch alone does not also assert that
+    the checklist stopped moving.
     """
     if not isinstance(text, str) or not text.strip():
         return None
@@ -611,12 +877,22 @@ def continuation_claim_without_resume(
     # copy of that pair here would let a third one be added there without this
     # guard ever noticing.
     stalled = str(todo_stall_status or "") in TODO_UNCHANGED_STATUSES
-    outstanding = isinstance(unacknowledged, int) and unacknowledged > 0
+    count = unacknowledged if isinstance(unacknowledged, int) else 0
+    outstanding = count > 0
     if not stalled and not outstanding:
         return None
     if not _claims_continuation(text):
         return None
-    return CONTINUATION_CLAIM_FINDING
+    facts: list[str] = []
+    if stalled:
+        facts.append(CONTINUATION_CLAIM_STALLED_FACT)
+    if outstanding:
+        facts.append(
+            CONTINUATION_CLAIM_OUTSTANDING_FACT.format(
+                count=count, plural="" if count == 1 else "es"
+            )
+        )
+    return CONTINUATION_CLAIM_FINDING_TEMPLATE.format(facts=" and ".join(facts))
 
 
 def _claims_continuation(text: str) -> bool:

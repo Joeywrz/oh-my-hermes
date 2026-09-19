@@ -45,6 +45,94 @@ All notable changes will be documented here.
   by the TUI, so it produces no candidate and no line, which is the right
   outcome rather than a gap.
 
+- **OMH's per-turn context now arrives fenced, and stops over-asserting.**
+  Hermes concatenates whatever `pre_llm_call` returns onto the API copy of the
+  USER message (`compose_user_api_content`, `agent/turn_context.py`) with no
+  role separation and no marker, so up to 6,678 characters of OMH imperatives
+  were delivered as a continuation of what the person wrote. Hermes already
+  fences its own memory channel for exactly this reason; OMH now does the
+  same. Everything it injects goes inside `<omh-context>`, behind a note
+  saying the block is automated OMH context rather than the person's words and
+  that their message outranks it -- including the dispatch outcome lines and
+  the running-work rows, which carry no `[OMH ...]` head of their own and so
+  could never have been covered by a per-producer convention. A turn OMH has
+  nothing to say on still injects exactly zero characters.
+
+  The fence is sanitized, not merely wrapped. Most of what goes inside is text
+  OMH did not author -- todo item text the model wrote, dispatch refs,
+  workflow and lane names, role markdown, route-hint fields derived from the
+  person's own message -- and a part carrying `</omh-context>` would close the
+  fence early and hand everything after it to the model as the person's words
+  again, reachable by whatever writes a todo item. Any `omh-context` tag is
+  removed from the body first, matching the tolerance of the host's own
+  `sanitize_context` (either tag, any case, whitespace inside the brackets).
+  Stripped rather than escaped, because nothing un-escapes it and Hermes
+  replays this turn's injection verbatim on every later turn. Removals are
+  tallied in process for diagnostics; they are not a call failure, so they do
+  not enter the degradation lane, whose claim boundary would then be false.
+
+  Six rules that over-asserted were rewritten with it. `TODO_ANSWER_FIRST_RULE`
+  now offers the record before the resume ("either record an omh_todo
+  `deferred_reason`, if they steered the work elsewhere, or resume the plan"),
+  because the gate that selects it is presence-only by design, so "stop,
+  forget the plan" and "carry on" reach the identical sentence and resume-first
+  made arguing the default reply to someone who had just said stop. Both
+  options and the stop criterion are unchanged. On a turn that variant is
+  selected the dispatch block is introduced as coming after the answer and the
+  continuation-claim finding is held back entirely, so one obligation claims
+  the turn instead of three. That finding no longer says "announced a
+  continuation but nothing resumed ... A promise to continue is not a
+  continuation" -- a verdict it delivered on ordinary narration like
+  "continuing to read the router tests" -- and instead names the records that
+  hold, with the count, and asks for the next step or a plain statement that
+  the work is stopped and why. The delegation nudge stops saying "keep working
+  while it runs", which was wrong about both tools it names: measured on
+  hermes-agent 0.21.3, `omh_delegate_route` writes routing keys for the next
+  dispatch and runs nothing, while `delegate_task` is always backgrounded for
+  a top-level model call and the host's own schema says never to wait or poll
+  on it. And the answer-first rule now needs a person, not merely a message.
+  Hermes opens turns with rows it writes itself -- a background process
+  finishing, an async delegation batch, a model switch, a crash-recovery note
+  -- each a `role="user"` row carrying real text, so presence alone read them
+  as somebody writing and the model was told to answer a person who did not
+  exist. Measured in the owner's store: 282 of 1,869 user rows. The
+  discriminator is the row's `display_kind`, which Hermes stamps at turn start
+  and already uses for the same question in `split_user_originated_turn` and
+  in the /rewind and /undo listing; absent or `steer` is a person, anything
+  else is the host. A record field, never wording.
+
+  And the plan line gains the off-switch every other injection already had.
+  Code-mode latches once per session, engagement nudges cap at two, the board
+  card claims once, the route hint claims per fingerprint, the repeat streak
+  expires, dispatch outcomes age out; the 357-character reconciliation rule
+  fired on every turn for as long as a plan existed. It now spends a
+  three-turn budget per plan record and drops to its first clause after that,
+  returning in full on every write to the record -- which is when a completion
+  claim is most likely, since the model has just marked something done. Both
+  inputs are records: the plan's own `updated_at` and a per-session turn count
+  beside the other bounded maps in `hooks/nudge_budget`. A caller that is not
+  a turn renders the rule whole and records nothing.
+
+  Measured over 40 turns with one open plan, by driving the real hook rather
+  than multiplying one turn: 29,259 characters before against 28,358 after
+  when nothing writes the plan, and 62,229 against 57,491 on a session also
+  carrying two unacknowledged dispatches. The fence costs 119 characters on
+  every turn that injects anything and the budget returns 153 once it spends,
+  so a session whose plan is written every other turn never reaches the saving
+  and pays the fence in full -- 34,019 against 29,259. That trade is stated
+  rather than tuned away: the marker is the fix for the root cause and its
+  cost is per-turn by construction, because a fence explained only on the
+  first turn would survive until a compaction dropped that turn.
+
+  The decay is a small part of that plan block, not most of it: the block runs
+  about 850 characters on a one-character message and the three-turn budget
+  returns 153 of them. The rest is the drive wording, which this change leaves
+  alone deliberately. Refs #1730, which stays open for that remainder and for
+  the `omh_todo` single-item update.
+
+  Nothing here claims to change what a model does. Every figure is a
+  measurement of what the model is TOLD.
+
 - **A question asked mid-plan is now answered before the plan resumes.**
   While an `omh_todo` plan has open items, every turn's context carried
   `TODO_CONTINUATION_RULE`, whose stop criterion ends "not when a turn has
@@ -59,7 +147,8 @@ All notable changes will be documented here.
   inbound message opened it -- and carries `TODO_ANSWER_FIRST_RULE` in place
   of the drive when one did: answer it completely in this turn, investigate
   rather than defer, never agree with a claim you have not checked, then
-  resume the plan and record a `deferred_reason` if the work was redirected.
+  either record a `deferred_reason` or resume the plan (the entry above
+  reorders those two branches, which shipped the other way round here).
   The drive is reordered, not dropped, which is what keeps this inside the
   stop-criterion contract rather than back at an observe-only reminder.
 

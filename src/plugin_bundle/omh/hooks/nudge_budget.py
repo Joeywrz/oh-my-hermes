@@ -134,6 +134,11 @@ def _stamp_text(stamp: object) -> str:
 # and live for the session. Same map shape, same 64-row ceiling, same
 # fail-toward-fewer-nudges direction on eviction -- an evicted session restarts
 # its counts at zero, which delays a nudge and never adds one.
+#
+# `_PLAN_LINE_TURNS` below is the third map and the exception to that last
+# property, for the reason written at `plan_line_turns_on_record`: it spends a
+# budget on a completion-claim GUARD rather than on a nudge, so an evicted or
+# untracked row has to restore the guard, not drop it.
 _ENGAGEMENT_COUNTS: "OrderedDict[str, dict[str, int]]" = OrderedDict()
 
 # Session ids the host reported as delegated children (`subagent_start`'s
@@ -142,6 +147,13 @@ _ENGAGEMENT_COUNTS: "OrderedDict[str, dict[str, int]]" = OrderedDict()
 # seam the nudges ride carries no agent identity at all. This is the only
 # record-based way this bundle can tell the two apart.
 _DELEGATED_SESSIONS: "OrderedDict[str, bool]" = OrderedDict()
+
+# The third thing, and the one whose eviction fails the OTHER way. The value
+# is `(plan stamp, turns already rendered against it)`: the reconciliation
+# rule spends a per-plan turn budget and must come back in full the moment the
+# plan record is written again, so the stamp is kept beside the count rather
+# than the count alone.
+_PLAN_LINE_TURNS: "OrderedDict[str, tuple[str, int]]" = OrderedDict()
 
 
 def bump_engagement_count(session_id: object, field: str) -> int:
@@ -201,6 +213,33 @@ def session_is_delegated(session_id: object) -> bool:
     return bool(key) and key in _DELEGATED_SESSIONS
 
 
+def plan_line_turns_on_record(session_id: object, stamp: object) -> int:
+    """Turns this session's plan line already rendered against ``stamp``, then count this one.
+
+    Returns the count BEFORE this turn, so the first turn of a plan record
+    answers 0. A stamp that differs from the one remembered is a plan that was
+    written again, and the count restarts at 0 for it -- the only thing that
+    restores the full reconciliation rule, and a record comparison rather than
+    anything read out of the conversation.
+
+    A session with no usable id answers 0 every time and stores nothing. That
+    is deliberate and it is the opposite direction from the counters above: an
+    untracked session keeps the guard in full forever rather than sharing a
+    row with another session's plan. Eviction lands in the same place, since
+    an evicted row is indistinguishable from a first turn.
+    """
+    key = _session_key(session_id)
+    stamp_text = _stamp_text(stamp)
+    if not key:
+        return 0
+    previous = _PLAN_LINE_TURNS.pop(key, None)
+    already = previous[1] if previous is not None and previous[0] == stamp_text else 0
+    _PLAN_LINE_TURNS[key] = (stamp_text, already + 1)
+    while len(_PLAN_LINE_TURNS) > MAX_TRACKED_SESSIONS:
+        _ = _PLAN_LINE_TURNS.popitem(last=False)
+    return already
+
+
 def reset_nudge_budget() -> None:
     """Forget every recorded baseline and every engagement count. A test seam.
 
@@ -218,6 +257,7 @@ def reset_nudge_budget() -> None:
     _LAST_NUDGE_STAMPS.clear()
     _ENGAGEMENT_COUNTS.clear()
     _DELEGATED_SESSIONS.clear()
+    _PLAN_LINE_TURNS.clear()
 
 
 def _remember(key: str, stamp: str) -> None:

@@ -146,6 +146,58 @@ All notable changes will be documented here.
   neutral `turn_authorship` module, since a routing surface importing "who
   opened this turn" from the plan-checklist module reads wrong. The old
   import surface is re-exported unchanged.
+
+- **A turn that starts remote work and arms nothing is told so, before it
+  ends.** A Hermes session cannot wake itself: exactly two things start a
+  turn, a person's message and the host's background-process completion
+  notice. So "waiting for CI" is a real wait only when the turn armed a
+  background process that exits when CI does. Measured on the reporter's own
+  session history, of 48 turn endings that mentioned CI or a deploy and a
+  wait, one had armed a waiter and was woken by it; the longest idle gap was
+  168 minutes.
+
+  A `terminal` call whose command starts work on a remote now gets a directive
+  on its own result when nothing is armed. It names two honest exits and picks
+  neither: arm the wait as a background process with `notify_on_complete=true`
+  so Hermes delivers the completion notice and resumes the session, or tell
+  the person plainly that this session has stopped and what they need to come
+  back for. It says not to poll in the foreground, because OMH's repeat-call
+  guard escalates a foreground poll to a human gate. A second sentence covers
+  the other stall in the report: a command held at the human approval gate did
+  not run, and a session cannot approve on anyone's behalf.
+
+  Neither trigger reads the model's prose. "This turn started remote work" is
+  the command the model passed to a tool with a schema, matched line by line
+  on executable plus subcommand tokens after a shell-aware split, so a
+  multi-line script counts while `git push --help`, `echo git push` and a
+  heredoc body carrying the words are all misses. "Nothing is armed" is two
+  host records: `processes.json` for liveness, since it carries only live
+  processes and names each one's spawning session, and the background spawn's
+  own tool result for whether a live process will notify at all. It takes two
+  because Hermes writes the process checkpoint during the spawn and sets the
+  notification fields afterwards, so the most recently armed process is
+  always recorded without them. Anything the two cannot settle answers
+  "unknown" and the directive stays silent: this may decline to speak, but it
+  must never tell a session that armed something that it did not. A delegated
+  child is never nudged, because it does not report to "the person" and the
+  host says its watcher would not reach its parent.
+
+  It is deliberately small and deliberately conditional, because it lands on
+  very nearly every successful push: at the moment a push returns, a session
+  has almost never armed anything yet. So the obligation is phrased as "if
+  this turn will wait on that work", and a session observed arming a
+  notifying background process, from its own tool arguments or from the
+  process record, stops being reminded how. The directive is 436 characters
+  and the approval sentence 233.
+
+  The issue proposed acting in `pre_verify`, and that hook cannot reach the
+  turn that matters. Hermes gates it on the turn having changed files and
+  feeds that set from `write_file` and `patch` only, so a turn that pushes and
+  opens a pull request has changed nothing and never reaches it. The directive
+  rides `transform_tool_result` instead, which fires for every tool and lands
+  while the model is still inside the turn loop, so both exits are reachable.
+  At most one directive per turn per cause, latched on the host's own turn id.
+
 - **`omh --resume <id>` works, and the terminal now names the `omh` way
   back.** Bare `omh` is documented as the same door as `hermes`, but the door
   opened one way only: the parser rejected `omh --resume <id>` as an invalid

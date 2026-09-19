@@ -36,13 +36,12 @@ Three callers reach it:
 * `on_session_end`, for the session that wrote the route.
 * `on_session_start`, because a killed TUI never reaches `on_session_end`.
   That path additionally requires the recorded writer NOT to be a live
-  session, read off the host's own `state.db` rows via `live_session`. When
-  that surface cannot answer -- no `state.db`, an older schema, no live TUI
-  row at all -- liveness is unknown, and the fallback is an age bound
-  (`live_session.LIVE_TUI_SESSION_FRESH_SECONDS`, the same six hours the
-  approval-bypass ledger uses for "how long a surviving row may still speak
-  for a session"). It is a bound, not a liveness test, and a caller reading
-  the returned `liveness` field can tell the two apart.
+  session, asked of that writer's OWN `state.db` row. When the row does not
+  settle it -- no row, an unreadable file, or a row the host never closed,
+  which is what a killed TUI and most gateway sessions leave behind -- the
+  route's own age decides instead (`LIVE_TUI_SESSION_FRESH_SECONDS`, six
+  hours). Each verdict is named so a caller can tell an observation from a
+  bound; see `writer_session_liveness`.
 
 Concurrency is the reason the whole read-through-replace sits inside one lock
 rather than each half taking its own. Two TUIs routing at once is ordinary on
@@ -82,7 +81,7 @@ from .delegation_routing import (
 )
 from .live_session import (
     LIVE_TUI_SESSION_FRESH_SECONDS,
-    live_tui_session_rows,
+    session_row,
     tui_session_durable_id,
 )
 
@@ -90,11 +89,18 @@ DELEGATION_ROUTE_RESTORE_SCHEMA_VERSION = "delegation_route_restore/v1"
 DELEGATION_ROUTE_RESTORE_FILE = "route-restore.json"
 _MAX_SESSION_ID_CHARS = 160
 
-# The two liveness verdicts that let a restore proceed. Kept as a set rather
-# than an inequality against "live": the age-bound answer is a THIRD string,
-# and a `!= "live"` test would also have let `unknown_within_age_bound`
-# through, restoring under a writer nothing had ruled out.
-LIVENESS_CLEARS_RESTORE = frozenset({"not_live", "not_live_by_age"})
+# The liveness verdicts that let a restore proceed, as an explicit allow-set
+# rather than an inequality against "live". An inequality is how this went
+# wrong twice: `!= "live"` would let `unknown_within_age_bound` through, and
+# `!= "not_live"` refused the age-bound answers. Anything not listed here
+# holds the route.
+#
+# `not_live` is the only observation in the set: the host closed the writer's
+# row. The other two are the age bound, named so a reader can tell a bound
+# from an observation.
+LIVENESS_CLEARS_RESTORE = frozenset(
+    {"not_live", "not_live_by_age", "unclosed_and_stale_by_age"}
+)
 
 RESTORE_CLAIM_BOUNDARY = (
     "Baseline bookkeeping for the delegation.* keys only: this record says "
@@ -382,6 +388,12 @@ def restore_delegation_baseline(
                         "status": "writer_live",
                         "trigger": trigger,
                         "liveness": liveness,
+                        # Report only, never a gate: which surface held the
+                        # route is what an operator wants to see beside a
+                        # withheld restore.
+                        "writer_source": writer_session_source(
+                            writer, hermes_home=hermes_home
+                        ),
                         "lock_enforced": enforced,
                     }
             current = read_delegation_route(hermes_home)
@@ -443,30 +455,77 @@ def writer_session_liveness(
 ) -> str:
     """Whether the session that wrote the route is still running.
 
-    `live` and `not_live` come from the host's own live-TUI rows. `unknown`
-    means that surface could not answer at all, and is never returned: the
-    caller needs a decision, so an unanswerable liveness falls back to an age
-    bound and says which bound answered --- `not_live_by_age` past it,
-    `unknown_within_age_bound` inside it. The bound is the one the HUD's
-    approval-bypass ledger already uses for how long a surviving row may speak
-    for a session, and it is deliberately generous: treating a live writer's
-    route as abandoned is the failure worth avoiding.
+    The question is asked of the WRITER'S OWN row, never of a list the writer
+    may not belong to. Asking the live-TUI list instead was the first version
+    of this and it was wrong: that list is scoped to "which session is a
+    person looking at", so a writer on any other surface is absent from it by
+    construction, and absence read as `not_live` restored a baseline under a
+    live writer whenever some unrelated TUI happened to be open. Measured on
+    the owner's homes, that is the common case rather than the edge: the
+    profile that routes most writes every route from a `slack` or `subagent`
+    session (#1737 review).
+
+    The verdicts, and which of them are observations:
+
+    * `live` -- the row exists, the host has not closed it, and its activity
+      stamp is inside the freshness window. An observation.
+    * `not_live` -- the row exists and carries an `ended_at`. An observation,
+      and the only one that clears a restore.
+    * `unclosed_and_stale_by_age` / `unclosed_within_age_bound` -- the row
+      exists, the host never closed it, and its activity is stale or
+      unusable. This is a killed TUI, or a gateway session of a kind that
+      never ends (55 of 57 slack sessions on the owner's machine are open
+      rows). Nothing here observes that the process is gone, so the ROUTE's
+      own age decides and the name says a bound answered.
+    * `not_live_by_age` / `unknown_within_age_bound` -- no row at all, or the
+      host surface could not be read. Same bound, and the same honesty about
+      which question went unanswered.
+
+    The bound is `LIVE_TUI_SESSION_FRESH_SECONDS`, six hours, and it is the
+    accepted cost of the trade: a route written by a killed TUI can outlive
+    it by up to six hours before the session-start path takes it back, while
+    the session that wrote it keeps its route for as long as it might still
+    be dispatching. Restoring under a live writer sends that writer's next
+    child to the wrong model, which is worse than a stale route persisting
+    for one more session. Nothing available shortens it -- the host's lease
+    registry records which surfaces are open, not whether their processes
+    are alive, and a lease is not revoked when a TUI is killed.
     """
     home = str(hermes_home) if hermes_home else ""
-    rows = live_tui_session_rows(home)
-    if rows:
-        live_ids = {row["id"] for row in rows if row["id"]}
-        if writer_session_id and writer_session_id in live_ids:
-            return "live"
+    row = session_row(home, writer_session_id)
+    if row is None:
         # A widget-side reference is the gateway transport id rather than the
         # durable key `state.db` rows carry, so the two names for one session
         # are reconciled through the host's own lease registry before the
         # writer is called absent.
         durable = tui_session_durable_id(home, writer_session_id)
-        if durable and durable in live_ids:
-            return "live"
-        return "not_live"
+        if durable:
+            row = session_row(home, durable)
     current = float(now if now is not None else time.time())
+    if row is None:
+        if current - written_at > LIVE_TUI_SESSION_FRESH_SECONDS:
+            return "not_live_by_age"
+        return "unknown_within_age_bound"
+    if row["ended_at"] is not None:
+        return "not_live"
+    activity = row["activity"]
+    if isinstance(activity, (int, float)) and not isinstance(activity, bool):
+        if current - float(activity) <= LIVE_TUI_SESSION_FRESH_SECONDS:
+            return "live"
     if current - written_at > LIVE_TUI_SESSION_FRESH_SECONDS:
-        return "not_live_by_age"
-    return "unknown_within_age_bound"
+        return "unclosed_and_stale_by_age"
+    return "unclosed_within_age_bound"
+
+
+def writer_session_source(
+    writer_session_id: str, *, hermes_home: str | Path | None = None
+) -> str:
+    """The surface the writer ran on, for the report only.
+
+    Reported beside the verdict so an operator reading a withheld restore can
+    see which kind of session held the route. Never a gate: no decision
+    anywhere branches on this value, because the verdict already carries
+    every fact a decision needs.
+    """
+    row = session_row(str(hermes_home) if hermes_home else "", writer_session_id)
+    return str(row["source"]) if row else ""

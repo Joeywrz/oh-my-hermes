@@ -239,57 +239,141 @@ class OwnershipCheckTest(RouteRestoreTestCase):
 
 
 class OrphanedRouteTest(RouteRestoreTestCase):
-    """The session-start path: a killed TUI never reaches `on_session_end`."""
+    """The session-start path: a killed TUI never reaches `on_session_end`.
 
-    def _write_state_db(self, *session_ids: str) -> None:
+    Liveness is asked of the WRITER'S OWN row. The first version asked the
+    live-TUI list, which is scoped to "which session is a person looking at";
+    a writer on any other surface is absent from that list by construction,
+    so its verdict depended on whether an unrelated TUI happened to be open.
+    Measured on the owner's homes when this was found: the profile that
+    routes most writes every route from a `slack` or `subagent` session, and
+    the default home already had `desktop` routes beside its TUI ones.
+    """
+
+    def _write_state_db(self, *rows: tuple) -> None:
+        """Rows of (id, source, ended_at, activity). No filters are applied."""
         connection = sqlite3.connect(self.hermes_home / "state.db")
         try:
             connection.execute(
                 "CREATE TABLE sessions (id TEXT, source TEXT, ended_at TEXT, archived INT,"
                 " hidden INT, model_config TEXT, last_activity_at REAL, started_at REAL)"
             )
-            for session_id in session_ids:
+            for session_id, source, ended_at, activity in rows:
                 connection.execute(
-                    "INSERT INTO sessions VALUES (?, 'tui', NULL, 0, 0, '{}', 1000.0, 1000.0)",
-                    (session_id,),
+                    "INSERT INTO sessions VALUES (?, ?, ?, 0, 0, '{}', ?, ?)",
+                    (session_id, source, ended_at, activity, activity),
                 )
             connection.commit()
         finally:
             connection.close()
 
-    def test_a_route_whose_writer_is_gone_is_restored_at_session_start(self) -> None:
-        before = self.config.read_text(encoding="utf-8")
-        self.route(session_id="killed", now=0.0)
-        self._write_state_db("someone-else")
+    def test_a_non_tui_writer_is_live_even_while_an_unrelated_tui_row_is_open(self) -> None:
+        # The regression this class exists for. `slack-writer` is mid-run and
+        # about to dispatch; an unrelated TUI is open in the same home.
+        self.route(session_id="slack-writer", now=1000.0)
+        self._write_state_db(
+            ("slack-writer", "slack", None, 1000.0),
+            ("someone-elses-tui", "tui", None, 1000.0),
+        )
 
-        result = self.restore(trigger="session_start", require_writer_not_live=True)
-
-        self.assertEqual(result["status"], "cleared")
-        self.assertEqual(result["liveness"], "not_live")
-        self.assertEqual(self.config.read_text(encoding="utf-8"), before)
-
-    def test_a_live_writer_keeps_its_route(self) -> None:
-        self.route(session_id="still-running")
-        self._write_state_db("still-running", "another")
-
-        result = self.restore(trigger="session_start", require_writer_not_live=True)
+        result = self.restore(
+            trigger="session_start", require_writer_not_live=True, now=1100.0
+        )
 
         self.assertEqual(result["status"], "writer_live")
         self.assertEqual(result["liveness"], "live")
+        self.assertEqual(result["writer_source"], "slack")
         self.assertEqual(self.current()["model"], "routed-model")
+
+    def test_a_delegated_child_writer_is_asked_about_like_any_other(self) -> None:
+        # The TUI list drops rows naming a delegation parent. A subagent
+        # writes routes too (33 of them on the owner's routing profile), so
+        # its liveness is a real question and not an exclusion.
+        self.route(session_id="subagent-writer", now=1000.0)
+        self._write_state_db(("subagent-writer", "subagent", None, 1000.0))
+
+        result = self.restore(
+            trigger="session_start", require_writer_not_live=True, now=1100.0
+        )
+
+        self.assertEqual(result["liveness"], "live")
+        self.assertEqual(self.current()["model"], "routed-model")
+
+    def test_a_writer_the_host_closed_is_restored(self) -> None:
+        before = self.config.read_text(encoding="utf-8")
+        self.route(session_id="finished", now=1000.0)
+        self._write_state_db(
+            ("finished", "tui", "2026-09-19T10:00:00Z", 1000.0),
+            ("someone-else", "tui", None, 1000.0),
+        )
+
+        result = self.restore(
+            trigger="session_start", require_writer_not_live=True, now=1100.0
+        )
+
+        # The one observation that clears a restore: the host closed the row.
+        self.assertEqual(result["liveness"], "not_live")
+        self.assertEqual(result["status"], "cleared")
+        self.assertEqual(self.config.read_text(encoding="utf-8"), before)
+
+    def test_a_row_the_host_never_closed_waits_out_the_age_bound(self) -> None:
+        # A killed TUI, and every gateway session of a kind that never ends,
+        # leave an open row behind. Nothing here observes the process is
+        # gone, so the route's own age decides and the verdict says so.
+        # The shape a gateway session leaves: the row is open, its activity
+        # stamp is old because the host stopped re-stamping it, and the route
+        # is newer than the stamp. The stale stamp must not read as "gone"
+        # while the route is still fresh.
+        written = 20_000.0
+        self.route(session_id="killed", now=written)
+        self._write_state_db(("killed", "tui", None, 0.0))
+
+        held = self.restore(
+            trigger="session_start", require_writer_not_live=True, now=30_000.0
+        )
+
+        self.assertEqual(held["liveness"], "unclosed_within_age_bound")
+        self.assertEqual(held["status"], "writer_live")
+        self.assertEqual(self.current()["model"], "routed-model")
+
+        released = self.restore(
+            trigger="session_start",
+            require_writer_not_live=True,
+            now=written + LIVE_TUI_SESSION_FRESH_SECONDS + 1,
+        )
+
+        self.assertEqual(released["liveness"], "unclosed_and_stale_by_age")
+        self.assertEqual(released["status"], "cleared")
+        self.assertEqual(self.current(), {})
+
+    def test_an_id_with_no_row_is_unanswerable_not_absent(self) -> None:
+        self.route(session_id="not-in-the-db", now=1000.0)
+        self._write_state_db(("some-other-session", "tui", None, 1000.0))
+
+        held = self.restore(
+            trigger="session_start", require_writer_not_live=True, now=1100.0
+        )
+        released = self.restore(
+            trigger="session_start",
+            require_writer_not_live=True,
+            now=1000.0 + LIVE_TUI_SESSION_FRESH_SECONDS + 1,
+        )
+
+        self.assertEqual(held["liveness"], "unknown_within_age_bound")
+        self.assertEqual(released["liveness"], "not_live_by_age")
 
     def test_a_hand_edited_key_survives_session_start_too(self) -> None:
         self.route(session_id="killed", now=0.0)
         edited = self.config.read_text(encoding="utf-8").replace("'routed-model'", "'mine'")
         self.config.write_text(edited, encoding="utf-8")
-        self._write_state_db("someone-else")
+        self._write_state_db(("killed", "tui", "2026-09-19T10:00:00Z", 0.0))
 
         result = self.restore(trigger="session_start", require_writer_not_live=True)
 
         self.assertEqual(result["status"], "foreign_edit")
         self.assertEqual(self.config.read_text(encoding="utf-8"), edited)
 
-    def test_liveness_falls_back_to_a_stated_age_bound_when_no_row_can_answer(self) -> None:
+    def test_liveness_falls_back_to_a_stated_age_bound_when_no_db_can_answer(self) -> None:
         # No state.db at all: the host surface is silent, and the silence is
         # never read as "the writer is gone". Only the age bound decides, and
         # the returned value says which answered.
@@ -306,6 +390,17 @@ class OrphanedRouteTest(RouteRestoreTestCase):
                 now=LIVE_TUI_SESSION_FRESH_SECONDS + 1,
             ),
             "not_live_by_age",
+        )
+
+    def test_an_unusable_activity_stamp_is_not_read_as_recent(self) -> None:
+        self._write_state_db(("odd", "acp", None, None))
+
+        self.assertEqual(
+            writer_session_liveness(
+                "odd", hermes_home=self.hermes_home, written_at=0.0,
+                now=LIVE_TUI_SESSION_FRESH_SECONDS + 1,
+            ),
+            "unclosed_and_stale_by_age",
         )
 
     def test_a_route_inside_the_age_bound_is_not_restored_without_a_liveness_row(self) -> None:

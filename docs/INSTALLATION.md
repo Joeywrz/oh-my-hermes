@@ -545,7 +545,13 @@ the writing session is gone all put it back; chain exhaustion puts it back
 instead of clearing, so the next dispatch runs on the model the user had
 rather than on one more rejection. Every one of those is gated on the same
 recorded value: if the keys no longer hold what OMH wrote, someone else set
-them, and OMH reports that and changes nothing. Deleting the file is safe and
+them, and OMH reports that and changes nothing. The session-start path asks
+the writer's own `state.db` row whether it is still running; only a row the
+host closed answers that it is not, and a row the host never closed -- what a
+killed TUI and most gateway sessions leave behind -- falls back to a six-hour
+bound on the route's own age, so such a route can outlive its session by up to
+that long rather than risk being taken back while the writer is still
+dispatching. Deleting the file is safe and
 means only that OMH stops claiming it knows what the keys held before it.
 
 A fourth sibling, `~/.omh/routing/dispatch-models.json`

@@ -295,12 +295,25 @@ All notable changes will be documented here.
 
   The session-start path exists because a killed TUI never reaches
   `on_session_end`. It restores only a route whose recorded writer is not a
-  live session, read from Hermes' own `state.db` rows. When that surface
-  cannot answer at all, liveness is unknown and an age bound decides instead
-  -- the same six hours the approval-bypass ledger uses -- and the returned
-  `liveness` field says which one answered, so a bound is never reported as a
-  liveness observation. OMH registers `on_session_start` for this; it is the
-  host's own first-turn lifecycle callback, bounded and fail-open.
+  live session, asked of that writer's own `state.db` row -- not of the
+  live-TUI list, which is scoped to "which session is a person looking at"
+  and so omits every writer on another surface by construction. Most writers
+  are on another surface: on the owner's routing profile every route comes
+  from a `slack` or `subagent` session, and the default home already has
+  `desktop` routes beside its TUI ones.
+
+  Only a row the host closed is an observation that the writer is gone. A row
+  the host never closed -- what a killed TUI and most gateway sessions leave
+  behind -- is not, so the route's own age decides instead, bounded at six
+  hours. Each verdict is named so a reader can tell an observation from a
+  bound. The cost is stated: a route left by a killed TUI can outlive it by
+  up to six hours. That is the accepted side of the trade, because restoring
+  under a live writer sends that writer's next child to the wrong model.
+  Nothing available shortens it -- the host's lease registry records which
+  surfaces are open, not whether their processes are alive.
+
+  OMH registers `on_session_start` for this; it is the host's own first-turn
+  lifecycle callback, bounded and fail-open.
 
   Two sessions routing at once is ordinary on one machine, so the whole
   read-through-replace is inside the plugin's existing file lock. A writer

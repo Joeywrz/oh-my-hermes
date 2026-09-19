@@ -342,6 +342,12 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     # An open plan is a state, not a phrasing: while one exists, every turn
     # carries the reconciliation line so a completion claim cannot part ways
     # with the HUD checklist unnoticed. Honors the caller's awareness opt-out.
+    #
+    # `user_message` rides along for one bit only -- whether a message opened
+    # this turn, which decides whether the line asks for the next plan item or
+    # asks for that message to be answered first. It is the variable computed
+    # above rather than the raw kwarg on purpose: a host-labelled tracker
+    # event is already zeroed there, and an event is not someone writing.
     if include_awareness:
         outcomes = unacknowledged_outcomes(
             omh_home,
@@ -353,6 +359,7 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
             hermes_home=hermes_home,
             session_ref=session_id,
             outcomes=outcomes,
+            user_message=user_message,
         )
         if todo_reminder:
             context_parts.append(todo_reminder)

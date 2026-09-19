@@ -1177,7 +1177,7 @@ _DEFINITIONS = [
         # dropped clauses ("saturation-style", "in comparable open-source
         # repos", "across independent sources") live in the quality bar, which
         # the gate does not budget.
-        "Deep research engine - grounding for specs and decisions: study open-source reference implementations with pinned refs, gather live web evidence with citation discipline, verify contested claims, and distill a decision-grounding dossier that planning consumes; for a decision brief use research-brief, for upstream guidance use best-practice-research.",
+        "Deep research engine - grounding for specs and decisions: study open-source reference implementations with pinned refs, gather live web evidence with citation discipline, verify contested claims, and distill a decision-grounding dossier that planning consumes; for a decision brief use research-brief, for upstream guidance use web-research.",
         (
             # No bare `research` token: it is an ordinary English word that
             # appears inside delivery-cycle and catalog-question messages
@@ -1205,6 +1205,21 @@ _DEFINITIONS = [
             "comparable implementations",
             "compare open source implementations",
             "decision-grounding research",
+            # Folded in from the retired `autoresearch-goal` (#1691), a
+            # validator-gated wrapper around what this engine already does
+            # with a reference and six schemas. Its cue vocabulary moves here
+            # so nothing a person typed stops working.
+            #
+            # `goal`, `durable`, and `critic` are not held back in
+            # `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS`: the same three phrases
+            # already carried them on the retired skill, "my research goal for
+            # this quarter is to publish two papers" dispatched a research
+            # workflow before this change as well, and `overroute_count` stays
+            # 0 measured against `origin/main`.
+            "autoresearch-goal",
+            "research goal",
+            "durable research",
+            "critic research",
             # Only the Korean deep cues that add reach: `심층 조사`,
             # `구현 사례 조사`, `오픈소스 구현 조사`, and `스펙 전에 조사` all
             # contain the existing `조사` trigger, so they already route here and
@@ -1293,7 +1308,6 @@ _DEFINITIONS = [
             "The requested output is a typed candidate list or acquisition status without factual synthesis; use `source-finder`.",
             "The user needs a market, customer, or pricing decision brief with evidence-versus-inference treatment; use `research-brief`.",
             "The user asks for recurring monitoring, a source inbox, or Scout/Analyst/Briefer operations; use `research-department`.",
-            "Correctness is a bounded, versioned official or upstream guidance question; use `best-practice-research`.",
             "One cited retrieval round settles the question and no reference implementation needs reading; use `web-research`.",
         ),
         good_example=SkillExample(
@@ -1341,6 +1355,24 @@ _DEFINITIONS = [
             "evidence scan",
             "source diversity",
             "retrieval gap",
+            # Folded in from the retired `best-practice-research` (#1691).
+            # That skill answered the same question with three untyped
+            # outputs; this one names `web_research_brief/v1` and
+            # `temporal_source_receipt/v1` for the same round of cited
+            # retrieval. Its cue vocabulary moves here so nothing a person
+            # typed stops working.
+            #
+            # The everyday words these phrases split into (`best`, `practice`,
+            # `official`, `docs`, `check`, `say`) are not held back: measured
+            # against `origin/main` `overroute_count` stays 0, and "what is
+            # the best practice for naming git branches" and "official docs
+            # say the flag was removed" both keep the fallback they had.
+            "best-practice-research",
+            "best practice",
+            "official docs",
+            "upstream guidance",
+            "what do the docs say",
+            "check the docs",
         ),
         "Use when the answer depends on current external facts that one round of cited web retrieval can settle, with no reference-implementation study and no declared depth budget.",
         category="research",
@@ -1383,7 +1415,6 @@ _DEFINITIONS = [
         why_this_exists="`web-research` exists so a current-facts question returns a cited answer in one retrieval round, without the declared depth budget, reference-implementation study, and dossier that `research` requires.",
         do_not_use_when=(
             "The decision needs reference-implementation study, a declared depth budget, or a decision-grounding dossier; use `research`.",
-            "Correctness turns on one technology's versioned official or upstream guidance; use `best-practice-research`.",
             "The output is a typed candidate inventory and acquisition status rather than an answer; use `source-finder`.",
             "The ask is a market, competitor, pricing, or customer decision brief; use `research-brief`.",
             "The user wants recurring monitoring, a source inbox, or Scout/Analyst/Briefer operations; use `research-department`.",
@@ -1683,8 +1714,8 @@ _DEFINITIONS = [
         hermes_role="retained-cognition",
         delegation_boundary="retained-catalog-intent",
         handoff_policy=(
-            "Keep the research operating model in Hermes. Map Scout to `research`/`autoresearch-goal`, "
-            "Analyst to `research-brief`/`best-practice-research`, and Briefer to `report-package` or meeting/report workflows. "
+            "Keep the research operating model in Hermes. Map Scout to `research`/`source-finder`, "
+            "Analyst to `research-brief`/`web-research`, and Briefer to `report-package` or meeting/report workflows. "
             "Record retrieval, synthesis-tool output, knowledge-store writes, delivery, and verification only from observed evidence."
         ),
         required_inputs=(
@@ -6525,7 +6556,7 @@ _DEFINITIONS = [
             "A new model generation needs recognition, calibration, routing, and pricing onboarding; use `model-optimization`.",
             "The user wants their own machine's model routing or providers configured; use `model-setup`.",
             "The question is whether a coding runtime/executor can run at all; use `executor-runtime-readiness`.",
-            "The goal is application or system performance rather than the serving endpoint itself; use `performance-goal` or `ultraperf`.",
+            "The goal is application or system performance rather than the serving endpoint itself; use `ultraperf`.",
         ),
         good_example=SkillExample(
             prompt="Serve Qwen on our two A100s for the team and tell me if prefix caching is worth turning on.",
@@ -6621,7 +6652,7 @@ _DEFINITIONS = [
         ),
         do_not_use_when=(
             "The user wants their own machine's model routing configured or providers connected; use `model-setup`.",
-            "The goal is measurable performance of an application or system, not model handling; use `performance-goal` or `ultraperf`.",
+            "The goal is measurable performance of an application or system, not model handling; use `ultraperf`.",
             "The user wants benchmark-superiority or provider-readiness claims without measurements.",
         ),
         good_example=SkillExample(
@@ -6665,6 +6696,27 @@ _DEFINITIONS = [
             "model inference hotspot",
             "slow ci pipeline",
             "query performance audit",
+            # Folded in from the retired `performance-goal` (#1691), which
+            # produced the same outputs this one does minus the baseline
+            # record, the ranked hypotheses, and the regression budget and
+            # gate. Its cue vocabulary moves here so nothing a person typed
+            # stops working.
+            #
+            # The bare metric nouns are deliberately NOT held back in
+            # `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS`. They were already bare
+            # single-word triggers on the retired skill, so folding moves the
+            # same token credit rather than creating it, and measured against
+            # `origin/main` no negative-control case changed verdict:
+            # `overroute_count` stays 0, "the network latency to the database
+            # is documented in the runbook" keeps `ops-observability-card`,
+            # and "throughput of the kafka consumer is a metric we already
+            # export" keeps its fallback. A hold-back here would suppress
+            # scoring that nothing observed asked for.
+            "performance-goal",
+            "performance goal",
+            "latency",
+            "throughput",
+            "benchmark",
         ),
         "Use when performance problems are suspected but not yet localized, or when several cost hotspots across domains need a measured inspect-and-fix loop.",
         category="optimization",
@@ -6743,7 +6795,7 @@ _DEFINITIONS = [
         recovery_notes=(
             "If no evaluator command exists, stop the loop and produce one before touching code.",
             "If the re-measure does not move, revert the change and re-rank hypotheses instead of stacking fixes.",
-            "If the goal turns out to be one declared metric with a budget, hand off to `performance-goal`.",
+            "If the goal turns out to be one declared metric with a budget, keep the loop and start from that baseline instead of profiling for a hot path.",
         ),
     ),
     SkillDefinition(

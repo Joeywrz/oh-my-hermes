@@ -1740,7 +1740,7 @@ class EfficiencyContractTests(unittest.TestCase):
             ("논문 링크 찾아줘", "source-finder", "operator_surface_fast_path:source"),
             ("paper pdf를 찾아서 쉽게 설명해줘", "source-finder", "operator_surface_fast_path:source"),
             ("자료 찾아줘", "web-research", "operator_surface_fast_path:web_research"),
-            ("성능 최적화해줘", "performance-goal", "operator_surface_fast_path:performance"),
+            ("성능 최적화해줘", "ultraperf", "operator_surface_fast_path:ultraperf"),
             ("omh update 했는데 잘 된건지 모르겠어", "doctor", "operator_surface_fast_path:doctor"),
             ("PR 열렸는데 CI 실패했어 정리해줘", "github-event-ops", "operator_surface_fast_path:github_event"),
             (

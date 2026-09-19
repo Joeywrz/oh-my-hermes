@@ -4957,9 +4957,9 @@ CLEANUP_REFACTOR_GUARD = RoutingGuardRule(
 )
 DURABLE_RESEARCH_GUARD = RoutingGuardRule(
     id="durable_research_goal_before_wiki",
-    rule="Keep-researching-until-gap-closed requests should route to autoresearch-goal before wiki capture.",
+    rule="Keep-researching-until-gap-closed requests should route to research before wiki capture.",
     matched_label="guard:durable_research_goal",
-    preferred_skills=("autoresearch-goal",),
+    preferred_skills=("research",),
     score_boost=44,
     why="Matched durable research loop language with evidence gaps and a stop condition.",
     activation_status="active",

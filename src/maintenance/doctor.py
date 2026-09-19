@@ -786,13 +786,15 @@ def _provider_entitlements_check(paths: OmhPaths) -> Check:
 
 
 def _retired_skill_install_check(paths: OmhPaths) -> Check:
-    """A retired ULW engine still installed under skills_dir is a finding.
+    """A retired skill still installed under skills_dir is a finding.
 
-    Retirement (#954 stage 5) removed `ulw-team`/`ulw-ralph`/`ulw-goal`/
-    `ulw-process` from the installable catalog; `omh update` prunes them. A
-    leftover install keeps serving guidance for an intent that now runs as a
-    `ulw-work` capability, so doctor names the migration instead of staying
-    silent.
+    Retirement removed `ulw-team`/`ulw-ralph`/`ulw-goal`/`ulw-process` (#954
+    stage 5) and `omh-performance-goal`/`omh-best-practice-research`/
+    `omh-autoresearch-goal` (#1691) from the installable catalog; `omh update`
+    prunes them. A leftover install keeps serving guidance for an intent that
+    now runs somewhere else, so doctor names the migration instead of staying
+    silent. The label set comes from `retired_display_names()`, which reads
+    every retired exposure row rather than the ULW engines alone.
     """
     from ..skills.catalog import retired_display_names, retired_skill_migration_error
 
@@ -807,16 +809,16 @@ def _retired_skill_install_check(paths: OmhPaths) -> Check:
         }
     )
     if not installed:
-        return Check("retired_skills", True, "no retired ULW engine skill is installed")
+        return Check("retired_skills", True, "no retired skill is installed")
     messages = "; ".join(
         str(retired_skill_migration_error(name).get("message", name)) for name in installed
     )
     return Check(
         "retired_skills",
         False,
-        f"retired ULW engine skill install(s) found: {messages}",
+        f"retired skill install(s) found: {messages}",
         severity="warning",
-        remediation="the intents now run as `ulw-work` capabilities; retired installs are pruned on update",
+        remediation="each intent now runs in the target home named above; retired installs are pruned on update",
         next_action="run `omh update` to prune the retired skill directories",
     )
 

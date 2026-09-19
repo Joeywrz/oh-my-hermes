@@ -517,7 +517,7 @@ def _role_lanes() -> list[dict[str, object]]:
             "label": "Scout",
             "status": "prepared",
             "responsibility": "Collect source candidates and raw findings without claiming retrieval until observed.",
-            "primary_skills": ["research", "autoresearch-goal"],
+            "primary_skills": ["research", "web-research"],
             "output_bucket": "raw_findings",
         },
         {
@@ -525,7 +525,7 @@ def _role_lanes() -> list[dict[str, object]]:
             "label": "Analyst",
             "status": "prepared",
             "responsibility": "Synthesize processed notes, conflicts, confidence, and missing evidence.",
-            "primary_skills": ["research-brief", "best-practice-research"],
+            "primary_skills": ["research-brief", "web-research"],
             "output_bucket": "processed_notes",
         },
         {
@@ -578,7 +578,7 @@ def _skill_chain(source_policy: dict[str, object]) -> list[dict[str, str]]:
     ]
     detected = set(_string_list(source_policy.get("detected_source_types", [])))
     if "papers" in detected:
-        chain.append({"skill": "best-practice-research", "reason": "official/upstream or paper-backed validation"})
+        chain.append({"skill": "web-research", "reason": "official/upstream or paper-backed validation"})
     if "customer" in detected:
         chain.append({"skill": "feedback-triage", "reason": "customer signal clustering before synthesis"})
     return chain

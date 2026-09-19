@@ -457,15 +457,19 @@ COMMON_REQUEST_COVERAGE_CASES: tuple[CommonRequestCoverageCase, ...] = (
         "operating_rhythm",
         "prepare_operating_record",
     ),
+    # Retargeted with `performance-goal`'s retirement into `ultraperf`
+    # (#1691). The declared-metric phrasing is kept as its own case beside the
+    # discovery-shaped `ultraperf` case above: the two halves used to belong to
+    # two skills, and this is the one that proves the folded half still lands.
     CommonRequestCoverageCase(
-        "performance-goal",
+        "performance-optimization",
         "ops_and_quality",
         "Performance optimization",
         "performance optimization latency benchmark plan",
         "dispatch",
-        "performance-goal",
-        "plan",
-        "forward_plan_to_selected_workflow",
+        "ultraperf",
+        "ultraperf_loop",
+        "prepare_ultraperf_loop",
     ),
     CommonRequestCoverageCase(
         "workspace-audit",

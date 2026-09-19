@@ -44,6 +44,44 @@ All notable changes will be documented here.
   any exit code other than 0 and 130. A gateway-owned session is never ended
   by the TUI, so it produces no candidate and no line, which is the right
   outcome rather than a gap.
+- **Three skills that were strict subsets of a stronger sibling now retire
+  into it, and the always-loaded budget ratchets down instead of up.**
+  `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT` sat at exactly its own limit, so every
+  new skill and every strengthened body needed a raise before it could land.
+  Three of the installed skills were doing a job their sibling already did
+  and more: `performance-goal` produced the same outputs as `ultraperf` minus
+  the baseline record, the ranked hypotheses and the regression gate;
+  `best-practice-research` answered the same question as `web-research` with
+  three untyped outputs instead of two named schemas; and `autoresearch-goal`
+  was a validator-gated wrapper around what `research` already does with a
+  reference and six schemas. Each pair cost two always-loaded bodies for one
+  job.
+
+  The three are retired, not deleted, using the shape the four folded ULW
+  engines already use: the contract stays in the catalog as a workflow
+  reference, the body stops rendering, a stale label or tap path fails with a
+  named migration error pointing at the target home, doctor reports a
+  leftover install, and rollback is a one-row edit. What differs is where the
+  intent went. An engine retired into a capability inside `ulw-work`; these
+  retire into a whole sibling skill, so the migration error names the target
+  home rather than a capability id, and the cue vocabulary folds into the
+  target's own trigger table instead of routing through the engine alias
+  resolver. That resolver returns an unconditional high-confidence dispatch
+  on a contained cue, which is right for a distinctive engine name and wrong
+  for a bare word like `benchmark`; folded triggers compete in ordinary
+  scoring instead.
+
+  Nothing anyone types stops working. Every trigger of the three still
+  dispatches, now to the target home, and the two bare metric nouns another
+  workflow already owned (`latency` to the observability card, `throughput`
+  to the agent ops review) keep that owner. The negative-control corpus still
+  reports zero over-routes with three new controls added for the everyday
+  words the fold moved.
+
+  The budget is ratcheted DOWN to the new measured value: the full-profile
+  skill body from 992,659 to 978,380 characters, the full capability section
+  from 430,308 to 422,526, and the standalone capability section from 120,089
+  to 117,254. Installable skills go from 127 to 124.
 
 - **A question asked mid-plan is now answered before the plan resumes.**
   While an `omh_todo` plan has open items, every turn's context carried

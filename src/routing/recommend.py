@@ -1044,18 +1044,6 @@ _SKILL_POLICIES = {
             "and budget tolerance before claiming any performance improvement."
         ),
     ),
-    "performance-goal": RecommendationPolicy(
-        next_action="prepare_quality_performance_and_usability_review",
-        evidence_boundary=(
-            "A performance goal card is not proof that a runtime, tool, MCP server, CI job, or platform action ran; "
-            "it is not performance proof, benchmark execution, latency proof, throughput proof, profiling evidence, "
-            "code change, regression-test completion, review, or merge evidence."
-        ),
-        wrapper_guidance=(
-            "Scope the metric, baseline, suspected hot path, safe optimization boundary, and verification commands before "
-            "claiming any runtime or AI-token efficiency improvement."
-        ),
-    ),
     "inference-serving": RecommendationPolicy(
         next_action="prepare_inference_serving",
         evidence_boundary=(
@@ -2009,7 +1997,9 @@ def _prepared_routable_definitions() -> tuple[_PreparedDefinition, ...]:
 # `research` they reverse the boundary the clause exists to state. "upstream
 # guidance for pinning Python dependencies" gave `research` +1 for `upstream` and
 # +1 for `guidance`, and with the web-research-before-process guard's +14 that
-# beat `best-practice-research`, the skill the sentence names. Same shape for
+# beat `best-practice-research`, the skill the sentence named at the time
+# -- retired into `web-research` by #1691, which holds the phrase and this
+# exclusion's effect now. Same shape for
 # `brief`/`decision` against `research-brief`. Excluded per skill, in the same
 # spirit as the per-skill trigger-token exclusions in `_score_definition`; the
 # general derivation is untouched.
@@ -2408,8 +2398,9 @@ _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS = {
     # The trial phrasings added later ("memory provider trial", "... migration",
     # "... rollback", "... benchmark") split the same way, into words the rest
     # of the catalog owns: `deploy-and-monitor` answers "what is a rollback",
-    # `backend` owns "migrate the old database", `performance-goal` owns
-    # "benchmark this function". Credited as bare tokens they pulled all three
+    # `backend` owns "migrate the old database", `ultraperf` owns
+    # "benchmark this function" (it holds the `benchmark` trigger since #1691
+    # folded `performance-goal` into it). Credited as bare tokens they pulled all three
     # toward this lane -- "we need to migrate the old database this weekend"
     # put it level with `backend`. The intent is in the compound noun `memory
     # provider`, which scores +6 on its own. `trial` is deliberately absent

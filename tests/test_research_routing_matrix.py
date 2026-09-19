@@ -28,9 +28,11 @@ DISPATCH_CASES: tuple[tuple[str, str], ...] = (
     ("이 논문 PDF를 쉽게 설명해줘", "paper-learning"),
     ("이 주제의 논문과 데이터셋을 찾아줘", "source-finder"),
     ("find datasets for browser agent benchmarks", "source-finder"),
-    ("what do the docs say about OAuth PKCE?", "best-practice-research"),
-    ("check the official docs for the current API migration", "best-practice-research"),
-    ("find best practices for browser performance", "best-practice-research"),
+    # `best-practice-research` retired into `web-research` (#1691); the three
+    # official/upstream lookup prompts now land on the target home.
+    ("what do the docs say about OAuth PKCE?", "web-research"),
+    ("check the official docs for the current API migration", "web-research"),
+    ("find best practices for browser performance", "web-research"),
     ("compare onboarding analytics vendors", "research-brief"),
     (
         "compare three onboarding analytics vendors using customer notes and confidence gaps",
@@ -67,7 +69,7 @@ NEGATIVE_CONTROLS: tuple[tuple[str, str], ...] = (
     ("check this checkout page for visual regressions", "visual-qa"),
     ("fix the checkout bug in our app", "ultrawork"),
     ("create a slide deck from these meeting notes", "materials-package"),
-    ("evaluate agent performance on the benchmark suite", "performance-goal"),
+    ("evaluate agent performance on the benchmark suite", "ultraperf"),
     ("triage this customer feedback backlog", "feedback-triage"),
     ("analyze this CSV and summarize anomalies", "data-analysis"),
     ("발표 자료로 만들어줘", "materials-package"),
@@ -77,11 +79,10 @@ RESEARCH_SKILLS = frozenset(
     {
         "research",
         "source-finder",
-        "best-practice-research",
+        "web-research",
         "research-brief",
         "research-department",
         "paper-learning",
-        "autoresearch-goal",
     }
 )
 

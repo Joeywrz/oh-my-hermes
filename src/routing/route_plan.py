@@ -118,7 +118,7 @@ _SKILL_STAGE = {
     "feedback-triage": "triage",
     "source-finder": "research",
     "research": "research",
-    "best-practice-research": "research",
+    "web-research": "research",
     "research-brief": "research",
     "research-department": "research",
     "paper-learning": "research",
@@ -134,7 +134,7 @@ _SKILL_STAGE = {
 _STAGE_PRIORITY = {
     "clarify": ("deep-interview",),
     "triage": ("feedback-triage",),
-    "research": ("research", "source-finder", "best-practice-research", "research-brief", "research-department", "paper-learning"),
+    "research": ("research", "source-finder", "web-research", "research-brief", "research-department", "paper-learning"),
     "plan": ("ralplan", "plan"),
     "deliver": ("ultrawork", "ai-slop-cleaner"),
     "review": ("code-review",),

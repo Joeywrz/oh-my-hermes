@@ -18,7 +18,7 @@ from omh.routing.chat import route_chat_message
 
 class RoutingQualityGateTests(unittest.TestCase):
     DISPATCH_CASES = (
-        ("find official docs for the current OpenAI API version", "best-practice-research"),
+        ("find official docs for the current OpenAI API version", "web-research"),
         ("plan a safe implementation for this feature", "plan"),
         # `ultraprocess` is a retired engine alias (see ulw_equivalence); the
         # canonical delivery engine this lane dispatches to is `ultrawork`.

@@ -738,7 +738,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### research
 
-[omh] Deep research engine - grounding for specs and decisions: study open-source reference implementations with pinned refs, gather live web evidence with citation discipline, verify contested claims, and distill a decision-grounding dossier that planning consumes; for a decision brief use research-brief, for upstream guidance use best-practice-research.
+[omh] Deep research engine - grounding for specs and decisions: study open-source reference implementations with pinned refs, gather live web evidence with citation discipline, verify contested claims, and distill a decision-grounding dossier that planning consumes; for a decision brief use research-brief, for upstream guidance use web-research.
 
 - Category: `research`
 - Phase: `decision-grounding`
@@ -762,9 +762,8 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The requested output is a typed candidate list or acquisition status without factual synthesis; use `source-finder`.
   - The user needs a market, customer, or pricing decision brief with evidence-versus-inference treatment; use `research-brief`.
   - The user asks for recurring monitoring, a source inbox, or Scout/Analyst/Briefer operations; use `research-department`.
-  - Correctness is a bounded, versioned official or upstream guidance question; use `best-practice-research`.
   - One cited retrieval round settles the question and no reference implementation needs reading; use `web-research`.
-- Strong routing signals: `research plan`, `literature review`, `research literature`, `review recent papers`, `deep research`, `deep-research`, `exhaustive research`, `saturation research`, `pre-spec research`, `research before spec`, `research before planning`, `reference implementation`, `reference implementations`, `reference implementation study`, `prior art`, `prior art research`, `study existing implementations`, `comparable implementations`, `compare open source implementations`, `decision-grounding research`, `ディープリサーチ`, `深く調査`, `出典付きで調査`, `OSS実装を調査`, `조사`, `근거`, `고객 피드백`, `문헌 검토`, `논문들 검토`, `딥리서치`, `딥 리서치`, `심층 리서치`, `레퍼런스 구현`, `오픈소스 깊게 참고`, `深度调研`, `深入调研`, `带出处的调研`, `调研开源实现`
+- Strong routing signals: `research plan`, `literature review`, `research literature`, `review recent papers`, `deep research`, `deep-research`, `exhaustive research`, `saturation research`, `pre-spec research`, `research before spec`, `research before planning`, `reference implementation`, `reference implementations`, `reference implementation study`, `prior art`, `prior art research`, `study existing implementations`, `comparable implementations`, `compare open source implementations`, `decision-grounding research`, `autoresearch-goal`, `research goal`, `durable research`, `critic research`, `ディープリサーチ`, `深く調査`, `出典付きで調査`, `OSS実装を調査`, `조사`, `근거`, `고객 피드백`, `문헌 검토`, `논문들 검토`, `딥리서치`, `딥 리서치`, `심층 리서치`, `레퍼런스 구현`, `오픈소스 깊게 참고`, `深度调研`, `深入调研`, `带出处的调研`, `调研开源实现`
 - Good example:
   - Prompt: 딥리서치로 다른 오픈소스 구현들을 깊게 보고 스펙 잡기 전에 근거를 만들어줘.
   - Expected behavior: Run the Hermes research lane at depth: decompose axes, study the most relevant reference implementations with pinned refs, verify contested claims, then distill a decision-grounding dossier for the planning step.
@@ -869,13 +868,12 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Use when: Use when the answer depends on current external facts that one round of cited web retrieval can settle, with no reference-implementation study and no declared depth budget.
 - Do not use when:
   - The decision needs reference-implementation study, a declared depth budget, or a decision-grounding dossier; use `research`.
-  - Correctness turns on one technology's versioned official or upstream guidance; use `best-practice-research`.
   - The output is a typed candidate inventory and acquisition status rather than an answer; use `source-finder`.
   - The ask is a market, competitor, pricing, or customer decision brief; use `research-brief`.
   - The user wants recurring monitoring, a source inbox, or Scout/Analyst/Briefer operations; use `research-department`.
   - The user wants to configure or cheapen web search itself, such as a scraper API key or an auxiliary extract model; use `websearch-setup`.
   - The study target is this repository rather than the open web; use `codebase-onboarding`.
-- Strong routing signals: `web-research`, `web research`, `web search`, `search the web`, `internet search`, `look up`, `look up sources`, `latest sources`, `fresh sources`, `current sources`, `current web evidence`, `source-backed research`, `source search`, `find sources`, `find citations`, `citation check`, `evidence scan`, `source diversity`, `retrieval gap`, `웹서치`, `웹 서치`, `웹 검색`, `인터넷 검색`, `검색해줘`, `검색해서`, `최신 자료`, `최신 출처`, `자료 찾아`, `출처`
+- Strong routing signals: `web-research`, `web research`, `web search`, `search the web`, `internet search`, `look up`, `look up sources`, `latest sources`, `fresh sources`, `current sources`, `current web evidence`, `source-backed research`, `source search`, `find sources`, `find citations`, `citation check`, `evidence scan`, `source diversity`, `retrieval gap`, `best-practice-research`, `best practice`, `official docs`, `upstream guidance`, `what do the docs say`, `check the docs`, `웹서치`, `웹 서치`, `웹 검색`, `인터넷 검색`, `검색해줘`, `검색해서`, `최신 자료`, `최신 출처`, `자료 찾아`, `출처`
 - Good example:
   - Prompt: 이번 주 기준으로 그 API 요금제 어떻게 바뀌었는지 웹서치해서 알려줘.
   - Expected behavior: Retrieve current pricing from the vendor's own page, cite it with the retrieval date, and name what the page does not state.
@@ -1133,7 +1131,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Compatibility alias: `false`
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
-- Handoff policy: Keep the research operating model in Hermes. Map Scout to `research`/`autoresearch-goal`, Analyst to `research-brief`/`best-practice-research`, and Briefer to `report-package` or meeting/report workflows. Record retrieval, synthesis-tool output, knowledge-store writes, delivery, and verification only from observed evidence.
+- Handoff policy: Keep the research operating model in Hermes. Map Scout to `research`/`source-finder`, Analyst to `research-brief`/`web-research`, and Briefer to `report-package` or meeting/report workflows. Record retrieval, synthesis-tool output, knowledge-store writes, delivery, and verification only from observed evidence.
 - Why this exists: `research-department` exists so Hermes users can start complex research-ops patterns without manually designing profiles, cron, knowledge storage, synthesis tooling, and delivery glue, while OMH keeps every runtime claim observed-only.
 - Use when: Use when Hermes should turn an ongoing or recurring research request into a prepared Scout -> Analyst -> Briefer workflow with source inbox, knowledge-store and synthesis-tool readiness, and briefing status without claiming research execution.
 - Do not use when:
@@ -5100,170 +5098,27 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### best-practice-research
 
-[omh] Hermes adaptation for bounded official/upstream best-practice research.
+`omh-best-practice-research` is retired; this intent now runs as `omh-web-research`. Install or invoke `omh-web-research` (canonical `web-research`) instead.
 
-- Category: `research`
-- Phase: `evidence`
-- Hermes role: `researcher`
-- Quality tier: `source-gated`
-- Reasoning demand: `standard`
-- Exposure: `direct_skill`
-- Install visibility: `true`
-- Docs visibility: `primary_workflow_skill`
-- Compatibility alias: `false`
-- Lifecycle stage: `canonical`
-- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
-- Handoff policy: Run as Hermes-side evidence gathering; hand coding to the selected executor/runtime only after source-backed guidance is summarized.
-- Why this exists: `best-practice-research` exists to keep `research` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
-- Use when: Use when correctness depends on current official or upstream guidance.
-- Do not use when:
-  - The work needs a market or literature comparison, or a decision-grounding dossier, rather than one technology's upstream guidance; use `research`.
-  - The question is a current-facts lookup one cited retrieval round settles rather than a versioned guidance question; use `web-research`.
-- Strong routing signals: `best-practice-research`, `best practice`, `official docs`, `upstream guidance`, `what do the docs say`, `check the docs`
-- Good example:
-  - Prompt: best-practice-research: check official docs and upstream examples before we choose the plugin packaging pattern.
-  - Expected behavior: Gather primary-source guidance, compare options, and separate evidence from recommendation.
-  - Why: The request needs citation-backed best-practice research before implementation.
-- Bad example:
-  - Prompt: best-practice-research: treat casual chat or unaccepted work as if this workflow already produced verified results.
-  - Expected behavior: Ask a clarification question or route to a narrower workflow instead of forcing `best-practice-research`.
-  - Why: The request lacks the required inputs or would overclaim work that Hermes did not observe.
-- Quality bar:
-  - Use official or upstream sources first and name the version/environment assumptions.
-  - Map applicability to the user's local context before recommending action.
-  - Preserve residual uncertainty instead of overstating best practice.
-  - Upstream guidance is the strongest source class and still not completion evidence: that the docs prescribe something is never that it was done, verified, or is passing here.
-- Completion checklist:
-  - The research question, source boundaries, recency assumptions, and confidence level are named.
-  - Observed sources, inference, synthesis, and unresolved retrieval gaps are separated.
-  - Follow-up planning or handoff uses the research summary without calling it execution evidence.
-- Recovery notes:
-  - If sources cannot be accessed, state the retrieval gap and use only observed local context.
-  - If evidence is thin or one-sided, lower confidence and ask for a narrower source boundary.
-- Required inputs:
-  - chosen technology
-  - question
-  - version or environment constraints
-- Expected outputs:
-  - source-backed guidance
-  - applicability notes
-  - residual uncertainty
-- Artifact expectations:
-  - research notes or citations when the wrapper captures them
-- Safety rules:
-  - Do not imply hidden Hermes runtime behavior.
-  - Use the smallest verification that can prove the claim.
+- Lifecycle stage: `retired`
+- Target home: `web-research`
+- Migration release: `2.0.4`
 
 ### autoresearch-goal
 
-[omh] Hermes adaptation for durable research-goal execution.
+`omh-autoresearch-goal` is retired; this intent now runs as `ulw-research`. Install or invoke `ulw-research` (canonical `research`) instead.
 
-- Category: `research`
-- Phase: `durable-research`
-- Hermes role: `researcher`
-- Quality tier: `validator-gated`
-- Reasoning demand: `standard`
-- Exposure: `direct_skill`
-- Install visibility: `true`
-- Docs visibility: `primary_workflow_skill`
-- Compatibility alias: `false`
-- Lifecycle stage: `canonical`
-- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
-- Handoff policy: Keep durable research in Hermes-managed artifacts; do not convert to executor handoff unless the research produces an accepted coding task.
-- Why this exists: `autoresearch-goal` exists to keep `research` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
-- Use when: Use for validator-gated research that needs durable artifacts.
-- Do not use when:
-  - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-  - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
-- Strong routing signals: `autoresearch-goal`, `research goal`, `durable research`, `critic research`
-- Good example:
-  - Prompt: autoresearch-goal: keep researching AI agent memory practices until the evidence gaps are closed or logged.
-  - Expected behavior: Run a durable research loop with critic checks, source gaps, and a stop or checkpoint condition.
-  - Why: The request is research that needs persistence and review, not a one-shot brief.
-- Bad example:
-  - Prompt: autoresearch-goal: treat casual chat or unaccepted work as if this workflow already produced verified results.
-  - Expected behavior: Ask a clarification question or route to a narrower workflow instead of forcing `autoresearch-goal`.
-  - Why: The request lacks the required inputs or would overclaim work that Hermes did not observe.
-- Quality bar:
-  - Define validator criteria before gathering evidence.
-  - Run each cycle as evidence-gap closure: name the open gaps the cycle targets, then stop at the validator criteria or the declared iteration budget, whichever comes first.
-  - Keep durable research artifacts separate from coding execution evidence.
-  - Stop with next questions or a source-backed synthesis when validation is incomplete.
-- Completion checklist:
-  - The research question, source boundaries, recency assumptions, and confidence level are named.
-  - Observed sources, inference, synthesis, and unresolved retrieval gaps are separated.
-  - Follow-up planning or handoff uses the research summary without calling it execution evidence.
-- Recovery notes:
-  - If sources cannot be accessed, state the retrieval gap and use only observed local context.
-  - If evidence is thin or one-sided, lower confidence and ask for a narrower source boundary.
-- Required inputs:
-  - research objective
-  - validator criteria
-  - source boundaries
-- Expected outputs:
-  - research artifact
-  - validator result
-  - next questions
-- Artifact expectations:
-  - durable research ledger or checklist
-- Safety rules:
-  - Do not imply hidden Hermes runtime behavior.
-  - Use the smallest verification that can prove the claim.
+- Lifecycle stage: `retired`
+- Target home: `research`
+- Migration release: `2.0.4`
 
 ### performance-goal
 
-[omh] Hermes adaptation for measurable performance-goal execution.
+`omh-performance-goal` is retired; this intent now runs as `ulw-perf`. Install or invoke `ulw-perf` (canonical `ultraperf`) instead.
 
-- Category: `optimization`
-- Phase: `measurement`
-- Hermes role: `tracker`
-- Quality tier: `measurement-gated`
-- Reasoning demand: `heavy`
-- Exposure: `direct_skill`
-- Install visibility: `true`
-- Docs visibility: `primary_workflow_skill`
-- Compatibility alias: `false`
-- Lifecycle stage: `canonical`
-- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
-- Handoff policy: Hermes can own baselines, benchmark plans, and status; optimization code changes should be selected executor/runtime handoffs.
-- Why this exists: `performance-goal` exists to keep `optimization` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
-- Use when: Use when the goal is measurable performance improvement with evaluator evidence.
-- Do not use when:
-  - The ask is to find where performance problems are, or to fix multiple unscoped hotspots across domains; use `ultraperf`.
-- Strong routing signals: `performance-goal`, `performance goal`, `latency`, `throughput`, `benchmark`
-- Good example:
-  - Prompt: performance-goal: benchmark recommendation latency, optimize hot paths safely, and prove no regressions.
-  - Expected behavior: Create a measurement-led optimization loop with baseline, change, verification, and regression evidence.
-  - Why: The request is performance optimization and needs measured before/after proof.
-- Bad example:
-  - Prompt: performance-goal: treat casual chat or unaccepted work as if this workflow already produced verified results.
-  - Expected behavior: Ask a clarification question or route to a narrower workflow instead of forcing `performance-goal`.
-  - Why: The request lacks the required inputs or would overclaim work that Hermes did not observe.
-- Quality bar:
-  - Name the metric, baseline, budget, and benchmark command before optimizing.
-  - Treat code-level optimization as executor work when edits are required.
-  - Report deltas only from observed benchmark evidence.
-- Completion checklist:
-  - Confirm the workflow target, evidence boundary, and stop condition are named.
-  - Report which outputs are prepared, observed, blocked, or missing.
-  - Name the smallest next verification or handoff instead of claiming completion from narration.
-- Recovery notes:
-  - If required context is missing, ask one blocking question or route back to the narrower workflow.
-  - If runtime or wrapper evidence is unavailable, keep the status as not_observed and expose the next observable action.
-- Required inputs:
-  - metric
-  - baseline
-  - budget
-  - benchmark command
-- Expected outputs:
-  - measurement delta
-  - implementation summary
-  - benchmark evidence
-- Artifact expectations:
-  - baseline and final benchmark evidence
-- Safety rules:
-  - Do not imply hidden Hermes runtime behavior.
-  - Use the smallest verification that can prove the claim.
+- Lifecycle stage: `retired`
+- Target home: `ultraperf`
+- Migration release: `2.0.4`
 
 ### inference-serving
 
@@ -5287,7 +5142,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - A new model generation needs recognition, calibration, routing, and pricing onboarding; use `model-optimization`.
   - The user wants their own machine's model routing or providers configured; use `model-setup`.
   - The question is whether a coding runtime/executor can run at all; use `executor-runtime-readiness`.
-  - The goal is application or system performance rather than the serving endpoint itself; use `performance-goal` or `ultraperf`.
+  - The goal is application or system performance rather than the serving endpoint itself; use `ultraperf`.
 - Strong routing signals: `inference-serving`, `inference serving`, `serve this model`, `serve the model`, `model serving`, `serving endpoint`, `vllm`, `llama.cpp`, `llama cpp`, `serve with vllm`, `deploy vllm`, `vllm deployment`, `serving benchmark`, `benchmark the endpoint`, `prefix caching benchmark`, `gguf quantization`, `which quantization`, `모델 서빙`, `모델 서빙해줘`, `모델 배포해서 서빙`, `서빙 벤치마크`, `vllm 배포`, `vllm 서빙`, `추론 서버 띄워줘`, `모델 띄워줘`
 - Good example:
   - Prompt: Serve Qwen on our two A100s for the team and tell me if prefix caching is worth turning on.
@@ -5352,7 +5207,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Use when: Use when a model or family is new to OMH, shipped a new generation, or changed its serving contract, and the operator wants recognition, calibration, routing, pricing, and docs checked and strengthened for it through the fixed onboarding process.
 - Do not use when:
   - The user wants their own machine's model routing configured or providers connected; use `model-setup`.
-  - The goal is measurable performance of an application or system, not model handling; use `performance-goal` or `ultraperf`.
+  - The goal is measurable performance of an application or system, not model handling; use `ultraperf`.
   - The user wants benchmark-superiority or provider-readiness claims without measurements.
 - Strong routing signals: `model-optimization`, `model optimization`, `optimize for model`, `onboard new model`, `calibrate new model`, `new model calibration`, `model calibration`
 - Good example:
@@ -5419,7 +5274,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The ask is to judge code quality, structure, or correctness rather than measured cost; use `code-review`.
   - The ask is to score model or agent output quality on a task suite; use `agent-evaluation`.
   - The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or one already-identified slow query or hotspot fix; handle it directly instead of opening a performance loop.
-- Strong routing signals: `ultraperf`, `$ultraperf`, `ulw-perf`, `performance audit`, `performance bottleneck`, `find the bottleneck`, `profile the hot path`, `memory leak investigation`, `token cost hotspot`, `storage footprint audit`, `rendering jank`, `model inference hotspot`, `slow ci pipeline`, `query performance audit`, `성능 병목`, `메모리 누수`, `느려진 원인`, `성능 전반 점검`
+- Strong routing signals: `ultraperf`, `$ultraperf`, `ulw-perf`, `performance audit`, `performance bottleneck`, `find the bottleneck`, `profile the hot path`, `memory leak investigation`, `token cost hotspot`, `storage footprint audit`, `rendering jank`, `model inference hotspot`, `slow ci pipeline`, `query performance audit`, `performance-goal`, `performance goal`, `latency`, `throughput`, `benchmark`, `성능 병목`, `메모리 누수`, `느려진 원인`, `성능 전반 점검`
 - Good example:
   - Prompt: $ultraperf checkout feels slow and the worker memory keeps climbing - find where and fix it
   - Expected behavior: Audit the baseline, name the evaluator command, rank hot-path hypotheses, hand the smallest reversible fix to the selected executor, re-measure, and state the budget delta.
@@ -5446,7 +5301,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Recovery notes:
   - If no evaluator command exists, stop the loop and produce one before touching code.
   - If the re-measure does not move, revert the change and re-rank hypotheses instead of stacking fixes.
-  - If the goal turns out to be one declared metric with a budget, hand off to `performance-goal`.
+  - If the goal turns out to be one declared metric with a budget, keep the loop and start from that baseline instead of profiling for a hot path.
 - Required inputs:
   - symptom or suspected slow surface
   - workload or reproduction

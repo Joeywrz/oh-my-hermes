@@ -473,7 +473,6 @@ VISIBLE_ACTIONS = (
     "prepare_toolbelt_readiness",
     "prepare_harness_session_inventory",
     "prepare_ops_observability_card",
-    "prepare_quality_performance_and_usability_review",
     "prepare_ultraperf_loop",
     "refresh_status",
     "prepare_agent_ops_review",
@@ -621,8 +620,7 @@ _DIRECT_WORKFLOW_SKILLS = {
     "research",
     "ultraqa",
     "code-review",
-    "best-practice-research",
-    "autoresearch-goal",
+    "web-research",
     "source-finder",
     "doctor",
     "skill",
@@ -1122,10 +1120,6 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "prepare_toolbelt_readiness": ("prepare_toolbelt_readiness", "Check toolbelt"),
     "prepare_harness_session_inventory": ("prepare_harness_session_inventory", "Open inventory"),
     "prepare_ops_observability_card": ("prepare_ops_observability_card", "Open observability"),
-    "prepare_quality_performance_and_usability_review": (
-        "prepare_quality_performance_and_usability_review",
-        "Review performance",
-    ),
     "prepare_ultraperf_loop": ("prepare_ultraperf_loop", "Prepare performance loop"),
     "refresh_status": ("refresh_status", "Refresh status"),
 }
@@ -3835,7 +3829,7 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS.update(
             "body": (
                 "I will record a baseline and evaluator command, profile and rank hot-path hypotheses, hand the smallest reversible fix "
                 "to the selected executor, re-measure, and set the regression budget. A declared single metric with a baseline and "
-                "benchmark command belongs to the performance-goal workflow instead."
+                "benchmark command enters the same loop at the re-measure step, with the baseline you already have."
             ),
             "phase": "ultraperf_loop_prepared",
             "next_action": "prepare_ultraperf_loop",
@@ -3843,7 +3837,6 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS.update(
             "claim_boundary_suffix": "It is not profiling, benchmark execution, measurement proof, code change, regression-gate, review, CI, or merge evidence.",
             "actions": [
                 {"id": "prepare_ultraperf_loop", "label": "Prepare performance loop", "style": "primary"},
-                {"id": "prepare_quality_performance_and_usability_review", "label": "Review performance", "style": "secondary"},
                 {"id": "show_status", "label": "Show status", "style": "secondary"},
             ],
             "recommended_flow": ["record_baseline_and_evaluator_command", "profile_and_rank_hot_path_hypotheses", "hand_off_the_smallest_reversible_fix", "re_measure_and_set_the_regression_budget"],

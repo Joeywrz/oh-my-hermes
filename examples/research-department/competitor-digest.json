@@ -99,7 +99,7 @@
       "responsibility": "Collect source candidates and raw findings without claiming retrieval until observed.",
       "primary_skills": [
         "research",
-        "autoresearch-goal"
+        "web-research"
       ],
       "output_bucket": "raw_findings"
     },
@@ -110,7 +110,7 @@
       "responsibility": "Synthesize processed notes, conflicts, confidence, and missing evidence.",
       "primary_skills": [
         "research-brief",
-        "best-practice-research"
+        "web-research"
       ],
       "output_bucket": "processed_notes"
     },
@@ -156,7 +156,7 @@
       "status": "prepared",
       "skills": [
         "research",
-        "autoresearch-goal"
+        "web-research"
       ],
       "prepared_output": "source_inbox.raw_findings",
       "not_evidence": "source_retrieval_observed"
@@ -167,7 +167,7 @@
       "status": "prepared",
       "skills": [
         "research-brief",
-        "best-practice-research"
+        "web-research"
       ],
       "prepared_output": "source_inbox.processed_notes",
       "not_evidence": "synthesis_tool_query_observed"

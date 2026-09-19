@@ -125,7 +125,9 @@ NON_SKILL_BACKTICKS = frozenset(
 # `research-brief`, `research-department`, `codebase-onboarding`, and
 # `websearch-setup`; `research` points back at it; and
 # `best-practice-research`'s single statement became two when the lookup half
-# of its boundary stopped belonging to the engine.
+# of its boundary stopped belonging to the engine. (`best-practice-research`
+# has since retired into `web-research` itself -- see the #1691 note at the
+# counts below.)
 # `tech-debt-audit` defers on four boundaries -- diff-scoped judgement to
 # `code-review`, deletion-first cleanup to `ai-slop-cleaner`, phased execution
 # of a big fix to `refactor-plan`, and release risk to `production-audit`.
@@ -172,9 +174,17 @@ NON_SKILL_BACKTICKS = frozenset(
 # capacity-planning example it now carries answers whether to hire and stops
 # there (#1580). One case, one pair, no new owner: `strategy-brief` already
 # defers to `product-discovery-validation`.
-EXPECTED_DEFERENCE_CASES = 253
-EXPECTED_DEFERENCE_PAIRS = 266
-EXPECTED_DEFERRING_OWNERS = 73
+# Three strict-subset skills retire into a stronger sibling (#1691), and a
+# retired contract is not a deference destination a reader can reach. The
+# deferring owners `best-practice-research`, `autoresearch-goal`, and
+# `performance-goal` leave the graph with their bodies; `research` and
+# `web-research` each lose the statement pointing at the lookup skill now
+# folded into `web-research`; and `inference-serving`, `model-optimization`,
+# and `ultraperf` keep their statements with one destination each instead of
+# two. Six cases, eight pairs, two owners.
+EXPECTED_DEFERENCE_CASES = 247
+EXPECTED_DEFERENCE_PAIRS = 258
+EXPECTED_DEFERRING_OWNERS = 71
 
 # The ratchet. Recording a new inversion must be a visible edit to this number,
 # not one more dict line with a plausible sentence attached.

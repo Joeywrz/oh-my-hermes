@@ -210,7 +210,7 @@ class OperationsArtifactTests(unittest.TestCase):
         detected = set(plan["source_policy"]["detected_source_types"])
         skills = {item["skill"] for item in plan["skill_chain"]}
         self.assertTrue({"papers", "customer", "competitor", "market"}.issubset(detected))
-        self.assertIn("best-practice-research", skills)
+        self.assertIn("web-research", skills)
         self.assertIn("feedback-triage", skills)
         self.assertEqual(plan["source_policy"]["source_boundaries"], ["academic papers", "customer feedback", "competitor updates", "market reports"])
         self.assertEqual(validate_research_department_plan(plan), [])

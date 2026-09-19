@@ -55,13 +55,15 @@ class TestTempRootTests(unittest.TestCase):
         link = self.root / "omh-selftest-link"
         try:
             link.symlink_to(outside.name, target_is_directory=True)
-        except OSError:
-            self.skipTest("symlink creation not permitted in this environment")
+        except (OSError, NotImplementedError):
+            self.skipTest("this host does not permit symlink creation")
         self.addCleanup(lambda: link.unlink(missing_ok=True))
-        # os.utime on a symlink itself (not its target) requires
-        # follow_symlinks=False; age the link, not what it points at.
-        stamp = time.time() - 25 * 60 * 60
-        os.utime(link, (stamp, stamp), follow_symlinks=False)
+        # The link itself is deliberately left fresh, not aged: `_sweep`
+        # skips every symlink entry unconditionally (`entry.is_symlink()`),
+        # before it ever looks at age, so proving the escape is blocked does
+        # not depend on the link looking stale. `os.utime(..., follow_symlinks
+        # =False)` would also fail on Windows (`NotImplementedError`), which
+        # is a second, independent reason to leave this out.
 
         _sweep(self.root, stale_after_seconds=24 * 60 * 60)
 

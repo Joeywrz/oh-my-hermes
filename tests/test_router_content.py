@@ -3345,7 +3345,14 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("hermes_coding_harness/v1", skills["ultragoal"].content)
         self.assertIn("builder, verifier, reviewer, docs, and PR lanes", skills["ultragoal"].content)
         self.assertIn("PR head SHA", skills["ultragoal"].content)
-        self.assertIn("omh runtime record --skill ultragoal --harness coding-handling --status started", skills["ultragoal"].content)
+        # `ultragoal` is one of the skills the catalog declares no primary
+        # harness for, so its body names none. It used to name
+        # `coding-handling` because the renderer read the routing fallback,
+        # which put a coding-handoff record command into a durable-goal skill
+        # (#1690). The rest of the harness discipline this test checks is the
+        # part that does not depend on a harness having been chosen.
+        self.assertNotIn("Preferred harness for this skill:", skills["ultragoal"].content)
+        self.assertNotIn("omh runtime record --skill ultragoal", skills["ultragoal"].content)
         self.assertIn("goal_completion_gate/v1", skills["ultragoal"].content)
         self.assertIn("inspect .omh/goals", skills["ultragoal"].content)
         self.assertIn("Current lane: **Materials and visual summaries**", skills["img-summary"].content)

@@ -4,6 +4,39 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **Fourteen skills stop telling the model to record a coding handoff for work
+  that is not coding.** A skill body rendered "Preferred harness for this
+  skill: `coding-handling`" and an `omh runtime record --harness
+  coding-handling` command whenever the catalog had never assigned that skill
+  a harness, because the renderer read `primary_harness_for_skill`, whose
+  fallback exists so that routing, validation, and the structure lint always
+  get a harness that resolves. Nineteen skills reached it that way, among them
+  `achievements`, `buzz`, `capability-toggle`, `live-incident-response`,
+  `meta-router`, `running-work-board`, and `todo-checklist`. The line sits in
+  always-loaded context, so every one of those sessions carried a coding
+  instruction for a skill that reads badges or shows a checklist.
+
+  A skill the catalog declares no harness for now renders neither the line nor
+  the command. `omh runtime record` requires `--harness`, so the alternative
+  to omitting both is naming a harness nobody chose; saying nothing is the one
+  answer that cannot be wrong. The renderer reads `declared_primary_harness`,
+  which reports the absence instead of hiding it, and the routing fallback is
+  left where its consumers still need it.
+
+  Five of the nineteen genuinely are coding skills and now say so in the
+  catalog rather than inheriting it: `backend`, `frontend-refactor`,
+  `maestro`, `native-debugging`, and `rust`. Each is filed under the
+  `delegate_coding_and_ship` capability family and does work the
+  `coding-handling` harness names for itself -- write, modify, debug,
+  refactor. Their rendered bodies are byte-identical; what changed is that a
+  value nobody declared became one someone did. Three more that the family
+  also files under coding were left undeclared on purpose, because a second
+  harness competes for each and the catalog does not say which wins:
+  `application-threat-model`, `llm-app-dev`, and `tech-debt-audit`.
+
+  The always-loaded skill-body budget falls from 979,758 to 977,649
+  characters.
+
 - **A long line in a diff no longer makes every short line pay for it.** The
   full-width diff band pads painted `+`/`-` lines with trailing spaces out to
   the block's widest line, and that padded string is the tool result, so the

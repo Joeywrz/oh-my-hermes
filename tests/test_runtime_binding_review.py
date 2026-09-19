@@ -241,6 +241,7 @@ class RuntimeBindingReviewTests(unittest.TestCase):
         # Pinned so the veto cannot be argued back in on a premise the code
         # does not hold.
         from omh.plugin_bundle.omh.toolcall_rule_faults import read_toolcall_rule_faults
+        from omh.plugin_bundle.omh.toolcall_rules import MAX_RULES_FILE_BYTES
         rules = self.store / 'rules'
         rules.mkdir(parents=True)
         path = rules / 'toolcall-rules.json'
@@ -254,7 +255,24 @@ class RuntimeBindingReviewTests(unittest.TestCase):
 
         path.write_text('not json at all ][', encoding='utf-8')
         self.assertIsNone(call(), 'a malformed rules file allows')
+        # A directory in the file's place: the stat succeeds and the read is
+        # the `OSError`. It is the shape a reader is most likely to assume
+        # blocks, which is why it is pinned rather than left to the loader.
+        path.unlink()
+        path.mkdir()
+        self.assertIsNone(call(), 'a directory where the rules file should be allows')
+        path.rmdir()
+        # Oversized is its own branch, refused on the stat before a byte is
+        # read, so it never reaches the parse the malformed case exercises.
+        path.write_text(json.dumps({'schema_version': 'omh_toolcall_rules/v1', 'rules': [],
+                                    'pad': 'x' * (MAX_RULES_FILE_BYTES + 1)}), encoding='utf-8')
+        self.assertGreater(path.stat().st_size, MAX_RULES_FILE_BYTES)
+        self.assertIsNone(call(), 'an oversized rules file allows')
         path.write_text(good, encoding='utf-8')
+        with patch.object(tool_hooks, 'toolcall_rule_directive', side_effect=ValueError('unanticipated')):
+            self.assertIsNone(call(), 'an unanticipated gate failure allows')
+        self.assertEqual(read_toolcall_rule_faults(str(self.store))['last_error_type'], 'ValueError')
+        # Last, because it is the one shape a platform can refuse to produce.
         try:
             path.chmod(0o000)
             # Read the mode's effect while it is in force: checking after the
@@ -267,9 +285,6 @@ class RuntimeBindingReviewTests(unittest.TestCase):
         if not enforced:  # root, or a filesystem ignoring the mode
             self.skipTest('cannot make a file unreadable here')
         self.assertIsNone(unreadable, 'a permission-denied rules file allows')
-        with patch.object(tool_hooks, 'toolcall_rule_directive', side_effect=ValueError('unanticipated')):
-            self.assertIsNone(call(), 'an unanticipated gate failure allows')
-        self.assertEqual(read_toolcall_rule_faults(str(self.store))['last_error_type'], 'ValueError')
 
     def test_unowned_session_is_its_own_binding_fault(self):
         # The refusal that names no store at all is the one a caller must be

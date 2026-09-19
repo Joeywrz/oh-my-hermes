@@ -132,9 +132,11 @@ All notable changes will be documented here.
   variable in the configured home, a blank home, a NUL in the path, and a bad
   Hermes home. In a native host that path re-validates the profile
   `config.yaml` on every call, and the installed host validator raises on a
-  config carrying a control character -- measured at 0.417 ms per call, on
-  every call, for as long as the byte is there. The cost of one such byte was
-  every tool of every session in that home. It has never fired in practice:
+  config carrying a control character. It raises on every call, for as long
+  as the byte is there, so the cost of one such byte was every tool of every
+  session in that home. (Separately measured, on the healthy path: that
+  validator is an uncached YAML parse costing 0.417 ms per tool call against
+  a real 3,463-byte config.) It has never fired in practice:
   the block message appears zero times across the whole history of both of
   the owner's `state.db` files. It is fixed because the failure, when it
   comes, is total.
@@ -160,13 +162,20 @@ All notable changes will be documented here.
   opens, and it is not a defence against an actor who can write the profile
   config in the first place.
 
-  Because the two shapes now return the same payload, the degradation context
-  line names the exception type -- the only thing left separating a session
-  no profile owns from a store that was named and could not be read. Nothing
-  is written to a store, because a binding fault means there is no store to
-  write to; for the config-fault class the host's own validator already logs
-  the parse error with its position and saves a copy of the broken file. No
-  retry either: of the writers that can leave that config unreadable, only a
+  On this hook the degraded call is silent, which is worth saying rather than
+  glossing. Nothing is written to a store, because a binding fault means
+  there is no store to write to. The returned payload is not a record
+  either: Hermes reads a `pre_tool_call` result's `action` and skips every
+  other shape, and a hook result's context text is read on the `pre_llm_call`
+  path only. Two things do still surface the same fault. `pre_llm_call`
+  returns the same degradation and its context IS injected into the turn,
+  once per turn, and it now names the exception type -- the only thing left
+  separating a session no profile owns from a store that was named and could
+  not be read. And for the config-fault class the host reports itself, with a
+  backup copy of the broken file and a stderr warning naming the parse error
+  and its position.
+
+  No retry: of the writers that can leave that config unreadable, only a
   person's editor saving in place is transient, and Hermes and OMH both
   replace the file atomically and cannot produce the state at all.
 

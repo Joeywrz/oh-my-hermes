@@ -133,7 +133,7 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
         # raising something the module never anticipated -- the call is
         # allowed, every time. `toolcall_rules` documents fail-open as its
         # contract, and #1732 rejected blocking on a rule-gate failure by
-        # name, as "the #1674 outage shape". So OMH allowed the case where it
+        # name, calling it the shape of #1674. So OMH allowed the case where it
         # knew exactly which rules file it had failed to read, and refused
         # the case where it could not locate one at all: least informed, most
         # severe. Degrading here makes the ladder monotone. It does not
@@ -162,12 +162,26 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
         # config, a path or the host, where a retry would double the cost of
         # every tool call for as long as the fault lasts.
         #
-        # Nothing is recorded to a store, because there is no store: that is
-        # what the fault means, and writing the fault to a fallback home
-        # would be the cross-profile write this binding path exists to
-        # prevent. The degradation payload is the record, and it names the
-        # exception type -- which is now the only thing telling an unowned
-        # session apart from a named-but-unreadable store.
+        # On THIS hook the result is a SILENT allow, stated plainly rather
+        # than dressed up, for two separate reasons neither of which this
+        # handler can fix. Nothing is written to a store because there is no
+        # store -- that is what the fault means, and writing to a fallback
+        # home would be the cross-profile write this binding path exists to
+        # prevent. And the returned payload is not a record either: Hermes
+        # reads `action` from a `pre_tool_call` result and skips every other
+        # shape (`hermes_cli/plugins.py`,
+        # `_get_pre_tool_call_directive_details`), while a hook result's
+        # `context` is consumed on the `pre_llm_call` path only
+        # (`agent/turn_context.py`). `observe_plugin_hook_call` sits below
+        # this return and is not reached.
+        #
+        # What an operator can still see, on the same fault. `pre_llm_call`
+        # returns this same degradation and its `context` IS injected into
+        # the turn, once per turn, which is the surface where naming the
+        # exception type earns its place. And for the config-fault class the
+        # host reports itself: a backup copy of the broken file plus a
+        # stderr warning naming the YAML error and its position, once per
+        # process per file signature.
         return runtime_binding_degradation(exc)
     _ = observe_plugin_hook_call("pre_tool_call", kwargs)
     # The approval-bypass ledger observes session state, not this call's

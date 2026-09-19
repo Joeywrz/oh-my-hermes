@@ -100,10 +100,15 @@ means no store was reachable, and the tool-call rules this hook enforces live
 inside one. A store that does resolve and whose rules file cannot be read
 allows the call as well, by `toolcall_rules`' documented fail-open contract,
 so refusing the case where no store can be located at all was the harsher
-response to the weaker signal. The degradation names the exception type, which
-is what keeps a session no profile owns (`UnattributableSessionError`)
-distinguishable from a store that was named and could not be read. A rules
-file that loads and matches still blocks the call, with its own message.
+response to the weaker signal. A rules file that loads and matches still
+blocks the call, with its own message. Where the degraded call becomes
+visible depends on the hook: Hermes reads a `pre_tool_call` result's `action`
+only, so a binding fault there is a silent allow, while a `pre_llm_call`
+result's context text is injected into the turn once per turn. That text
+names the exception type, which is what keeps a session no profile owns
+(`UnattributableSessionError`) distinguishable from a store that was named
+and could not be read. For an unreadable profile `config.yaml` the host also
+reports the parse error itself, on stderr and as a saved copy of the file.
 Direct runtime readers still raise on unreadable state instead of claiming idle.
 Evidence child binding failure returns an error without spawning a command.
 

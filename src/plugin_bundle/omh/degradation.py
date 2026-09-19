@@ -62,11 +62,29 @@ DEGRADATION_CHAT_NOTE = (
 
 
 def runtime_binding_degradation(error: BaseException) -> dict[str, object]:
-    """Binding failed before hook I/O; never reflect exception text or retry."""
+    """Binding failed before hook I/O; never reflect exception text or retry.
+
+    The context line names the exception TYPE as well as the component. A
+    binding fault leaves no store to write a record into -- that is what the
+    fault means -- so this returned payload is the whole of what the failure
+    can say about itself, and the structured block beside it is not what a
+    host renders or logs. Once every binding fault takes the same shape on
+    `pre_tool_call`, the type is the only thing separating a session no
+    profile owns from a store that was named and could not be read (#1674
+    observation 3).
+
+    The type only, never `str(error)`: an exception message is free text from
+    whatever raised, and these are raised while resolving paths, so the
+    message is exactly where a path value would appear. `safe_error_type`
+    bounds and character-filters a class name; it is not a redactor for
+    arbitrary text and must not be handed any.
+    """
+    error_type = safe_error_type(type(error).__name__)
     return {
         "omh_degradation": degradation_payload([
-            (COMPONENT_RUNTIME_STATUS_READ, safe_error_type(type(error).__name__))]),
+            (COMPONENT_RUNTIME_STATUS_READ, error_type)]),
         "context": "[OMH Degraded] components=" + COMPONENT_RUNTIME_STATUS_READ
+        + " error_type=" + error_type
         + ". Runtime home binding failed; no runtime state was read or written.",
     }
 

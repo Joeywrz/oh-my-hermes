@@ -125,6 +125,51 @@ All notable changes will be documented here.
   stamp: the widget renders the state and the flag, and the permission
   rehearsal reads the same two.
 
+- **One bad byte in a profile config no longer blocks every tool call in the
+  home.** `pre_tool_call` resolves the session's store before anything else,
+  and every binding fault except a session no profile owns came back as
+  `action: block`. Fault injection confirmed all four shapes: an unresolvable
+  variable in the configured home, a blank home, a NUL in the path, and a bad
+  Hermes home. In a native host that path re-validates the profile
+  `config.yaml` on every call, and the installed host validator raises on a
+  config carrying a control character -- measured at 0.417 ms per call, on
+  every call, for as long as the byte is there. The cost of one such byte was
+  every tool of every session in that home. It has never fired in practice:
+  the block message appears zero times across the whole history of both of
+  the owner's `state.db` files. It is fixed because the failure, when it
+  comes, is total.
+
+  The veto's recorded reason was that a rules file may exist in the named
+  store and may be blocking this very tool. That reasoning does not survive
+  the case one level down. When the store DOES resolve and the rules file
+  cannot be read -- malformed, permission-denied, or raising something the
+  gate never anticipated -- the call is allowed, every time. That is
+  `toolcall_rules`' documented fail-open contract, and the rule-gate handler
+  added alongside the doctor hot-path checks rejected blocking on a rule-gate
+  failure by name. So OMH allowed the case where it knew exactly which rules
+  file it had failed to read, and refused the case where it could not locate
+  one at all: the harsher response to the weaker signal.
+
+  Every binding fault on `pre_tool_call` now degrades, the posture the other
+  hooks already took. A rules file that loads and matches still blocks, with
+  its own message, so what the narrowing removes is the veto that fired when
+  there was no rules file to consult, not the one a person wrote. The
+  trade-off is restated at the handler rather than dropped: while a home
+  cannot bind, no tool call in it is checked against that person's rules.
+  That window is real, it is the same window a malformed rules file already
+  opens, and it is not a defence against an actor who can write the profile
+  config in the first place.
+
+  Because the two shapes now return the same payload, the degradation context
+  line names the exception type -- the only thing left separating a session
+  no profile owns from a store that was named and could not be read. Nothing
+  is written to a store, because a binding fault means there is no store to
+  write to; for the config-fault class the host's own validator already logs
+  the parse error with its position and saves a copy of the broken file. No
+  retry either: of the writers that can leave that config unreadable, only a
+  person's editor saving in place is transient, and Hermes and OMH both
+  replace the file atomically and cannot produce the state at all.
+
 - **Fourteen skills stop telling the model to record a coding handoff for work
   that is not coding.** A skill body rendered "Preferred harness for this
   skill: `coding-handling`" and an `omh runtime record --harness

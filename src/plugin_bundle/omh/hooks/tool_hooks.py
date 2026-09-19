@@ -116,25 +116,59 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
     try:
         omh_home = str(runtime_paths.plugin_home(kwargs.get("omh_home")))
         runtime_paths.plugin_home(kwargs.get("hermes_home"), hermes=True)
-    except runtime_paths.UnattributableSessionError as exc:
-        # No profile owns this session, so no store was named -- and the rules
-        # this hook guards are opt-in by the presence of a file inside the
-        # session's own store (`toolcall_rules`). There is no rules file to
-        # leave unread here, so the veto protected nothing and cost the
-        # session: in a multiplexed gateway every tool call of every
-        # default-profile session came back blocked (#1674). Degrade instead,
-        # the posture `post_tool_call` and `pre_llm_call` already take, and
-        # keep the veto for every refusal that did name a store.
-        return runtime_binding_degradation(exc)
     except (runtime_paths.RuntimeBindingError, OSError, RuntimeError) as exc:
-        # A store was named and then rejected or could not be read: a
-        # malformed setting, an unresolvable path, an unverified owner, a
-        # config read that failed. A rules file may exist in it and may be
-        # blocking this very tool, so a missing rules owner cannot safely
-        # authorize the call. This is the native host's supported veto, not a
-        # swallowed rule failure.
-        return {**runtime_binding_degradation(exc), "action": "block",
-                "message": "OMH runtime binding unavailable; tool rules could not be checked. Tool call blocked."}
+        # DEGRADE, for every binding fault, including the ones that named a
+        # store. This narrows a recorded safety decision, so the trade-off it
+        # replaces is restated rather than dropped (#1733).
+        #
+        # #1674 removed the veto for a session no profile owns and kept it
+        # everywhere else, on a reason that was sound in isolation: a refusal
+        # that NAMED a store leaves a rules file possibly existing and
+        # certainly unread, and an unreadable store cannot authorize a call a
+        # rule in it might have blocked.
+        #
+        # What that reasoning could not see is the case one level down. When
+        # the store DOES resolve and the rules file itself cannot be
+        # evaluated -- absent, malformed, oversized, permission-denied, or
+        # raising something the module never anticipated -- the call is
+        # allowed, every time. `toolcall_rules` documents fail-open as its
+        # contract, and #1732 rejected blocking on a rule-gate failure by
+        # name, as "the #1674 outage shape". So OMH allowed the case where it
+        # knew exactly which rules file it had failed to read, and refused
+        # the case where it could not locate one at all: least informed, most
+        # severe. Degrading here makes the ladder monotone. It does not
+        # weaken the rules file, which still blocks whenever it loads and
+        # matches.
+        #
+        # What this costs, stated plainly: while a home cannot bind, no tool
+        # call in it is checked against the person's rules. That window is
+        # real. It is the same window a malformed rules file already opens,
+        # it closes when the binding is repaired, and it is not a defence
+        # against the actor it resembles -- anyone able to corrupt a profile
+        # config can equally delete the rules file or point `omh_home` at an
+        # empty store.
+        #
+        # What it buys: one control character in a profile `config.yaml` no
+        # longer blocks every tool call of every session in that home. The
+        # host validator OMH binds through raises on that byte, on every
+        # call, for as long as it is there (measured against the installed
+        # `hermes_cli.config`).
+        #
+        # No retry. Of the writers that can leave that config unreadable,
+        # only a person's editor saving in place is transient, and its window
+        # is that writer's own syscalls rather than a microsecond; Hermes and
+        # OMH both replace the file atomically and cannot produce the state
+        # at all. Everything else reaching here is a persistent property of a
+        # config, a path or the host, where a retry would double the cost of
+        # every tool call for as long as the fault lasts.
+        #
+        # Nothing is recorded to a store, because there is no store: that is
+        # what the fault means, and writing the fault to a fallback home
+        # would be the cross-profile write this binding path exists to
+        # prevent. The degradation payload is the record, and it names the
+        # exception type -- which is now the only thing telling an unowned
+        # session apart from a named-but-unreadable store.
+        return runtime_binding_degradation(exc)
     _ = observe_plugin_hook_call("pre_tool_call", kwargs)
     # The approval-bypass ledger observes session state, not this call's
     # outcome, so it ticks before the rule gate — a blocked call still sees

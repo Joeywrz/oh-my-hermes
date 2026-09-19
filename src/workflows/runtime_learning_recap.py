@@ -516,6 +516,14 @@ def _termination_kind_from_views(views: Mapping[str, Mapping[str, Any]]) -> str:
 
     A recorded terminal failure is not undone by a cancellation appended after
     it: the two are different facts about the run, not two reports of one.
+
+    Severity ranks live facts, and only because it runs second. `_latest_by_event`
+    has already selected within each terminal group, so a `not_observed`
+    retraction has beaten the record it retracts before these views exist; this
+    loop then compares what each group still asserts. Invert that order -- select
+    across both groups at once, or drop `not_observed` records instead of letting
+    one win its own group -- and a retracted failure outranks a live cancellation
+    while every case that fixes arrival order stays green.
     """
     for event_type in ("failed", "cancelled"):
         view = views.get(event_type)

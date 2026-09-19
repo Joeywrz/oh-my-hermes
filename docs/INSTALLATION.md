@@ -540,17 +540,28 @@ those three keys held — a key the file did not carry is recorded by being
 absent, so putting the baseline back removes the key rather than writing an
 empty string — together with what OMH wrote and which session wrote it. The
 baseline is captured once and survives later routes. A candidate baseline
-that exactly matches the newest route in `route-provenance.json` is OMH's own
-leftover rather than a value the person set, and is recorded as "keys absent"
-with `baseline_origin: omh_leftover`. The record also names the `config.yaml`
-it describes, since two profiles may share one OMH home.
+that exactly matches the newest route in `route-provenance.json` is OMH's
+own leftover rather than a value the person set, and is recorded as "keys
+absent" with `baseline_origin: omh_leftover`. Two things follow that are
+worth knowing before pinning a model by hand. Pinning exactly the model,
+provider and effort OMH last wrote is indistinguishable on disk from OMH's
+own leftover, and such a pin will not be restored. And if
+`route-provenance.json` is missing or unreadable the check cannot run, which
+is reported as `baseline_captured_provenance_unavailable` rather than
+assumed either way. The record also names the `config.yaml` it describes,
+since two profiles may share one OMH home.
 
-A route is turn-local. `action=clear`, the end of the task that wrote the
-route, and the start of a later session when the writing session is gone all
+A route is scoped to the task that wrote it. `action=clear`, the end of that
+task, and the start of a later session when the writing session is gone all
 put the previous values back; chain exhaustion puts them back instead of
-clearing. What returns is the previous values, not the previous bytes: the
-writer normalises quoting, emits the three keys in a fixed order, and drops
-an inline comment on one of those lines, leaving every other byte untouched. Every one of those is gated on the same
+clearing, and will not remove a value OMH cannot prove it wrote. In the TUI
+and the CLI a task is one turn, so a route lasts one turn. On a gateway
+platform (Slack, Discord, Telegram, Feishu, the API server) the task id is
+the session id, so a route lasts the session.
+
+What returns is the previous values, not the previous bytes: the writer
+normalises quoting, emits the three keys in a fixed order, and drops an
+inline comment on one of those lines, leaving every other byte untouched. Every one of those is gated on the same
 recorded value: if the keys no longer hold what OMH wrote, someone else set
 them, and OMH reports that and changes nothing. The session-start path asks
 the writer's own `state.db` row whether it is still running; only a row the

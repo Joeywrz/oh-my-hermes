@@ -287,13 +287,30 @@ All notable changes will be documented here.
 
   A route is turn-local, and deliberately so. `on_session_end` is not a
   session boundary: Hermes fires it once per message from the turn
-  finalizer. "Route the next dispatch" is a turn-local intent, a
-  `delegate_task` is dispatched inside the turn that set the route, and a
-  route that cannot outlive its turn cannot leak. The recorded scope is the
-  task rather than the turn because the host gives a plugin tool `task_id`
-  but never `turn_id`, and it mints a fresh task per turn by default, so the
-  two coincide in every ordinary flow and the task is never the shorter of
-  the two.
+  finalizer. "Route the next dispatch" is a turn-local intent and a
+  `delegate_task` is dispatched inside the turn that set the route. The
+  recorded scope is the task rather than the turn because the host gives a
+  plugin tool `task_id` but never `turn_id`.
+
+  What a task is differs by flow, and both are ordinary. In TUI and CLI the
+  host mints a fresh task per turn, so the scope is the turn; a restore that
+  does not happen at its own turn end is then not retried until the next
+  session start. On every gateway platform -- Slack, Discord, Telegram,
+  Feishu, the API server -- `task_id` is the session id, so the scope is the
+  session, a route survives later turns of it, and a missed restore is
+  retried by the next turn end. That is the majority flow on the machine
+  this was measured on.
+
+  A recorded task decides on its own, without also requiring the session.
+  That is what carries a restore through a compression split: the host
+  reassigns the session id mid-turn when it splits a long transcript, and
+  those long fan-out turns are the ones that route, while the task id is the
+  same value at the tool and at the turn end on both sides of the split.
+
+  Turn scope makes a leak short and bounded rather than impossible. A lock
+  the turn end could not take within its budget leaves the route, as does a
+  session killed mid-task; both then wait for the next session start and the
+  liveness bound.
 
   Three paths put the previous values back: `action=clear`, the end of the
   task that wrote the route, and the start of a later session when the
@@ -313,10 +330,22 @@ All notable changes will be documented here.
   OMH writes is already recorded in `route-provenance.json`, so a candidate
   baseline that exactly matches the newest such record is recognised as
   OMH's own leftover and recorded as "keys absent" instead, with
-  `baseline_origin` saying which of the two it was. The record also names
-  the `config.yaml` it describes, because two Hermes profiles may share one
-  OMH home and a record that named no file let one profile act on the
-  other's route.
+  `baseline_origin` saying which of the two it was. Two consequences are
+  stated rather than glossed: a person who pins by hand exactly the model,
+  provider and effort OMH last wrote is indistinguishable from that leftover
+  and their pin will not come back, and when provenance is missing or
+  unreadable the check cannot run at all, which is reported as its own note
+  instead of quietly falling back. The record also names the `config.yaml`
+  it describes, because two Hermes profiles may share one OMH home and a
+  record that named no file let one profile act on the other's route.
+
+  The same provenance comparison now guards two more places. `action=fallback`
+  reads the live keys as its chain position only when OMH can prove it wrote
+  them, because after a turn-end restore those keys hold the person's own
+  pinned model: reading that as the position made one failed lane report a
+  whole exhausted chain, skip the candidate that would have worked, and then
+  delete the pin. And the clear at the end of an exhausted chain will not
+  remove a value OMH cannot prove it wrote.
 
   What comes back is the previous VALUES, not the previous bytes: the writer
   normalises quoting, emits the three keys in a fixed order, and drops an

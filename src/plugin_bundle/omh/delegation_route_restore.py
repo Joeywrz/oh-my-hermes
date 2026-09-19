@@ -41,19 +41,42 @@ once per message", and `docs/SESSION-ACTIVITY-RECEIPTS.md` already recorded
 that. A route therefore comes back at the end of the turn that wrote it, and
 that is the design rather than an accident: "route the NEXT dispatch" is a
 turn-local intent, a `delegate_task` is dispatched inside the turn that set
-the route, a child already running keeps its model, and a route that cannot
-outlive its turn cannot leak.
+the route, and a child already running keeps its model.
 
 The scope is the TASK, not the turn, because a plugin tool cannot learn the
 turn. The host threads `turn_id` to hooks and to `handle_function_call`, but
 `model_tools._execute_tool` passes a registry handler only `task_id` and
 `session_id`; the turn id exists elsewhere solely in a private ContextVar of
-`tools.approval_context` with no getter. The host builds a turn id as
-`{session_id}:{task_id}:{uuid8}` and defaults `task_id` to a fresh uuid per
-turn, so task scope IS turn scope unless a caller reuses one task id across
-turns -- and then the route lives for that task instead of ending mid-task.
-That is the safe direction: restoring later than the writing turn cannot cut
-a dispatch short, restoring earlier can.
+`tools.approval_context` with no getter.
+
+What a task is differs by flow, and both are ordinary:
+
+* **TUI and CLI.** `_bind_turn_identity` defaults `task_id` to a fresh uuid
+  per turn, so task scope IS turn scope. A restore that does not happen at
+  its own turn end -- see below -- is then never retried by a later turn of
+  this session, and waits for the next session start.
+* **Every gateway platform** (Slack, Discord, Telegram, Feishu, the API
+  server). `gateway/run_turn_runner.py` passes `task_id: ctx.session_id` and
+  `gateway/run_turn.py` states that task_id is session-scoped, so the task
+  id is constant for the session and the scope is effectively the session.
+  A route survives later turns of that session, and a missed restore is
+  retried by the next turn end. This is the majority flow on the machine
+  #1724 came from, where routes come from `slack` and `subagent` sessions.
+
+A route does not always end with its turn, and two paths are known:
+
+* A `lock_unavailable` at turn end (the budget is 0.1s) leaves the route.
+  In the gateway flow the next turn end retries it; in the TUI/CLI flow
+  nothing does before the next session start. The party that could not take
+  the lock is also the party that cannot record that a restore is owed, so
+  there is no cheap durable marker to retry from -- `pre_llm_call` at the
+  start of a later turn is where such a retry would go, and it is not built
+  here.
+* A session killed mid-task, which is what `on_session_start` covers.
+
+In both, the route survives until the next session start, where the liveness
+bound can hold it for up to six hours. Turn scope makes a leak short and
+bounded rather than impossible.
 
 `action=fallback` is the one flow that legitimately spans turns: a child that
 dies on HTTP 400 is reported in a later turn. It used to read the chain
@@ -312,17 +335,66 @@ def provenance_route_keys(record: Mapping[str, Any]) -> dict[str, str]:
     return {key: value for key, value in pairs if value}
 
 
-def _is_omh_leftover(previous: Mapping[str, str], omh_home: str | Path | None) -> bool:
-    """True when the keys in the file are a route OMH wrote and never recorded.
+# What provenance was able to say about the keys currently in the file.
+LEFTOVER_MATCH = "omh_leftover"
+LEFTOVER_MISMATCH = "person"
+LEFTOVER_UNANSWERED = "person_provenance_unavailable"
+
+
+def leftover_verdict(previous: Mapping[str, str], omh_home: str | Path | None) -> str:
+    """Whether the keys in the file are a route OMH wrote and never recorded.
 
     An exact match on all three keys, never a partial one: a person who
     changed one of the three has made the value theirs, and a subset match
     would quietly discard it.
+
+    The flip side, and the reason this is worth stating where a user reads
+    it: a person who pins by hand exactly the triple OMH last wrote is
+    indistinguishable from OMH's own leftover, and their pin is treated as
+    one. Nothing on disk separates those two cases.
+
+    `LEFTOVER_UNANSWERED` is the third answer and exists so the degradation
+    is visible. Provenance can be missing, corrupt, or have lost its newest
+    route record to the unlocked append it documents, and in each of those
+    the honest report is "the check could not run", not "this is the
+    person's".
     """
     if not previous:
-        return False
+        return LEFTOVER_MISMATCH
     record = newest_written_provenance(omh_home)
-    return bool(record) and dict(previous) == provenance_route_keys(record)
+    if not record:
+        return LEFTOVER_UNANSWERED
+    return (
+        LEFTOVER_MATCH
+        if dict(previous) == provenance_route_keys(record)
+        else LEFTOVER_MISMATCH
+    )
+
+
+def omh_wrote_current_keys(
+    current: Mapping[str, str],
+    omh_home: str | Path | None,
+    *,
+    record: Mapping[str, Any] | None = None,
+) -> bool:
+    """Can OMH prove it wrote the three keys the file holds right now?
+
+    Two callers need this and neither may act on a "no". `action=fallback`
+    reads the live keys as its chain position, and after a turn-end restore
+    those keys hold the PERSON's pinned model; treating that as the position
+    made one failed lane report a whole exhausted chain and then deleted the
+    pin. Chain exhaustion needs the same answer before it clears.
+
+    The record is the first authority, provenance the second, because the
+    record is the only one written under a lock.
+    """
+    if not current:
+        return False
+    if record is None:
+        record = load_route_restore_record(omh_home)
+    if record and dict(current) == record["written"]:
+        return True
+    return leftover_verdict(current, omh_home) == LEFTOVER_MATCH
 
 
 def write_route_with_baseline(
@@ -385,12 +457,17 @@ def write_route_with_baseline(
                 # captured, unless provenance says OMH wrote that value
                 # itself and only failed to record it.
                 stem = "baseline_recaptured" if record else "baseline_captured"
-                if _is_omh_leftover(previous, omh_home):
+                verdict = leftover_verdict(previous, omh_home)
+                if verdict == LEFTOVER_MATCH:
                     baseline, origin = {}, BASELINE_ORIGIN_OMH_LEFTOVER
                     note = f"{stem}_over_omh_leftover"
                 else:
                     baseline, origin = previous, BASELINE_ORIGIN_PERSON
-                    note = stem
+                    note = (
+                        f"{stem}_provenance_unavailable"
+                        if verdict == LEFTOVER_UNANSWERED
+                        else stem
+                    )
                 captured_at = tick
             result["route_restore"] = _store_record(
                 record_path,
@@ -405,6 +482,14 @@ def write_route_with_baseline(
                 written_at=tick,
             )
             result["baseline_origin"] = origin
+            if origin == BASELINE_ORIGIN_OMH_LEFTOVER:
+                result["baseline_note"] = (
+                    "The delegation.* keys already held the exact route OMH last "
+                    "wrote, so they were treated as OMH's own leftover and the "
+                    "baseline is 'no keys'. If a person had pinned that same "
+                    "model, provider and effort by hand, nothing on disk "
+                    "distinguishes the two and their pin will not come back."
+                )
             return result
     except TimeoutError:
         return {
@@ -451,30 +536,39 @@ def restore_delegation_baseline(
     require_writer_session: str | None = None,
     require_writer_task: str | None = None,
     require_writer_not_live: bool = False,
-    clear_when_unrecorded: bool = False,
+    unrecorded_clear: str = "",
+    expected_previous: Mapping[str, str] | None = None,
     now: float | None = None,
 ) -> dict[str, Any]:
     """Put the recorded baseline back, when OMH still owns the value.
 
-    `require_writer_session` and `require_writer_task` restrict the restore to
-    the session and task that wrote the route, which is what the turn-end
-    hook needs so a later turn does not put a baseline back underneath a
-    newer route. `require_writer_not_live` is the session-start path's extra
-    gate. `clear_when_unrecorded` is the explicit `clear` action's escape
-    hatch: with no record OMH cannot know what the keys held, and removing
-    them is both what clearing did before baselines existed and the only way
-    to get an unrecorded route off a machine. It runs inside this lock,
-    because doing it in the caller left a window in which a concurrent route
-    recorded a person's pinned model as a baseline that the next restore then
-    discarded as a foreign edit.
+    `require_writer_task` restricts the restore to the task that wrote the
+    route, and `require_writer_session` to the session. The turn-end hook
+    passes both, but a RECORDED task wins on its own: see
+    `_writer_matches`.  `require_writer_not_live` is the session-start
+    path's extra gate.
+
+    `unrecorded_clear` is the escape hatch for a route with no record, and
+    it has two strengths because its two callers differ. `"always"` is the
+    explicit `clear` action: a person asked for the keys to come off and OMH
+    cannot know what preceded them, so removing is both what clearing did
+    before baselines existed and the only way to get an unrecorded route off
+    a machine. `"if_omh_wrote"` is chain exhaustion, which is automatic and
+    so may only remove a value OMH can prove it wrote; without that proof it
+    reports `unrecorded_value_not_ours` and changes nothing, because the
+    alternative was deleting the person's pinned model at the exact moment a
+    lane had failed. Both run inside this lock, with the caller's
+    `expected_previous`, because doing either outside left a window in which
+    a concurrent route recorded a person's pinned model as a baseline that
+    the next restore then discarded as a foreign edit.
 
     Every outcome is a `status` a caller can report: `restored`, `cleared` (a
     baseline with no keys to put back), `no_baseline_recorded`,
-    `foreign_edit`, `foreign_config`, `not_last_writer`, `writer_live`,
-    `lock_unavailable`, or `error`.
+    `unrecorded_value_not_ours`, `foreign_edit`, `foreign_config`,
+    `not_last_writer`, `writer_live`, `lock_unavailable`, or `error`.
     """
     record_path = delegation_route_restore_path(omh_home)
-    if not clear_when_unrecorded and not record_path.exists():
+    if not unrecorded_clear and not record_path.exists():
         # The common case by far: every turn of every session reaches here,
         # and almost none of them has a route to take back. One `stat`, no
         # lock, no sqlite. The race it accepts is a record created between
@@ -482,14 +576,45 @@ def restore_delegation_baseline(
         # restore that the next turn end or the next session start makes
         # good -- never a wrong write.
         return {"status": "no_baseline_recorded", "trigger": trigger, "fast_path": True}
+    config_path = str(delegation_config_path(hermes_home))
+    if not unrecorded_clear:
+        # A second cheap reject before the lock. In a shared OMH home the
+        # non-owning profile otherwise paid the full locked path on every
+        # turn end and contended with the owning profile's routing on a
+        # 0.1s budget. The record is replaced atomically, so an unlocked
+        # read sees a whole old or a whole new file, never a torn one -- and
+        # the authoritative check still runs under the lock below, so the
+        # worst this can do is skip a decision that was going to be
+        # `foreign_config` anyway.
+        peek = load_route_restore_record(omh_home)
+        if peek and peek["config_path"] != config_path:
+            return {
+                "status": "foreign_config",
+                "trigger": trigger,
+                "recorded_config": peek["config_path"],
+                "this_config": config_path,
+                "fast_path": True,
+            }
     try:
         with _awareness_delivery_lock(record_path) as mechanism:
             enforced = mechanism != LOCK_MECHANISM_NONE
             record = load_route_restore_record(omh_home)
-            config_path = str(delegation_config_path(hermes_home))
             if not record:
-                if clear_when_unrecorded:
-                    removed = write_delegation_route(hermes_home, clear=True)
+                if unrecorded_clear == "if_omh_wrote" and not omh_wrote_current_keys(
+                    read_delegation_route(hermes_home), omh_home, record={}
+                ):
+                    # Automatic removal of a value OMH cannot prove it wrote
+                    # is how the person's pinned model got deleted the moment
+                    # a lane failed. Report instead.
+                    return {
+                        "status": "unrecorded_value_not_ours",
+                        "trigger": trigger,
+                        "lock_enforced": enforced,
+                    }
+                if unrecorded_clear:
+                    removed = write_delegation_route(
+                        hermes_home, clear=True, expected_previous=expected_previous
+                    )
                     removed["route_restore"] = "no_baseline_recorded"
                     removed["trigger"] = trigger
                     removed["lock_enforced"] = enforced
@@ -511,14 +636,7 @@ def restore_delegation_baseline(
                     "this_config": config_path,
                     "lock_enforced": enforced,
                 }
-            mismatched_writer = (
-                require_writer_session is not None
-                and record["writer_session_id"] != require_writer_session
-            ) or (
-                require_writer_task is not None
-                and record["writer_task_id"] != require_writer_task
-            )
-            if mismatched_writer:
+            if not _writer_matches(record, require_writer_session, require_writer_task):
                 return {
                     "status": "not_last_writer",
                     "trigger": trigger,
@@ -599,6 +717,36 @@ def restore_delegation_baseline(
             "error_type": type(exc).__name__,
             "trigger": trigger,
         }
+
+
+def _writer_matches(
+    record: Mapping[str, Any],
+    require_session: str | None,
+    require_task: str | None,
+) -> bool:
+    """Is the caller the writer this record names?
+
+    A RECORDED task decides on its own, and the session is not also
+    required. That is not a loosening: it is what makes a restore survive a
+    compression split. The host reassigns `agent.session_id` mid-run when it
+    splits a long turn's transcript, so the tool recorded the pre-split id
+    while the turn-end hook reports the post-split one, and requiring both
+    left the route in place on exactly the long fan-out turns that route.
+    The task id does not move across a split -- `_bind_turn_identity` binds
+    `effective_task_id` once at turn start and nothing in
+    `conversation_compression` rebinds it, and the gateway's `task_id` is
+    `ctx.session_id`, which is re-baselined only after the run returns. So
+    the task id is the same value at the tool and at the turn end on both
+    sides of a split, in both flows.
+
+    A record with no task id falls back to the session, which is what a
+    caller that never learned a task can be held to.
+    """
+    if require_task is not None and record["writer_task_id"]:
+        return record["writer_task_id"] == require_task
+    if require_session is not None:
+        return record["writer_session_id"] == require_session
+    return True
 
 
 def _writer_liveness(

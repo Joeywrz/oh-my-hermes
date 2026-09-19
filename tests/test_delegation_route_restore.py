@@ -167,7 +167,9 @@ class BaselineCaptureTest(RouteRestoreTestCase):
 
         result = self.route(session_id="s1", model="second")
 
-        self.assertEqual(result["route_restore"], "baseline_recaptured")
+        self.assertEqual(
+            result["route_restore"], "baseline_recaptured_provenance_unavailable"
+        )
         self.assertEqual(self.record()["baseline"]["model"], "hand-edited")
 
 
@@ -839,7 +841,12 @@ class LeakedRouteBaselineTest(RouteRestoreTestCase):
 
         result = self.route(session_id="s1", model="next-model")
 
-        self.assertEqual(result["route_restore"], "baseline_captured")
+        # No provenance at all, so the leftover check could not run. The note
+        # says so instead of quietly reporting the person's own value.
+        self.assertEqual(
+            result["route_restore"], "baseline_captured_provenance_unavailable"
+        )
+        self.assertEqual(result["baseline_origin"], "person")
         self.assertEqual(self.record()["baseline"]["model"], self.LEAK)
 
     def test_a_route_whose_record_write_failed_is_not_enshrined_next_time(self) -> None:
@@ -879,6 +886,175 @@ class LeakedRouteBaselineTest(RouteRestoreTestCase):
         self.assertEqual(result["route_restore"], "baseline_captured_over_omh_leftover")
 
 
+class FallbackAfterRestoreTest(RouteRestoreTestCase):
+    """`fallback` must not read the person's restored value as its position.
+
+    The turn-end restore puts the PERSON's pinned model back, so the live
+    keys are not empty and are not OMH's. Reading them as the chain position
+    made one failed lane report a whole exhausted chain, never try the next
+    candidate, and then delete the pin -- the second harm #1724 lists.
+    """
+
+    CHAIN = {
+        "schema_version": "mixture_chain_overrides/v1",
+        "categories": {
+            "quick": [
+                {"model": "head-model", "reasoning_effort": "low"},
+                {"model": "second-model", "reasoning_effort": "low"},
+            ],
+            "writing": [
+                {"model": "shared-model", "reasoning_effort": "high"},
+                {"model": "writing-next", "reasoning_effort": "high"},
+            ],
+        },
+    }
+
+    def setUp(self) -> None:
+        super().setUp()
+        chains = self.omh_home / "routing" / "model-chains.json"
+        chains.parent.mkdir(parents=True, exist_ok=True)
+        chains.write_text(json.dumps(self.CHAIN), encoding="utf-8")
+
+    def call(self, **args) -> dict:
+        args.setdefault("hermes_home", str(self.hermes_home))
+        args.setdefault("omh_home", str(self.omh_home))
+        return json.loads(
+            omh_delegate_route_handler(args, session_id="s1", task_id="task-1")
+        )
+
+    def pin(self, model: str) -> None:
+        self.config.write_text(
+            BASE_CONFIG.replace(
+                "  max_concurrent_children: 4\n",
+                f"  max_concurrent_children: 4\n  model: '{model}'\n",
+            ),
+            encoding="utf-8",
+        )
+
+    def route_then_end_turn(self) -> None:
+        self.assertEqual(self.call(action="set", category="quick")["status"], "routed")
+        ended = on_session_end(
+            session_id="s1",
+            task_id="task-1",
+            omh_home=str(self.omh_home),
+            hermes_home=str(self.hermes_home),
+        )
+        self.assertEqual(ended["route_restore"]["status"], "restored")
+
+    def test_a_pin_that_is_the_chain_s_own_second_entry_still_advances_to_it(self) -> None:
+        # The worst case. Reading the restored pin as the position reported
+        # the chain exhausted from `second-model`, never tried it, and the
+        # exhaustion clear then deleted the pin.
+        self.pin("second-model")
+        self.route_then_end_turn()
+        self.assertEqual(self.current(), {"model": "second-model"})
+
+        advanced = self.call(action="fallback", category="quick")
+
+        self.assertEqual(advanced["status"], "fell_back")
+        self.assertEqual(advanced["position_source"], "provenance")
+        self.assertEqual(advanced["from"], "head-model")
+        self.assertEqual(self.current()["model"], "second-model")
+
+    def test_a_pin_in_no_chain_does_not_become_a_hard_error(self) -> None:
+        self.pin("person-pin")
+        self.route_then_end_turn()
+
+        advanced = self.call(action="fallback", category="quick")
+
+        self.assertEqual(advanced["status"], "fell_back")
+        self.assertEqual(advanced["position_source"], "provenance")
+        self.assertEqual(self.current()["model"], "second-model")
+
+    def test_a_pin_in_several_chains_does_not_become_ambiguous_origins(self) -> None:
+        self.pin("shared-model")
+        self.route_then_end_turn()
+
+        advanced = self.call(action="fallback", category="quick")
+
+        self.assertEqual(advanced["status"], "fell_back")
+        self.assertEqual(advanced["position_source"], "provenance")
+        self.assertEqual(self.current()["model"], "second-model")
+
+    def test_exhaustion_never_deletes_a_value_omh_cannot_prove_it_wrote(self) -> None:
+        # Same path, one chain entry. The clear at the end of an exhausted
+        # chain used to remove whatever was in the file.
+        (self.omh_home / "routing" / "model-chains.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "mixture_chain_overrides/v1",
+                    "categories": {"quick": [{"model": "head-model", "reasoning_effort": "low"}]},
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.pin("person-pin")
+        self.route_then_end_turn()
+        self.assertEqual(self.current(), {"model": "person-pin"})
+
+        exhausted = self.call(action="fallback", category="quick")
+
+        self.assertEqual(exhausted["status"], "unrecorded_value_not_ours")
+        self.assertEqual(self.current(), {"model": "person-pin"})
+
+    def test_an_error_return_still_says_where_it_thought_it_was(self) -> None:
+        # Nothing routed at all: no live keys OMH owns and no provenance.
+        result = self.call(action="fallback", category="quick")
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("no active route", result["error"])
+
+
+class CompressionSplitTest(RouteRestoreTestCase):
+    """A mid-turn session split must not strand the route.
+
+    The host reassigns `agent.session_id` when it splits a long turn's
+    transcript, so the tool recorded the pre-split id while the turn-end
+    hook reports the post-split one. Matching on both left the route in
+    place on exactly the long fan-out turns that route. The task id does not
+    move across a split, in either flow.
+    """
+
+    def test_a_recorded_task_matches_even_when_the_session_id_moved(self) -> None:
+        self.route(session_id="before-split", task_id="task-a")
+
+        payload = on_session_end(
+            session_id="after-split",
+            task_id="task-a",
+            omh_home=str(self.omh_home),
+            hermes_home=str(self.hermes_home),
+        )
+
+        self.assertEqual(payload["route_restore"]["status"], "cleared")
+        self.assertEqual(self.current(), {})
+
+    def test_a_different_task_still_does_not_match(self) -> None:
+        self.route(session_id="s", task_id="task-a")
+
+        payload = on_session_end(
+            session_id="s",
+            task_id="task-b",
+            omh_home=str(self.omh_home),
+            hermes_home=str(self.hermes_home),
+        )
+
+        self.assertEqual(payload["route_restore"]["status"], "not_last_writer")
+        self.assertEqual(self.current()["model"], "routed-model")
+
+    def test_a_record_with_no_task_falls_back_to_the_session(self) -> None:
+        # A caller that never learned a task can only be held to its session.
+        self.route(session_id="s", task_id="")
+
+        matched = on_session_end(
+            session_id="s",
+            task_id="anything",
+            omh_home=str(self.omh_home),
+            hermes_home=str(self.hermes_home),
+        )
+
+        self.assertEqual(matched["route_restore"]["status"], "cleared")
+
+
 class SharedOmhHomeTest(RouteRestoreTestCase):
     """Two Hermes profiles, one OMH home. `resolve_homes` documents that."""
 
@@ -910,6 +1086,24 @@ class SharedOmhHomeTest(RouteRestoreTestCase):
 
         self.assertEqual(owner["status"], "cleared")
         self.assertEqual(self.current(), {})
+
+    def test_the_non_owning_profile_decides_before_taking_the_lock(self) -> None:
+        # Otherwise the non-owning profile paid the full locked path on every
+        # turn end and contended with the owning profile's routing on a 0.1s
+        # budget. The record is replaced atomically, so an unlocked read sees
+        # a whole file; the authoritative check still runs under the lock.
+        self.route(session_id="A")
+
+        with mock.patch(
+            "omh.plugin_bundle.omh.delegation_route_restore._awareness_delivery_lock"
+        ) as lock:
+            other = restore_delegation_baseline(
+                self.other_home, omh_home=self.omh_home, trigger="turn_end"
+            )
+
+        self.assertEqual(other["status"], "foreign_config")
+        self.assertTrue(other["fast_path"])
+        lock.assert_not_called()
 
     def test_identical_values_in_two_profiles_do_not_cross(self) -> None:
         # The value check alone would pass here, because both files hold the

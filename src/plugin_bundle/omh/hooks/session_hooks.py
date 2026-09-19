@@ -92,7 +92,10 @@ def on_session_end(**kwargs) -> dict[str, object] | None:
     runs once per message", and `docs/SESSION-ACTIVITY-RECEIPTS.md` already
     recorded that it runs at conversation-turn finalization. So a route
     written in a turn comes back at the end of that turn, which is the design
-    (see `delegation_route_restore`) and not something to work around.
+    (see `delegation_route_restore`) and not something to work around. On a
+    gateway platform the recorded task id is the session id, so there a route
+    survives later turns of the session and a missed restore is retried by
+    the next turn end.
     """
     try:
         home = runtime_paths.plugin_home(kwargs.get("omh_home"))
@@ -100,12 +103,15 @@ def on_session_end(**kwargs) -> dict[str, object] | None:
     except (runtime_paths.RuntimeBindingError, OSError, RuntimeError) as exc:
         return runtime_binding_degradation(exc)
     observe_plugin_hook_call("on_session_end", kwargs)
-    # Scoped to the session AND task that wrote the route. This hook fires per
-    # turn, so a later turn of the same session must not put the baseline back
-    # underneath a newer route, and the recorded writer says which turn owns
-    # it. The host passes `task_id` here and to the tool; it passes `turn_id`
-    # here but NOT to the tool, so the task is the finest scope both ends can
-    # name.
+    # Scoped to the task that wrote the route, falling back to the session
+    # when no task was recorded. This hook fires per turn, so a later turn
+    # must not put the baseline back underneath a newer route. The host
+    # passes `task_id` here and to the tool; it passes `turn_id` here but NOT
+    # to the tool, so the task is the finest scope both ends can name -- and
+    # a recorded task decides alone, because a compression split moves the
+    # session id mid-turn while the task id stays put (`_writer_matches`).
+    # In TUI and CLI a task is one turn; on every gateway platform the task
+    # id is the session id, so there the scope is the session.
     restore = _restore_route(
         hermes_home,
         home,

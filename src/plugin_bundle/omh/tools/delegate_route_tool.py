@@ -8,6 +8,7 @@ from typing import Any
 
 from ..delegation_route_restore import (
     newest_written_provenance,
+    omh_wrote_current_keys,
     provenance_route_keys,
     restore_delegation_baseline,
     write_route_with_baseline,
@@ -79,7 +80,12 @@ def _chain_entry(
 
 
 def _clear_to_baseline(
-    hermes_home: Any, omh_home: Any, *, trigger: str
+    hermes_home: Any,
+    omh_home: Any,
+    *,
+    trigger: str,
+    unrecorded_clear: str,
+    expected_previous: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Put the recorded baseline back, or remove the keys when none was recorded.
 
@@ -87,6 +93,12 @@ def _clear_to_baseline(
     removal out here instead left a window: a route landing in it recorded a
     person's pinned model as a baseline that the next restore then discarded
     as `foreign_edit`, losing the pinned model with nothing reported.
+
+    The two callers ask for different strengths of that removal, which is
+    why `unrecorded_clear` is passed rather than assumed. `clear` is a
+    person asking, so it removes. Chain exhaustion is automatic, so it may
+    only remove a value OMH can prove it wrote -- otherwise a single failed
+    lane deleted the model the person had pinned.
 
     Deliberately NOT scoped to the calling session or task, unlike the two
     hooks. Both callers here are asking for the route to come off now, and
@@ -98,7 +110,8 @@ def _clear_to_baseline(
         hermes_home,
         omh_home=omh_home,
         trigger=trigger,
-        clear_when_unrecorded=True,
+        unrecorded_clear=unrecorded_clear,
+        expected_previous=expected_previous,
     )
 
 
@@ -107,14 +120,19 @@ def _fallback_position(
 ) -> tuple[dict[str, str], str]:
     """The route a fallback is advancing FROM, and where that came from.
 
-    The live `delegation.*` keys are the first answer. They are empty
-    whenever the route has already been taken back -- which is the normal
-    case for a fallback, because the child that failed is reported in a
-    later turn than the one that routed, and the route came back at the end
-    of that turn. Provenance records every route OMH wrote, so the position
-    survives the restore even though the value does not.
+    The live keys are used ONLY when OMH can prove it wrote them. They are
+    not simply "empty once the route has been taken back": a turn-end
+    restore puts the PERSON's pinned model back, and reading that as the
+    chain position is how one failed lane came to report a whole exhausted
+    chain, never try the next candidate, and then delete the pin. A pinned
+    model that is in no chain produced a hard error, and one in several
+    chains an `ambiguous origins` refusal -- all on the recovery path for a
+    child that has just died on HTTP 400, the worst moment to fail.
+
+    Provenance records every route OMH wrote, so the position survives the
+    restore even though the value does not.
     """
-    if route.get("model"):
+    if route.get("model") and omh_wrote_current_keys(route, omh_home):
         return dict(route), "live_route"
     recovered = provenance_route_keys(newest_written_provenance(omh_home))
     return (recovered, "provenance") if recovered.get("model") else ({}, "none")
@@ -214,10 +232,12 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
     # must not be able to claim another session's route record.
     session_id = host_session_id(kwargs)
     # The host gives a tool handler `task_id` but never `turn_id`
-    # (`model_tools._execute_tool`), and builds a turn id as
-    # `{session_id}:{task_id}:{uuid8}` with a fresh task id per turn by
-    # default. So the task is the finest scope a route can record, and it is
-    # the turn in every default flow.
+    # (`model_tools._execute_tool`), so the task is the finest scope a route
+    # can record. What that means differs by flow and both are ordinary: in
+    # TUI and CLI the host mints a fresh task per turn, so the scope is the
+    # turn; on every gateway platform `task_id` IS the session id
+    # (`gateway/run_turn_runner.py`), so the scope is the session and a
+    # route survives later turns of it.
     task_id = str(kwargs.get("task_id", "") or "").strip()
     action = str(args.get("action", "") or "set").strip().lower()
     hermes_home = runtime_paths.plugin_home(args.get("hermes_home"), hermes=True)
@@ -264,7 +284,9 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
         return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
 
     if action == "clear":
-        result = _clear_to_baseline(hermes_home, omh_home, trigger="clear")
+        result = _clear_to_baseline(
+            hermes_home, omh_home, trigger="clear", unrecorded_clear="always"
+        )
         if result.get("status") in ("cleared", "restored"):
             # A cleared route must supersede the head/fallback record that
             # preceded it, or a later child on a coincidentally matching
@@ -362,6 +384,11 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                         else "any mixture chain; pass category explicitly"
                     )
                 ),
+                # An operator reading this has to be able to see WHICH
+                # position the tool thought it had, and whether it came from
+                # the live keys or from provenance.
+                "position_source": position_source,
+                "from": current_model,
             }
             return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
         if len(matches) > 1:
@@ -372,6 +399,8 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                     f"current route model {current_model!r} has ambiguous origins "
                     f"across {origins}; pass category explicitly"
                 ),
+                "position_source": position_source,
+                "from": current_model,
             }
             return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
         category, index = matches[0]
@@ -382,7 +411,11 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
             # when they had one, parent inheritance when they did not -- instead
             # of one more rejection.
             result = _clear_to_baseline(
-                hermes_home, omh_home, trigger="chain_exhausted"
+                hermes_home,
+                omh_home,
+                trigger="chain_exhausted",
+                unrecorded_clear="if_omh_wrote",
+                expected_previous=route,
             )
             if result.get("status") in ("cleared", "restored"):
                 result["status"] = "exhausted_to_inherit"

@@ -21,7 +21,10 @@ from omh.plugin_bundle.omh.delegation_routing import (
     read_session_provider,
     write_delegation_route,
 )
-from omh.plugin_bundle.omh.hermes_delegation import load_delegation_route_provenance
+from omh.plugin_bundle.omh.hermes_delegation import (
+    append_delegation_route_provenance,
+    load_delegation_route_provenance,
+)
 from omh.plugin_bundle.omh.tools.delegate_route_tool import omh_delegate_route_handler
 
 
@@ -486,15 +489,33 @@ class DelegateRouteToolTest(unittest.TestCase):
         self.assertIn("ambiguous origins", ambiguous["error"])
         self.assertEqual(self.config.read_bytes(), before)
 
+        # The provenance record is part of the setup now, not decoration.
+        # `fallback` only treats the live keys as its chain position when OMH
+        # can prove it wrote them; without that a hand-written value is read
+        # as the person's and the position comes from provenance instead. The
+        # guard under test here is about the provider identity of the
+        # position, so the position has to be a real one.
         write_delegation_route(
             self.home,
             model="vendor/shared",
             provider="wrong-provider",
             reasoning_effort="low",
         )
+        append_delegation_route_provenance(
+            {
+                "origin": "explicit",
+                "alias": "shared",
+                "wire_model": "vendor/shared",
+                "provider": "wrong-provider",
+                "reasoning_effort": "low",
+                "written_at": 3.0,
+            },
+            self.omh_home,
+        )
         before = self.config.read_bytes()
         wrong = self._call(action="fallback", category="quick")
         self.assertEqual(wrong["status"], "error")
+        self.assertEqual(wrong["position_source"], "live_route")
         self.assertEqual(self.config.read_bytes(), before)
 
     def test_registry_backed_alias_requires_provider_before_fallback(self):
@@ -515,6 +536,19 @@ class DelegateRouteToolTest(unittest.TestCase):
         self.config.write_text(
             "delegation:\n  model: head\n  reasoning_effort: low\n",
             encoding="utf-8",
+        )
+        # Same reason as above: the keys have to be ones OMH can prove it
+        # wrote before `fallback` will read them as its position.
+        append_delegation_route_provenance(
+            {
+                "origin": "explicit",
+                "alias": "head",
+                "wire_model": "head",
+                "provider": "",
+                "reasoning_effort": "low",
+                "written_at": 1.0,
+            },
+            self.omh_home,
         )
         before = self.config.read_bytes()
 

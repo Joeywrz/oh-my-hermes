@@ -39,6 +39,7 @@ from omh.plugin_bundle.omh.engagement_nudges import (
 )
 from omh.plugin_bundle.omh.hooks.nudge_budget import (
     DURABLE_ENGAGEMENT_FIELDS,
+    MAX_TRACKED_SESSIONS,
     engagement_nudge_store_path,
     reset_nudge_budget,
 )
@@ -469,19 +470,34 @@ class DistinctSearchTests(EngagementNudgeTestCase):
         self.assertEqual(engagement_nudge_declines().get("below_read_threshold"), 10)
 
     def test_two_tools_with_the_same_arguments_are_two_distinct_reads(self) -> None:
-        # The key is `(tool, digest)`: reading a path and searching it are
-        # different work even when the arguments coincide.
-        for tool in ("read_file", "search_files", "web_search", "web_extract"):
-            _ = annotate_engagement_nudge(
-                tool_name=tool,
-                result="ok",
-                args={"path": "same.py"},
-                session_id="s1",
-                omh_home=self.home,
-                hermes_home=self.home,
-            )
+        """The key is `(tool, digest)`, and the tool half has to carry weight.
 
-        self.assertEqual(engagement_nudge_declines().get("below_read_threshold"), 4)
+        Reading a path and searching it are different work even when the
+        arguments coincide. Driven to the threshold on that difference alone:
+        all four watched tools on one path is four distinct reads, and a
+        fifth call on a different path is the fifth. Keyed on the digest
+        alone the same sequence is two, and does not fire -- which is what
+        makes this a guard rather than a restatement.
+        """
+        fired = []
+        for tool in sorted(nudges.DIRECT_READ_TOOLS):
+            fired.append(
+                annotate_engagement_nudge(
+                    tool_name=tool, result="ok", args={"path": "same.py"},
+                    session_id="s1", omh_home=self.home, hermes_home=self.home,
+                )
+                is not None
+            )
+        self.assertNotIn(True, fired)
+        self.assertEqual(len(nudges.DIRECT_READ_TOOLS), DELEGATION_NUDGE_DIRECT_READ_THRESHOLD - 1)
+
+        last = annotate_engagement_nudge(
+            tool_name="read_file", result="ok", args={"path": "other.py"},
+            session_id="s1", omh_home=self.home, hermes_home=self.home,
+        )
+
+        self.assertIsNotNone(last)
+        self.assertIn("5 different search/read calls", str(last))
 
     def test_the_digest_is_the_repeat_guards_own(self) -> None:
         """One canonicalization of a call's arguments in this bundle.
@@ -606,6 +622,27 @@ class NudgeBudgetSurvivesARestartTests(EngagementNudgeTestCase):
             {"plan_nudges", "delegation_nudges", "plan_declared", "lane_routed"},
         )
         self.assertEqual(stored["sessions"]["s1"]["delegation_nudges"], MAX_ENGAGEMENT_NUDGES)
+
+    def test_an_evicted_session_does_not_get_its_budget_back(self) -> None:
+        """Eviction must fail toward fewer nudges, not toward more.
+
+        The process map is bounded at `MAX_TRACKED_SESSIONS`, and a spent
+        budget that vanished with the row would be a second budget for a
+        session that is still running -- the same defect the restart case
+        above fixes, reached by a different door. The store outlives the
+        row, so the reload answers.
+        """
+        self.assertEqual(
+            self._spend("s1", 0, DELEGATION_NUDGE_DIRECT_READ_THRESHOLD + 4).count(True),
+            MAX_ENGAGEMENT_NUDGES,
+        )
+
+        for index in range(MAX_TRACKED_SESSIONS + 1):
+            _ = self._spend(f"filler-{index}", 0, 1)
+
+        after = self._spend("s1", 100, DELEGATION_NUDGE_DIRECT_READ_THRESHOLD + 4)
+
+        self.assertNotIn(True, after)
 
     def test_the_durable_field_names_are_the_ones_the_nudges_write(self) -> None:
         # Two spellings of one string in two files is a drift that shows up

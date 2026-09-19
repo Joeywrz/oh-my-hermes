@@ -185,11 +185,18 @@ ENGAGEMENT_NUDGE_FILE = "engagement-nudges.json"
 # count saturates, which reads as "at least 64 different reads" -- true, and
 # far past every threshold here.
 MAX_DISTINCT_DIRECT_READS = 64
-# Kept inside the counts row rather than in a map beside it, so one eviction
-# cannot leave a session marked loaded with its durable counts gone -- which
-# would restore a spent budget, the one direction eviction here must not fail
-# in. Never a counter: `engagement_count` is only ever asked for the fields
-# above.
+# Whether this session's durable counters have been read off disk yet. It
+# buys one thing, and only one: the store is read once per session instead of
+# on every call that checks a budget. Correctness does not rest on it --
+# every writer of a durable field writes through, so re-reading would find
+# the same numbers -- which is why it is a marker and not a lock.
+#
+# It lives INSIDE the counts row rather than in a map beside it so that it is
+# evicted with the counters it describes. Kept separately, a row evicted from
+# the bounded map below while its marker survived would read as loaded and
+# empty, which restores a spent budget: the one direction eviction here must
+# not fail in. Never a counter; `engagement_count` is only ever asked for the
+# fields above.
 _LOADED_MARKER = "loaded_from_store"
 
 _ENGAGEMENT_COUNTS: "OrderedDict[str, dict[str, int]]" = OrderedDict()

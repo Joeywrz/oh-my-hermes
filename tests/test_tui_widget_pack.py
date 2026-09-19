@@ -22,13 +22,15 @@ NODE = shutil.which("node")
 
 # Renders one dock-top frame of the installed-form widget against a payload
 # handed in on disk, and reports every row as its text plus the colour in force
-# at each string leaf. The panel takes no input, so the harness needs no key
+# at each string leaf. The viewport height is an argument because the panel
+# budgets its rows against it; 40 is the default so a caller that only cares
+# about a row's content need not name one. The panel takes no input, so the harness needs no key
 # loop: it registers the apps with a fake SDK, feeds one snapshot through the
 # app's own `reduce`, and reads back the tree `render` returns.
 TODO_PANEL_HARNESS = r"""
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
-const [widgetPath, payloadPath, colsArg] = process.argv.slice(2)
+const [widgetPath, payloadPath, colsArg, rowsArg] = process.argv.slice(2)
 const apps = []
 const sdk = {
   Box: 'Box', Dialog: 'Dialog', Overlay: 'Overlay', Text: 'Text',
@@ -53,7 +55,7 @@ const report = (() => {
     if (typeof node === 'object') return parts(node.children, node.props && node.props.color !== undefined ? node.props.color : color)
     return []
   }
-  const frame = app.render({ cols: Number(colsArg), rows: 40, state, t: theme })
+  const frame = app.render({ cols: Number(colsArg), rows: Number(rowsArg || 40), state, t: theme })
   const children = frame && Array.isArray(frame.children) ? frame.children : []
   const rows = children.map(child => parts(child, '')).filter(row => row.length)
   return { rows: rows.map(row => ({ text: row.map(part => part.text).join(''), parts: row })) }
@@ -632,13 +634,14 @@ class TuiWidgetPackTests(unittest.TestCase):
         # The Rule frame replaced the marginTop spacer: the docks carry the
         # classic composer frame, rules sitting tight against the input --
         # padding was tried at one and two rows and the owner picked none.
-        # Exactly four plain-rule renders: the dock-bottom opener plus the
-        # three todo-panel closers (no plan, all done, established). The
+        # Exactly five plain-rule renders: the dock-bottom opener plus the
+        # four todo-panel closers (no plan, all done, the summary fallback a
+        # terminal too short for a checklist gets, and established). The
         # badge that briefly dressed the top rule moved to the [Plan] header,
         # so every rule is plain, byte-stable chrome again.
         self.assertIn("const Rule = ", widget)
         self.assertNotIn("Gap", widget)
-        self.assertEqual(widget.count("h(Rule, { columns, t })"), 4)
+        self.assertEqual(widget.count("h(Rule, { columns, t })"), 5)
         # Text, not chrome — changed on purpose a second time, by owner
         # direction after living with the bordered card: the OMH surface reads
         # like the host's own status line, dense text in the TUI's idiom. The
@@ -1160,6 +1163,168 @@ class TodoPanelWaitingRowTests(unittest.TestCase):
         waiting = self._waiting_row(rows)
         self.assertIn("Verify the retry path", waiting["text"])
         self.assertLessEqual(len(waiting["text"]), 80)
+
+
+@unittest.skipUnless(NODE, "node is not installed; the widget harness needs it")
+class TodoPanelViewportBudgetTests(unittest.TestCase):
+    """#1727: the dock caps ITEMS, so its ROWS were free of the terminal.
+
+    Eight items with eight phases is twenty rows, and before this the panel
+    drew all twenty on a terminal of any height -- above the composer, where
+    the owner's own prompt was what got pushed off. Every case here reads the
+    rendered frame rather than the source, because the defect was never in
+    what the code said, only in how tall the result came out.
+    """
+
+    #: What the panel is allowed to draw, restated from the renderer so a
+    #: change to the split fails here with the arithmetic in view rather than
+    #: quietly rescoring every case: a third of the terminal, shared with the
+    #: transcript and with the bottom dock plus composer.
+    @staticmethod
+    def budget(viewport_rows: int) -> int:
+        return max(1, viewport_rows // 3)
+
+    def _rows(
+        self, items: list[dict], *, viewport_rows: int, cols: int = 120, title: str = "Plan"
+    ) -> list[str]:
+        """Render one frame at ``viewport_rows`` and return its row texts."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / "omh"
+            hermes_home = root / "hermes"
+            omh_home.mkdir()
+            hermes_home.mkdir()
+            write_todo(omh_home, build_todo_record(title, items, source="test"))
+            payload = read_omh_hud(omh_home, hermes_home)
+            self.assertEqual(payload["todo"]["status"], "established", payload["todo"])
+            payload_file = root / "payload.json"
+            payload_file.write_text(json.dumps(payload), encoding="utf-8")
+            widget = root / "omh-status.mjs"
+            widget.write_bytes(widget_payload(Path(sys.executable)))
+            harness = root / "todo-harness.mjs"
+            harness.write_text(TODO_PANEL_HARNESS, encoding="utf-8")
+            completed = subprocess.run(
+                [NODE, str(harness), str(widget), str(payload_file), str(cols), str(viewport_rows)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=120,
+                env={**os.environ, "HERMES_HOME": str(hermes_home), "HOME": str(root)},
+                cwd=str(root),
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            result = json.loads(completed.stdout.strip().splitlines()[-1])
+            self.assertNotIn("error", result, result)
+            return [row["text"] for row in result["rows"]]
+
+    @staticmethod
+    def phased_plan(count: int, *, phases: int, active: int) -> list[dict]:
+        """``count`` items spread over ``phases`` phases, one of them active."""
+        return [
+            {
+                "text": f"Task number {index}",
+                "state": "active"
+                if index == active
+                else "done"
+                if index < active
+                else "pending",
+                "phase": f"Phase {min(index, phases - 1)}",
+            }
+            for index in range(count)
+        ]
+
+    @staticmethod
+    def folded(rows: list[str]) -> tuple[int, int]:
+        """The earlier and later fold counts the frame states, 0 when absent."""
+        earlier = later = 0
+        for row in rows:
+            if row.startswith("... (") and row.endswith("earlier tasks)"):
+                earlier = int(row.split("(")[1].split(" ")[0])
+            elif row.startswith("... (") and row.endswith("later tasks)"):
+                later = int(row.split("(")[1].split(" ")[0])
+            elif row.startswith("... (") and row.endswith("earlier task)"):
+                earlier = 1
+            elif row.startswith("... (") and row.endswith("later task)"):
+                later = 1
+        return earlier, later
+
+    @staticmethod
+    def item_rows(rows: list[str]) -> list[str]:
+        """Only the checklist rows -- markers are what makes an item an item."""
+        return [row for row in rows if any(mark in row for mark in ("[•]", "[✓]", "[ ]"))]
+
+    def test_a_ten_item_eight_phase_plan_fits_its_share_at_every_height(self) -> None:
+        # The acceptance case from the issue, read at three heights. What the
+        # assertion protects is a relation, not three numbers: the frame is
+        # within the dock's share of the terminal, the active item is on it,
+        # and the folds account for every item the window left out -- so a
+        # future window rule cannot pass by hiding rows silently.
+        items = self.phased_plan(10, phases=8, active=3)
+        for viewport_rows in (24, 40, 60):
+            with self.subTest(viewport_rows=viewport_rows):
+                rows = self._rows(items, viewport_rows=viewport_rows)
+                self.assertLessEqual(len(rows), self.budget(viewport_rows), rows)
+                self.assertTrue([row for row in rows if "[•]" in row], rows)
+                self.assertIn("Task number 3", "\n".join(rows))
+                earlier, later = self.folded(rows)
+                self.assertEqual(earlier + len(self.item_rows(rows)) + later, 10, rows)
+
+    def test_the_short_terminal_is_the_one_that_used_to_lose_the_prompt(self) -> None:
+        # Before the clamp this exact plan drew seventeen rows here, on a
+        # terminal of twenty-four. The pair is the whole finding, so both
+        # halves are measured in one test rather than trusted from a comment.
+        items = self.phased_plan(10, phases=8, active=3)
+        self.assertEqual(len(self._rows(items, viewport_rows=24)), 8)
+        self.assertEqual(len(self._rows(items, viewport_rows=60)), 17)
+
+    def test_a_roomy_terminal_still_draws_the_tallest_frame_this_panel_has(self) -> None:
+        # Twenty rows is the ceiling the renderer can reach: header, earlier
+        # fold, eight phase headers, eight items, later fold, rule. Sixty is
+        # where a third of the terminal first covers it, which is why the
+        # split is a third -- above that height nothing is clamped at all.
+        items = self.phased_plan(14, phases=14, active=3)
+        self.assertEqual(len(self._rows(items, viewport_rows=60)), 20)
+        self.assertEqual(len(self._rows(items, viewport_rows=90)), 20)
+
+    def test_a_terminal_too_short_for_a_checklist_gets_the_summary_line(self) -> None:
+        # One item, the phase header it needs and the two folds that account
+        # for the rest do not fit in a twelve-row terminal's share. The panel
+        # falls back to the form it already has for a finished plan instead of
+        # drawing a checklist that drops rows without saying so: the header
+        # line, which still carries done/total and the phase count, over the
+        # composer-frame rule.
+        rows = self._rows(self.phased_plan(10, phases=8, active=3), viewport_rows=12)
+
+        self.assertEqual(len(rows), 2, rows)
+        self.assertIn("3/10", rows[0])
+        self.assertIn("8 phases", rows[0])
+        self.assertEqual(self.item_rows(rows), [])
+
+    def test_one_phase_spends_one_header_row_and_keeps_more_items(self) -> None:
+        # The budget is spent on what the plan actually costs: with a single
+        # phase there is one header instead of eight, so the same height shows
+        # strictly more of the checklist than the eight-phase plan did.
+        one_phase = self._rows(self.phased_plan(10, phases=1, active=3), viewport_rows=24)
+        eight_phase = self._rows(self.phased_plan(10, phases=8, active=3), viewport_rows=24)
+
+        self.assertLessEqual(len(one_phase), self.budget(24), one_phase)
+        self.assertGreater(len(self.item_rows(one_phase)), len(self.item_rows(eight_phase)))
+        self.assertEqual(len([row for row in one_phase if row.startswith("Phase ")]), 1, one_phase)
+
+    def test_the_active_item_survives_the_shrink_at_either_end_of_the_window(self) -> None:
+        # The window shrinks from whichever side is farther from the active
+        # item, so an active row at the front and one at the back both stay on
+        # the frame. A shrink that always took from one end would drop one of
+        # these two and pass the other.
+        for active in (0, 9):
+            with self.subTest(active=active):
+                rows = self._rows(
+                    self.phased_plan(10, phases=8, active=active), viewport_rows=24
+                )
+                self.assertLessEqual(len(rows), self.budget(24), rows)
+                marked = [row for row in rows if "[•]" in row]
+                self.assertEqual(len(marked), 1, rows)
+                self.assertIn(f"Task number {active}", marked[0])
 
 
 if __name__ == "__main__":

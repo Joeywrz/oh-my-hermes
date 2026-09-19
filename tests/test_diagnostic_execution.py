@@ -28,7 +28,15 @@ from omh.coding.diagnostic_providers import DiagnosticProviderConfig, ProviderCa
 # engine took 540s to report, so this is fifteen times the bound that failed
 # rather than thirty. A passing run never reaches it; these nine tests finish
 # in three milliseconds.
-_THREAD_DEADLINE_SECONDS = 30
+#
+# Raised again 30 -> 60 (#1755): the same wait failed once more on a Windows
+# shard at 30s, on a branch that touches nothing under
+# `diagnostic_execution.py` / `diagnostic_providers.py`. The identical commit,
+# rerun, passed -- comparing the two attempts' own logged suite runtimes
+# (1835.4s vs 1239.0s for the same 6370 tests) puts the failing attempt at 48%
+# slower than the passing one on the same runner class. 60s comfortably clears
+# that measured overrun with margin for worse contention still to come.
+_THREAD_DEADLINE_SECONDS = 60
 
 
 class _Resolver:

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from .. import runtime_paths
 
+from collections import Counter
 import errno
 from datetime import datetime, timezone
 import hashlib
+import re
 import sqlite3
 import threading
 
@@ -33,7 +35,11 @@ from ..kanban_board_reader import conversation_session_ids, kanban_db_path, read
 from ..omh_roles import extract_role_marker, role_context_payload
 from ..dispatch_outcomes import unacknowledged_outcomes
 from ..runtime_reader import read_omh_activity, read_omh_hud, read_omh_status, read_omh_todo
-from ..todo_reconciliation import continuation_claim_without_resume, open_todo_reminder
+from ..todo_reconciliation import (
+    answer_first_turn,
+    continuation_claim_without_resume,
+    open_todo_reminder,
+)
 from ..status_board_reader import (
     last_running_work_board_fingerprint,
     read_running_work_board,
@@ -55,6 +61,103 @@ _MAX_ASSISTANT_CLAIM_CHARS = 4000
 _BOARD_CARD_MAX_CHARS = 160
 _board_card_lock = threading.Lock()
 _board_card_sessions: set[str] = set()
+
+# Where this hook's return value ends up, and why it needs a wrapper of its
+# own. Hermes concatenates it onto the API copy of the USER message --
+# `compose_user_api_content` in `agent/turn_context.py` builds
+# `content + "\n\n" + injections` -- with no role separation and no marker. So
+# every line below is delivered as a continuation of what the person wrote,
+# and while most of them open with an `[OMH ...]` head, the dispatch lines and
+# the running-work rows carry no head at all.
+#
+# Hermes already solved exactly this for its own memory channel, which wraps
+# `<memory-context>` around a `[System note: ... NOT new user input]` line
+# (`build_memory_context_block`, `agent/memory_manager.py`). This is the same
+# device for the plugin channel, with the second sentence the memory block
+# does not need: memory is reference data, whereas this is instruction, and
+# instruction arriving inside someone's message can outrank the message
+# unless it says it does not.
+#
+# The fence is emitted only around something. A turn with nothing to say
+# injects exactly zero characters, as it did before.
+OMH_CONTEXT_FENCE_OPEN = "<omh-context>"
+OMH_CONTEXT_FENCE_CLOSE = "</omh-context>"
+# Two properties and no third: what this text is, and that it loses to the
+# person. It is repeated on every turn that injects anything, so its length is
+# paid per turn -- and it cannot be sent once and referred back to, because a
+# compaction that drops the earlier turn would leave a bare tag with nothing
+# saying what it fences.
+OMH_CONTEXT_FENCE_NOTE = (
+    "[System note: automated OMH context, NOT the person's words; their "
+    "message outranks it.]"
+)
+
+# The fence's second half, and it is not optional. Most of what goes inside is
+# text OMH did not write: todo item text and the active-item label the model
+# authored, dispatch run and unit refs, workflow names, kanban lane titles,
+# role markdown, route-hint fields derived from the person's own message. A
+# part carrying `</omh-context>` closes the fence early, and everything after
+# it is delivered as the person's words again with no marker -- the exact
+# condition the fence exists to remove, reachable by whatever writes a todo
+# item. So the tag is removed from the body rather than trusted not to appear.
+#
+# The host's own memory fence does the same thing (`sanitize_context`,
+# `agent/memory_manager.py`) and this matches its tolerance: either tag, any
+# case, whitespace inside the brackets.
+#
+# Stripped rather than escaped, for the host's reason and one more. An escape
+# needs a reader that un-escapes it and there is none -- the bytes go to a
+# model, and Hermes replays this turn's `api_content` verbatim on every later
+# turn, so an escaped tag would sit in the prompt forever looking like a
+# boundary marker. Removing it costs the surrounding text nothing.
+_OMH_CONTEXT_FENCE_TAG_RE = re.compile(r"</?\s*omh-context\s*>", re.IGNORECASE)
+
+# That a tag had to be removed is worth knowing and is not a call failure, so
+# it does not belong in `degradation` -- that lane's claim boundary says an
+# OMH-local delegated call failed and a fallback answered, which would be
+# false here. This is the shape `engagement_nudges` already uses for the same
+# need: one in-process tally with a reader, diagnostics only and never a gate.
+# No file, no schema, no new journal.
+_fence_strips: "Counter[str]" = Counter()
+
+
+def omh_context_fence_strips() -> dict[str, int]:
+    """A copy of the fence-tag strip tally, by tag. Diagnostics, never a gate."""
+    return dict(_fence_strips)
+
+
+def reset_omh_context_fence_strips() -> None:
+    """Test seam: forget the strip tally."""
+    _fence_strips.clear()
+
+
+def _strip_fence_tags(part: str) -> str:
+    """Remove any `omh-context` tag a part carries, counting what was removed."""
+    cleaned, removed = _OMH_CONTEXT_FENCE_TAG_RE.subn("", part)
+    if removed:
+        _fence_strips["omh_context_tag"] += removed
+    return cleaned
+
+
+def fence_omh_context(parts: list[str]) -> str:
+    """Join this turn's context parts inside the OMH fence, or return ``""``.
+
+    Everything goes inside, including the parts that carry no `[OMH ...]`
+    head: the point of the fence is that the boundary is structural rather
+    than a convention each producer has to remember. For the same reason the
+    body is sanitized here and not by each producer -- a new part added
+    upstream is covered without its author knowing this exists.
+
+    A part that carried no tag is unchanged byte for byte, and a turn with
+    nothing to say is still exactly zero characters.
+    """
+    body = "\n\n".join(_strip_fence_tags(part) for part in parts if part)
+    if not body.strip():
+        return ""
+    return (
+        f"{OMH_CONTEXT_FENCE_OPEN}\n{OMH_CONTEXT_FENCE_NOTE}\n\n"
+        f"{body}\n{OMH_CONTEXT_FENCE_CLOSE}"
+    )
 
 
 def _token_metadata_from_kwargs(kwargs: dict) -> dict[str, object]:
@@ -136,6 +239,36 @@ def _last_assistant_text(conversation_history: object) -> str:
             continue
         content = message.get("content")
         return content[-_MAX_ASSISTANT_CLAIM_CHARS:] if isinstance(content, str) else ""
+    return ""
+
+
+def _turn_display_kind(conversation_history: object) -> str:
+    """The host's own typing of the row that opened this turn, or ``""``.
+
+    Hermes hands `pre_llm_call` no field saying who wrote the turn, but it
+    does hand over `conversation_history`, and the turn's own user row is the
+    newest one in it: `build_turn_context` appends `user_msg` to `messages`
+    and passes that list, with nothing appended after it before this hook
+    runs. `_stage_turn_user_message` stamps `display_kind` on that row at turn
+    START -- that is what `persist_user_display_kind` exists for -- so the
+    value is present by the time this reads it.
+
+    Scanned from the end for the newest user row rather than taken from the
+    last index, because turn-start compaction may prepend a handoff row and
+    the assistant rows of earlier turns sit in between. Same shape as
+    `_last_assistant_text` above, for the same reason.
+
+    A history the host did not pass, or one with no user row in it, answers
+    absence -- which `turn_opened_by_person` reads as a person, keeping the
+    behaviour a caller had before this existed.
+    """
+    if not isinstance(conversation_history, (list, tuple)):
+        return ""
+    for message in reversed(conversation_history):
+        if not isinstance(message, dict) or str(message.get("role", "")) != "user":
+            continue
+        kind = message.get("display_kind")
+        return kind if isinstance(kind, str) else ""
     return ""
 
 
@@ -246,6 +379,10 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     route_hint_payload: dict[str, object] | None = None
     route_fingerprint = ""
     session_id = str(kwargs.get("session_id", "") or "")
+    # Read once per turn and handed to both surfaces that branch on it, so the
+    # plan line and the claim-finding suppression cannot disagree about who
+    # opened this turn.
+    turn_display_kind = _turn_display_kind(kwargs.get("conversation_history"))
     message_matches_awareness = False
     degraded: list[tuple[str, str]] = []
     if include_awareness:
@@ -360,6 +497,11 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
             session_ref=session_id,
             outcomes=outcomes,
             user_message=user_message,
+            turn_display_kind=turn_display_kind,
+            # This hook IS the turn. Hermes calls it exactly once per turn from
+            # `build_turn_context`, which is the only reason the reconciliation
+            # rule's per-plan turn budget can be counted here at all.
+            count_turn=True,
         )
         if todo_reminder:
             context_parts.append(todo_reminder)
@@ -380,20 +522,39 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         # is checked at the start of this one -- which is exactly when it can
         # still be kept. There is no post-turn hook that sees the closing
         # message as it is written.
-        claim_finding = continuation_claim_without_resume(
-            _last_assistant_text(kwargs.get("conversation_history")),
-            # An outstanding outcome already answers the question, so the plan
-            # is only re-read when there is none.
-            todo_stall_status=(
-                ""
-                if outcomes
-                else _todo_stall_status(
-                    omh_home,
-                    hermes_home,
-                    session_id,
-                )
-            ),
-            unacknowledged=len(outcomes),
+        #
+        # Held back entirely on a turn whose plan line is the answer-first
+        # variant. Three obligations each claimed "this turn" and could be
+        # live together: the plan line said the message was the turn's work,
+        # the dispatch block said the finished unit was, and this said the
+        # next step was. The dispatch block is now ordered behind the answer
+        # (`DISPATCH_AFTER_ANSWER_RULE`) and this one has nothing left to add:
+        # its two record facts are the plan line and the dispatch lines
+        # sitting directly above it.
+        claim_finding = (
+            ""
+            if answer_first_turn(
+                user_message=user_message,
+                turn_display_kind=turn_display_kind,
+                omh_home=omh_home,
+                hermes_home=hermes_home,
+                session_ref=session_id,
+            )
+            else continuation_claim_without_resume(
+                _last_assistant_text(kwargs.get("conversation_history")),
+                # An outstanding outcome already answers the question, so the
+                # plan is only re-read when there is none.
+                todo_stall_status=(
+                    ""
+                    if outcomes
+                    else _todo_stall_status(
+                        omh_home,
+                        hermes_home,
+                        session_id,
+                    )
+                ),
+                unacknowledged=len(outcomes),
+            )
         )
         if claim_finding:
             context_parts.append(f"[OMH continuation claim] {claim_finding}")
@@ -511,7 +672,7 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
             "This is a local call failure, not a genuine standalone host. It is an observation of "
             "that failure only: not execution, review, CI, merge-readiness, or merge evidence."
         )
-    payload["context"] = "\n\n".join(context_parts)
+    payload["context"] = fence_omh_context(context_parts)
     _record_delivery(
         delivered=True,
         route_hint=bool(route_hint_context),

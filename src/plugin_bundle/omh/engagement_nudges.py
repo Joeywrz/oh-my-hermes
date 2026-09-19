@@ -120,12 +120,34 @@ PLAN_NUDGE_TEXT: Final = (
     "reconcile a completion claim against. Todo items are declarations, never "
     "execution evidence."
 )
+# What the two tools actually do, measured in the host rather than inferred
+# from their names. This sentence used to end "omh_delegate_route to pick one,
+# or delegate_task for a Hermes subagent, and keep working while it runs", and
+# that was wrong about both halves:
+#
+# * `omh_delegate_route` writes `delegation.*` keys that apply to the NEXT
+#   dispatch -- its own evidence boundary in `tools/delegate_route_tool.py`
+#   says exactly that. Nothing runs, so there is nothing to work alongside.
+# * `delegate_task` does run something, and "keep working while it runs" is
+#   the one thing the host tells the model not to do about it. Its schema text
+#   reads "Background results are delivered only BETWEEN your turns: finish
+#   whatever does not depend on them, then give a one-line status and END YOUR
+#   TURN. Never wait or poll" (`tools/delegate_tool.py`, `_DESCRIPTION_HEAD`).
+#
+# Nor can the model choose how it runs. `run_agent._dispatch_delegate_task`
+# passes `background=not (depth > 0)`, so a top-level model delegation is
+# always backgrounded and the schema-level `background` is unadvertised and
+# ignored; the `background=False` default on the Python signature is for
+# direct callers. Measured on hermes-agent 0.21.3 -- Hermes is a different
+# repository, so no parity test can hold this the way one holds the router
+# vocabulary, and the call sites are named here so a reader can check by hand.
 DELEGATION_NUDGE_TEXT: Final = (
     "[OMH delegation] This session has run {count} search/read calls directly "
     "and routed nothing. A lane does that work in one call and off this "
-    "context window: omh_delegate_route to pick one, or delegate_task for a "
-    "Hermes subagent, and keep working while it runs. Routing is a prepared "
-    "handoff, never execution, review, CI, or merge evidence."
+    "context window: omh_delegate_route picks the model for the next "
+    "dispatch, delegate_task spawns the subagent. Never wait or poll on a "
+    "dispatched lane -- carry on with what does not depend on it. Routing is "
+    "a prepared handoff, never execution, review, CI, or merge evidence."
 )
 
 # Why a decline was not a nudge. Counted rather than raised, because the host

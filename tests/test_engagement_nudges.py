@@ -335,9 +335,31 @@ class NudgeCostTests(EngagementNudgeTestCase):
 
         self.assertLess(len(plan_text), 500)
         self.assertLess(len(delegation_text), 500)
-        # Both nudges, both spent, is under 1.5k characters for a whole
-        # session -- roughly one first-turn primer and a half.
-        self.assertLess(worst_case, 1500)
+        # Both nudges, both spent, is under 1.6k characters for a whole
+        # session -- roughly two first-turn primers. Raised from 1500 when the
+        # delegation nudge stopped saying "keep working while it runs", a
+        # claim that is wrong about both tools it names; saying what each one
+        # really does costs about 70 characters more than the claim did.
+        self.assertLess(worst_case, 1600)
+
+    def test_the_delegation_nudge_says_what_each_tool_does(self) -> None:
+        # The measured host behaviour, pinned as text because that is all this
+        # surface can affect. `omh_delegate_route` writes `delegation.*` keys
+        # for the NEXT dispatch and runs nothing; `delegate_task` spawns the
+        # subagent, and `run_agent._dispatch_delegate_task` backgrounds every
+        # top-level model call, so "keep working while it runs" rewarded a
+        # choice the model does not have and contradicted the host's own
+        # "Never wait or poll".
+        text = nudges.DELEGATION_NUDGE_TEXT.format(count=5)
+
+        self.assertIn("omh_delegate_route picks the model for the next dispatch", text)
+        self.assertIn("delegate_task spawns the subagent", text)
+        self.assertIn("Never wait or poll", text)
+        self.assertNotIn("keep working while it runs", text)
+        # And it must not tell the model to pass a parameter the host does not
+        # advertise: the schema-level `background` is unadvertised and ignored
+        # (`tools/delegate_tool.py`, "DEPRECATED, ignored ... do not re-add").
+        self.assertNotIn("background", text)
 
     def test_a_session_cannot_be_charged_more_than_the_budget(self) -> None:
         plan = self.fire("write_file", "s1", times=40)

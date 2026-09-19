@@ -188,6 +188,48 @@ def delegation_route_restore_path(omh_home: str | Path | None = None) -> Path:
     return root / "routing" / DELEGATION_ROUTE_RESTORE_FILE
 
 
+def route_write_lock(omh_home: str | Path | None = None, *, timeout_seconds: float = 5.0):
+    """The lock every writer of this OMH home's routes holds, for CLI writers too.
+
+    `write_route_with_baseline` serializes on the restore record because the
+    route write and its bookkeeping have to be one act. A `config.yaml`
+    write from `omh setup`, `omh theme`, `omh memory`, self-update or
+    `system/targets` can land in the middle of that, so it takes the same
+    lock rather than a second one of its own (#1742).
+
+    The default wait is longer than the telemetry budget the lock ships
+    with: a person is waiting on a CLI command, and dropping their write is
+    worse than making them wait. A timeout raises `TimeoutError`, which the
+    caller reports as a refusal.
+
+    The asymmetry that makes this safe, written down because nothing else
+    records it. `write_route_with_baseline` waits only the lock's own 0.1 s
+    budget and returns an error rather than blocking a dispatch, so a CLI
+    command holding this lock for longer than that DROPS a concurrent route
+    write. The margin is the only reason that direction is safe, and it is
+    not fixed: the hold grows with the size of the config, because every
+    writer under it scans the whole file several times.
+
+    Measured, mean of four runs each, against the 100 ms budget:
+
+    | command        | 163-line config | 800-line synthetic |
+    | -------------- | --------------- | ------------------ |
+    | `omh apply`    | 2.0 ms          | 7.6 ms             |
+    | `omh uninstall`| 3.4 ms          | 43.0 ms            |
+
+    `omh uninstall` is the worst case, not `omh apply`: in the full scope it
+    runs the registration removal and then the seven-key reversal. On a
+    real config the headroom is ~30x; on a config four times that size it
+    is closer to 2x. So two things break this: holding the lock across
+    anything slow -- a network call, an interactive prompt, a subprocess --
+    and adding another whole-file pass to a command that already holds it.
+    Either should release the lock first.
+    """
+    return _awareness_delivery_lock(
+        delegation_route_restore_path(omh_home), timeout_seconds=timeout_seconds
+    )
+
+
 def _valid_route_mapping(value: object) -> dict[str, str] | None:
     """A three-key subset whose values the route writer would accept.
 

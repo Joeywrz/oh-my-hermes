@@ -539,11 +539,18 @@ time OMH writes `delegation.*` over values it did not write, it records what
 those three keys held — a key the file did not carry is recorded by being
 absent, so putting the baseline back removes the key rather than writing an
 empty string — together with what OMH wrote and which session wrote it. The
-baseline is captured once and survives later routes. `action=clear`, the end
-of the session that wrote the route, and the start of a later session when
-the writing session is gone all put it back; chain exhaustion puts it back
-instead of clearing, so the next dispatch runs on the model the user had
-rather than on one more rejection. Every one of those is gated on the same
+baseline is captured once and survives later routes. A candidate baseline
+that exactly matches the newest route in `route-provenance.json` is OMH's own
+leftover rather than a value the person set, and is recorded as "keys absent"
+with `baseline_origin: omh_leftover`. The record also names the `config.yaml`
+it describes, since two profiles may share one OMH home.
+
+A route is turn-local. `action=clear`, the end of the task that wrote the
+route, and the start of a later session when the writing session is gone all
+put the previous values back; chain exhaustion puts them back instead of
+clearing. What returns is the previous values, not the previous bytes: the
+writer normalises quoting, emits the three keys in a fixed order, and drops
+an inline comment on one of those lines, leaving every other byte untouched. Every one of those is gated on the same
 recorded value: if the keys no longer hold what OMH wrote, someone else set
 them, and OMH reports that and changes nothing. The session-start path asks
 the writer's own `state.db` row whether it is still running; only a row the

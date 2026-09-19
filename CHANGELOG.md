@@ -285,16 +285,46 @@ All notable changes will be documented here.
   two routes re-captures it, because at that moment OMH is again writing over
   a value it did not write.
 
-  Three paths put it back: `action=clear`, the end of the session that wrote
-  the route, and the start of a later session when the writing session is
-  gone. Chain exhaustion restores the baseline instead of clearing, so the
-  next dispatch runs on the model the user had rather than on plain
-  inheritance. Every one of them is gated on the same recorded value, never
-  on wording: OMH compares the file's current three keys with what it
-  recorded writing, and a value someone else set is reported and left alone.
+  A route is turn-local, and deliberately so. `on_session_end` is not a
+  session boundary: Hermes fires it once per message from the turn
+  finalizer. "Route the next dispatch" is a turn-local intent, a
+  `delegate_task` is dispatched inside the turn that set the route, and a
+  route that cannot outlive its turn cannot leak. The recorded scope is the
+  task rather than the turn because the host gives a plugin tool `task_id`
+  but never `turn_id`, and it mints a fresh task per turn by default, so the
+  two coincide in every ordinary flow and the task is never the shorter of
+  the two.
 
-  The session-start path exists because a killed TUI never reaches
-  `on_session_end`. It restores only a route whose recorded writer is not a
+  Three paths put the previous values back: `action=clear`, the end of the
+  task that wrote the route, and the start of a later session when the
+  writing session is gone. Chain exhaustion restores the baseline instead of
+  clearing. `action=fallback` legitimately runs a turn after the route was
+  written, because a child that dies on HTTP 400 is reported later, so it
+  now recovers its chain position from the route provenance record rather
+  than from the live keys. Every restore is gated on the same recorded
+  value, never on wording: OMH compares the file's current three keys with
+  what it recorded writing, and a value someone else set is reported and
+  left alone.
+
+  The baseline is what the PERSON had, which is not the same as what the
+  file holds. On the machine this issue came from the file already held a
+  leaked OMH route, and capturing that as the baseline would have made the
+  most expensive model in the chain a permanent restore target. Every route
+  OMH writes is already recorded in `route-provenance.json`, so a candidate
+  baseline that exactly matches the newest such record is recognised as
+  OMH's own leftover and recorded as "keys absent" instead, with
+  `baseline_origin` saying which of the two it was. The record also names
+  the `config.yaml` it describes, because two Hermes profiles may share one
+  OMH home and a record that named no file let one profile act on the
+  other's route.
+
+  What comes back is the previous VALUES, not the previous bytes: the writer
+  normalises quoting, emits the three keys in a fixed order, and drops an
+  inline comment sitting on one of those lines. Every other byte is
+  untouched.
+
+  The session-start path exists because a session killed mid-task never
+  reaches the turn end. It restores only a route whose recorded writer is not a
   live session, asked of that writer's own `state.db` row -- not of the
   live-TUI list, which is scoped to "which session is a person looking at"
   and so omits every writer on another surface by construction. Most writers
@@ -306,14 +336,19 @@ All notable changes will be documented here.
   the host never closed -- what a killed TUI and most gateway sessions leave
   behind -- is not, so the route's own age decides instead, bounded at six
   hours. Each verdict is named so a reader can tell an observation from a
-  bound. The cost is stated: a route left by a killed TUI can outlive it by
-  up to six hours. That is the accepted side of the trade, because restoring
-  under a live writer sends that writer's next child to the wrong model.
-  Nothing available shortens it -- the host's lease registry records which
-  surfaces are open, not whether their processes are alive.
+  bound. The cost is stated: a route left by a killed session can outlive it
+  by up to six hours. That is the accepted side of the trade, because
+  restoring under a live writer sends that writer's next child to the wrong
+  model. Nothing available shortens it -- the host's lease registry records
+  which surfaces are open, not whether their processes are alive. Turn scope
+  makes it a narrow path: it now covers only a session killed mid-task.
 
   OMH registers `on_session_start` for this; it is the host's own first-turn
   lifecycle callback, bounded and fail-open.
+
+  The turn-end restore is on the hot path of every turn of every session,
+  including each delegated child's, so the case with nothing to restore
+  costs one `stat` with no lock and no database read.
 
   Two sessions routing at once is ordinary on one machine, so the whole
   read-through-replace is inside the plugin's existing file lock. A writer

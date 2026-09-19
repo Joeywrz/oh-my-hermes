@@ -20,6 +20,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from omh.plugin_bundle.omh.awareness_delivery import _awareness_delivery_lock
 from omh.plugin_bundle.omh.delegation_route_restore import (
@@ -30,6 +31,7 @@ from omh.plugin_bundle.omh.delegation_route_restore import (
     write_route_with_baseline,
     writer_session_liveness,
 )
+from omh.plugin_bundle.omh.hermes_delegation import append_delegation_route_provenance
 from omh.plugin_bundle.omh.delegation_routing import read_delegation_route
 from omh.plugin_bundle.omh.hooks.session_hooks import on_session_end, on_session_start
 from omh.plugin_bundle.omh.live_session import LIVE_TUI_SESSION_FRESH_SECONDS
@@ -73,12 +75,29 @@ class RouteRestoreTestCase(unittest.TestCase):
         self.config = self.hermes_home / "config.yaml"
         self.config.write_text(BASE_CONFIG, encoding="utf-8")
 
-    def route(self, *, session_id: str, model: str = "routed-model", effort: str = "high",
-              provider: str = "og", now: float | None = None) -> dict:
+    def route(self, *, session_id: str, task_id: str = "task-1", model: str = "routed-model",
+              effort: str = "high", provider: str = "og", now: float | None = None,
+              provenance: bool = False) -> dict:
+        if provenance:
+            # What the tool appends on every real route. Tests that care
+            # about leaked-route recognition need it; the rest do not, and
+            # leaving it out keeps them measuring one thing.
+            append_delegation_route_provenance(
+                {
+                    "origin": "explicit",
+                    "alias": model,
+                    "wire_model": model,
+                    "provider": provider,
+                    "reasoning_effort": effort,
+                    "written_at": now if now is not None else 1.0,
+                },
+                self.omh_home,
+            )
         return write_route_with_baseline(
             self.hermes_home,
             omh_home=self.omh_home,
             session_id=session_id,
+            task_id=task_id,
             model=model,
             reasoning_effort=effort,
             provider=provider,
@@ -587,35 +606,69 @@ class RecordShapeTest(RouteRestoreTestCase):
 
 
 class HookWiringTest(RouteRestoreTestCase):
-    """The two triggers, driven through the hooks Hermes actually calls."""
+    """The two triggers, driven through the hooks Hermes actually calls.
+
+    `on_session_end` is per TURN, not per session: the host fires it from
+    `agent/turn_finalizer.py` ("run_conversation() runs once per message").
+    The scope recorded is the task, because the host passes a plugin tool
+    `task_id` and never `turn_id`, and mints a fresh task per turn.
+    """
 
     def homes(self) -> dict[str, str]:
         return {"omh_home": str(self.omh_home), "hermes_home": str(self.hermes_home)}
 
-    def test_session_end_restores_the_route_its_own_session_wrote(self) -> None:
+    def test_turn_end_restores_the_route_its_own_task_wrote(self) -> None:
         self.config.write_text(PINNED_CONFIG, encoding="utf-8")
-        self.route(session_id="mine")
+        self.route(session_id="mine", task_id="task-a")
 
-        payload = on_session_end(session_id="mine", **self.homes())
+        payload = on_session_end(session_id="mine", task_id="task-a", **self.homes())
 
         self.assertEqual(payload["route_restore"]["status"], "restored")
+        self.assertEqual(payload["route_restore"]["trigger"], "turn_end")
         self.assertEqual(
             self.current(), {"model": "person-model", "reasoning_effort": "medium"}
         )
         self.assertNotIn("omh_degradation", payload)
 
-    def test_session_end_leaves_a_later_session_s_route_in_place(self) -> None:
-        self.route(session_id="A", model="a-model")
-        self.route(session_id="B", model="b-model")
+    def test_a_later_turn_of_the_same_session_does_not_restore(self) -> None:
+        # The hook fires every turn. A turn that did not write the route must
+        # not take back a route a later turn wrote, or the route would be
+        # gone before the dispatch it was written for.
+        self.route(session_id="mine", task_id="task-a", model="a-model")
+        self.route(session_id="mine", task_id="task-b", model="b-model")
 
-        payload = on_session_end(session_id="A", **self.homes())
+        stale = on_session_end(session_id="mine", task_id="task-a", **self.homes())
+
+        self.assertEqual(stale["route_restore"]["status"], "not_last_writer")
+        self.assertEqual(self.current()["model"], "b-model")
+
+        owner = on_session_end(session_id="mine", task_id="task-b", **self.homes())
+
+        self.assertEqual(owner["route_restore"]["status"], "cleared")
+        self.assertEqual(self.current(), {})
+
+    def test_turn_end_leaves_a_later_session_s_route_in_place(self) -> None:
+        self.route(session_id="A", task_id="task-a", model="a-model")
+        self.route(session_id="B", task_id="task-b", model="b-model")
+
+        payload = on_session_end(session_id="A", task_id="task-a", **self.homes())
 
         self.assertEqual(payload["route_restore"]["status"], "not_last_writer")
         self.assertEqual(self.current()["model"], "b-model")
 
+    def test_a_delegated_child_turn_end_does_not_take_the_parent_route(self) -> None:
+        # A child runs its own agent loop, so its own turn end fires while
+        # the parent's route is still live for the parent's later lanes.
+        self.route(session_id="parent", task_id="task-a")
+
+        payload = on_session_end(session_id="child", task_id="child-task", **self.homes())
+
+        self.assertEqual(payload["route_restore"]["status"], "not_last_writer")
+        self.assertEqual(self.current()["model"], "routed-model")
+
     def test_session_start_restores_a_route_left_by_a_killed_session(self) -> None:
         before = self.config.read_text(encoding="utf-8")
-        self.route(session_id="killed", now=0.0)
+        self.route(session_id="killed", task_id="task-a", now=0.0)
 
         payload = on_session_start(session_id="fresh", **self.homes())
 
@@ -630,12 +683,27 @@ class HookWiringTest(RouteRestoreTestCase):
         self.assertNotIn("omh_degradation", payload)
         self.assertEqual(self.config.read_text(encoding="utf-8"), BASE_CONFIG)
 
+    def test_the_no_record_turn_end_takes_no_lock_and_opens_no_database(self) -> None:
+        # This path runs at the end of every turn of every session,
+        # including each delegated child's. It must cost one stat.
+        with mock.patch(
+            "omh.plugin_bundle.omh.delegation_route_restore._awareness_delivery_lock"
+        ) as lock, mock.patch(
+            "omh.plugin_bundle.omh.delegation_route_restore.session_row"
+        ) as row:
+            payload = on_session_end(session_id="s", task_id="t", **self.homes())
+
+        self.assertEqual(payload["route_restore"]["status"], "no_baseline_recorded")
+        self.assertTrue(payload["route_restore"]["fast_path"])
+        lock.assert_not_called()
+        row.assert_not_called()
+
     def test_a_stale_route_with_no_record_is_reported_and_left_in_place(self) -> None:
         # The state the issue was measured in, and the state every machine
         # that upgrades into this change is already in: a route OMH wrote
-        # before it recorded baselines. OMH cannot know what the keys held
-        # before it, so an automatic path may not guess -- it reports and
-        # leaves the value for the person (or an explicit `clear`) to settle.
+        # before it recorded baselines. An automatic path may not guess --
+        # it reports and leaves the value for the person (or an explicit
+        # `clear`) to settle.
         stale = BASE_CONFIG.replace(
             "  max_concurrent_children: 4\n",
             "  max_concurrent_children: 4\n  model: 'claude-fable-5-1'\n",
@@ -643,7 +711,7 @@ class HookWiringTest(RouteRestoreTestCase):
         self.config.write_text(stale, encoding="utf-8")
 
         started = on_session_start(session_id="fresh", **self.homes())
-        ended = on_session_end(session_id="fresh", **self.homes())
+        ended = on_session_end(session_id="fresh", task_id="t", **self.homes())
 
         self.assertEqual(started["route_restore"]["status"], "no_baseline_recorded")
         self.assertEqual(ended["route_restore"]["status"], "no_baseline_recorded")
@@ -651,7 +719,7 @@ class HookWiringTest(RouteRestoreTestCase):
         self.assertEqual(self.current(), {"model": "claude-fable-5-1"})
 
     def test_a_failing_restore_is_named_in_the_payload_not_swallowed(self) -> None:
-        self.route(session_id="mine")
+        self.route(session_id="mine", task_id="task-a")
         # A lock nobody can take is the failure shape that has to stay visible:
         # the route is still in the file and the person must be able to learn
         # that OMH did not take it back out.
@@ -670,7 +738,8 @@ class HookWiringTest(RouteRestoreTestCase):
         try:
             worker = threading.Thread(
                 target=lambda: payloads.__setitem__(
-                    "end", on_session_end(session_id="mine", **self.homes())
+                    "end",
+                    on_session_end(session_id="mine", task_id="task-a", **self.homes()),
                 )
             )
             worker.start()
@@ -682,10 +751,12 @@ class HookWiringTest(RouteRestoreTestCase):
         payload = payloads["end"]
         self.assertEqual(payload["route_restore"]["status"], "lock_unavailable")
         self.assertTrue(payload["omh_degradation"]["degraded"])
-        self.assertEqual(
-            [row["component"] for row in payload["omh_degradation"]["components"]],
-            ["delegation_route_restore"],
-        )
+        row = payload["omh_degradation"]["components"][0]
+        self.assertEqual(row["component"], "delegation_route_restore")
+        # A class name, not a squashed sentence: the field is documented as a
+        # sanitized exception class and `safe_error_type` strips spaces
+        # rather than refusing, so a message became `routerestorefailedOSError`.
+        self.assertEqual(row["error_type"], "TimeoutError")
 
     def test_the_new_hook_is_declared_where_the_loader_reads_it(self) -> None:
         manifest = (
@@ -697,13 +768,215 @@ class HookWiringTest(RouteRestoreTestCase):
         self.assertIn("  - on_session_start", manifest)
 
 
+class LeakedRouteBaselineTest(RouteRestoreTestCase):
+    """A route OMH left behind is never recorded as the person's baseline.
+
+    The machine #1724 came from already held `anthropic/claude-fable-5-1`.
+    Capturing that as the baseline would have made the most expensive model
+    in the chain a permanent restore target. Provenance already records
+    every route OMH wrote, so the value is recognisable.
+    """
+
+    LEAK = "anthropic/claude-fable-5-1"
+
+    def _leak_the_config(self) -> None:
+        self.config.write_text(
+            BASE_CONFIG.replace(
+                "  max_concurrent_children: 4\n",
+                f"  max_concurrent_children: 4\n  model: '{self.LEAK}'\n"
+                "  reasoning_effort: 'high'\n  provider: 'og'\n",
+            ),
+            encoding="utf-8",
+        )
+
+    def _record_the_leak_in_provenance(self) -> None:
+        append_delegation_route_provenance(
+            {
+                "origin": "head",
+                "category": "ultrabrain",
+                "alias": "fable",
+                "wire_model": self.LEAK,
+                "provider": "og",
+                "reasoning_effort": "high",
+                "written_at": 1.0,
+            },
+            self.omh_home,
+        )
+
+    def test_a_leaked_route_is_recognised_and_the_baseline_is_keys_absent(self) -> None:
+        self._leak_the_config()
+        self._record_the_leak_in_provenance()
+
+        result = self.route(session_id="s1", model="next-model")
+
+        self.assertEqual(result["route_restore"], "baseline_captured_over_omh_leftover")
+        self.assertEqual(result["baseline_origin"], "omh_leftover")
+        self.assertEqual(self.record()["baseline"], {})
+
+        self.restore(trigger="turn_end", require_writer_session="s1")
+
+        # The leak does not come back. This is the whole point.
+        self.assertEqual(self.current(), {})
+
+    def test_a_person_s_value_is_still_captured_when_provenance_disagrees(self) -> None:
+        # Same shape, one key different. A person who changed one of the
+        # three has made the value theirs and it must survive.
+        self._leak_the_config()
+        self.config.write_text(
+            self.config.read_text(encoding="utf-8").replace("'high'", "'low'"),
+            encoding="utf-8",
+        )
+        self._record_the_leak_in_provenance()
+
+        result = self.route(session_id="s1", model="next-model")
+
+        self.assertEqual(result["route_restore"], "baseline_captured")
+        self.assertEqual(result["baseline_origin"], "person")
+        self.assertEqual(self.record()["baseline"]["reasoning_effort"], "low")
+
+    def test_a_value_no_provenance_describes_is_the_person_s(self) -> None:
+        self._leak_the_config()
+
+        result = self.route(session_id="s1", model="next-model")
+
+        self.assertEqual(result["route_restore"], "baseline_captured")
+        self.assertEqual(self.record()["baseline"]["model"], self.LEAK)
+
+    def test_a_route_whose_record_write_failed_is_not_enshrined_next_time(self) -> None:
+        # The same hole from the other direction: the route lands, the
+        # record does not, and the next route must recognise the value
+        # through provenance rather than adopt it.
+        with mock.patch(
+            "omh.plugin_bundle.omh.delegation_route_restore._write_restore_record",
+            side_effect=OSError("disk"),
+        ):
+            first = self.route(session_id="s1", model="first-model", provenance=True)
+
+        self.assertEqual(first["status"], "routed")
+        self.assertEqual(first["route_restore"], "unrecorded: OSError")
+        self.assertEqual(self.record(), {})
+
+        second = self.route(session_id="s1", model="second-model")
+
+        self.assertEqual(second["route_restore"], "baseline_captured_over_omh_leftover")
+        self.assertEqual(self.record()["baseline"], {})
+
+    def test_a_cleared_provenance_record_does_not_speak_for_the_file(self) -> None:
+        # `cleared` and `exhausted_to_inherit` describe a route coming OUT,
+        # so they say nothing about what the keys hold now and must not make
+        # a person's value look like OMH's leftover.
+        self._leak_the_config()
+        self._record_the_leak_in_provenance()
+        append_delegation_route_provenance(
+            {"origin": "cleared", "written_at": 2.0}, self.omh_home
+        )
+
+        result = self.route(session_id="s1", model="next-model")
+
+        # The newest ROUTE-LEAVING record is still the leak, so it is still
+        # recognised: a clear that did not actually empty the file does not
+        # turn the leftover into a person's value.
+        self.assertEqual(result["route_restore"], "baseline_captured_over_omh_leftover")
+
+
+class SharedOmhHomeTest(RouteRestoreTestCase):
+    """Two Hermes profiles, one OMH home. `resolve_homes` documents that."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.other_home = self.root / "hermes-b"
+        self.other_home.mkdir(parents=True)
+        self.other_config = self.other_home / "config.yaml"
+        self.other_config.write_text(PINNED_CONFIG, encoding="utf-8")
+
+    def test_another_profile_s_session_start_neither_acts_nor_drops_the_record(self) -> None:
+        self.route(session_id="A", now=0.0)
+
+        other = restore_delegation_baseline(
+            self.other_home,
+            omh_home=self.omh_home,
+            trigger="session_start",
+            require_writer_not_live=True,
+        )
+
+        self.assertEqual(other["status"], "foreign_config")
+        # Neither file touched, and crucially the record SURVIVES: dropping
+        # it stranded the route it described with nothing left to restore it.
+        self.assertEqual(self.other_config.read_text(encoding="utf-8"), PINNED_CONFIG)
+        self.assertEqual(self.current()["model"], "routed-model")
+        self.assertNotEqual(self.record(), {})
+
+        owner = self.restore(trigger="turn_end", require_writer_session="A")
+
+        self.assertEqual(owner["status"], "cleared")
+        self.assertEqual(self.current(), {})
+
+    def test_identical_values_in_two_profiles_do_not_cross(self) -> None:
+        # The value check alone would pass here, because both files hold the
+        # same three keys. Only the recorded config path tells them apart.
+        self.other_config.write_text(BASE_CONFIG, encoding="utf-8")
+        self.route(session_id="A")
+        write_route_with_baseline(
+            self.other_home,
+            omh_home=self.omh_home,
+            session_id="B",
+            task_id="task-b",
+            model="routed-model",
+            reasoning_effort="high",
+            provider="og",
+        )
+
+        result = restore_delegation_baseline(
+            self.hermes_home, omh_home=self.omh_home, trigger="turn_end"
+        )
+
+        self.assertEqual(result["status"], "foreign_config")
+        self.assertEqual(self.current()["model"], "routed-model")
+
+
+class RestoredBytesTest(RouteRestoreTestCase):
+    """What a restore actually promises: values, not bytes."""
+
+    def test_the_three_keys_come_back_by_value_and_the_rest_byte_for_byte(self) -> None:
+        # Quoting, key order and an inline comment on one of the three lines
+        # do NOT survive. Everything else does. Pinned so the claim in the
+        # docs and the changelog is the claim the code makes.
+        original = (
+            "# keep this comment\n"
+            "model:\n"
+            "  provider: test-parent\n"
+            "delegation:\n"
+            "  max_concurrent_children: 4\n"
+            "  reasoning_effort: medium   # chosen deliberately\n"
+            '  model: "person-model"\n'
+            "display:\n"
+            "  skin: test-skin\n"
+        )
+        self.config.write_text(original, encoding="utf-8")
+        self.route(session_id="s1")
+
+        self.restore(trigger="turn_end", require_writer_session="s1")
+
+        restored = self.config.read_text(encoding="utf-8")
+        self.assertEqual(
+            self.current(), {"model": "person-model", "reasoning_effort": "medium"}
+        )
+        self.assertNotEqual(restored, original)
+        self.assertNotIn("chosen deliberately", restored)
+        for untouched in ("# keep this comment", "  provider: test-parent",
+                          "  max_concurrent_children: 4", "  skin: test-skin"):
+            self.assertIn(untouched, restored)
+
+
 class ClearActionTest(RouteRestoreTestCase):
     """`clear` through the tool, which is where the person-pinned case lands."""
 
     def call(self, **args) -> dict:
         args.setdefault("hermes_home", str(self.hermes_home))
         args.setdefault("omh_home", str(self.omh_home))
-        return json.loads(omh_delegate_route_handler(args, session_id="s1"))
+        return json.loads(
+            omh_delegate_route_handler(args, session_id="s1", task_id="task-1")
+        )
 
     def test_a_model_the_person_pinned_comes_back_on_clear(self) -> None:
         self.config.write_text(PINNED_CONFIG, encoding="utf-8")
@@ -772,6 +1045,100 @@ class ClearActionTest(RouteRestoreTestCase):
         self.assertEqual(
             self.current(), {"model": "person-model", "reasoning_effort": "medium"}
         )
+
+    def test_the_unrecorded_clear_is_inside_the_lock(self) -> None:
+        # It used to run after the restore released the lock. A route landing
+        # in that window recorded the person's pinned model as a baseline
+        # that the next restore then discarded as `foreign_edit`, losing the
+        # pinned model with nothing reported. Held lock, no half-clear.
+        self.config.write_text(PINNED_CONFIG, encoding="utf-8")
+        holder_entered = threading.Event()
+        release = threading.Event()
+        outcome: dict[str, dict] = {}
+
+        def hold() -> None:
+            with _awareness_delivery_lock(delegation_route_restore_path(self.omh_home)):
+                holder_entered.set()
+                release.wait(timeout=5)
+
+        holder = threading.Thread(target=hold)
+        holder.start()
+        self.assertTrue(holder_entered.wait(timeout=5))
+        try:
+            worker = threading.Thread(
+                target=lambda: outcome.__setitem__("result", self.call(action="clear"))
+            )
+            worker.start()
+            worker.join(timeout=10)
+        finally:
+            release.set()
+            holder.join(timeout=5)
+
+        self.assertEqual(outcome["result"]["status"], "lock_unavailable")
+        self.assertEqual(self.config.read_text(encoding="utf-8"), PINNED_CONFIG)
+
+    def test_fallback_in_a_later_turn_still_finds_its_chain_position(self) -> None:
+        # The flow turn scope could have broken. A child dies on HTTP 400 and
+        # the model is told in the NEXT turn, by which time the turn-end
+        # restore has emptied delegation.*. The position comes from
+        # provenance instead of from the live keys.
+        chains = self.omh_home / "routing" / "model-chains.json"
+        chains.parent.mkdir(parents=True, exist_ok=True)
+        chains.write_text(
+            json.dumps(
+                {
+                    "schema_version": "mixture_chain_overrides/v1",
+                    "categories": {
+                        "quick": [
+                            {"model": "head-model", "reasoning_effort": "low"},
+                            {"model": "second-model", "reasoning_effort": "low"},
+                        ]
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual(self.call(action="set", category="quick")["status"], "routed")
+
+        ended = on_session_end(
+            session_id="s1",
+            task_id="task-1",
+            omh_home=str(self.omh_home),
+            hermes_home=str(self.hermes_home),
+        )
+        self.assertEqual(ended["route_restore"]["status"], "cleared")
+        self.assertEqual(self.current(), {})
+
+        advanced = self.call(action="fallback", category="quick")
+
+        self.assertEqual(advanced["status"], "fell_back")
+        self.assertEqual(advanced["position_source"], "provenance")
+        self.assertEqual(advanced["from"], "head-model")
+        self.assertEqual(self.current()["model"], "second-model")
+
+    def test_fallback_in_the_same_turn_still_reads_the_live_route(self) -> None:
+        chains = self.omh_home / "routing" / "model-chains.json"
+        chains.parent.mkdir(parents=True, exist_ok=True)
+        chains.write_text(
+            json.dumps(
+                {
+                    "schema_version": "mixture_chain_overrides/v1",
+                    "categories": {
+                        "quick": [
+                            {"model": "head-model", "reasoning_effort": "low"},
+                            {"model": "second-model", "reasoning_effort": "low"},
+                        ]
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.call(action="set", category="quick")
+
+        advanced = self.call(action="fallback", category="quick")
+
+        self.assertEqual(advanced["position_source"], "live_route")
+        self.assertEqual(self.current()["model"], "second-model")
 
     def test_a_route_through_the_tool_records_the_host_session_not_a_tool_argument(self) -> None:
         # Tool args are model-supplied; only the host keyword names a session.

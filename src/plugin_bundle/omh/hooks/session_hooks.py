@@ -54,12 +54,11 @@ def subagent_start(**kwargs) -> None:
 def on_session_start(**kwargs) -> dict[str, object] | None:
     """Put back a delegation route whose writing session is gone.
 
-    `on_session_end` is the ordinary way back, and a TUI that is killed never
-    reaches it, so a route written two days ago can still be every later
-    session's delegation default (#1724). This is the second path, and the
-    reason it is a second path rather than the only one: it may act only on a
-    route whose recorded writer is NOT a live session, so it cannot pull a
-    baseline out from under a session that is still dispatching.
+    The ordinary way back is the end of the task that wrote the route. A
+    session killed mid-task never reaches that, so this is the second path,
+    and the reason it is a second path rather than the only one: it may act
+    only on a route whose recorded writer is NOT a live session, so it cannot
+    pull a baseline out from under a session that is still dispatching.
 
     OMH did not register `on_session_start` before this. It is the host's own
     first-turn lifecycle callback (`hermes_cli.plugins.VALID_HOOKS`), bounded
@@ -86,21 +85,33 @@ def on_session_start(**kwargs) -> dict[str, object] | None:
 
 
 def on_session_end(**kwargs) -> dict[str, object] | None:
-    """Restore this session's delegation route, then checkpoint OMH runtime state."""
+    """Restore this TASK's delegation route, then checkpoint OMH runtime state.
+
+    Despite the name this is not a session boundary. Hermes fires it from
+    `agent/turn_finalizer.py`, whose own comment reads "run_conversation()
+    runs once per message", and `docs/SESSION-ACTIVITY-RECEIPTS.md` already
+    recorded that it runs at conversation-turn finalization. So a route
+    written in a turn comes back at the end of that turn, which is the design
+    (see `delegation_route_restore`) and not something to work around.
+    """
     try:
         home = runtime_paths.plugin_home(kwargs.get("omh_home"))
         hermes_home = runtime_paths.plugin_home(kwargs.get("hermes_home"), hermes=True)
     except (runtime_paths.RuntimeBindingError, OSError, RuntimeError) as exc:
         return runtime_binding_degradation(exc)
     observe_plugin_hook_call("on_session_end", kwargs)
-    # Scoped to the session that wrote the route. A session that ended while a
-    # later session's route is in the file must not put the baseline back
-    # underneath it, and the recorded writer is what says which one this is.
+    # Scoped to the session AND task that wrote the route. This hook fires per
+    # turn, so a later turn of the same session must not put the baseline back
+    # underneath a newer route, and the recorded writer says which turn owns
+    # it. The host passes `task_id` here and to the tool; it passes `turn_id`
+    # here but NOT to the tool, so the task is the finest scope both ends can
+    # name.
     restore = _restore_route(
         hermes_home,
         home,
-        trigger="session_end",
+        trigger="turn_end",
         writer_session=host_session_id(kwargs),
+        writer_task=str(kwargs.get("task_id", "") or "").strip(),
     )
     runtime_dir = home / "runtime"
     if not runtime_dir.exists():
@@ -140,6 +151,7 @@ def _restore_route(
     *,
     trigger: str,
     writer_session: str | None = None,
+    writer_task: str | None = None,
     orphaned: bool = False,
 ) -> dict[str, object]:
     """Call the restore and never let its failure reach the host as a raise.
@@ -156,10 +168,16 @@ def _restore_route(
             omh_home=omh_home,
             trigger=trigger,
             require_writer_session=writer_session,
+            require_writer_task=writer_task,
             require_writer_not_live=orphaned,
         )
     except (OSError, ValueError, TypeError) as exc:
-        return {"status": "error", "trigger": trigger, "error": type(exc).__name__}
+        return {
+            "status": "error",
+            "trigger": trigger,
+            "error": type(exc).__name__,
+            "error_type": type(exc).__name__,
+        }
 
 
 def _attach_restore_degradation(payload: dict[str, object], restore: dict[str, object]) -> None:
@@ -172,7 +190,11 @@ def _attach_restore_degradation(payload: dict[str, object], restore: dict[str, o
     """
     if str(restore.get("status", "")) not in ("error", "lock_unavailable"):
         return
-    error_type = str(restore.get("error", "")) or str(restore.get("status", ""))
+    # `error_type` and not `error`: the degradation field is documented as a
+    # sanitized exception CLASS NAME, and `safe_error_type` strips a
+    # sentence's spaces rather than rejecting it, so passing the message
+    # produced labels like `routerestorefailedOSError`.
+    error_type = str(restore.get("error_type", "")) or str(restore.get("status", ""))
     payload["omh_degradation"] = degradation_payload(
         [(COMPONENT_DELEGATION_ROUTE_RESTORE, error_type)]
     )

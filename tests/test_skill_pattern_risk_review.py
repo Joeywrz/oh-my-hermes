@@ -430,11 +430,27 @@ class SkillPatternRiskReviewRiskResolutionTests(unittest.TestCase):
                         "prohibited_behavior": "spawn_a_host_process",
                     },
                     {
+                        # The composed self-update finding resolves through the
+                        # leg the native version cannot have: with no network
+                        # access there is no replacement code to install.
+                        "category": "self_update_or_code_replacement",
+                        "resolution": "native_constraint",
+                        "native_constraint": "no_network_access",
+                    },
+                    {
                         # Whatever the audit failed to establish about the
                         # plugin's hooks, the native version registers none.
                         "category": "undetermined_hook_contract",
                         "resolution": "native_constraint",
                         "native_constraint": "no_host_hook_registration",
+                    },
+                    {
+                        # The unsettled half is retrieval beside dynamic
+                        # execution; the native version evaluates no source at
+                        # all, so the ambiguity cannot be inherited.
+                        "category": "undetermined_self_update_path",
+                        "resolution": "native_constraint",
+                        "native_constraint": "no_dynamic_code_execution",
                     },
                 ],
                 native_constraints=[
@@ -442,6 +458,8 @@ class SkillPatternRiskReviewRiskResolutionTests(unittest.TestCase):
                     "explicit_user_invocation_only",
                     "no_credential_material_retained",
                     "no_host_hook_registration",
+                    "no_network_access",
+                    "no_dynamic_code_execution",
                 ],
                 prohibited_behaviors=[
                     "execute_evaluated_source",
@@ -604,7 +622,9 @@ class SkillPatternRiskReviewCitationTests(unittest.TestCase):
                 "network_request",
                 "potential_committed_secret",
                 "process_execution",
+                "self_update_or_code_replacement",
                 "undetermined_hook_contract",
+                "undetermined_self_update_path",
             ),
         )
         self.assertEqual(sorted(AUDIT_EVIDENCE_KEYS), sorted(cite_plugin_risk_audit(audit_payload())))

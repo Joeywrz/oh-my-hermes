@@ -56,6 +56,11 @@ class PluginRiskAuditTests(unittest.TestCase):
                 # established -- the text detector saying "hook" is not the
                 # same claim as a read declaration.
                 "undetermined_hook_contract",
+                # `requests.get` beside `eval` is retrieval beside dynamic
+                # execution: the fixture writes no code file, but retrieved
+                # bytes could become code without one, so the scan settles it
+                # neither way.
+                "undetermined_self_update_path",
             ],
         )
         self.assertEqual(payload["not_observed"]["plugin_import"]["status"], "not_observed")
@@ -112,6 +117,9 @@ class PluginRiskAuditTests(unittest.TestCase):
                 "network_request",
                 "process_execution",
                 "undetermined_hook_contract",
+                # `fetch` beside `new Function`, the JavaScript shape of the
+                # same ambiguity.
+                "undetermined_self_update_path",
             ],
         )
 
@@ -566,6 +574,373 @@ class DeclaredHookClassificationTests(unittest.TestCase):
         declared = json.loads(stdout)["declared_hooks"]
         self.assertEqual(declared["hooks"][0]["effect"], "policy_gate")
         self.assertEqual(declared["host_contract"]["supported_range"], PLUGIN_HOOK_CONTRACT_RANGE)
+
+
+class SelfUpdatePathTests(unittest.TestCase):
+    """The composed self-update finding: a possibility claim, never a proof.
+
+    Every fixture is written to disk and read as text. Nothing here imports,
+    installs, registers, executes, downloads or unpacks anything, which is the
+    whole reason an operator can point this at a plugin before enabling it.
+    """
+
+    def _audit(self, **files: str) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            for name, content in files.items():
+                (root / name).write_text(content, encoding="utf-8")
+            return audit_plugin_risk(root)
+
+    @requires_secure_dir_io
+    def test_a_release_updater_composes_exactly_one_self_update_finding(self) -> None:
+        payload = self._audit(
+            **{
+                "plugin.yaml": "name: updater\n",
+                "updater.py": (
+                    "import os\n"
+                    "import requests\n"
+                    "def update(staging):\n"
+                    "    release = requests.get('https://example.invalid/releases/latest').json()\n"
+                    "    payload = requests.get(release['artifact']).content\n"
+                    "    staged = os.path.join(staging, 'staged.py')\n"
+                    "    open(staged, 'wb').write(payload)\n"
+                    "    os.replace(staged, 'plugin.py')\n"
+                ),
+            }
+        )
+
+        finding = payload["self_update"]
+        self.assertEqual(finding["classification"], "detected")
+        self.assertEqual(finding["composition"], "remote_retrieval_and_code_replacement")
+        self.assertEqual(finding["signals"], ["code_replacement_write", "remote_retrieval"])
+        self.assertEqual(finding["mitigating_signals"], [])
+        self.assertEqual(
+            payload["summary"]["risk_categories"].count("self_update_or_code_replacement"), 1
+        )
+        self.assertNotIn("undetermined_self_update_path", payload["summary"]["risk_categories"])
+
+    @requires_secure_dir_io
+    def test_a_javascript_updater_composes_the_same_finding(self) -> None:
+        payload = self._audit(
+            **{
+                "plugin.yaml": "name: updater\n",
+                "updater.mjs": (
+                    "import fs from 'node:fs';\n"
+                    "export async function update() {\n"
+                    "  const release = await fetch('https://example.invalid/releases/latest');\n"
+                    "  fs.writeFileSync('renderer.mjs', await release.text());\n"
+                    "}\n"
+                ),
+            }
+        )
+
+        finding = payload["self_update"]
+        self.assertEqual(finding["classification"], "detected")
+        self.assertEqual(finding["composition"], "remote_retrieval_and_code_replacement")
+        self.assertIn("self_update_or_code_replacement", payload["summary"]["risk_categories"])
+
+    @requires_secure_dir_io
+    def test_an_unpacked_archive_over_retrieval_composes_the_finding(self) -> None:
+        payload = self._audit(
+            **{
+                "plugin.yaml": "name: updater\n",
+                "updater.py": (
+                    "import tarfile\n"
+                    "import urllib.request\n"
+                    "def update(destination):\n"
+                    "    urllib.request.urlopen('https://example.invalid/bundle.tgz')\n"
+                    "    tarfile.open('bundle.tgz').extractall(destination)\n"
+                ),
+            }
+        )
+
+        finding = payload["self_update"]
+        self.assertEqual(finding["classification"], "detected")
+        self.assertEqual(finding["composition"], "remote_retrieval_and_archive_extraction")
+        self.assertEqual(finding["signals"], ["archive_extraction", "remote_retrieval"])
+
+    @requires_secure_dir_io
+    def test_a_host_update_command_composes_the_finding_on_its_own(self) -> None:
+        """One signal, but it is already a compound: a command plus a way to run it.
+
+        A plugin that drives the host's package manager replaces its own code
+        without ever retrieving a byte itself, so requiring a retrieval leg here
+        would miss the most direct bypass there is.
+        """
+        payload = self._audit(
+            **{
+                "plugin.yaml": "name: bootstrap\n",
+                "bootstrap.py": (
+                    "import subprocess\n"
+                    "def bootstrap():\n"
+                    "    subprocess.run(['pip', 'install', '--upgrade', 'example-plugin'], check=False)\n"
+                ),
+            }
+        )
+
+        finding = payload["self_update"]
+        self.assertEqual(finding["classification"], "detected")
+        self.assertEqual(finding["composition"], "host_managed_update_bypass")
+        self.assertEqual(finding["signals"], ["host_update_command"])
+
+    @requires_secure_dir_io
+    def test_an_upgrade_command_nobody_can_run_is_not_a_bypass(self) -> None:
+        """The negative control for the one composition with a single member.
+
+        The command text alone is a string an operator could be told to type.
+        It becomes a bypass only beside a call that can run it, which is why the
+        signal needs the process-execution detector as well.
+        """
+        payload = self._audit(
+            **{
+                "plugin.yaml": "name: hinting\n",
+                "hint.py": (
+                    "UPDATE_HINT = 'run `pip install --upgrade example-plugin` to get the newest release'\n"
+                    "def hint() -> str:\n"
+                    "    return UPDATE_HINT\n"
+                ),
+            }
+        )
+
+        finding = payload["self_update"]
+        self.assertEqual(finding["classification"], "not_detected")
+        self.assertEqual(finding["signals"], [])
+        self.assertNotIn("self_update_or_code_replacement", payload["summary"]["risk_categories"])
+
+    @requires_secure_dir_io
+    def test_a_signature_checking_updater_records_a_mitigation_not_a_safe_verdict(self) -> None:
+        payload = self._audit(
+            **{
+                "plugin.yaml": "name: updater\n",
+                "updater.py": (
+                    "import hashlib\n"
+                    "import hmac\n"
+                    "import os\n"
+                    "import requests\n"
+                    "def update(expected):\n"
+                    "    blob = requests.get('https://example.invalid/releases/latest').content\n"
+                    "    if hmac.compare_digest(hashlib.sha256(blob).hexdigest(), expected):\n"
+                    "        os.replace('staged.py', 'plugin.py')\n"
+                ),
+            }
+        )
+
+        finding = payload["self_update"]
+        self.assertEqual(finding["classification"], "detected")
+        self.assertEqual(finding["mitigating_signals"], ["integrity_verification"])
+        self.assertNotIn("integrity_verification", finding["signals"])
+        self.assertIn("self_update_or_code_replacement", payload["summary"]["risk_categories"])
+        self.assertTrue(
+            any("not evidence that any checksum or signature" in line for line in finding["diagnostics"]),
+            finding["diagnostics"],
+        )
+
+    @requires_secure_dir_io
+    def test_an_api_client_writing_only_cache_files_does_not_compose_the_finding(self) -> None:
+        payload = self._audit(
+            **{
+                "plugin.yaml": "name: client\n",
+                "client.py": (
+                    "import json\n"
+                    "from pathlib import Path\n"
+                    "import requests\n"
+                    "def refresh(cache_dir):\n"
+                    "    data = requests.get('https://example.invalid/items').json()\n"
+                    "    Path(cache_dir, 'items-cache.json').write_text(json.dumps(data))\n"
+                ),
+            }
+        )
+
+        finding = payload["self_update"]
+        self.assertEqual(finding["classification"], "not_detected")
+        self.assertIsNone(finding["composition"])
+        self.assertEqual(finding["signals"], ["remote_retrieval"])
+        self.assertNotIn("self_update_or_code_replacement", payload["summary"]["risk_categories"])
+        self.assertNotIn("undetermined_self_update_path", payload["summary"]["risk_categories"])
+
+    @requires_secure_dir_io
+    def test_writing_code_without_retrieval_does_not_compose_the_finding(self) -> None:
+        """The other half of the same rule, so neither leg can pass on its own."""
+        payload = self._audit(
+            **{
+                "plugin.yaml": "name: generator\n",
+                "generator.py": (
+                    "from pathlib import Path\n"
+                    "def generate(out):\n"
+                    "    Path(out, 'generated.py').write_text('VALUE = 1\\n')\n"
+                ),
+            }
+        )
+
+        finding = payload["self_update"]
+        self.assertEqual(finding["classification"], "not_detected")
+        self.assertEqual(finding["signals"], ["code_replacement_write"])
+        self.assertNotIn("self_update_or_code_replacement", payload["summary"]["risk_categories"])
+
+    @requires_secure_dir_io
+    def test_a_read_mode_argument_is_not_a_write_call(self) -> None:
+        """The reason the mode is matched as a whole quoted token.
+
+        Every leg of the composition is here except the write: a read of a
+        source file, a code target name, and a network call. If a keyword
+        string such as `encoding="ascii"` could supply the mode letter, this
+        package would compose a self-update finding out of reading a file.
+        """
+        payload = self._audit(
+            **{
+                "plugin.yaml": "name: reader\n",
+                "reader.py": (
+                    "import requests\n"
+                    "def describe(root):\n"
+                    "    requests.get('https://example.invalid/schema')\n"
+                    "    with open(root + '/plugin.py', 'r', encoding='ascii') as handle:\n"
+                    "        return handle.read()\n"
+                ),
+            }
+        )
+
+        finding = payload["self_update"]
+        self.assertEqual(finding["classification"], "not_detected")
+        self.assertEqual(finding["signals"], ["remote_retrieval"])
+
+    @requires_secure_dir_io
+    def test_host_managed_update_metadata_alone_does_not_compose_the_finding(self) -> None:
+        """Declared update metadata is not an updater living inside the plugin."""
+        payload = self._audit(
+            **{
+                "plugin.yaml": "name: pinned\nversion: 1.4.2\n",
+                "plugin.json": '{"name": "pinned", "version": "1.4.2", "integrity": "sha256-abc"}\n',
+            }
+        )
+
+        finding = payload["self_update"]
+        self.assertEqual(finding["classification"], "not_detected")
+        self.assertEqual(finding["signals"], [])
+        self.assertEqual(finding["mitigating_signals"], [])
+        self.assertNotIn("self_update_or_code_replacement", payload["summary"]["risk_categories"])
+
+    @requires_secure_dir_io
+    def test_an_ambiguous_dynamic_path_is_needs_review_rather_than_clear_or_safe(self) -> None:
+        payload = self._audit(
+            **{
+                "plugin.yaml": "name: loader\n",
+                "loader.py": (
+                    "import requests\n"
+                    "def load():\n"
+                    "    exec(requests.get('https://example.invalid/module').text)\n"
+                ),
+            }
+        )
+
+        finding = payload["self_update"]
+        self.assertEqual(finding["classification"], "needs_review")
+        self.assertIsNone(finding["composition"])
+        self.assertIn("undetermined_self_update_path", payload["summary"]["risk_categories"])
+        self.assertNotIn("self_update_or_code_replacement", payload["summary"]["risk_categories"])
+        self.assertTrue(
+            any("neither established nor ruled out" in line for line in finding["diagnostics"]),
+            finding["diagnostics"],
+        )
+
+    @requires_secure_dir_io
+    def test_an_empty_package_reports_absence_as_unobserved_rather_than_safe(self) -> None:
+        payload = self._audit(**{"plugin.yaml": "name: empty\n"})
+
+        finding = payload["self_update"]
+        self.assertEqual(finding["classification"], "not_detected")
+        self.assertEqual(finding["signals"], [])
+        self.assertEqual(finding["signal_file_counts"], {})
+        self.assertEqual(payload["summary"]["risk_categories"], [])
+        self.assertTrue(
+            any("is not evidence that the plugin cannot" in line for line in finding["diagnostics"]),
+            finding["diagnostics"],
+        )
+        for observation in ("plugin_code_replacement", "plugin_self_update_execution"):
+            self.assertEqual(payload["not_observed"][observation]["status"], "not_observed")
+        self.assertIn("no matched composition is not evidence", payload["claim_boundary"])
+
+    @requires_secure_dir_io
+    def test_the_finding_is_deterministic_and_names_the_first_matching_composition(self) -> None:
+        files = {
+            "plugin.yaml": "name: updater\n",
+            "fetcher.py": "import requests\ndef pull():\n    return requests.get('https://example.invalid/x')\n",
+            "replacer.py": "import os\ndef swap():\n    os.replace('staged.py', 'plugin.py')\n",
+            "unpacker.py": "import shutil\ndef unpack(src, dst):\n    shutil.unpack_archive(src, dst)\n",
+        }
+
+        first = self._audit(**files)
+        second = self._audit(**files)
+
+        self.assertEqual(first["self_update"], second["self_update"])
+        self.assertEqual(first["self_update"]["composition"], "remote_retrieval_and_code_replacement")
+        self.assertEqual(
+            first["self_update"]["signals"],
+            ["archive_extraction", "code_replacement_write", "remote_retrieval"],
+        )
+        self.assertEqual(
+            first["self_update"]["signal_file_counts"],
+            {"archive_extraction": 1, "code_replacement_write": 1, "remote_retrieval": 1},
+        )
+
+    @requires_secure_dir_io
+    def test_the_finding_exposes_no_plugin_text_remote_target_or_audited_path(self) -> None:
+        marker = "PRIVATE_UPDATER_MARKER"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "plugin.yaml").write_text("name: updater\n", encoding="utf-8")
+            (root / "updater.py").write_text(
+                "import os\n"
+                "import requests\n"
+                f"RELEASE = 'https://{marker}.invalid/latest'\n"
+                "def update():\n"
+                "    requests.get(RELEASE)\n"
+                "    os.replace('staged.py', 'plugin.py')\n",
+                encoding="utf-8",
+            )
+
+            payload = audit_plugin_risk(root)
+
+        serialized = json.dumps(payload)
+        self.assertEqual(payload["self_update"]["classification"], "detected")
+        self.assertNotIn(marker, serialized)
+        self.assertNotIn("updater.py", serialized)
+        self.assertNotIn(str(root), serialized)
+
+    @requires_secure_dir_io
+    def test_an_oversized_updater_source_is_refused_before_it_is_classified(self) -> None:
+        """The byte cap still bounds the scan the new signals are read from."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "plugin.yaml").write_text("name: updater\n", encoding="utf-8")
+            (root / "updater.py").write_text(
+                "import os, requests\n" + "# padding\n" * 20_000 + "os.replace('staged.py', 'plugin.py')\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "exceeds 131072 bytes"):
+                audit_plugin_risk(root)
+
+    @requires_secure_dir_io
+    def test_the_cli_reports_the_self_update_finding(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "plugin.yaml").write_text("name: updater\n", encoding="utf-8")
+            (root / "updater.py").write_text(
+                "import os\n"
+                "import requests\n"
+                "def update():\n"
+                "    requests.get('https://example.invalid/latest')\n"
+                "    os.replace('staged.py', 'plugin.py')\n",
+                encoding="utf-8",
+            )
+
+            status, stdout, stderr = run_cli(["ops", "plugin-risk-audit", "--path", str(root)])
+
+        self.assertEqual(status, 0, stderr)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["self_update"]["classification"], "detected")
+        self.assertEqual(payload["self_update"]["composition"], "remote_retrieval_and_code_replacement")
+        self.assertIn("self_update_or_code_replacement", payload["summary"]["risk_categories"])
 
 
 class PluginRiskAuditSurfaceTests(unittest.TestCase):

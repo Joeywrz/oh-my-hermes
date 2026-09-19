@@ -42,6 +42,42 @@ _SECRET_ASSIGNMENT = re.compile(
 _DEPENDENCY_DECLARATION = re.compile(r"(?:^\s*dependencies\s*=|^\s*[A-Za-z0-9_.-]+\s*(?:[<>=!~]|$))", re.MULTILINE)
 _PACKAGE_DEPENDENCY_FIELDS: Final = frozenset({"dependencies", "optionalDependencies", "peerDependencies"})
 
+# The self-update composition's own detectors. None of them is a category on
+# its own, and that is the point: a plugin that writes a file is not an updater
+# and a plugin that opens a socket is not an updater. What makes a second
+# software-update authority is the co-occurrence -- retrieval together with a
+# write onto code the host installed, or with an archive unpacked over it, or a
+# command that drives the host's own package manager. Treating every network
+# call plus every file write as an updater was the alternative #1546 rejected,
+# so the write leg has to name a code or manifest target, and the command leg
+# has to sit in a file that also spawns a process.
+_REPLACEMENT_WRITE_CALL = re.compile(
+    r"\b(?:os\.(?:rename|replace)|shutil\.(?:copy|copy2|copyfile|copytree|move)"
+    r"|fs\.(?:promises\.)?(?:copyFile|cp|rename|writeFile)(?:Sync)?)\s*\("
+    r"|\.write_(?:bytes|text)\s*\("
+    # A mode argument holding w, a or x. The mode is matched as a whole quoted
+    # token so an ordinary keyword string cannot supply the letter: without the
+    # closing quote right after the mode letters, `encoding="ascii"` matches.
+    r"|\bopen\s*\([^\n)]{0,200},\s*['\"][rbt+]*[wax][rwaxbt+]*['\"]"
+)
+_REPLACEMENT_TARGET = re.compile(
+    r"['\"][^'\"\n]{0,200}\.(?:cjs|cts|dll|dylib|exe|js|mjs|mts|node|py|pyc|pyz|so|ts)['\"]"
+    r"|['\"](?:package\.json|plugin\.json|plugin\.ya?ml|pyproject\.toml|requirements\.txt)['\"]"
+)
+_ARCHIVE_EXTRACTION = re.compile(r"\bshutil\.unpack_archive\s*\(|\.extractall\s*\(")
+_SELF_UPDATE_COMMAND = re.compile(
+    r"\bpip[0-9.]*\b[^\n]{0,60}\binstall\b[^\n]{0,60}(?:--upgrade|--force-reinstall)\b"
+    r"|\bnpm\b[^\n]{0,60}\b(?:install|update)\b[^\n]{0,60}(?:--global|-g)\b"
+    r"|\bgit\b[^\n]{0,20}\bpull\b"
+    r"|\bhermes\b[^\n]{0,30}\bplugins?\b[^\n]{0,30}\b(?:install|update|upgrade)\b"
+)
+_INTEGRITY_VERIFICATION = re.compile(
+    r"\bhashlib\.(?:blake2b|sha256|sha384|sha512)\s*\("
+    r"|\bhmac\.compare_digest\s*\("
+    r"|\bcrypto\.create(?:Hash|Verify)\s*\("
+    r"|\b(?:cosign|gpg|gpgv|minisign)\b[^\n]{0,40}--verify\b"
+)
+
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 JsonObject: TypeAlias = dict[str, JsonValue]
 ManifestStatus: TypeAlias = Literal["invalid_json", "missing", "present"]
@@ -57,12 +93,74 @@ RiskCategory: TypeAlias = Literal[
     "network_request",
     "potential_committed_secret",
     "process_execution",
+    # The compound this file did not have. It is not a seventh independent
+    # detector: it is composed from the retrieval, replacement, extraction and
+    # host-command signals above, and it says the package contains a plausible
+    # path to replace its own installed code outside the host's pinned plugin
+    # update path -- a second update authority with its own pinning, rollback,
+    # consent and review guarantees.
+    "self_update_or_code_replacement",
     # "I could not establish this plugin's hook contract" must not render as
     # "this plugin is fine". Without a category of its own, an unreadable
     # manifest produced a summary byte-identical to a plugin that declares
     # nothing, and a wrapper reading only the summary saw a clean plugin.
     "undetermined_hook_contract",
+    # The same invariant as the line above, for the other half of the
+    # self-update verdict. A package that can retrieve remote bytes and can turn
+    # text into code has a code-replacement path a static read settles neither
+    # way, and without a category the summary would be byte-identical to a
+    # package that can do neither.
+    "undetermined_self_update_path",
 ]
+SelfUpdateSignal: TypeAlias = Literal[
+    "archive_extraction",
+    "code_replacement_write",
+    "host_update_command",
+    "integrity_verification",
+    "remote_retrieval",
+]
+SelfUpdateClassification: TypeAlias = Literal["detected", "needs_review", "not_detected"]
+
+# Read as reducing the risk rather than composing it. Kept out of the composing
+# set so a mitigation can never serve as a leg of a composition, and reported
+# under its own key so it can never render as a safe verdict.
+MITIGATING_SELF_UPDATE_SIGNALS: Final[frozenset[SelfUpdateSignal]] = frozenset({"integrity_verification"})
+
+# The closed set of compositions that classify `detected`, in the order they
+# are tried, so the result can name which signals composed the verdict instead
+# of only reporting that one was reached. A composition is evaluated over the
+# whole scanned package rather than one file: a real updater splits retrieval
+# and replacement across modules as often as it does not.
+SELF_UPDATE_COMPOSITIONS: Final[tuple[tuple[str, frozenset[SelfUpdateSignal]], ...]] = (
+    ("remote_retrieval_and_code_replacement", frozenset({"remote_retrieval", "code_replacement_write"})),
+    ("remote_retrieval_and_archive_extraction", frozenset({"remote_retrieval", "archive_extraction"})),
+    ("host_managed_update_bypass", frozenset({"host_update_command"})),
+)
+
+# One fixed sentence per classification. Each says what the verdict is and what
+# it is not; the `not_detected` one exists because an empty finding is the
+# reading most likely to be taken for a clean bill of health.
+_SELF_UPDATE_DIAGNOSTICS: Final[dict[str, str]] = {
+    "detected": (
+        "the scanned text composes a plausible path to replace this plugin's own installed code, which would "
+        "be a second software-update authority beside the host's pinned plugin update path; it is not evidence "
+        "that the plugin retrieves, stages, or replaces anything"
+    ),
+    "needs_review": (
+        "the scanned text can retrieve remote bytes and can turn text into code, so a code-replacement path is "
+        "neither established nor ruled out by reading it"
+    ),
+    "not_detected": (
+        "no self-update composition matched the scanned text, which is not evidence that the plugin cannot "
+        "replace its own code: obfuscated, native, and dependency-supplied replacement stay outside a bounded "
+        "static read"
+    ),
+}
+_INTEGRITY_DIAGNOSTIC: Final = (
+    "integrity verification appears in the scanned text and is recorded as a mitigating signal only; it does "
+    "not remove the second update-authority risk and is not evidence that any checksum or signature was "
+    "computed, compared, or valid"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +176,7 @@ class _StaticSource:
     manifest_status: ManifestStatus | None
     byte_count: int
     risk_categories: frozenset[RiskCategory]
+    self_update_signals: frozenset[SelfUpdateSignal]
 
 
 def audit_plugin_risk(plugin_root: Path) -> JsonObject:
@@ -85,8 +184,11 @@ def audit_plugin_risk(plugin_root: Path) -> JsonObject:
     raw_sources = read_static_plugin_sources(root)
     sources = tuple(_audit_static_source(source) for source in raw_sources)
     manifest_yaml_status, declared_hooks = _declared_hook_report(_root_manifest_text(raw_sources))
+    self_update = _self_update_report(sources)
     categories = sorted(
-        {category for source in sources for category in source.risk_categories} | _hook_categories(declared_hooks)
+        {category for source in sources for category in source.risk_categories}
+        | _hook_categories(declared_hooks)
+        | _self_update_categories(str(self_update["classification"]))
     )
     return {
         "schema_version": PLUGIN_RISK_AUDIT_SCHEMA_VERSION,
@@ -102,6 +204,7 @@ def audit_plugin_risk(plugin_root: Path) -> JsonObject:
             "risk_category_count": len(categories),
         },
         "declared_hooks": declared_hooks,
+        "self_update": self_update,
         "not_observed": {
             "plugin_import": {"status": "not_observed"},
             "plugin_registration": {"status": "not_observed"},
@@ -110,6 +213,8 @@ def audit_plugin_risk(plugin_root: Path) -> JsonObject:
             "plugin_hook_execution": {"status": "not_observed"},
             "plugin_hook_timeout_enforcement": {"status": "not_observed"},
             "plugin_hook_failure_handling": {"status": "not_observed"},
+            "plugin_code_replacement": {"status": "not_observed"},
+            "plugin_self_update_execution": {"status": "not_observed"},
             "dependency_installation": {"status": "not_observed"},
             "network_access": {"status": "not_observed"},
             "ci_annotation_publication": {"status": "not_observed"},
@@ -121,7 +226,12 @@ def audit_plugin_risk(plugin_root: Path) -> JsonObject:
             "registered, ran, stayed inside its budget, or handled a failure correctly, and an absent declaration is "
             "not evidence that the plugin registers no hooks. It does not expose plugin source, import or execute "
             "plugin code, register a plugin, install dependencies, access a network, publish CI annotations, or prove "
-            "that the plugin is safe."
+            "that the plugin is safe. The self-update projection is a composition over those same static "
+            "signals: it reports that the scanned text contains a plausible path to replace the plugin's own "
+            "installed code outside the host-managed update path, never that the plugin retrieved, verified, "
+            "staged, or replaced anything, that any checksum or signature was computed or valid, or that the "
+            "host accepted a revision, and no matched composition is not evidence that the plugin cannot "
+            "replace its own code."
         ),
     }
 
@@ -134,17 +244,115 @@ def scanned_text_risk_categories(name: str, text: str) -> tuple[RiskCategory, ..
     detectors instead of growing a second copy that then drifts from them. The
     claim is the audit's own weak one: a text match says a pattern occurs in
     this text, never that anything ran.
+
+    The self-update composition is evaluated over this one body, because that
+    is all a caller passing a single text has. A package-wide scan composes the
+    same signals across its scanned files instead.
     """
-    return tuple(sorted(_risk_categories(name, text)))
+    categories = _risk_categories(name, text)
+    composing = _self_update_signals(text, categories) - MITIGATING_SELF_UPDATE_SIGNALS
+    classification = _self_update_classification(
+        _matched_composition(composing), composing, "dynamic_code_execution" in categories
+    )
+    return tuple(sorted(categories | _self_update_categories(classification)))
 
 
 def _audit_static_source(source: PluginAuditSource) -> _StaticSource:
     text = source.content.decode("utf-8", errors="replace")
+    categories = _risk_categories(source.name, text)
     return _StaticSource(
         _source_manifest_status(source.name, source.is_root_file, text),
         len(source.content),
-        _risk_categories(source.name, text),
+        categories,
+        _self_update_signals(text, categories),
     )
+
+
+def _self_update_signals(text: str, categories: frozenset[RiskCategory]) -> frozenset[SelfUpdateSignal]:
+    """The self-update signals one scanned text carries.
+
+    `remote_retrieval` is the audit's own `network_request` result rather than a
+    second network detector, so the retrieval leg cannot drift from the category
+    the summary already reports. The other legs are co-occurrences inside this
+    one text: a write call has to name a code or manifest target, and an update
+    command has to sit beside a process-execution call, because either half on
+    its own is ordinary.
+    """
+    signals: set[SelfUpdateSignal] = set()
+    if "network_request" in categories:
+        signals.add("remote_retrieval")
+    if _REPLACEMENT_WRITE_CALL.search(text) and _REPLACEMENT_TARGET.search(text):
+        signals.add("code_replacement_write")
+    if _ARCHIVE_EXTRACTION.search(text):
+        signals.add("archive_extraction")
+    if _SELF_UPDATE_COMMAND.search(text) and _PROCESS_EXECUTION.search(text):
+        signals.add("host_update_command")
+    if _INTEGRITY_VERIFICATION.search(text):
+        signals.add("integrity_verification")
+    return frozenset(signals)
+
+
+def _self_update_report(sources: tuple[_StaticSource, ...]) -> JsonObject:
+    """Compose the scanned sources' signals into one verdict and say how.
+
+    `signal_file_counts` is how many scanned files carried each signal. It is
+    the bounded stand-in for an evidence location: a file name is
+    plugin-authored text, and this payload echoes none of it, so a count is the
+    most an operator can be given here without the audit becoming a disclosure
+    surface for the package it is auditing.
+    """
+    counts: dict[str, int] = {}
+    for source in sources:
+        for signal in source.self_update_signals:
+            counts[signal] = counts.get(signal, 0) + 1
+    observed: frozenset[SelfUpdateSignal] = frozenset(counts)  # type: ignore[arg-type]
+    composing = observed - MITIGATING_SELF_UPDATE_SIGNALS
+    mitigating = observed & MITIGATING_SELF_UPDATE_SIGNALS
+    dynamic = any("dynamic_code_execution" in source.risk_categories for source in sources)
+    composition = _matched_composition(composing)
+    classification = _self_update_classification(composition, composing, dynamic)
+    diagnostics = [_SELF_UPDATE_DIAGNOSTICS[classification]]
+    if mitigating:
+        diagnostics.append(_INTEGRITY_DIAGNOSTIC)
+    return {
+        "classification": classification,
+        "composition": composition,
+        "signals": sorted(composing),
+        "mitigating_signals": sorted(mitigating),
+        "signal_file_counts": {name: counts[name] for name in sorted(counts)},
+        "diagnostics": diagnostics,
+    }
+
+
+def _matched_composition(composing: frozenset[SelfUpdateSignal]) -> str | None:
+    for name, members in SELF_UPDATE_COMPOSITIONS:
+        if members <= composing:
+            return name
+    return None
+
+
+def _self_update_classification(
+    composition: str | None, composing: frozenset[SelfUpdateSignal], dynamic_execution: bool
+) -> SelfUpdateClassification:
+    """Three states, and the middle one is the reason the other two are usable.
+
+    Retrieval beside dynamic execution is the path a static read cannot follow:
+    retrieved bytes can become code without any write reaching the filesystem,
+    so neither `detected` nor `not_detected` would be honest about it.
+    """
+    if composition is not None:
+        return "detected"
+    if dynamic_execution and "remote_retrieval" in composing:
+        return "needs_review"
+    return "not_detected"
+
+
+def _self_update_categories(classification: str) -> set[RiskCategory]:
+    if classification == "detected":
+        return {"self_update_or_code_replacement"}
+    if classification == "needs_review":
+        return {"undetermined_self_update_path"}
+    return set()
 
 
 def _hook_categories(declared_hooks: JsonObject) -> set[RiskCategory]:

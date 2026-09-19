@@ -152,8 +152,9 @@ HOOK_REVIEWS: dict[str, dict[str, Any]] = {
         "event_scope": ("pre_tool_call",),
         "reviewed_timeout_ms": 1000,
         "capability": (
-            "user-authored toolcall-rule block directives and the OMH "
-            "unknown-role warning before a Hermes tool call"
+            "user-authored toolcall-rule block directives, the OMH "
+            "repeat-call guard, and the OMH unknown-role warning before a "
+            "Hermes tool call"
         ),
     },
     "post_tool_call": {

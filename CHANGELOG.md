@@ -187,6 +187,45 @@ All notable changes will be documented here.
   data-boundary row no longer names `read_roots_are_safe` as an enforcer,
   which moves the safety-profile revision.
 
+- **A tool call the model has already made four times in a row is now
+  refused, not just warned about.** A Hermes session searching a repo called
+  `search_files` with one identical pattern more than 180 times in a row,
+  identical arguments every time, each returning in ~0.0s. The tool itself
+  printed `BLOCKED: You have run this exact search N times in a row` into the
+  result, and the model read that and issued the same call again. The session
+  burned its budget and never started the work it was asked to do. A warning
+  inside a tool result is advice; the loop ends only when something refuses.
+
+  `pre_tool_call` now counts consecutive identical calls per session and
+  returns a block directive on the one after the fourth, telling the model the
+  call has already run that many times and returned the same thing each time,
+  so it should read the file directly or run the search once in the terminal
+  and use that output. Four is one past the top of the legitimate band: an
+  immediate retry runs two or three times, so no retry pattern meets the
+  threshold, and the pathological case costs four calls instead of 180. The
+  count is per session because the ledger is machine-wide, and an unkeyed
+  counter would read two sessions running the same search as one loop.
+
+  The guard clears itself. One call with different arguments, or to a
+  different tool, resets the count to one, and a streak whose last call is
+  more than five minutes old stops counting, so a session that hits the
+  refusal and does something else proceeds normally and a returning session is
+  never greeted with a refusal it earned much earlier. Only calls that
+  actually reached dispatch are counted, so the number in the message is what
+  really ran.
+
+  Identifying a repeat needs the arguments, and the ledger still never holds
+  them: the arguments are canonicalized, capped at 8 KiB and stored as a
+  16-character BLAKE2b digest, which says only "identical" or "different" and
+  keeps the record inside the plugin's `privacy: metadata_only` contract. The
+  claim is stated exactly in the module, because a digest is confirmable by
+  guessing rather than readable, which is the ordinary property of a
+  fingerprint and the reason the field is a digest and not a truncated copy.
+  Every path out of the positive case allows the call: no session id, no
+  digest, an unreadable ledger, a malformed row, or a binding fault. #1674 is
+  what an over-broad `pre_tool_call` veto costs, and the allow side is pinned
+  by tests at least as hard as the block side.
+
 - **`/omh-model` and the `omh` CLI now edit the store a bot profile
   dispatches from.** A Hermes bot profile may select its own OMH store with
   `plugins.entries.omh.settings.omh_home`, and its native plugin resolves that

@@ -10,7 +10,7 @@ from ..degradation import runtime_binding_degradation
 from ..approval_bypass import record_approval_bypass
 from ..host_observation import observe_plugin_hook_call
 from ..omh_roles import extract_role_marker, resolve_role_name, role_aliases, role_names
-from ..tool_bursts import record_tool_call, record_tool_call_close
+from ..tool_bursts import record_tool_call, record_tool_call_close, repeat_call_directive, tool_args_digest
 from ..toolcall_rules import toolcall_rule_directive
 
 
@@ -78,10 +78,12 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
     # outright (the message becomes the tool result the model sees)"). The
     # host passes the tool arguments as ``args``; ``tool_input`` is accepted
     # for bundle-internal callers and tests.
+    tool_input = kwargs.get("tool_input") if "tool_input" in kwargs else kwargs.get("args")
+    session_id = str(kwargs.get("session_id", "") or kwargs.get("task_id", "") or "")
     rule_directive = toolcall_rule_directive(
         tool_name=kwargs.get("tool_name"),
-        tool_input=kwargs.get("tool_input") if "tool_input" in kwargs else kwargs.get("args"),
-        session_id=str(kwargs.get("session_id", "") or kwargs.get("task_id", "") or ""),
+        tool_input=tool_input,
+        session_id=session_id,
         omh_home=omh_home,
     )
     if rule_directive is not None:
@@ -89,6 +91,20 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
         # parallel-shot burst ledger (its claim boundary is "the host
         # dispatched the calls as one batch").
         return dict(rule_directive)
+    # The repeat guard runs after the user's own rules and before anything
+    # that observes a dispatch, for the same reason: it refuses a call, so
+    # nothing downstream may record that call as having happened. Hashed
+    # once here and handed to both the gate and the ledger, so a tool call
+    # canonicalizes its arguments exactly once.
+    args_digest = tool_args_digest(tool_input)
+    repeat_directive = repeat_call_directive(
+        tool_name=kwargs.get("tool_name"),
+        args_digest=args_digest,
+        session_id=session_id,
+        omh_home=omh_home,
+    )
+    if repeat_directive is not None:
+        return dict(repeat_directive)
     # Only the normal host loop invokes native Kanban tools. Correlation runs
     # after OMH's user veto; it never dispatches or grants a native permission.
     bridge = _agent_board_bridge()
@@ -98,12 +114,16 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
             return board_directive
     # Tick the parallel-shot ledger and, when the host supplies a
     # tool_call_id, open the in-flight entry post_tool_call closes. This is
-    # the only place OMH can see either fact.
+    # the only place OMH can see either fact. The same write advances this
+    # session's repeat streak, which is why the guard above counts only
+    # calls that actually reached dispatch.
     record_tool_call(
         kwargs.get("tool_name"),
         omh_home=omh_home,
         tool_call_id=kwargs.get("tool_call_id"),
         turn_id=kwargs.get("turn_id"),
+        args_digest=args_digest,
+        session_id=session_id,
     )
     context_parts: list[str] = []
     payload: dict[str, object] = {}

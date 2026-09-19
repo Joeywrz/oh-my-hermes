@@ -435,9 +435,49 @@ class RuleGateFaultTest(unittest.TestCase):
         record = read_toolcall_rule_faults(str(self.home))
         self.assertEqual(record["fault_count"], 1)
         self.assertEqual(record["last_tool"], "write_file")
-        self.assertIn("RuntimeError: gate exploded", record["last_error"])
+        self.assertEqual(record["last_error_type"], "RuntimeError")
         self.assertTrue(record["first_fault_at"])
         self.assertFalse(record["unreadable"])
+
+    def test_the_record_carries_no_rule_text_and_no_argument_fragment(self):
+        # The ledger's redaction policy is metadata-only, and an exception
+        # MESSAGE is free text from whatever raised: a `re.error` quotes the
+        # person's own pattern, a handler formatting with `!r` quotes an
+        # argument. Two sentinels, one in each place, asserted against the
+        # bytes actually written rather than the parsed record.
+        rule_sentinel = "SENTINEL-RULE-PATTERN-a1b2c3"
+        argument_sentinel = "SENTINEL-TOOL-ARGUMENT-d4e5f6"
+        _write_rules(self.home, [{"name": "s", "pattern": rule_sentinel, "message": "m"}])
+        with self._raise_in_the_gate(
+            ValueError(f"bad pattern {rule_sentinel!r} while matching {argument_sentinel!r}")
+        ):
+            pre_tool_call(
+                tool_name="write_file",
+                tool_input={"content": argument_sentinel},
+                session_id="session-a",
+                omh_home=str(self.home),
+            )
+        written = toolcall_rule_faults_path(str(self.home)).read_text(encoding="utf-8")
+        self.assertNotIn(rule_sentinel, written)
+        self.assertNotIn(argument_sentinel, written)
+        self.assertIn("ValueError", written)
+        self.assertEqual(read_toolcall_rule_faults(str(self.home))["last_error_type"], "ValueError")
+
+    def test_a_field_that_is_not_an_exception_type_cannot_carry_free_text(self):
+        # The guarantee is structural, not a convention a later caller can
+        # break by passing a message into the field.
+        toolcall_rule_faults.record_toolcall_rule_fault(
+            tool_name="terminal",
+            error_type="ValueError: /home/someone/secret-pattern",
+            observed_at="2026-09-19T00:00:00Z",
+            omh_home=str(self.home),
+        )
+        written = toolcall_rule_faults_path(str(self.home)).read_text(encoding="utf-8")
+        self.assertNotIn("secret-pattern", written)
+        self.assertEqual(
+            read_toolcall_rule_faults(str(self.home))["last_error_type"],
+            toolcall_rule_faults.UNKNOWN_FAULT_TYPE,
+        )
 
     def test_a_clean_gate_records_nothing(self):
         _write_rules(self.home, [BOX_LEAK_RULE])
@@ -460,7 +500,7 @@ class RuleGateFaultTest(unittest.TestCase):
         self.assertEqual(second["fault_count"], 2)
         self.assertEqual(second["first_fault_at"], first["first_fault_at"])
         self.assertEqual(second["last_tool"], "read_file")
-        self.assertIn("ValueError: two", second["last_error"])
+        self.assertEqual(second["last_error_type"], "ValueError")
 
     def test_an_unreadable_record_reads_as_unreadable_not_as_zero(self):
         path = toolcall_rule_faults_path(str(self.home))
@@ -479,7 +519,7 @@ class RuleGateFaultTest(unittest.TestCase):
             self.assertIsNone(
                 toolcall_rule_faults.record_toolcall_rule_fault(
                     tool_name="terminal",
-                    error="RuntimeError: x",
+                    error_type="RuntimeError",
                     observed_at="2026-09-19T00:00:00Z",
                     omh_home=str(self.home),
                 )
@@ -520,9 +560,38 @@ class DoctorRulesVisibilityTest(unittest.TestCase):
         )
         check = self._checks()["toolcall_rules"]
         self.assertEqual(check["severity"], "warning")
-        self.assertIn(str(path), check["message"])
+        # Resolved on both sides. On Windows a temp directory comes back as an
+        # 8.3 short path (`RUNNER~1`) while doctor names the resolved long one
+        # (`runneradmin`), so a string comparison fails on a message that is
+        # correct -- and the resolved form is the one a person can open.
+        self.assertIn(str(path.resolve()), check["message"])
         self.assertIn("0 rule(s) load", check["message"])
         self.assertIn("WHOLE document", check["message"])
+
+    def test_the_message_names_the_resolved_path_for_an_unresolved_home(self):
+        # The Windows CI failure was a test comparing an 8.3 short temp path
+        # against the long form doctor had correctly printed. `resolve_paths`
+        # already resolves, so this pins the guarantee one level down, where
+        # the message is built: an `OmhPaths` constructed directly with an
+        # unresolved home still yields an openable path. A symlinked home is
+        # the portable stand-in for the short-vs-long-name difference; where
+        # symlinks cannot be created the case skips rather than asserting
+        # equality with itself.
+        from omh.maintenance.doctor import _toolcall_rule_checks
+        from omh.system.paths import OmhPaths
+
+        real_home = self.root / "real-omh"
+        _write_rules(real_home, [BOX_LEAK_RULE])
+        unresolved = self.root / "link-omh"
+        try:
+            unresolved.symlink_to(real_home, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("this platform does not allow creating a symlink here")
+        checks = {check.name: check for check in _toolcall_rule_checks(
+            OmhPaths(omh_home=unresolved, hermes_home=unresolved.parent / ".hermes")
+        )}
+        message = checks["toolcall_rules"].message
+        self.assertIn(str(toolcall_rules_path(str(unresolved)).resolve()), message)
 
     def test_one_bad_regex_among_three_reports_two_loaded_one_skipped(self):
         _write_rules(
@@ -581,7 +650,10 @@ class DoctorRulesVisibilityTest(unittest.TestCase):
         self.assertEqual(check["severity"], "warning")
         self.assertIn("failed 1 time(s)", check["message"])
         self.assertIn("write_file", check["message"])
-        self.assertIn("gate exploded", check["message"])
+        self.assertIn("raising RuntimeError", check["message"])
+        # Doctor's own output obeys the ledger's policy: the type, never the
+        # message, which here would have carried the sentinel.
+        self.assertNotIn("gate exploded", check["message"])
         self.assertIn("ALLOWED", check["message"])
 
     def test_a_gate_fault_never_fails_the_install(self):

@@ -244,7 +244,7 @@ class RuntimeBindingReviewTests(unittest.TestCase):
         record = read_toolcall_rule_faults(str(self.store))
         self.assertEqual(record['fault_count'], 1)
         self.assertEqual(record['last_tool'], 'read_file')
-        self.assertIn('RuntimeError: rule failure', record['last_error'])
+        self.assertEqual(record['last_error_type'], 'RuntimeError')
 
     def test_user_name_expansion_is_rejected_without_os_lookup(self):
         for value in ('~root/file', '~some-user', '~another\\file'):

@@ -230,8 +230,11 @@ All notable changes will be documented here.
   stopped running and nothing said so. The call is still allowed, which is the
   module's documented fail-open contract and avoids the #1674 shape where one
   broken state refuses every tool call in every session. What changes is that
-  it is no longer silent: the failure is counted with its own error text and
-  doctor reports it, naming the tool and saying the call was allowed.
+  it is no longer silent: the failure is counted where doctor reads it, and
+  doctor names the tool, the exception's type, and the fact that the call was
+  allowed. The exception's message is deliberately not stored: it is free
+  text from whatever raised, so it can quote the person's own rule pattern or
+  a tool argument, and that ledger is metadata-only.
 
 - **`omh --resume <id>` works, and the terminal now names the `omh` way
   back.** Bare `omh` is documented as the same door as `hermes`, but the door

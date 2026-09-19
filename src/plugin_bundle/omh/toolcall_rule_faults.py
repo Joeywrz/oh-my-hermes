@@ -18,8 +18,16 @@ this sits on the hottest path in the system, and a per-call log there is how
 a journal reached thousands of rows of noise. A fixed-shape record cannot
 grow.
 
-Metadata only. The tool name and the exception's own text are bounded and
-stored; tool arguments, rule text, and prompts are not.
+Metadata only, and by construction rather than by intention. The record
+carries the dispatched tool's name and the exception's TYPE name, nothing
+else from the failure. The exception's MESSAGE is deliberately dropped: it is
+free text produced by whatever raised, so a `re.error` quotes the rule's own
+pattern, a `KeyError` quotes a key, and any handler formatting a value with
+`!r` quotes an argument fragment. Storing it would have made this sentence a
+promise the code could not keep, on the same ledger whose redaction policy is
+`metadata_only`. The type name is enough for doctor to name the fault and for
+a person to recognise it; `_identifier_text` refuses anything that is not a
+dotted identifier, so no caller can put free text back in through this field.
 """
 
 from __future__ import annotations
@@ -35,8 +43,12 @@ from typing import Any
 TOOLCALL_RULE_FAULTS_SCHEMA_VERSION = "omh_toolcall_rule_faults/v1"
 TOOLCALL_RULE_FAULTS_FILE = "toolcall_rule_faults.json"
 
-MAX_FAULT_TEXT_CHARS = 200
+MAX_FAULT_TYPE_CHARS = 96
 MAX_FAULT_TOOL_CHARS = 96
+# What a value that is not a dotted identifier becomes. An exception type name
+# always is one; anything else reaching this field is a caller bug, and naming
+# it is more useful than storing whatever it was.
+UNKNOWN_FAULT_TYPE = "unrecognized_error_type"
 
 
 def toolcall_rule_faults_path(omh_home: str = "") -> Path:
@@ -50,7 +62,7 @@ def empty_toolcall_rule_faults() -> dict[str, Any]:
         "fault_count": 0,
         "first_fault_at": "",
         "last_fault_at": "",
-        "last_error": "",
+        "last_error_type": "",
         "last_tool": "",
         "unreadable": False,
     }
@@ -72,15 +84,19 @@ def read_toolcall_rule_faults(omh_home: str = "") -> dict[str, Any]:
 def record_toolcall_rule_fault(
     *,
     tool_name: object,
-    error: str,
+    error_type: str,
     observed_at: str,
     omh_home: str = "",
 ) -> dict[str, Any] | None:
     """Count one rule-gate evaluation failure. Best-effort, never raises.
 
+    ``error_type`` is the exception's type name and only that: pass
+    ``type(exc).__name__``, never ``str(exc)``. See the module docstring for
+    why the message is not stored.
+
     A lost increment under concurrency is acceptable and the read-modify-write
     below is deliberately unlocked: `omh doctor` asks whether the rule gate has
-    ever failed and what the last failure said, and neither answer depends on
+    ever failed and what kind of failure it was, and neither answer depends on
     the count being exact. What must not happen is this recorder breaking the
     hook it exists to report on, so every write fault returns None.
     """
@@ -92,7 +108,7 @@ def record_toolcall_rule_fault(
             "fault_count": int(current["fault_count"]) + 1,
             "first_fault_at": current["first_fault_at"] or observed_at,
             "last_fault_at": observed_at,
-            "last_error": _bounded(error, MAX_FAULT_TEXT_CHARS),
+            "last_error_type": _identifier_text(error_type, MAX_FAULT_TYPE_CHARS),
             "last_tool": _bounded(str(tool_name or ""), MAX_FAULT_TOOL_CHARS),
         }
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -107,6 +123,22 @@ def _bounded(value: str, limit: int) -> str:
     return text[:limit]
 
 
+def _identifier_text(value: str, limit: int) -> str:
+    """A dotted Python identifier, or the placeholder. Never free text.
+
+    This is what makes the module's metadata-only claim structural instead of
+    a convention. An exception type name passes; a message, a path, a pattern
+    or an argument fragment cannot, because none of them is an identifier.
+    """
+    text = str(value or "").strip()
+    if not text or len(text) > limit:
+        return UNKNOWN_FAULT_TYPE
+    parts = text.split(".")
+    if all(part.isidentifier() for part in parts):
+        return text
+    return UNKNOWN_FAULT_TYPE
+
+
 def _valid_fault_record(data: dict[str, Any]) -> bool:
     if data.get("schema_version") != TOOLCALL_RULE_FAULTS_SCHEMA_VERSION:
         return False
@@ -115,7 +147,7 @@ def _valid_fault_record(data: dict[str, Any]) -> bool:
         return False
     return all(
         isinstance(data.get(key, ""), str)
-        for key in ("first_fault_at", "last_fault_at", "last_error", "last_tool")
+        for key in ("first_fault_at", "last_fault_at", "last_error_type", "last_tool")
     )
 
 

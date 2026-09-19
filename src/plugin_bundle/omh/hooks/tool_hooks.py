@@ -94,9 +94,15 @@ def _rule_directive_or_recorded_fault(
         # did NOT anticipate. A narrower tuple would re-raise exactly the
         # unanticipated type this exists for, and that escape is the
         # unreported allow.
+        # The TYPE only, never `str(exc)`. An exception message is free text
+        # from whatever raised: a `re.error` quotes the person's own rule
+        # pattern, a `KeyError` quotes a key, a handler formatting with `!r`
+        # quotes an argument fragment. The record's redaction policy is
+        # metadata-only, and a type name is enough for doctor to name the
+        # fault.
         record_toolcall_rule_fault(
             tool_name=tool_name,
-            error=f"{type(exc).__name__}: {exc}",
+            error_type=type(exc).__name__,
             observed_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             omh_home=omh_home,
         )

@@ -1098,6 +1098,15 @@ def _toolcall_rule_checks(paths: OmhPaths) -> list[Check]:
     checks: list[Check] = []
     try:
         path = toolcall_rules_path(str(paths.omh_home))
+        # The message exists to be acted on, so it names the resolved path:
+        # the form a person can open and paste into `--path`. Measured, not
+        # assumed: `resolve_paths` already resolves `omh_home`, so this line
+        # is NOT what fixed the Windows CI failure -- that was a test
+        # comparing an 8.3 short temp path (`RUNNER~1`) against the long form
+        # doctor had correctly printed. It holds the guarantee where the
+        # message is built, for a caller that builds `OmhPaths` itself rather
+        # than through `resolve_paths`.
+        path = path.resolve()
         present = path.is_file()
     except (OSError, RuntimeError):
         path = paths.omh_home / "rules" / "toolcall-rules.json"
@@ -1194,8 +1203,11 @@ def _toolcall_rule_checks(paths: OmhPaths) -> list[Check]:
                 True,
                 f"Evaluating the tool-call rules failed {faults['fault_count']} time(s), last at "
                 f"{faults['last_fault_at'] or 'unknown time'} on tool "
-                f"{faults['last_tool'] or 'unknown'}: {faults['last_error'] or 'no error text'}. "
-                "Each failing call was ALLOWED, so the rules did not block it.",
+                f"{faults['last_tool'] or 'unknown'}, raising "
+                f"{faults['last_error_type'] or 'an unrecorded error type'}. "
+                "Each failing call was ALLOWED, so the rules did not block it. "
+                "Only the exception's type is recorded: its message is free text that can quote "
+                "a rule pattern or a tool argument, and this ledger is metadata-only.",
                 severity="warning",
                 remediation=(
                     "Validate the rules file, then restart Hermes Agent so the gate re-arms; "

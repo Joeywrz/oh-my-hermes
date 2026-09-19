@@ -1314,6 +1314,88 @@ class TodoHudTests(unittest.TestCase):
             self.assertEqual(len(full["display"]["todo_lines"]), 5)
             self.assertNotIn("more", full["display"]["todo_lines"][-1])
 
+    def test_hud_row_says_the_item_is_waiting_and_on_what(self) -> None:
+        # #1553: `blocked_reason` had exactly one consumer, the turn-end
+        # continuation directive, which stops the plan line without saying
+        # anything to the person. The item sat in `active` looking identical
+        # to one that is stuck -- the reading the stall hint exists to
+        # prevent. The row states what the plan RECORDED; nothing here claims
+        # to have observed anything blocking.
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = [
+                {"text": "Land the fix", "state": "done"},
+                {"text": "Open the PR", "state": "active", "blocked_reason": "owner approval"},
+                {"text": "Announce", "state": "pending"},
+            ]
+            self._write_todo(root / ".omh", self._record(items=items))
+
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+
+            self.assertEqual(
+                payload["display"]["todo_lines"],
+                [
+                    "Todo · Foundation   1/3",
+                    "[✓] Land the fix",
+                    "[•] Open the PR (waiting: owner approval)",
+                    "[ ] Announce",
+                ],
+            )
+
+    def test_hud_row_renders_a_reason_on_whatever_item_carries_it(self) -> None:
+        # The field is per item and its own state, not a fourth item state
+        # (`BlockedReasonFieldStoreTest`). Suppressing it on any row is how it
+        # came to be invisible, so the render is not gated on `active`.
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = [
+                {"text": "Ship it", "state": "active"},
+                {"text": "Cut the release", "state": "pending", "blocked_reason": "SRE window"},
+            ]
+            self._write_todo(root / ".omh", self._record(items=items))
+
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+
+            self.assertEqual(
+                payload["display"]["todo_lines"],
+                [
+                    "Todo · Foundation   0/2",
+                    "[•] Ship it",
+                    "[ ] Cut the release (waiting: SRE window)",
+                ],
+            )
+
+    def test_hud_cuts_a_long_reason_while_the_projected_field_stays_whole(self) -> None:
+        # Truncation is a render bound and must stay one: the stop criterion
+        # reads the projected field, and
+        # `test_a_recorded_reason_is_read_whole_however_long_the_item_is`
+        # (tests/test_plan_continuation_driver.py) pins that it reads it whole.
+        from omh.plugin_bundle.omh.runtime_reader import (
+            TODO_BLOCKED_REASON_DISPLAY_CHARS,
+            read_omh_hud,
+        )
+
+        reason = "waiting on the owner to approve the migration plan before the cutover window opens"
+        self.assertGreater(len(reason), TODO_BLOCKED_REASON_DISPLAY_CHARS)
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = [{"text": "Cut over", "state": "active", "blocked_reason": reason}]
+            self._write_todo(root / ".omh", self._record(items=items))
+
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+
+            cut = reason[: TODO_BLOCKED_REASON_DISPLAY_CHARS - 1] + "…"
+            self.assertEqual(len(cut), TODO_BLOCKED_REASON_DISPLAY_CHARS)
+            self.assertEqual(
+                payload["display"]["todo_lines"][1],
+                f"[•] Cut over (waiting: {cut})",
+            )
+            self.assertEqual(payload["todo"]["items"][0]["blocked_reason"], reason)
+
     def test_hud_collapses_all_done_todo_to_single_header_line(self) -> None:
         from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
 

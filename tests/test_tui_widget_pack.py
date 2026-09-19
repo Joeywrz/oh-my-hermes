@@ -11,7 +11,56 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from _cli_harness import run_cli
+from omh.plugin_bundle.omh.runtime_reader import (
+    TODO_BLOCKED_REASON_DISPLAY_CHARS,
+    read_omh_hud,
+)
+from omh.plugin_bundle.omh.todo_store import build_todo_record, write_todo
 from omh.tui_widget_pack import TuiWidgetInstallError, install_tui_widget, widget_payload
+
+NODE = shutil.which("node")
+
+# Renders one dock-top frame of the installed-form widget against a payload
+# handed in on disk, and reports every row as its text plus the colour in force
+# at each string leaf. The panel takes no input, so the harness needs no key
+# loop: it registers the apps with a fake SDK, feeds one snapshot through the
+# app's own `reduce`, and reads back the tree `render` returns.
+TODO_PANEL_HARNESS = r"""
+import { readFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
+const [widgetPath, payloadPath, colsArg] = process.argv.slice(2)
+const apps = []
+const sdk = {
+  Box: 'Box', Dialog: 'Dialog', Overlay: 'Overlay', Text: 'Text',
+  // Function components expand so their text is in the frame, as on screen.
+  h: (type, props, ...children) => (typeof type === 'function' ? type({ ...(props || {}), children }) : { type, props, children }),
+  defineWidgetApp: app => { apps.push(app); return app },
+  openWidget() {},
+  updateWidget() {},
+}
+const mod = await import(pathToFileURL(widgetPath).href)
+mod.default(sdk)
+const app = apps.find(candidate => candidate.id === 'omh-todo')
+const report = (() => {
+  if (!app) return { error: 'omh-todo not registered' }
+  const theme = { color: { accent: 'accent', border: 'border', error: 'error', label: 'label', muted: 'muted', ok: 'ok', primary: 'primary', statusFg: 'statusFg', text: 'text', warn: 'warn' } }
+  const payload = JSON.parse(readFileSync(payloadPath, 'utf8'))
+  const state = app.reduce(app.init(''), { kind: 'snapshot', payload })
+  const parts = (node, color) => {
+    if (node === null || node === undefined || node === false) return []
+    if (Array.isArray(node)) return node.flatMap(child => parts(child, color))
+    if (typeof node === 'string') return node ? [{ color, text: node }] : []
+    if (typeof node === 'object') return parts(node.children, node.props && node.props.color !== undefined ? node.props.color : color)
+    return []
+  }
+  const frame = app.render({ cols: Number(colsArg), rows: 40, state, t: theme })
+  const children = frame && Array.isArray(frame.children) ? frame.children : []
+  const rows = children.map(child => parts(child, '')).filter(row => row.length)
+  return { rows: rows.map(row => ({ text: row.map(part => part.text).join(''), parts: row })) }
+})()
+// A pipe write is asynchronous; exiting before it drains truncates the report.
+process.stdout.write(`${JSON.stringify(report)}\n`, () => process.exit(0))
+"""
 
 
 class TuiWidgetPackTests(unittest.TestCase):
@@ -957,6 +1006,160 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertNotIn("setInterval(", widget)
         for forbidden in ("payload.cwd", "payload.branch", "payload.context", "payload.cost"):
             self.assertNotIn(forbidden, widget)
+
+
+@unittest.skipUnless(NODE, "node is not installed; the widget harness needs it")
+class TodoPanelWaitingRowTests(unittest.TestCase):
+    """The plan panel's half of #1553: an item says it is waiting and on what.
+
+    Driven end to end rather than pinned as a string: the plan goes through
+    the store, the payload comes from `read_omh_hud`, and the installed-form
+    widget renders it under node. What the assertions read is the row a person
+    would see, so a clause that exists in the source but never reaches a row
+    does not pass.
+    """
+
+    def _rows(self, items: list[dict], *, cols: int = 120, edit=None) -> list[dict]:
+        """Render one frame and return its rows; the payload lands on `self`.
+
+        `last_payload` is what the widget was handed, so a test can read the
+        record beside the row it produced without a second reader call.
+        """
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / "omh"
+            hermes_home = root / "hermes"
+            omh_home.mkdir()
+            hermes_home.mkdir()
+            write_todo(omh_home, build_todo_record("init", items, source="test"))
+            payload = read_omh_hud(omh_home, hermes_home)
+            if edit is not None:
+                edit(payload)
+            self.last_payload = payload
+            payload_file = root / "payload.json"
+            payload_file.write_text(json.dumps(payload), encoding="utf-8")
+            widget = root / "omh-status.mjs"
+            widget.write_bytes(widget_payload(Path(sys.executable)))
+            harness = root / "todo-harness.mjs"
+            harness.write_text(TODO_PANEL_HARNESS, encoding="utf-8")
+            completed = subprocess.run(
+                [NODE, str(harness), str(widget), str(payload_file), str(cols)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=120,
+                env={**os.environ, "HERMES_HOME": str(hermes_home), "HOME": str(root)},
+                cwd=str(root),
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            result = json.loads(completed.stdout.strip().splitlines()[-1])
+            self.assertNotIn("error", result, result)
+            return result["rows"]
+
+    def _waiting_row(self, rows: list[dict]) -> dict:
+        """The one row carrying a waiting clause, named so its absence reads."""
+        waiting = [row for row in rows if "(waiting:" in row["text"]]
+        self.assertEqual(len(waiting), 1, [row["text"] for row in rows])
+        return waiting[0]
+
+    def test_a_waiting_item_says_so_on_its_own_row(self) -> None:
+        rows = self._rows(
+            [
+                {"text": "Land the fix", "state": "done"},
+                {"text": "Open the PR", "state": "active", "blocked_reason": "owner approval"},
+                {"text": "Announce", "state": "pending"},
+            ]
+        )
+
+        texts = [row["text"] for row in rows]
+        self.assertIn("[•] Open the PR (waiting: owner approval)", texts)
+        # The clause carries the warn tone the widget already uses for "this
+        # is not what it looks like at a glance"; the rest of the row keeps
+        # the colour its state earns.
+        self.assertIn(
+            {"color": "warn", "text": " (waiting: owner approval)"},
+            self._waiting_row(rows)["parts"],
+        )
+        # Rows with nothing recorded say nothing new.
+        self.assertIn("[ ] Announce", texts)
+        self.assertNotIn("waiting", " ".join(text for text in texts if "Announce" in text))
+
+    def test_the_reason_renders_on_a_row_that_is_not_the_active_one(self) -> None:
+        rows = self._rows(
+            [
+                {"text": "Ship it", "state": "active"},
+                {"text": "Cut the release", "state": "pending", "blocked_reason": "SRE window"},
+            ]
+        )
+
+        self.assertIn(
+            "[ ] Cut the release (waiting: SRE window)",
+            [row["text"] for row in rows],
+        )
+
+    def test_the_reason_reads_ahead_of_the_unchanged_hint_on_one_row(self) -> None:
+        # Where a row carries both, the recorded reason is what explains the
+        # age, so it reads first. The stall verdict belongs to the reader
+        # (`_todo_stall`), which this is not testing: the payload is edited to
+        # the shape it reports past the threshold with nothing open, and the
+        # panel is what the assertion reads.
+        def stalled(payload: dict) -> None:
+            payload["activity"] = {
+                **payload["activity"],
+                "post_tool_call_observed": True,
+                "live": False,
+            }
+            payload["todo"]["stall"] = {**payload["todo"]["stall"], "status": "unchanged"}
+            payload["todo"]["updated_age_seconds"] = 900
+
+        rows = self._rows(
+            [{"text": "Cut over", "state": "active", "blocked_reason": "SRE window"}],
+            edit=stalled,
+        )
+
+        self.assertIn(
+            "[•] Cut over (waiting: SRE window) (unchanged 15m 0s)",
+            [row["text"] for row in rows],
+        )
+
+    def test_a_long_reason_is_cut_on_the_row_and_left_whole_in_the_payload(self) -> None:
+        # Truncation is a render concern on both surfaces. The widget cuts in
+        # terminal cells, so the ceiling it shares with the text HUD line is
+        # the row's, never the record's -- `blocked_reason` reaches the widget
+        # whole and the stop criterion reads it whole.
+        reason = "waiting on the owner to approve the migration plan before the cutover window opens"
+        self.assertGreater(len(reason), TODO_BLOCKED_REASON_DISPLAY_CHARS)
+
+        rows = self._rows([{"text": "Cut over", "state": "active", "blocked_reason": reason}])
+
+        waiting = self._waiting_row(rows)
+        clause = next(part["text"] for part in waiting["parts"] if part["text"].startswith(" (waiting:"))
+        shown = clause[len(" (waiting: ") : -len(")")]
+        self.assertTrue(shown.endswith("…"), clause)
+        self.assertEqual(len(shown), TODO_BLOCKED_REASON_DISPLAY_CHARS)
+        self.assertTrue(reason.startswith(shown[:-1]), clause)
+        self.assertLess(len(shown), len(reason))
+        self.assertEqual(self.last_payload["todo"]["items"][0]["blocked_reason"], reason)
+
+    def test_a_narrow_terminal_keeps_both_the_item_text_and_the_waiting_clause(self) -> None:
+        # The reason takes a bounded share of the row and the item text gives
+        # back exactly that much. Without the give-back a long text fills the
+        # row and `truncate-end` drops the clause -- which is the display the
+        # field exists to fix, on precisely the items that most often carry one.
+        rows = self._rows(
+            [
+                {
+                    "text": "Verify the retry path end to end across every shard and record what each one observed",
+                    "state": "active",
+                    "blocked_reason": "the staging cluster is down until the maintenance window closes",
+                }
+            ],
+            cols=80,
+        )
+
+        waiting = self._waiting_row(rows)
+        self.assertIn("Verify the retry path", waiting["text"])
+        self.assertLessEqual(len(waiting["text"]), 80)
 
 
 if __name__ == "__main__":

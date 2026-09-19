@@ -1,6 +1,6 @@
 """Composed ``transform_tool_result`` seam.
 
-This is the single registered entry for the hook; it chains the four OMH
+This is the single registered entry for the hook; it chains the five OMH
 result transforms in a fixed order:
 
 1. Code-mode discipline annotation — the first ``execute_code`` result of a
@@ -9,24 +9,39 @@ result transforms in a fixed order:
 2. Engagement nudges — a session that has changed several files without
    declaring a plan, or searched repeatedly without routing a lane, gets a
    bounded, budgeted, self-latching nudge (``engagement_nudges.py``).
-3. Kanban readback bounding — a ``kanban_show`` / ``kanban_list`` /
+3. Truncated-read recovery — a ``read_file`` refusal or ``unchanged`` stub for
+   a path whose earlier read was cut short gains a bounded note naming the
+   lines that WERE returned and the offset that continues past them, because
+   the host's refusal asserts the model already has content no read ever
+   returned (``truncated_read_recovery.py``).
+4. Kanban readback bounding — a ``kanban_show`` / ``kanban_list`` /
    ``kanban_attachments`` result is cut to a field and payload ceiling and
    prefixed with one evidence-vocabulary label line, so a worker's unbounded
    completion summary cannot flood the main session and a self-reported
    ``completed`` never reads as verified (``kanban_readback.py``).
-4. Full-width diff band padding — tool-result diffs get their painted lines
+5. Full-width diff band padding — tool-result diffs get their painted lines
    padded to a uniform band (``diff_presentation.py``).
 
 Every transform is fail-open: anything one declines passes through to the
 next, and ``None`` from all of them leaves the host result untouched. Order
-matters only when one result matches more than one pass (an execute_code
-result whose output embeds a diff): the annotating passes run before the diff
-pass so it still sees and pads the final string.
+matters when one result matches more than one pass, which happens two ways.
 
-The three annotating passes cannot collide. They watch disjoint tool sets —
-``execute_code`` for the first, the file-mutating and search/read tools for the
-second, the ``kanban_*`` readback tools for the third — so no result is ever
-handed to two of them, and each writes its own JSON key.
+**An annotating pass and the diff pass** (an execute_code result whose output
+embeds a diff): the annotating passes run first so the diff pass still sees
+and pads the final string.
+
+**Two annotating passes.** Their tool sets are NOT disjoint: engagement nudges
+watch ``read_file`` among their direct-read tools, and truncated-read recovery
+watches ``read_file`` alone, so one refused re-read can match both and leave
+with both keys. They compose rather than collide because each pass parses the
+string it is HANDED and re-serialises it, and each writes a key no other pass
+writes (``omh_guidance``, ``omh_engagement``, ``omh_truncated_read``,
+``omh_readback``). In this order the nudge lands first, so the recovery pass
+parses the already-nudged object and adds its key beside the nudge; neither
+reads the other's key, so swapping the two would produce the same two keys in
+the other insertion order. The composed case is pinned in
+``tests/test_truncated_read_recovery.py``. Code-mode guidance still cannot
+meet either of them: it watches ``execute_code`` and nothing else.
 """
 
 from __future__ import annotations
@@ -36,6 +51,7 @@ from typing import Any
 from ..code_mode_guidance import annotate_execute_code_result
 from ..engagement_nudges import annotate_engagement_nudge
 from ..kanban_readback import transform_kanban_readback
+from ..truncated_read_recovery import annotate_truncated_read_recovery
 from .diff_presentation import transform_tool_result as _pad_diff_result
 
 
@@ -64,6 +80,19 @@ def transform_tool_result(**kwargs: Any) -> str | None:
     if nudged is not None:
         annotated = nudged
         kwargs = {**kwargs, "result": nudged}
+    recovered = annotate_truncated_read_recovery(
+        tool_name=kwargs.get("tool_name"),
+        # The host passes this seam the call's arguments, already coerced to
+        # the tool's schema types (`model_tools.handle_function_call` runs
+        # `coerce_tool_args` before dispatch). This pass needs them for the
+        # path it keys on and the offset the call asked for.
+        args=kwargs.get("args"),
+        result=kwargs.get("result"),
+        session_id=session_id,
+    )
+    if recovered is not None:
+        annotated = recovered
+        kwargs = {**kwargs, "result": recovered}
     bounded = transform_kanban_readback(kwargs.get("tool_name"), kwargs.get("result"))
     if bounded is not None:
         annotated = bounded

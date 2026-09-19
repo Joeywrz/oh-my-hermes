@@ -310,7 +310,10 @@ operator declined to migrate. Reading the key proves it. OMH normally reports
 the inconsistency and stops there. The narrow display exception is the branded
 TUI choice: fresh canonical configs default to `display.interface: tui` and
 `display.skin: omh`; interactive setup/update may replace canonical display
-values only after a default-Yes confirmation (or `--yes`). No,
+values only after a default-Yes confirmation (or `--yes`), which also sets
+`display.sections` to collapsed (`thinking`, `tools`, `subagents`) — that key
+is consent-only and unset-only per section, never replacing a value the
+person set. No,
 `--no-omh-tui`, and every noncanonical YAML shape preserve the existing
 display choice byte-for-byte. JSON suppresses prompting but `--yes` remains
 explicit consent; without `--yes`, JSON preserves explicit canonical values.
@@ -361,8 +364,10 @@ overwrite on setup/update — the plugin bundle, the widget file, the identity
 skin (`skins/omh.yaml`), managed skills, and the config keys OMH inserted.
 The branded-TUI consent is the narrow exception for existing canonical config:
 accepting the interactive default or passing `--yes` may set
-`display.interface: tui` and `display.skin: omh` so bare `omh` and `hermes`
-open the same surface. Already-active installs are not prompted. Declining,
+`display.interface: tui`, `display.skin: omh`, and a collapsed
+`display.sections` so bare `omh` and `hermes` open the same surface and a long
+run does not bury the conversation. Installs already carrying the first two
+are not prompted, and take the third through `--yes`. Declining,
 passing `--no-omh-tui`, or using a noncanonical YAML shape leaves the display
 configuration untouched. Everything else under a host root is user-owned and
 preserved.

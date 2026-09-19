@@ -9,9 +9,12 @@ from _local_package import load_local_package
 
 load_local_package()
 from omh.config_adapter import (
+    COLLAPSED_DISPLAY_SECTIONS,
     external_dir_registered,
+    activate_display_sections,
     activate_omh_skin,
     activate_tui_interface,
+    display_sections_selection,
     display_interface_selection,
     ensure_external_dir,
     ensure_omh_skin,
@@ -98,6 +101,22 @@ class ConfigAdapterTests(unittest.TestCase):
             ('\ufeffdisplay:\n  skin: default\n', lambda text: activate_omh_skin(text, "omh")),
             ('display:\n  interface: # choices\n    - cli\n', activate_tui_interface),
             ('display:\n  skin: # theme\n    name: default\n', lambda text: activate_omh_skin(text, "omh")),
+            ('"display":\n  sections:\n    tools: expanded\n', activate_display_sections),
+            ("'display':\n  sections:\n    tools: expanded\n", activate_display_sections),
+            ('display:\n  "sections":\n    tools: expanded\n', activate_display_sections),
+            ('{"display": {"sections": {"tools": "expanded"}}}\n', activate_display_sections),
+            ('display:\n  &key sections:\n    tools: expanded\n', activate_display_sections),
+            ('display:\n  - sections:\n      tools: expanded\n', activate_display_sections),
+            ('\ufeffdisplay:\n  sections:\n    tools: expanded\n', activate_display_sections),
+            ('display:\n  sections: {}\n', activate_display_sections),
+            ('display:\n  sections: {tools: expanded}\n', activate_display_sections),
+            ('display:\n  sections: none\n', activate_display_sections),
+            ('display:\n  sections: |\n    text\n', activate_display_sections),
+            ('display.sections:\n  tools: expanded\n', activate_display_sections),
+            ('display:\n  sections:\n    tools:\n      mode: expanded\n', activate_display_sections),
+            ('display:\n  sections:\n    tools: a\ndisplay:\n  compact: true\n', activate_display_sections),
+            ('display:\n  sections:\n    tools: a\n  sections:\n    thinking: b\n', activate_display_sections),
+            ('model: local\n---\ndisplay:\n  sections:\n    tools: expanded\n', activate_display_sections),
         )
         for original, activate in fixtures:
             with self.subTest(original=original):
@@ -298,3 +317,117 @@ class ExternalDirRegistrationTests(unittest.TestCase):
     def test_a_textual_match_needs_no_directory_on_disk(self) -> None:
         self.assertTrue(external_dir_registered(["/nowhere/skills"], "/nowhere/skills"))
         self.assertFalse(external_dir_registered(["/nowhere/skills"], "/elsewhere/skills"))
+
+
+class DisplaySectionsConsentTests(unittest.TestCase):
+    """#1700: the third key of the branded-TUI bundle.
+
+    Hermes renders thinking and tool sections expanded by default, so on a
+    long run the prompt scrolls out of sight. Collapsing them is a display
+    choice, which puts it inside the one `CONTEXT.md` exception to "OMH
+    reports and stops" -- and therefore under that exception's rules.
+
+    Narrower than the two scalars in the bundle in exactly one way, pinned
+    below: consent lets those replace a stock canonical value, while every
+    section key here is unset-only, because Hermes' default and an explicit
+    `expanded` look the same in behavior and differ in provenance.
+    """
+
+    def test_a_fresh_canonical_config_gains_all_three_keys(self) -> None:
+        change = activate_display_sections("")
+        self.assertTrue(change.changed)
+        self.assertEqual(
+            change.text,
+            "display:\n  sections:\n    thinking: collapsed\n    tools: collapsed\n"
+            "    subagents: collapsed\n",
+        )
+        self.assertEqual(
+            display_sections_selection(change.text),
+            {key: value for key, value in COLLAPSED_DISPLAY_SECTIONS},
+        )
+
+    def test_an_existing_display_block_keeps_its_other_keys(self) -> None:
+        change = activate_display_sections("display:\n  interface: tui\n  compact: true\n")
+        self.assertTrue(change.changed)
+        self.assertIn("  interface: tui\n", change.text)
+        self.assertIn("  compact: true\n", change.text)
+        self.assertIn("  sections:\n    thinking: collapsed\n", change.text)
+
+    def test_a_config_without_a_display_block_gets_one_appended(self) -> None:
+        change = activate_display_sections("model: local\n")
+        self.assertTrue(change.changed)
+        self.assertTrue(change.text.startswith("model: local\n"))
+        self.assertIn("display:\n  sections:\n", change.text)
+
+    def test_an_explicit_user_value_is_preserved_per_key(self) -> None:
+        change = activate_display_sections("display:\n  sections:\n    tools: expanded\n")
+        self.assertTrue(change.changed)
+        self.assertIn("    tools: expanded\n", change.text)
+        self.assertEqual(
+            display_sections_selection(change.text),
+            {"thinking": "collapsed", "subagents": "collapsed", "tools": "expanded"},
+        )
+        self.assertIn("kept user value(s) for tools", change.message)
+
+    def test_every_key_already_set_is_left_byte_identical(self) -> None:
+        # The owner machine's shape: all three present and all three
+        # `expanded`. The refusal must not report them as collapsed.
+        original = (
+            "display:\n  sections:\n    thinking: expanded\n    tools: expanded\n"
+            "    subagents: expanded\n"
+        )
+        change = activate_display_sections(original)
+        self.assertFalse(change.changed)
+        self.assertEqual(change.text, original)
+        self.assertNotIn("collapsed", change.message)
+        self.assertIn("leaving those values to the user", change.message)
+
+    def test_it_is_idempotent(self) -> None:
+        first = activate_display_sections("display:\n  interface: tui\n")
+        second = activate_display_sections(first.text)
+        self.assertTrue(first.changed)
+        self.assertFalse(second.changed)
+        self.assertEqual(second.text, first.text)
+
+    def test_a_comment_between_display_keys_survives(self) -> None:
+        original = "display:\n  interface: tui\n  # keep this note\n  skin: omh\n"
+        change = activate_display_sections(original)
+        self.assertTrue(change.changed)
+        self.assertIn("  # keep this note\n  skin: omh\n", change.text)
+
+    def test_a_comment_inside_the_sections_block_survives(self) -> None:
+        original = "display:\n  sections:\n    # tools stay open on purpose\n    tools: expanded\n"
+        change = activate_display_sections(original)
+        self.assertTrue(change.changed)
+        self.assertIn("    # tools stay open on purpose\n    tools: expanded\n", change.text)
+
+    def test_a_noncanonical_sections_shape_is_refused_and_reported(self) -> None:
+        for label, original, expected in (
+            ("flow empty", "display:\n  sections: {}\n", "non-block"),
+            ("flow mapping", "display:\n  sections: {tools: expanded}\n", "non-block"),
+            ("block scalar", "display:\n  sections: |\n    text\n", "non-block"),
+            ("dotted", "display.sections:\n  tools: expanded\n", "dotted"),
+            (
+                "deeper nesting",
+                "display:\n  sections:\n    tools:\n      mode: expanded\n",
+                "deeper",
+            ),
+            (
+                "duplicate sections keys",
+                "display:\n  sections:\n    tools: a\n  sections:\n    thinking: b\n",
+                "duplicate",
+            ),
+        ):
+            with self.subTest(label=label):
+                change = activate_display_sections(original)
+                self.assertFalse(change.changed)
+                self.assertEqual(change.text, original)
+                self.assertIn(expected, change.message)
+                self.assertEqual(display_sections_selection(original), {})
+
+    def test_an_unknown_section_key_is_left_alone(self) -> None:
+        # OMH owns three names. Anything else in that mapping is the person's.
+        change = activate_display_sections("display:\n  sections:\n    citations: expanded\n")
+        self.assertTrue(change.changed)
+        self.assertIn("    citations: expanded\n", change.text)
+        self.assertEqual(display_sections_selection(change.text)["citations"], "expanded")

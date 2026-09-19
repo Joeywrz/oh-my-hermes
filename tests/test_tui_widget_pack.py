@@ -9,6 +9,7 @@ import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from _cli_harness import run_cli
 from omh.plugin_bundle.omh.runtime_reader import (
@@ -1009,6 +1010,118 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertNotIn("setInterval(", widget)
         for forbidden in ("payload.cwd", "payload.branch", "payload.context", "payload.cost"):
             self.assertNotIn(forbidden, widget)
+
+
+class BrandedTuiSectionsConsentTests(unittest.TestCase):
+    """#1700: `display.sections` rides the same consent as the other two keys.
+
+    Consent-only, so `--yes` writes it and a plain non-interactive setup does
+    not. That asymmetry with `display.interface` is deliberate: a fresh
+    install that lands in the classic REPL cannot show the HUD at all, while
+    collapsing somebody's transcript is a change they should be told about.
+    """
+
+    def _setup(self, config_text: str, *extra: str) -> tuple[Path, dict]:
+        root = Path(self.enterContext(TemporaryDirectory()))
+        hermes_home = root / ".hermes"
+        config = hermes_home / "config.yaml"
+        config.parent.mkdir(parents=True)
+        config.write_text(config_text, encoding="utf-8")
+        status, stdout, stderr = run_cli(
+            [
+                "--omh-home", str(root / ".omh"),
+                "--hermes-home", str(hermes_home),
+                "setup", "--json", *extra,
+            ],
+            output_json=False,
+        )
+        self.assertEqual((status, stderr), (0, ""))
+        return config, json.loads(stdout)["steps"]["apply"]
+
+    def test_yes_collapses_all_three_sections_on_a_fresh_canonical_config(self) -> None:
+        config, apply = self._setup("display:\n  compact: true\n", "--yes")
+        config_text = config.read_text(encoding="utf-8")
+        for key in ("thinking", "tools", "subagents"):
+            self.assertIn(f"    {key}: collapsed\n", config_text)
+        self.assertIn("  compact: true", config_text)
+        self.assertTrue(apply["display_sections"]["changed"])
+        self.assertEqual(
+            apply["display_sections"]["selected"],
+            {"thinking": "collapsed", "tools": "collapsed", "subagents": "collapsed"},
+        )
+        self.assertEqual(apply["display_sections"]["written"], ["subagents", "thinking", "tools"])
+
+    def test_yes_preserves_an_explicit_section_value_and_records_only_what_it_wrote(self) -> None:
+        config, apply = self._setup(
+            "display:\n  sections:\n    tools: expanded\n", "--yes"
+        )
+        config_text = config.read_text(encoding="utf-8")
+        self.assertIn("    tools: expanded\n", config_text)
+        self.assertIn("    thinking: collapsed\n", config_text)
+        # `written` is what uninstall may reverse, so the preserved key is
+        # absent from it even though the writer was asked for all three.
+        self.assertEqual(apply["display_sections"]["written"], ["subagents", "thinking"])
+
+    def test_declining_leaves_the_display_block_byte_identical(self) -> None:
+        # Setup still registers the skills dir, the plugin and the memory
+        # provider, so the file as a whole changes. What a declined prompt
+        # must not touch is the display block, to the byte.
+        original = "display:\n  interface: cli\n  skin: default\n"
+        config, apply = self._setup(original, "--no-omh-tui")
+        self.assertTrue(config.read_text(encoding="utf-8").startswith(original))
+        self.assertNotIn("sections:", config.read_text(encoding="utf-8"))
+        self.assertFalse(apply["display_sections"]["changed"])
+        self.assertIn("declined", apply["display_sections"]["message"])
+        self.assertEqual(apply["display_sections"]["written"], [])
+
+    def test_a_dry_run_never_persists_the_sections(self) -> None:
+        original = "display:\n  compact: true\n"
+        config, apply = self._setup(original, "--yes", "--dry-run")
+        self.assertEqual(config.read_text(encoding="utf-8"), original)
+        self.assertNotIn("sections:", config.read_text(encoding="utf-8"))
+        self.assertTrue(apply["dry_run"])
+        self.assertTrue(apply["display_sections"]["changed"])
+
+    def test_without_consent_the_sections_are_not_written(self) -> None:
+        original = "display:\n  compact: true\n"
+        config, apply = self._setup(original)
+        config_text = config.read_text(encoding="utf-8")
+        self.assertIn("  interface: tui\n", config_text)
+        self.assertNotIn("sections:", config_text)
+        self.assertFalse(apply["display_sections"]["changed"])
+        self.assertIn("--yes", apply["display_sections"]["message"])
+
+    def test_an_install_missing_only_the_sections_is_not_re_prompted(self) -> None:
+        # A decision, pinned by behaviour. `display.sections` joined the
+        # bundle this prompt consents to, but the prompt's trigger stays the
+        # two keys it always was. Widening it to "is the bundle complete"
+        # would be satisfied by nothing OMH writes on its own -- a plain
+        # non-interactive setup writes interface and skin and never the
+        # sections -- so every later interactive run would ask again about a
+        # state OMH itself created. `--yes` is how this install takes the
+        # third key.
+        root = Path(self.enterContext(TemporaryDirectory()))
+        hermes_home = root / ".hermes"
+        config = hermes_home / "config.yaml"
+        config.parent.mkdir(parents=True)
+        config.write_text("display:\n  interface: tui\n  skin: omh\n", encoding="utf-8")
+        base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(hermes_home)]
+
+        status, _stdout, stderr = run_cli(base + ["setup", "--json"], output_json=False)
+        self.assertEqual((status, stderr), (0, ""))
+        with patch("omh.commands.setup._ask_yes_no") as yes_no:
+            status, _stdout, stderr = run_cli(base + ["update", "--interactive"], output_json=False)
+        self.assertEqual(status, 0, stderr)
+        yes_no.assert_not_called()
+        self.assertNotIn("sections:", config.read_text(encoding="utf-8"))
+
+    def test_a_noncanonical_shape_is_preserved_even_under_yes(self) -> None:
+        original = "display:\n  sections: {tools: expanded}\n"
+        config, apply = self._setup(original, "--yes")
+        self.assertIn("  sections: {tools: expanded}\n", config.read_text(encoding="utf-8"))
+        self.assertFalse(apply["display_sections"]["changed"])
+        self.assertIn("non-block", apply["display_sections"]["message"])
+
 
 
 @unittest.skipUnless(NODE, "node is not installed; the widget harness needs it")

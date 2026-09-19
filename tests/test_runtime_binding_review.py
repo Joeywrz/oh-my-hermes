@@ -133,7 +133,8 @@ class RuntimeBindingReviewTests(unittest.TestCase):
 
     def test_binding_fault_precedes_hook_io_and_pre_tool_blocks(self):
         for module, name in ((llm_hooks, 'pre_llm_call'), (tool_hooks, 'pre_tool_call'),
-                             (tool_hooks, 'post_tool_call'), (session_hooks, 'on_session_end')):
+                             (tool_hooks, 'post_tool_call'), (session_hooks, 'on_session_end'),
+                             (session_hooks, 'on_session_start')):
             for home_key in ('omh_home', 'hermes_home'):
                 with self.subTest(hook=name, home=home_key):
                     def bind(value=None, *, hermes=False):
@@ -203,7 +204,8 @@ class RuntimeBindingReviewTests(unittest.TestCase):
         # is no rules file to leave unread -- the hook degrades exactly as the
         # observer hooks already did.
         for module, name in ((llm_hooks, 'pre_llm_call'), (tool_hooks, 'pre_tool_call'),
-                             (tool_hooks, 'post_tool_call'), (session_hooks, 'on_session_end')):
+                             (tool_hooks, 'post_tool_call'), (session_hooks, 'on_session_end'),
+                             (session_hooks, 'on_session_start')):
             with self.subTest(hook=name):
                 with patch.object(paths, 'plugin_home',
                                   side_effect=paths.UnattributableSessionError('PRIVATE_PATH')), \
@@ -228,9 +230,23 @@ class RuntimeBindingReviewTests(unittest.TestCase):
         self.assertNotIn('Tool call blocked', json.dumps(result))
 
     def test_tool_rule_failure_is_not_swallowed_by_binding_guard(self):
+        # The original claim stands: the binding guard's except tuple must not
+        # absorb a rule-gate failure into a binding degradation, because the
+        # two mean different things to the host. What #1732 changed is where
+        # the failure lands -- its own handler, which allows the call (the
+        # rules module's documented fail-open contract) and records the error
+        # where doctor reads it, instead of escaping to a host that logs one
+        # WARNING and then DEBUG only. So: no degradation payload, no block
+        # directive, and a fault carrying this exception's own text.
+        from omh.plugin_bundle.omh.toolcall_rule_faults import read_toolcall_rule_faults
+
         with patch.object(tool_hooks, 'toolcall_rule_directive', side_effect=RuntimeError('rule failure')):
-            with self.assertRaisesRegex(RuntimeError, 'rule failure'):
-                tool_hooks.pre_tool_call(tool_name='read_file')
+            result = tool_hooks.pre_tool_call(tool_name='read_file')
+        self.assertIsNone(result)
+        record = read_toolcall_rule_faults(str(self.store))
+        self.assertEqual(record['fault_count'], 1)
+        self.assertEqual(record['last_tool'], 'read_file')
+        self.assertEqual(record['last_error_type'], 'RuntimeError')
 
     def test_user_name_expansion_is_rejected_without_os_lookup(self):
         for value in ('~root/file', '~some-user', '~another\\file'):

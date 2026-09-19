@@ -26,6 +26,7 @@ provides_tools:
   - omh_todo
 provides_hooks:
   - on_session_end
+  - on_session_start
   - post_tool_call
   - pre_llm_call
   - pre_tool_call

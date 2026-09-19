@@ -407,6 +407,163 @@ def _activate_display_scalar(config_text: str, key: str, value: str) -> ConfigCh
     return ConfigChange(True, f"inserted display.{key}", "\n".join(lines) + "\n")
 
 
+COLLAPSED_DISPLAY_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("thinking", "collapsed"),
+    ("tools", "collapsed"),
+    ("subagents", "collapsed"),
+)
+
+
+def display_sections_selection(config_text: str) -> dict[str, str]:
+    """The canonical `display.sections` scalars, or {} for any other shape.
+
+    Read-only companion to the writer below, and the surface the apply result
+    reports so `omh uninstall` (#1725) can later tell what setup wrote from
+    what a person chose.
+    """
+    lines = config_text.splitlines()
+    if _display_edit_guard(lines):
+        return {}
+    located = _canonical_display_sections(lines)
+    if located is None or isinstance(located, str):
+        return {}
+    _index, children = located
+    return {key: _scalar_value(raw) for _child_index, key, raw in children if _scalar_value(raw)}
+
+
+def activate_display_sections(config_text: str) -> ConfigChange:
+    """Collapse the three transcript sections after the operator accepts the branded TUI.
+
+    Part of the same consented bundle as `display.interface` and
+    `display.skin`, and under the same rules: never on a noncanonical YAML
+    shape, never over a value the person set, and only from the default-Yes
+    confirmation or `--yes`.
+
+    Narrower than the two scalars in one way that matters. Consent lets those
+    two REPLACE a stock canonical value, because the whole point is migrating
+    somebody off `cli`. Here every key is unset-only, per key: an existing
+    `display.sections.tools: expanded` survives while `thinking` and
+    `subagents` are still added. Hermes' own defaults are `expanded`
+    (`SECTION_DEFAULTS` in `ui-tui/src/domain/details.ts`), so an explicit
+    `expanded` and the default look identical in behavior but not in
+    provenance -- one is a choice -- and only the absent key is OMH's to fill.
+
+    `collapsed` is not `hidden`: counts stay visible and a click expands.
+    """
+    lines = config_text.splitlines()
+    guard = _display_edit_guard(lines)
+    if guard:
+        return ConfigChange(False, guard, config_text)
+    if any(_references_mapping_key(line, "display.sections") for line in lines):
+        return ConfigChange(False, "dotted display.sections is user-owned; leaving it alone", config_text)
+
+    located = _canonical_display_sections(lines)
+    if isinstance(located, str):
+        return ConfigChange(False, located, config_text)
+
+    if located is None:
+        block = ["  sections:", *(f"    {key}: {value}" for key, value in COLLAPSED_DISPLAY_SECTIONS)]
+        display_index = next((index for index, line in enumerate(lines) if line == "display:"), None)
+        if display_index is None:
+            text = (config_text.rstrip() + "\n\ndisplay:\n" + "\n".join(block) + "\n").lstrip("\n")
+            return ConfigChange(True, "appended display.sections", text)
+        lines[display_index + 1 : display_index + 1] = block
+        return ConfigChange(True, "inserted display.sections", "\n".join(lines) + "\n")
+
+    sections_index, children = located
+    present = {key for _child_index, key, _raw in children}
+    missing = [(key, value) for key, value in COLLAPSED_DISPLAY_SECTIONS if key not in present]
+    if not missing:
+        # Not "already collapsed": every key being present says nothing about
+        # its value, and on a config where all three read `expanded` the old
+        # wording claimed the opposite of what is on disk.
+        return ConfigChange(
+            False,
+            "display.sections already sets "
+            + ", ".join(key for key, _value in COLLAPSED_DISPLAY_SECTIONS)
+            + "; leaving those values to the user",
+            config_text,
+        )
+    # After the `sections:` line, not after the last child: the children of a
+    # block mapping are unordered, and inserting at the head cannot land past
+    # a trailing comment that belongs to the key above it.
+    lines[sections_index + 1 : sections_index + 1] = [f"    {key}: {value}" for key, value in missing]
+    kept = sorted(present & {key for key, _value in COLLAPSED_DISPLAY_SECTIONS})
+    detail = f"; kept user value(s) for {', '.join(kept)}" if kept else ""
+    return ConfigChange(
+        True,
+        f"set display.sections.{', display.sections.'.join(key for key, _value in missing)}{detail}",
+        "\n".join(lines) + "\n",
+    )
+
+
+def _canonical_display_sections(
+    lines: list[str],
+) -> tuple[int, list[tuple[int, str, str]]] | str | None:
+    """Locate `display.sections` as a block mapping.
+
+    Returns the `sections:` line index plus its (index, key, raw value)
+    children, `None` when the key is simply absent, or a refusal message when
+    the shape is anything this hand-rolled editor must not edit. The refusal
+    is a string rather than an exception because every caller reports it as a
+    `ConfigChange` that changed nothing.
+    """
+    display_indices = [index for index, line in enumerate(lines) if line == "display:"]
+    if not display_indices:
+        return None
+    if len(display_indices) > 1:
+        return "duplicate display sections are ambiguous; leaving them alone"
+    display_index = display_indices[0]
+
+    end = len(lines)
+    for index in range(display_index + 1, len(lines)):
+        if lines[index].strip() and not lines[index].startswith(" "):
+            end = index
+            break
+
+    entries: list[tuple[int, str]] = []
+    sections_like = 0
+    for index in range(display_index + 1, end):
+        line = lines[index]
+        if _references_mapping_key(line, "sections"):
+            sections_like += 1
+        if line.startswith("  ") and not line.startswith("    "):
+            candidate, separator, rest = line.strip().partition(":")
+            if separator and candidate == "sections":
+                entries.append((index, rest.strip()))
+    if sections_like != len(entries):
+        return "noncanonical display.sections is user-owned; leaving it alone"
+    if len(entries) > 1:
+        return "duplicate display.sections keys are ambiguous; leaving them alone"
+    if not entries:
+        return None
+
+    sections_index, raw = entries[0]
+    if raw and not raw.startswith("#"):
+        # A flow mapping, a scalar, a block scalar: all shapes this editor
+        # cannot extend a key into without rewriting the person's value.
+        return "non-block display.sections is user-owned; leaving it alone"
+
+    children: list[tuple[int, str, str]] = []
+    for index in range(sections_index + 1, end):
+        line = lines[index]
+        if not line.strip():
+            continue
+        if not line.startswith("    "):
+            # Back out to a sibling of `sections`; its children end here.
+            break
+        if line.startswith("     "):
+            return "deeper display.sections nesting is user-owned; leaving it alone"
+        candidate, separator, rest = line.strip().partition(":")
+        if not separator:
+            continue
+        children.append((index, candidate, rest.strip()))
+    keys = [key for _index, key, _raw in children]
+    if len(keys) != len(set(keys)):
+        return "duplicate display.sections keys are ambiguous; leaving them alone"
+    return (sections_index, children)
+
+
 def activate_omh_skin(config_text: str, name: str = SKIN_NAME) -> ConfigChange:
     """Select one managed OMH skin after the operator accepts it.
 

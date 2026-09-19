@@ -114,6 +114,77 @@ def live_tui_session_rows(hermes_home: str = "") -> list[dict[str, Any]]:
     return rows
 
 
+def session_row(hermes_home: str, session_id: str) -> dict[str, Any] | None:
+    """The host's own row for ONE session, whatever surface it runs on.
+
+    ``live_tui_session_rows`` above answers "which session is a person looking
+    at", and every filter in it exists for that question. This answers a
+    different one -- "does the host say THIS session is still running" -- and
+    so shares none of them.
+
+    The distinction is not academic. Routes are written from whatever surface
+    the agent runs on: measured on the owner's two homes, the miku profile's
+    routes come from ``slack`` (132) and ``subagent`` (33) sessions and none
+    from a TUI, and the default home already has ``desktop`` ones beside its
+    TUI ones. Asking the TUI list whether a slack writer is live answers
+    "it is not in this list", which is not the same statement, and reading it
+    as "not live" restored a baseline out from under a session mid-dispatch
+    (#1737 review).
+
+    So: no ``source`` filter, because a route's writer is usually not a TUI.
+    No ``_delegate_from`` filter, because a delegated child writes routes too
+    and its liveness is a real question. No ``archived``/``hidden`` filter,
+    because those say where a session is displayed, not whether it is over.
+
+    Returns ``source``, the raw ``ended_at``, and the raw ``activity`` stamp,
+    or ``None`` when the question is UNANSWERABLE here: no ``state.db``, an
+    older schema, an unreadable file, or no row with this id. ``None`` is
+    never a statement that the session ended, and the caller must fall back
+    to what it would have done without this surface.
+    """
+    import sqlite3
+    from urllib.parse import quote
+
+    reference = str(session_id or "")
+    if not reference:
+        return None
+    home = Path(hermes_home).expanduser() if hermes_home else runtime_paths.default_hermes_home()
+    path = home / "state.db"
+    if not path.exists():
+        return None
+    try:
+        connection = sqlite3.connect(
+            f"file:{quote(str(path))}?mode=ro", uri=True, timeout=0.2
+        )
+    except sqlite3.Error:
+        return None
+    try:
+        found = connection.execute(
+            """
+            SELECT id, source, ended_at, COALESCE(last_activity_at, started_at)
+            FROM sessions
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (reference,),
+        ).fetchone()
+    except (sqlite3.Error, TypeError, ValueError):
+        return None
+    finally:
+        try:
+            connection.close()
+        except sqlite3.Error:
+            pass
+    if not found:
+        return None
+    return {
+        "id": str(found[0] or ""),
+        "source": str(found[1] or ""),
+        "ended_at": found[2],
+        "activity": found[3],
+    }
+
+
 def tui_session_durable_id(hermes_home: str, transport_ref: str) -> str:
     """The durable session key the host paired with a TUI's transport id.
 

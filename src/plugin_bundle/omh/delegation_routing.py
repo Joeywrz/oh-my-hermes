@@ -246,6 +246,27 @@ def write_delegation_route(
     }
 
 
+def delegation_config_path(hermes_home: str | Path | None = None) -> Path:
+    """The canonical identity of the config.yaml these keys live in.
+
+    Public because the restore record has to say WHICH config it describes:
+    two Hermes profiles may share one OMH home by design, and a record that
+    named no file let one profile's session act on the other's route.
+
+    The PARENT is resolved and the file name is not. Resolving the parent is
+    what makes two callers agree: one may hold `/var/...` and another the
+    `/private/var/...` the same path resolves to, and an unresolved compare
+    reported one profile's own record as another profile's. Resolving the
+    file itself would defeat the writer's `O_NOFOLLOW` refusal of a
+    symlinked config, so this is identity only and never the path opened.
+    """
+    path = _config_path(hermes_home)
+    try:
+        return Path(os.path.realpath(path.parent)) / path.name
+    except OSError:
+        return path
+
+
 def _config_path(hermes_home: str | Path | None) -> Path:
     if hermes_home:
         return Path(hermes_home).expanduser() / "config.yaml"

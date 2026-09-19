@@ -6,11 +6,17 @@ import json
 import time
 from typing import Any
 
-from ..delegation_routing import (
-    read_delegation_route,
-    read_session_provider,
-    write_delegation_route,
+from ..delegation_route_restore import (
+    newest_written_provenance,
+    omh_wrote_current_keys,
+    provenance_route_keys,
+    restore_delegation_baseline,
+    write_route_with_baseline,
 )
+# Every write of the three keys now goes through `delegation_route_restore`,
+# which pairs it with the baseline bookkeeping under one lock. Reaching for
+# the raw writer here again would reopen the window this PR closed.
+from ..delegation_routing import read_delegation_route, read_session_provider
 from ..hermes_delegation import (
     HERMES_MIXTURE_CATEGORY_CHAINS,
     append_delegation_route_provenance,
@@ -25,7 +31,7 @@ from ..hermes_delegation import (
     resolve_provider_model,
     effective_mixture_category_chains,
 )
-from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, observe_plugin_tool_call
+from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, host_session_id, observe_plugin_tool_call
 
 _EVIDENCE_BOUNDARY = (
     "Prepared route only: the delegation.* keys apply to the NEXT delegate_task "
@@ -73,6 +79,65 @@ def _chain_entry(
     return entry
 
 
+def _clear_to_baseline(
+    hermes_home: Any,
+    omh_home: Any,
+    *,
+    trigger: str,
+    unrecorded_clear: str,
+    expected_previous: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Put the recorded baseline back, or remove the keys when none was recorded.
+
+    Both halves run inside the restore's own lock. Doing the unrecorded
+    removal out here instead left a window: a route landing in it recorded a
+    person's pinned model as a baseline that the next restore then discarded
+    as `foreign_edit`, losing the pinned model with nothing reported.
+
+    The two callers ask for different strengths of that removal, which is
+    why `unrecorded_clear` is passed rather than assumed. `clear` is a
+    person asking, so it removes. Chain exhaustion is automatic, so it may
+    only remove a value OMH can prove it wrote -- otherwise a single failed
+    lane deleted the model the person had pinned.
+
+    Deliberately NOT scoped to the calling session or task, unlike the two
+    hooks. Both callers here are asking for the route to come off now, and
+    the recorded writer exists to stop an AUTOMATIC restore acting on
+    someone else's route, not to refuse an explicit instruction. The value
+    check still holds, so a key a person set by hand is safe either way.
+    """
+    return restore_delegation_baseline(
+        hermes_home,
+        omh_home=omh_home,
+        trigger=trigger,
+        unrecorded_clear=unrecorded_clear,
+        expected_previous=expected_previous,
+    )
+
+
+def _fallback_position(
+    route: dict[str, str], omh_home: Any
+) -> tuple[dict[str, str], str]:
+    """The route a fallback is advancing FROM, and where that came from.
+
+    The live keys are used ONLY when OMH can prove it wrote them. They are
+    not simply "empty once the route has been taken back": a turn-end
+    restore puts the PERSON's pinned model back, and reading that as the
+    chain position is how one failed lane came to report a whole exhausted
+    chain, never try the next candidate, and then delete the pin. A pinned
+    model that is in no chain produced a hard error, and one in several
+    chains an `ambiguous origins` refusal -- all on the recovery path for a
+    child that has just died on HTTP 400, the worst moment to fail.
+
+    Provenance records every route OMH wrote, so the position survives the
+    restore even though the value does not.
+    """
+    if route.get("model") and omh_wrote_current_keys(route, omh_home):
+        return dict(route), "live_route"
+    recovered = provenance_route_keys(newest_written_provenance(omh_home))
+    return (recovered, "provenance") if recovered.get("model") else ({}, "none")
+
+
 OMH_DELEGATE_ROUTE_SCHEMA = {
     "name": "omh_delegate_route",
     "description": (
@@ -81,15 +146,24 @@ OMH_DELEGATE_ROUTE_SCHEMA = {
         "unspecified-low, quick, simple-work, writing, visual-engineering, artistry) by "
         "writing the delegation.model / "
         "delegation.reasoning_effort keys Hermes reads per dispatch. Sequence per lane: "
-        "set the route, call delegate_task for that lane, then set the next lane's route "
-        "or clear to restore parent inheritance. Children already running keep their model. "
+        "set the route, call delegate_task for that lane, then set the next lane's route. "
+        "SET THE ROUTE IN THE SAME TURN THAT DISPATCHES. How long a route lives depends on "
+        "the surface: in the Hermes TUI and CLI it is put back when the turn ends, so a "
+        "route set in one turn and dispatched in the next runs on the previous model rather "
+        "than yours; on a chat platform it lasts the session. Routing in the dispatching "
+        "turn is correct on both, so do not rely on a route you set earlier. You do NOT "
+        "have to clear at the end; call clear only to put the previous values back sooner. "
+        "A restore is skipped, and says so, when the keys no longer hold what OMH wrote -- "
+        "a value someone else set is never overwritten. Children already running keep their model. "
         "Hermes has NO provider-side fallback: a child whose model the billing account "
         "cannot serve dies on an HTTP 400 yet its delegation still reports completed with "
         "the error text as the result — a completed child with no recorded model usage "
         "means exactly this. When that happens call action=fallback with the category "
         "returned by set to advance the route and re-dispatch; shared routes fail "
-        "closed without that origin. An exhausted chain "
-        "clears the route so the next dispatch inherits the parent's working model."
+        "closed without that origin. An exhausted chain restores what the delegation keys "
+        "held before OMH first wrote them, which is the user's own pinned model when they "
+        "had one and parent inheritance when they did not; if it cannot prove OMH wrote "
+        "the current value it changes nothing and reports unrecorded_value_not_ours."
     ),
     "parameters": {
         "type": "object",
@@ -98,10 +172,11 @@ OMH_DELEGATE_ROUTE_SCHEMA = {
                 "type": "string",
                 "enum": ["set", "clear", "status", "fallback"],
                 "description": (
-                    "set writes a route; clear removes the routable keys so children "
-                    "inherit the parent again; status reads the current route; fallback "
+                    "set writes a route for the current turn; clear restores the keys to "
+                    "what they held before OMH first wrote them, which is parent inheritance "
+                    "unless the user had pinned their own; status reads the current route; fallback "
                     "advances the current route to the next candidate in its category "
-                    "chain (clearing to parent inheritance once the chain is exhausted). "
+                    "chain (restoring that baseline once the chain is exhausted). "
                     "Reuse the category returned by set; ambiguous origins fail closed."
                 ),
             },
@@ -157,6 +232,17 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
     if error := runtime_paths.tool_home_error(args):
         return json.dumps(error, sort_keys=True)
     observation = observe_plugin_tool_call("omh_delegate_route", args, kwargs)
+    # Only the host keyword names the session; tool args are model-supplied and
+    # must not be able to claim another session's route record.
+    session_id = host_session_id(kwargs)
+    # The host gives a tool handler `task_id` but never `turn_id`
+    # (`model_tools._execute_tool`), so the task is the finest scope a route
+    # can record. What that means differs by flow and both are ordinary: in
+    # TUI and CLI the host mints a fresh task per turn, so the scope is the
+    # turn; on every gateway platform `task_id` IS the session id
+    # (`gateway/run_turn_runner.py`), so the scope is the session and a
+    # route survives later turns of it.
+    task_id = str(kwargs.get("task_id", "") or "").strip()
     action = str(args.get("action", "") or "set").strip().lower()
     hermes_home = runtime_paths.plugin_home(args.get("hermes_home"), hermes=True)
     omh_home = runtime_paths.plugin_home(args.get("omh_home"))
@@ -202,8 +288,10 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
         return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
 
     if action == "clear":
-        result = write_delegation_route(hermes_home, clear=True)
-        if result.get("status") == "cleared":
+        result = _clear_to_baseline(
+            hermes_home, omh_home, trigger="clear", unrecorded_clear="always"
+        )
+        if result.get("status") in ("cleared", "restored"):
             # A cleared route must supersede the head/fallback record that
             # preceded it, or a later child on a coincidentally matching
             # model would still inherit that record's label.
@@ -228,8 +316,15 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                 sort_keys=True,
             )
         route = read_delegation_route(hermes_home)
-        current_model = str(route.get("model", ""))
-        current_provider = str(route.get("provider", ""))
+        # A fallback normally happens a turn AFTER the route was written --
+        # the child dies on HTTP 400 and the model is told next turn -- and
+        # by then the turn-end restore has taken the route back out. The
+        # chain position therefore comes from provenance when the live keys
+        # no longer carry it; `expected_previous` below still guards against
+        # what is actually in the file.
+        position, position_source = _fallback_position(route, omh_home)
+        current_model = str(position.get("model", ""))
+        current_provider = str(position.get("provider", ""))
         # The live route holds whatever was dispatched, which is the provider's
         # wire model when a route applied. Chain positions are keyed by alias,
         # so translate back before any chain lookup below -- otherwise a routed
@@ -258,6 +353,12 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
             payload = {
                 "status": "error",
                 "error": "no active route to fall back from; use set with a category first",
+                # This is the return that fires when the position could not
+                # be recovered AT ALL, so it is the one an operator most
+                # needs the source on. `_fallback_position` reports "none"
+                # here rather than omitting the field.
+                "position_source": position_source,
+                "from": current_model,
             }
             return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
         category = str(args.get("category", "") or "").strip()
@@ -293,6 +394,11 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                         else "any mixture chain; pass category explicitly"
                     )
                 ),
+                # An operator reading this has to be able to see WHICH
+                # position the tool thought it had, and whether it came from
+                # the live keys or from provenance.
+                "position_source": position_source,
+                "from": current_model,
             }
             return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
         if len(matches) > 1:
@@ -303,19 +409,25 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                     f"current route model {current_model!r} has ambiguous origins "
                     f"across {origins}; pass category explicitly"
                 ),
+                "position_source": position_source,
+                "from": current_model,
             }
             return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
         category, index = matches[0]
         chain = chains[category]
         if index + 1 >= len(chain):
-            # Chain exhausted: restore inheritance so the next dispatch runs on
-            # the parent's known-working model instead of one more rejection.
-            result = write_delegation_route(
+            # Chain exhausted: put the person's own delegation keys back so the
+            # next dispatch runs on a model known to work -- their pinned one
+            # when they had one, parent inheritance when they did not -- instead
+            # of one more rejection.
+            result = _clear_to_baseline(
                 hermes_home,
-                clear=True,
+                omh_home,
+                trigger="chain_exhausted",
+                unrecorded_clear="if_omh_wrote",
                 expected_previous=route,
             )
-            if result.get("status") == "cleared":
+            if result.get("status") in ("cleared", "restored"):
                 result["status"] = "exhausted_to_inherit"
                 result["route_provenance"] = append_delegation_route_provenance(
                     {
@@ -328,6 +440,7 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                 )
             result["category"] = category
             result["from"] = current_model
+            result["position_source"] = position_source
             result["evidence_boundary"] = _EVIDENCE_BOUNDARY
             return json.dumps(attach_public_observation(result, observation), sort_keys=True)
         next_model, next_effort = chain[index + 1]
@@ -343,8 +456,11 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                 ),
             }
             return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
-        result = write_delegation_route(
+        result = write_route_with_baseline(
             hermes_home,
+            omh_home=omh_home,
+            session_id=session_id,
+            task_id=task_id,
             model=wire_model,
             reasoning_effort=next_effort,
             provider=next_provider,
@@ -355,6 +471,7 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
             result["applied"]["alias"] = next_model
             result["category"] = category
             result["from"] = current_model
+            result["position_source"] = position_source
             result["route_provenance"] = append_delegation_route_provenance(
                 {
                     "origin": "fallback",
@@ -465,8 +582,11 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
             "error": "a wire-shaped model requires an explicit provider",
         }
         return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
-    result = write_delegation_route(
+    result = write_route_with_baseline(
         hermes_home,
+        omh_home=omh_home,
+        session_id=session_id,
+        task_id=task_id,
         model=wire_model,
         reasoning_effort=effort,
         provider=provider,

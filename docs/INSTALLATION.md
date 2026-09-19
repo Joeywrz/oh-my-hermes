@@ -533,6 +533,51 @@ carries its own `claim_boundary` (prepared routes only, never dispatch
 evidence), and is safe to delete — an absent or invalid file only means HUD
 rows fall back to plain category projection.
 
+Beside it, `~/.omh/routing/route-restore.json`
+(`delegation_route_restore/v2`) holds the way back out of a route. The first
+time OMH writes `delegation.*` over values it did not write, it records what
+those three keys held — a key the file did not carry is recorded by being
+absent, so putting the baseline back removes the key rather than writing an
+empty string — together with what OMH wrote and which session wrote it. The
+baseline is captured once and survives later routes. A candidate baseline
+that exactly matches the newest route in `route-provenance.json` is OMH's
+own leftover rather than a value the person set, and is recorded as "keys
+absent" with `baseline_origin: omh_leftover`. Two things follow that are
+worth knowing before pinning a model by hand. Pinning exactly the model,
+provider and effort OMH last wrote is indistinguishable on disk from OMH's
+own leftover, and such a pin will not be restored. And if
+`route-provenance.json` is missing or unreadable the check cannot run, which
+is reported as `baseline_captured_provenance_unavailable` rather than
+assumed either way. The record also names the `config.yaml` it describes,
+since two profiles may share one OMH home.
+
+A route is scoped to the task that wrote it. `action=clear`, the end of that
+task, and the start of a later session when the writing session is gone all
+put the previous values back; chain exhaustion puts them back instead of
+clearing, and will not remove a value OMH cannot prove it wrote. In the TUI
+and the CLI a task is one turn, so a route lasts one turn. On a gateway
+platform (Slack, Discord, Telegram, Feishu, the API server) the task id is
+the session id, so a route lasts the session.
+
+Every one of those is gated on the same recorded value: if the keys no
+longer hold what OMH wrote, someone else set them, and OMH reports that and
+changes nothing. The session-start path additionally asks the writer's own
+`state.db` row whether it is still running. Only a row the host closed
+answers that it is not; a row the host never closed, which is what a killed
+TUI and most gateway sessions leave behind, falls back to a six-hour bound
+on the route's own age. Such a route can outlive its session by that long
+rather than risk being taken back while the writer is still dispatching.
+
+What returns is the previous values, not the previous bytes: the writer
+normalises quoting, emits the three keys in a fixed order, and drops an
+inline comment on one of those lines, leaving every other byte untouched.
+
+If the record itself fails to write after a route has landed, the route is
+reported as unrecorded and whatever the keys held before it is gone with the
+record, so a model pinned by hand will not come back. Deleting the file by
+hand is safe and means only that OMH stops claiming it knows what the keys
+held before it.
+
 A fourth sibling, `~/.omh/routing/dispatch-models.json`
 (`omh_dispatch_model_preferences/v1`), applies to a different surface:
 `omh coding fanout dispatch`'s `--model` fallback for a spawned agent CLI,
@@ -1024,13 +1069,22 @@ OMH's setup footprint is intentionally bounded:
 - Interactive `omh setup` and `omh update` offer a default-Yes branded-TUI
   choice when the canonical config is not already
   `display.interface: tui` plus `display.skin: omh`. Accepting it (or passing
-  `--yes`) sets both values, so bare `omh` and `hermes` open the same
-  OH-MY-HERMES TUI. An already-active update does not ask. No or
-  `--no-omh-tui` preserves the current values. JSON suppresses prompting;
-  explicit canonical values remain unchanged unless `--yes` supplies consent.
-  Dry-run never persists a previewed change. Noncanonical/quoted YAML shapes
-  never prompt or change, even with `--yes`. Uninstall does not remove an
-  accepted display selection.
+  `--yes`) sets those two and a collapsed `display.sections`, so bare `omh`
+  and `hermes` open the same OH-MY-HERMES TUI and a long run does not bury
+  the conversation. An already-active install does not ask, so an install
+  branded before `display.sections` joined the bundle keeps its current
+  sections until it runs with `--yes`. No or `--no-omh-tui` preserves the
+  current values. JSON suppresses
+  prompting; explicit canonical values remain unchanged unless `--yes`
+  supplies consent. Dry-run never persists a previewed change.
+  Noncanonical/quoted YAML shapes never prompt or change, even with `--yes`.
+  Uninstall does not remove an accepted display selection.
+- `display.sections` is narrower than the other two keys of that bundle. The
+  two scalars may be migrated off a stock value under consent; each section
+  key is unset-only, so an existing `display.sections.tools: expanded` is
+  preserved while `thinking` and `subagents` are still collapsed. `collapsed`
+  is not `hidden`: counts stay visible and a click expands. Nothing is written
+  without the confirmation or `--yes`.
 - It adds `auxiliary.compression.fallback_chain` when the config pins
   compression to a single provider and already lists other fallback providers.
   Without a compression fallback, one unreachable endpoint leaves a session

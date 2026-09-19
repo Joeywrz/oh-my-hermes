@@ -266,6 +266,200 @@ All notable changes will be documented here.
   while the model is still inside the turn loop, so both exits are reachable.
   At most one directive per turn per cause, latched on the host's own turn id.
 
+- **The branded TUI collapses the transcript, and doctor names what bounds a
+  runaway loop.** Two halves of the same question: whether a person can see a
+  run going wrong.
+
+  Hermes renders every tool call and every thinking block expanded. On a long
+  run each call becomes its own row, the prompt scrolls out of sight, and the
+  transcript is a wall. OMH's branded-TUI choice already set two display keys
+  under one default-Yes confirmation, and `display.sections` now rides the
+  same consent: `thinking`, `tools` and `subagents` collapsed, under the same
+  rules as the other two. Only from the confirmation or `--yes`, never on a
+  noncanonical YAML shape, and `--dry-run` never persists. Narrower than the
+  other two in one way: every section key is unset-only, so an explicit
+  `display.sections.tools: expanded` survives while the other two are still
+  added. `collapsed` is not `hidden` -- counts stay visible and a click
+  expands. The prompt's trigger is unchanged, so an install already branded
+  before this existed takes the third key through `--yes` rather than being
+  re-asked. What setup wrote is recorded in the apply result, so
+  `omh uninstall` can reverse it later without guessing which values were the
+  person's own.
+
+  `omh doctor` gains two advisories in the read-only lane, which reports and
+  never rewrites. The first names `agent.max_turns` when it is at or above
+  200, the point where the turn budget rather than the host's loop detector
+  is what a repeat loop runs into. It fires on Hermes' own default of 500,
+  and says so, because the measured loop reached 409 tool calls under exactly
+  that value. The second names `tool_loop_guardrails.hard_stop_enabled` when
+  it is false or unset, which is the host default on an attended platform: in
+  that state Hermes' loop detector only appends a note, and the model ignored
+  185 of them in the measured session. Turning it on halts the turn at
+  `no_progress_block_after`. OMH changes neither key.
+
+- **`omh doctor` stops warning about work nobody can do, and starts seeing
+  the tool-call hot path.** Two truthfulness defects on the same surface.
+
+  The memory-consolidation warning could never clear. When Hermes' memory pack
+  is over its headroom floor and nothing in it is provably redundant --
+  measured on the owner machine at 14 entries, 67 chars of headroom against a
+  floor of 300, `reclaimable_chars: 0`, no duplicate clusters -- the planner
+  has nothing to propose and OMH cannot write Hermes memory by design. Doctor
+  still said consolidation was "due" on every run, and a standing warning is
+  how people learn to skip doctor. That state now reports what it is: the pack
+  is full, nothing can be reclaimed automatically, and the move that does
+  exist is shortening or removing an entry through Hermes' own memory tool. It
+  no longer counts as a warning. A brief with a duplicate cluster keeps
+  today's wording and today's severity, because there is a consolidation to
+  run.
+
+  Doctor could not see the tool-call hot path at all. A `toolcall-rules.json`
+  is how somebody tells OMH to block a tool call, and the enforcing hook fails
+  open: a wrong `schema_version` refuses the WHOLE document, a bad regex drops
+  one rule, and either way nothing is reported. Doctor now runs the same
+  validator `omh ops toolcall-rules-validate` runs, against the store it
+  already inspects, and names the file, the loaded and skipped counts, and the
+  first error. No rules file stays silent -- the file's presence is the
+  opt-in. Doctor also reads the plugin host observation journal it already has
+  and names a hook whose recorded calls did not come back observed.
+
+  Inside `pre_tool_call`, the rule gate gained its own handler. A failure
+  while evaluating somebody's rules used to escape to Hermes, which appends
+  nothing, logs one WARNING and then DEBUG only -- so the person's blocks
+  stopped running and nothing said so. The call is still allowed, which is the
+  module's documented fail-open contract and avoids the #1674 shape where one
+  broken state refuses every tool call in every session. What changes is that
+  it is no longer silent: the failure is counted where doctor reads it, and
+  doctor names the tool, the exception's type, and the fact that the call was
+  allowed. The exception's message is deliberately not stored: it is free
+  text from whatever raised, so it can quote the person's own rule pattern or
+  a tool argument, and that ledger is metadata-only.
+
+- **A delegation route now has a way back, so one lane's model stops being
+  every later session's default.** `omh_delegate_route` writes
+  `delegation.model` / `provider` / `reasoning_effort` into `config.yaml`
+  because Hermes re-reads those keys per dispatch. Nothing put them back.
+  Clearing was a sentence in the tool description rather than something the
+  code did, so on the machine this was measured on, 28 of 32 recorded routes
+  were never cleared and a route written for one lane two days earlier was
+  what every delegation inherited -- including sessions that never called the
+  tool.
+
+  OMH now records, under the same lock as the route write, what the three
+  keys held the first time it wrote over values it did not write. A key the
+  file did not carry is recorded by being absent, so putting the baseline
+  back removes the key rather than writing an empty string. The baseline is
+  captured once and survives later routes; only a person's own edit between
+  two routes re-captures it, because at that moment OMH is again writing over
+  a value it did not write.
+
+  A route is turn-local, and deliberately so. `on_session_end` is not a
+  session boundary: Hermes fires it once per message from the turn
+  finalizer. "Route the next dispatch" is a turn-local intent and a
+  `delegate_task` is dispatched inside the turn that set the route. The
+  recorded scope is the task rather than the turn because the host gives a
+  plugin tool `task_id` but never `turn_id`.
+
+  What a task is differs by flow, and both are ordinary. In TUI and CLI the
+  host mints a fresh task per turn, so the scope is the turn; a restore that
+  does not happen at its own turn end is then not retried until the next
+  session start. On every gateway platform -- Slack, Discord, Telegram,
+  Feishu, the API server -- `task_id` is the session id, so the scope is the
+  session, a route survives later turns of it, and a missed restore is
+  retried by the next turn end. That is the majority flow on the machine
+  this was measured on.
+
+  A recorded task decides on its own, without also requiring the session.
+  That is what carries a restore through a compression split: the host
+  reassigns the session id mid-turn when it splits a long transcript, and
+  those long fan-out turns are the ones that route, while the task id is the
+  same value at the tool and at the turn end on both sides of the split.
+
+  Turn scope makes a leak short and bounded rather than impossible. A lock
+  the turn end could not take within its budget leaves the route, as does a
+  session killed mid-task; both then wait for the next session start and the
+  liveness bound.
+
+  Three paths put the previous values back: `action=clear`, the end of the
+  task that wrote the route, and the start of a later session when the
+  writing session is gone. Chain exhaustion restores the baseline instead of
+  clearing. `action=fallback` legitimately runs a turn after the route was
+  written, because a child that dies on HTTP 400 is reported later, so it
+  now recovers its chain position from the route provenance record rather
+  than from the live keys. Every restore is gated on the same recorded
+  value, never on wording: OMH compares the file's current three keys with
+  what it recorded writing, and a value someone else set is reported and
+  left alone.
+
+  The baseline is what the PERSON had, which is not the same as what the
+  file holds. On the machine this issue came from the file already held a
+  leaked OMH route, and capturing that as the baseline would have made the
+  most expensive model in the chain a permanent restore target. Every route
+  OMH writes is already recorded in `route-provenance.json`, so a candidate
+  baseline that exactly matches the newest such record is recognised as
+  OMH's own leftover and recorded as "keys absent" instead, with
+  `baseline_origin` saying which of the two it was. Two consequences are
+  stated rather than glossed: a person who pins by hand exactly the model,
+  provider and effort OMH last wrote is indistinguishable from that leftover
+  and their pin will not come back, and when provenance is missing or
+  unreadable the check cannot run at all, which is reported as its own note
+  instead of quietly falling back. The record also names the `config.yaml`
+  it describes, because two Hermes profiles may share one OMH home and a
+  record that named no file let one profile act on the other's route.
+
+  The same provenance comparison now guards two more places. `action=fallback`
+  reads the live keys as its chain position only when OMH can prove it wrote
+  them, because after a turn-end restore those keys hold the person's own
+  pinned model: reading that as the position made one failed lane report a
+  whole exhausted chain, skip the candidate that would have worked, and then
+  delete the pin. And the clear at the end of an exhausted chain will not
+  remove a value OMH cannot prove it wrote.
+
+  What comes back is the previous VALUES, not the previous bytes: the writer
+  normalises quoting, emits the three keys in a fixed order, and drops an
+  inline comment sitting on one of those lines. Every other byte is
+  untouched.
+
+  The session-start path exists because a session killed mid-task never
+  reaches the turn end. It restores only a route whose recorded writer is not a
+  live session, asked of that writer's own `state.db` row -- not of the
+  live-TUI list, which is scoped to "which session is a person looking at"
+  and so omits every writer on another surface by construction. Most writers
+  are on another surface: on the owner's routing profile every route comes
+  from a `slack` or `subagent` session, and the default home already has
+  `desktop` routes beside its TUI ones.
+
+  Only a row the host closed is an observation that the writer is gone. A row
+  the host never closed -- what a killed TUI and most gateway sessions leave
+  behind -- is not, so the route's own age decides instead, bounded at six
+  hours. Each verdict is named so a reader can tell an observation from a
+  bound. The cost is stated: a route left by a killed session can outlive it
+  by up to six hours. That is the accepted side of the trade, because
+  restoring under a live writer sends that writer's next child to the wrong
+  model. Nothing available shortens it -- the host's lease registry records
+  which surfaces are open, not whether their processes are alive. Turn scope
+  makes it a narrow path: it now covers only a session killed mid-task.
+
+  OMH registers `on_session_start` for this; it is the host's own first-turn
+  lifecycle callback, bounded and fail-open.
+
+  The turn-end restore is on the hot path of every turn of every session,
+  including each delegated child's, so the case with nothing to restore
+  costs one `stat` with no lock and no database read.
+
+  Two sessions routing at once is ordinary on one machine, so the whole
+  read-through-replace is inside the plugin's existing file lock. A writer
+  that cannot take it returns a refusal the tool surfaces and never reports
+  `routed`. The interleave that motivated the recorded writer -- A routes, B
+  routes over it, A ends -- leaves B's route in place and B's session end
+  restores the user's own baseline.
+
+  A machine that already carries a route written before this change has no
+  baseline record. OMH cannot know what those keys held, so the automatic
+  paths report `no_baseline_recorded` and change nothing. An explicit
+  `action=clear` still removes the keys, which is what it did before and the
+  only way to settle a route nothing recorded.
+
 - **`omh --resume <id>` works, and the terminal now names the `omh` way
   back.** Bare `omh` is documented as the same door as `hermes`, but the door
   opened one way only: the parser rejected `omh --resume <id>` as an invalid

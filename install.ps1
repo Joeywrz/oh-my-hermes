@@ -82,6 +82,12 @@ $OmhRepoLatestUrl   = Get-OmhEnv 'OMH_REPO_LATEST_URL' 'https://github.com/rlaop
 # Stable installs the ~2.7 MB release wheel; preview installs the ~44 MB branch
 # archive, which GitHub generates per request rather than serving from a CDN.
 $OmhChannel         = Get-OmhEnv 'OMH_CHANNEL' 'stable'
+# What `uv python install` is asked for when it is the last resort, and the
+# same floor install.sh uses. Kept beside the other inputs so the two
+# installers' constants are read in the same place in both files.
+$OmhUvPythonVersion = '3.12'
+$script:OmhProvisionTried = $false
+$script:OmhRejectedPythons = @()
 $OmhVersion         = Get-OmhEnv 'OMH_VERSION'
 $OmhPackageUrl      = Get-OmhEnv 'OMH_PACKAGE_URL'
 $OmhSourceRef       = Get-OmhEnv 'OMH_SOURCE_REF'
@@ -339,18 +345,80 @@ function Resolve-OmhPython {
     <#
         Return a usable Python 3.11+ command, or stop with guidance.
 
-        The version probe is not caution carried over from install.sh, which has
-        none: on Windows, `python` and `python3` routinely resolve to the
-        Microsoft Store App Execution Alias stub. That stub is on PATH, runs,
-        installs nothing, and exits non-zero -- without this probe the failure
-        surfaces several steps later as an unreadable pip error.
+        install.sh probes for the same floor and for the same reason -- a
+        candidate that is on PATH is not an interpreter the wheel installs
+        into -- but the shape that forces it here is local: on Windows,
+        `python` and `python3` routinely resolve to the Microsoft Store App
+        Execution Alias stub, which is on PATH, runs, installs nothing, and
+        exits non-zero. Without this probe the failure surfaces several steps
+        later as an unreadable pip error.
     #>
     $explicit = Get-OmhEnv 'OMH_PYTHON'
     if ($explicit) { $candidates = @($explicit) } else { $candidates = @('py', 'python', 'python3') }
 
-    $rejected = @()
-    foreach ($candidate in $candidates) {
-        if (-not (Get-Command $candidate -ErrorAction SilentlyContinue)) { continue }
+    $script:OmhRejectedPythons = @()
+    $found = Select-OmhPython $candidates
+    if ($found) { return $found }
+
+    # Same last resort install.sh has, honoring the same OMH_PROVISION_PYTHON.
+    # uv's own interpreters are asked for by path rather than located by
+    # layout, so this needs no knowledge of where uv puts them on Windows.
+    $provision = Get-OmhEnv 'OMH_PROVISION_PYTHON' '1'
+    if (-not $explicit -and $provision -ne '0' -and (Get-Command uv -ErrorAction SilentlyContinue)) {
+        Write-OmhNote "No Python 3.11+ was found. Asking uv, which is already on this machine, for Python $OmhUvPythonVersion."
+        Write-OmhNote 'This downloads an interpreter (~66 MB). Decline with OMH_PROVISION_PYTHON=0.'
+        $installed = Invoke-OmhCapture -FilePath 'uv' -Arguments @('python', 'install', $OmhUvPythonVersion)
+        if ($installed.ExitCode -ne 0) {
+            foreach ($line in ($installed.Output -split "`r?`n")) { if ($line.Trim()) { Write-OmhNote $line.Trim() } }
+        }
+        $found = Select-OmhPython (Get-OmhUvManagedPythons)
+        if ($found) { return $found }
+        $script:OmhProvisionTried = $true
+    }
+
+    if ($explicit -and -not (Get-Command $explicit -ErrorAction SilentlyContinue)) {
+        # A typo is the likeliest way this variable goes wrong, and a verdict
+        # on the version of a file that is not there sends the reader wrong.
+        $lines = @("omh installer: OMH_PYTHON='$explicit' was not found.")
+    } elseif ($script:OmhProvisionTried) {
+        $lines = @('omh installer: no usable Python 3.11+ was found, and asking uv for one did not produce a usable interpreter.')
+    } else {
+        $lines = @("omh installer: no usable Python 3.11+ was found (tried: $($candidates -join ', ')).")
+    }
+    foreach ($reason in $script:OmhRejectedPythons) { $lines += "  $reason" }
+    $lines += 'Install Python 3.11+ from https://www.python.org/downloads/windows/ or the Microsoft Store,'
+    $lines += 'then set OMH_PYTHON to that executable and retry.'
+    Stop-OmhInstall $lines
+}
+
+function Get-OmhUvManagedPythons {
+    <#
+        Absolute paths of uv's own installed interpreters, asked for by uv.
+
+        `uv python find` is deliberately NOT used: it resolves a PROJECT
+        environment first and is cwd-dependent, so from a checkout it answers
+        that checkout's `.venv` -- which reports a supported version, passes
+        the probe, and would become the BASE of OMH's environment. Measured on
+        uv 0.12.5, `--managed-python` does not prevent it either. This listing
+        is cwd-independent and prints `<key><spaces><path>`; the key never
+        contains a space, so everything past the first run of whitespace is
+        the path, which may.
+    #>
+    $listed = Invoke-OmhCapture -FilePath 'uv' -Arguments @('python', 'list', '--managed-python', '--only-installed')
+    if ($listed.ExitCode -ne 0) { return @() }
+    $paths = @()
+    foreach ($line in ($listed.Output -split "`r?`n")) {
+        if ($line -match '^\S+\s+(\S.*)$') { $paths += $Matches[1].Trim() }
+    }
+    return $paths
+}
+
+function Select-OmhPython {
+    <#  First candidate that reports a version at or above the floor.  #>
+    param([string[]]$Candidates)
+    foreach ($candidate in $Candidates) {
+        if (-not $candidate) { continue }
+        if (-not (Test-Path -LiteralPath $candidate) -and -not (Get-Command $candidate -ErrorAction SilentlyContinue)) { continue }
         # Single quotes inside the snippet on purpose: Windows PowerShell 5.1
         # mangles embedded double quotes when building a native command line.
         $probe = Invoke-OmhCapture -FilePath $candidate -Arguments @('-c', 'import sys; print(''%d.%d'' % sys.version_info[:2])')
@@ -363,14 +431,9 @@ function Resolve-OmhPython {
         if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 11)) { return $candidate }
         # Keep looking rather than stopping here: `py` honors PY_PYTHON and
         # py.ini, so it can land on 3.10 while `python` one slot later is 3.12.
-        $rejected += "$candidate is Python $major.$minor"
+        $script:OmhRejectedPythons += "$candidate is Python $major.$minor"
     }
-
-    $lines = @("omh installer: no usable Python 3.11+ was found (tried: $($candidates -join ', ')).")
-    foreach ($reason in $rejected) { $lines += "  $reason" }
-    $lines += 'Install Python 3.11+ from https://www.python.org/downloads/windows/ or the Microsoft Store,'
-    $lines += 'then set OMH_PYTHON to that executable and retry.'
-    Stop-OmhInstall $lines
+    return ''
 }
 
 # ---------------------------------------------------------------------------

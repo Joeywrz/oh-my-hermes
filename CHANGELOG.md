@@ -76,6 +76,54 @@ All notable changes will be documented here.
   the only occupant of, by the same rule and reading the same record, and
   keeps everything else it kept before. `docs/INSTALLATION.md` said that scope
   "removes the registration and nothing else"; it now says what it does.
+- **The universal installer picks a Python the wheel can be installed into.**
+  Reported from a second machine: `curl ... install.sh | sh` created the virtual
+  environment out of `/usr/bin/python3`, and pip then refused with `Package
+  'oh-my-hermes' requires a different Python: 3.9.6 not in '>=3.11'`. The venv
+  was left behind, no `omh` command existed, and the next line the person typed
+  was `omh setup` into `command not found`. install.sh checked only that its
+  interpreter EXISTED -- `install.ps1` had probed the version since it shipped,
+  and said in its own docstring that install.sh had no such probe.
+
+  It has one now, and the same floor the wheel declares. The search runs
+  `python3` first, then the versioned commands newest-first, which is the order
+  `packaging/npm/lib/python.js` already used so the two distribution surfaces
+  land on the same interpreter; then the places an interpreter hides when it is
+  not first on PATH, which is the macOS case exactly: Homebrew, python.org
+  frameworks, pyenv and uv. A candidate is accepted on what it reports, not on
+  where it was found, and the report has to be one line that is only a version
+  -- a wrapper that prints a banner first is refused rather than read past. An
+  interpreter named in `OMH_PYTHON` stays the only candidate, because the
+  variable exists for a person who knows something the search does not.
+
+  With nothing found and `uv` already on the machine, the installer has uv
+  install Python 3.12, shows uv's own output while it does, and then runs its
+  own search again rather than asking `uv python find` — that command resolves
+  a PROJECT environment first and is cwd-dependent, and `curl … | sh` runs
+  wherever the person is standing, so from a checkout it answers that
+  checkout's `.venv`. A `.venv` reports a supported version and would sail
+  through the probe, and as the BASE of OMH's environment it is strictly worse
+  than the interpreter uv was just asked for: rebuild that project and `omh`
+  breaks. `--managed-python` does not reliably prevent it either, measured on
+  uv 0.12.5. The search instead reads uv's managed directory from
+  `uv python dir`, which is cwd-independent and also finds interpreters on a
+  machine where `UV_PYTHON_INSTALL_DIR` or `XDG_DATA_HOME` has moved it.
+  Downloading a language runtime is a kind of side effect this script has never
+  had, so it is announced before it starts and `OMH_PROVISION_PYTHON=0`
+  declines it without having to name an interpreter instead. `install.ps1`
+  gains the same last resort and honors the same variable — the two installers
+  are one documented interface and a parity gate holds them to it — and asks uv
+  for its interpreters BY PATH (`uv python list --managed-python
+  --only-installed`), so neither script needs to know where uv puts them on
+  either platform.
+
+  With neither, it stops before creating anything and names every version it
+  did find, and says so differently when the interpreter was one the person
+  named: a path that is not there reports "was not found" rather than a verdict
+  on the version of a file that does not exist. Interpreter resolution runs
+  before the release lookup, so a machine with no usable Python and an
+  unreachable GitHub gets the interpreter diagnosis rather than a release
+  error. Every run prints the interpreter it chose.
 
 - **The interactive setup wizard says where you are in the questions.** The
   apply phase has narrated itself since it shipped (`[1/5] Installing OMH

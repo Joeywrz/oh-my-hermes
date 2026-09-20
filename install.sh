@@ -400,22 +400,21 @@ python_candidates() {
       printf '%s\n' "$omh_python_candidate"
     fi
   done
-  # uv's managed interpreters, asked for by uv rather than assumed. The line
-  # above covers uv's default location only, and `UV_PYTHON_INSTALL_DIR` or
-  # `XDG_DATA_HOME` moves it -- on such a machine a perfectly good interpreter
-  # sits one directory away and the search would report none. `uv python dir`
-  # answers the same from any working directory; `uv python find` does NOT and
-  # must not be used here, because it resolves a PROJECT environment first and
-  # `curl ... | sh` runs wherever the person is standing.
+  # uv's own interpreters, asked for BY PATH rather than located by layout.
+  # The glob above covers uv's default directory only, and
+  # `UV_PYTHON_INSTALL_DIR` or `XDG_DATA_HOME` moves it -- on such a machine a
+  # perfectly good interpreter sits one directory away and the search reports
+  # none. This listing is cwd-independent and prints `<key><spaces><path>`;
+  # the key never contains a space, so everything past the first run of
+  # whitespace is the path, which may. `uv python find` is deliberately NOT
+  # used: it resolves a PROJECT environment first and is cwd-dependent, and
+  # `curl ... | sh` runs wherever the person is standing, so from a checkout
+  # it answers that checkout's `.venv` -- which passes the version probe and
+  # would become the BASE of OMH's environment. `--managed-python` does not
+  # prevent that either; measured on uv 0.12.5.
   if command -v uv >/dev/null 2>&1; then
-    omh_uv_root="$(uv python dir 2>/dev/null | tail -1)"
-    if [ -n "$omh_uv_root" ] && [ -d "$omh_uv_root" ]; then
-      for omh_python_candidate in "$omh_uv_root"/*/bin/python3 "$omh_uv_root"/*/bin/python3.[0-9] "$omh_uv_root"/*/bin/python3.[0-9][0-9]; do
-        if [ -x "$omh_python_candidate" ]; then
-          printf '%s\n' "$omh_python_candidate"
-        fi
-      done
-    fi
+    uv python list --managed-python --only-installed 2>/dev/null |
+      sed -n 's/^[^[:space:]][^[:space:]]*[[:space:]][[:space:]]*//p'
   fi
 }
 
@@ -469,7 +468,7 @@ resolve_python() {
       # is rebuilt. `--managed-python` does not reliably prevent it either:
       # measured on uv 0.12.5, both forms still answered with the project's
       # `.venv`. So the search runs again instead, and it now reads uv's
-      # managed directory from `uv python dir`, which is cwd-independent.
+      # managed interpreters by path from `uv python list`, cwd-independently.
       OMH_SELECTED_PYTHON="$(select_python)"
       if [ -z "$OMH_SELECTED_PYTHON" ]; then
         OMH_PROVISION_TRIED=1

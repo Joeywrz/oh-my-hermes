@@ -110,7 +110,12 @@ All notable changes will be documented here.
   machine where `UV_PYTHON_INSTALL_DIR` or `XDG_DATA_HOME` has moved it.
   Downloading a language runtime is a kind of side effect this script has never
   had, so it is announced before it starts and `OMH_PROVISION_PYTHON=0`
-  declines it without having to name an interpreter instead.
+  declines it without having to name an interpreter instead. `install.ps1`
+  gains the same last resort and honors the same variable — the two installers
+  are one documented interface and a parity gate holds them to it — and asks uv
+  for its interpreters BY PATH (`uv python list --managed-python
+  --only-installed`), so neither script needs to know where uv puts them on
+  either platform.
 
   With neither, it stops before creating anything and names every version it
   did find, and says so differently when the interpreter was one the person

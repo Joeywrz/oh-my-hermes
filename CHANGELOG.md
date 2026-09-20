@@ -24,6 +24,50 @@ All notable changes will be documented here.
   written down, with the distinction between a drift gate and a pin stated
   where it is needed.
 
+- **The three artifacts that close a long piece of work — a deep guide, an
+  ELI5 pass, and a quiz — now have written guidance, on `wiki`.** A coverage
+  pass over all 124 shipped skills found these late stages unowned: `docs`
+  says outright that it is not a generic documentation writer, and
+  `materials-package` routes code documentation away to "the docs/wiki
+  workflow", which leaves the wiki half of that pointer as the only live
+  destination. `paper-learning` already had the level vocabulary and a
+  coverage ledger, but its input is a supplied paper, not the change you just
+  shipped. Nothing at all matched `quiz`, `flashcard`, or `exam`.
+
+  The load-bearing rule in the new `wiki/references/handover-artifacts.md` is
+  that all three are assembled from the record, never from the conversation.
+  By the time they get written the early reasoning is out of context —
+  compaction took it — and a model asked to explain a decision it can no
+  longer see reconstructs a fluent, diff-consistent, invented one that
+  nothing downstream can tell from the real reason. The reasons were recorded
+  while they were still true: what was skipped and why is a `blocked_reason`,
+  what was done is the done items and their `phase`, and what was checked is
+  `observed_check_results/v1` and `claim_verdict/v1`. This is the rule the
+  repository already applies to stop criteria, one stage later —
+  `blocked_reason` exists as a field because inferring it from item text was
+  wrong in both directions.
+
+  The quiz is a completeness check on the deep guide, not a study aid, and
+  its admission rule is what keeps it from degenerating into "what does this
+  PR do": **every question cites one record entry, and a question that cannot
+  cite one is not written.** Only three entry kinds qualify — a review
+  finding, a failed check, or a `blocked_reason` — because each is a record
+  of something that actually went wrong or was actually decided. A question
+  the deep guide cannot answer is a hole in the deep guide, which is what the
+  quiz is for. Zero admissible entries is `no_admissible_entries`, not an
+  invented quiz.
+
+  The guidance is a reference file, so it loads on demand and costs the
+  always-loaded skill pack nothing; only the pointer section on `wiki`'s body
+  is paid for, and `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT` moves by that section
+  alone. The ELI5 pass records level `very_easy`, reusing `paper-learning`'s
+  word rather than coining a second name for one idea, and
+  `tests/test_handover_artifacts.py` re-derives every citation from the
+  surface that declares it — the todo validator for the plan-record fields,
+  each skill's own declared outputs for the rest — so a renamed artifact
+  fails there instead of leaving the page pointing at a record nothing
+  writes.
+
 - **The setup keyboard menus stop throwing away keys you pressed while the
   menu was redrawing, and read a whole keypress instead of its first three
   bytes.** `_read_tui_key()` called `tty.setraw(fd)`, whose default is

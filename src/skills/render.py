@@ -1751,6 +1751,10 @@ Settle structure before capture: audience scale, whether an agent reads it, the 
 
 Load `references/wiki-blueprint.md` for the interview turns and `{WIKI_BLUEPRINT_SCHEMA_VERSION}` fields, `wiki-patterns.md` for models and what breaks them, `wiki-operations.md` for solo-versus-shared rules, and `wiki-ecosystem.md` for existing skills.
 
+## Closing A Long Piece Of Work
+
+When work finishes, the capture for the next reader is three artifacts: a deep guide, an ELI5 pass at level `{HANDOVER_ELI5_LEVEL}`, and a quiz that checks the guide rather than the reader. Assemble all three from the plan, verification, review, and QA records, never from the conversation, whose early reasoning compaction has already taken. Load `references/handover-artifacts.md` for the admissible record fields and the quiz's citation rule.
+
 ## Boundary
 
 A `{WIKI_BLUEPRINT_SCHEMA_VERSION}` is prepared design context, not evidence that a store was created, written to, or migrated. OMH does not host the wiki; the user's own store does.
@@ -1770,6 +1774,64 @@ A `{WIKI_BLUEPRINT_SCHEMA_VERSION}` is prepared design context, not evidence tha
     return SkillTemplate(name, _frontmatter(name, definition.description) + "\n" + body)
 
 
+@dataclass(frozen=True)
+class HandoverRecordSource:
+    """One record the closing handover artifacts may be assembled from.
+
+    ``declared_by`` is the canonical skill whose own contract emits the
+    citations, or ``""`` for the plan record, whose fields belong to the
+    ``omh_todo/v1`` item contract rather than to any skill. Every citation is
+    reproduced verbatim from that surface, which is what makes the rendered
+    table checkable: a test re-derives each one from the surface named beside
+    it and fails when an artifact is renamed or an output retired, instead of
+    leaving the reference quietly pointing at a record nothing writes.
+    """
+
+    label: str
+    declared_by: str
+    citations: tuple[str, ...]
+    supplies: str
+
+
+# The level the ELI5 pass records. It reuses `paper-learning`'s vocabulary so
+# one idea keeps one name across two surfaces; two words for one level is a
+# defect this repository has paid for before. Spelled out rather than indexed
+# out of PAPER_LEARNING_LEVELS, because a reordering of that tuple must not
+# silently re-point the ELI5 pass at `moderate` -- the membership check that
+# keeps the two surfaces honest belongs in a test, not in an index.
+HANDOVER_ELI5_LEVEL = "very_easy"
+# The whole admissible input set for a deep guide, an ELI5 pass, and a quiz.
+# Closed on purpose: a writer allowed to reach outside it is a writer allowed
+# to reach into the transcript, and by the time these artifacts are written the
+# transcript's early reasoning is gone.
+HANDOVER_RECORD_SOURCES = (
+    HandoverRecordSource(
+        label="Plan record",
+        declared_by="",
+        citations=("state", "phase", "blocked_reason"),
+        supplies="what was done, which stage it belonged to, and what was skipped with its reason",
+    ),
+    HandoverRecordSource(
+        label="Verification gate",
+        declared_by="verification-gate",
+        citations=("observed_check_results/v1", "claim_verdict/v1"),
+        supplies="which command actually ran, its exit status, and which checks are missing or failed",
+    ),
+    HandoverRecordSource(
+        label="Review",
+        declared_by="code-review",
+        citations=("ranked findings per axis",),
+        supplies="what a reader misses unless someone tells them",
+    ),
+    HandoverRecordSource(
+        label="QA",
+        declared_by="ultraqa",
+        citations=("pass/fail evidence",),
+        supplies="what nobody thought of the first time",
+    ),
+)
+
+
 def wiki_reference_templates() -> list[SkillReferenceTemplate]:
     return list(_wiki_reference_templates_cached())
 
@@ -1781,6 +1843,7 @@ def _wiki_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
         SkillReferenceTemplate("wiki", "references/wiki-patterns.md", _wiki_patterns_reference()),
         SkillReferenceTemplate("wiki", "references/wiki-operations.md", _wiki_operations_reference()),
         SkillReferenceTemplate("wiki", "references/wiki-ecosystem.md", _wiki_ecosystem_reference()),
+        SkillReferenceTemplate("wiki", "references/handover-artifacts.md", _handover_artifacts_reference()),
     )
 
 
@@ -1905,6 +1968,135 @@ def _wiki_ecosystem_reference() -> str:
         lines.append("")
     lines.append(catalog.source.claim_boundary)
     return "\n".join(lines) + "\n"
+
+
+def _handover_record_source_rows() -> list[str]:
+    rows = []
+    for source in HANDOVER_RECORD_SOURCES:
+        origin = "`omh_todo/v1` item" if not source.declared_by else f"`{source.declared_by}`"
+        citations = ", ".join(f"`{citation}`" for citation in source.citations)
+        rows.append(f"| {source.label} ({origin}) | {citations} | {source.supplies} |")
+    return rows
+
+
+def _handover_artifacts_reference() -> str:
+    source_table = "\n".join(_handover_record_source_rows())
+    return f"""# Handover Artifacts
+
+Three artifacts close a long piece of work: a **deep guide**, an **ELI5 pass**,
+and a **quiz**. They are written for whoever opens the work next - the same
+person after the context is gone, or a model with no memory of the session.
+Not a teammate being onboarded, not an outsider, and not publication prose.
+
+`wiki`'s interview asks whether an agent is one of the readers. Here the answer
+is always yes, so write for recall: short, named, and searchable over polished.
+
+## Assemble from the record, not from the conversation
+
+The other three sections depend on this one.
+
+By the time these artifacts are written the early reasoning is no longer in
+context - compaction took it - and a model asked to explain a decision it can
+no longer see will reconstruct one. The reconstruction is fluent, it agrees
+with the diff, and it is invented. It is also the worst thing to leave behind,
+because nothing downstream can tell it from the reason that was actually there.
+
+The reasons are not gone. They were written down while they were still true.
+
+| Record | Read these | What it supplies |
+| --- | --- | --- |
+{source_table}
+
+Every sentence in all three artifacts either restates one of those fields or is
+marked as the writer's own inference. There is no third category. Quote the
+field rather than paraphrasing it; a paraphrase of a reason is where the drift
+starts.
+
+An empty field is an answer. No item carrying a `blocked_reason` means nothing
+was blocked - it does not mean the reason is somewhere in the transcript.
+Write `none` and move on.
+
+This repository already applies the rule one stage earlier. `blocked_reason`
+is a field because the stop criterion used to be inferred from item text, and
+the inference was wrong in both directions on ordinary input. Reading a record
+instead of a sentence is that same fix, applied at the end of the work instead
+of the middle.
+
+## Deep guide
+
+The next reader has the diff. What they do not have is why it looks like that,
+and that is all the deep guide carries.
+
+- One section per done item, in `phase` order. A done item absent from the
+  guide is a gap: either write it or name it as deliberately omitted.
+- Each section answers three questions from three fields. **What changed** -
+  the item's own text. **Why this way** - the `blocked_reason` of what was not
+  taken, plus the review findings that landed. **What proves it** - the
+  observed check rows, by command and exit status.
+- Delete any sentence `git show` would have told the reader. A guide that
+  narrates the diff costs a read and returns nothing.
+- Name the file and the symbol. Never the line number and never a count: both
+  drift, and a pointer that drifts sends the next reader hunting for a string
+  that is no longer there.
+- A decision with no recorded reason is written as having no recorded reason.
+  That sentence is worth more than a plausible one.
+
+## ELI5 pass
+
+Level `{HANDOVER_ELI5_LEVEL}`, the same word `paper-learning` records, so one idea keeps
+one name. The ELI5 pass is the deep guide at that level - not a second
+document and not a second source.
+
+- It is a projection. A claim the deep guide does not make was invented at the
+  moment of simplifying.
+- `{HANDOVER_ELI5_LEVEL}` here means: expand every repo-internal term on first use, one idea
+  per sentence, and the reason before the mechanism.
+- `{HANDOVER_ELI5_LEVEL}` never means dropping a boundary, a refusal, or a `blocked_reason`.
+  Simplification removes vocabulary; it never removes a claim. That is the
+  coverage-preserving constraint `paper-learning` already holds, applied to a
+  change instead of a paper.
+- No deep guide, no ELI5 pass. An easy explanation with nothing behind it is a
+  guess that reads as an authority.
+
+## Quiz
+
+The quiz is a completeness check on the deep guide. It is not a study aid and
+nobody is being graded.
+
+**Every question cites one record entry, and a question that cannot cite one is
+not written.** Three entry kinds are admissible and no others.
+
+| Admissible entry | Where it comes from | What it proves |
+| --- | --- | --- |
+| A review finding | `code-review` ranked findings | a reader misses this unless told |
+| A failed check | `ultraqa` pass/fail evidence, or a HOLD/BLOCK `claim_verdict/v1` | nobody thought of it the first time |
+| A `blocked_reason` | the plan record | a judgement was made and needs explaining |
+
+Each one is a record of something that actually went wrong or was actually
+decided. That is the entire admission test, and it is what stops the quiz
+becoming "what does this change do" - a question whose answer is in the diff,
+which tests nothing and passes always.
+
+- Carry the citation with the question: the entry kind and the entry's own
+  identifier - finding id, check name, or the item the reason hangs on.
+- Answer from the deep guide only. **A question the deep guide cannot answer is
+  a hole in the deep guide.** Record it as a gap and fix the guide. Do not
+  soften the question, and never answer it from the transcript - answering
+  from the transcript is the invention this page exists to prevent.
+- One question per admissible entry, and no padding. Two findings, no failed
+  checks and nothing blocked is a two-question quiz, and two is the right
+  answer rather than a thin one.
+- Zero admissible entries is `no_admissible_entries`, written as that. Not an
+  empty quiz and not an invented one: a change nothing caught, nothing failed
+  on, and nothing was skipped in has no completeness check to run.
+
+## Boundary
+
+The three artifacts are prepared retained knowledge. They are not execution,
+verification, review, CI, merge-readiness, or merge evidence. A deep guide
+restating a PASS verdict has not re-proved it, and writing all three closes
+nothing that was not already closed.
+"""
 
 
 def buzz_skill() -> SkillTemplate:

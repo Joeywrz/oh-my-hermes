@@ -1273,7 +1273,15 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # sentence went to a browser lane. Fourteen characters for a shipped skill to
 # reach its own home turf. Re-derived from the full-profile
 # skill_context_cost_payload() producer.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 977984
+# 977984 -> 978452: one body section on `wiki`. The three artifacts that close
+# a long piece of work -- deep guide, ELI5 pass, quiz -- had no owner, and the
+# guidance itself is a reference file, which costs this budget nothing because
+# references load on demand. What is paid for here is the pointer alone: the
+# always-loaded body has to say the three exist, name the level they share
+# with `paper-learning`, and say they are assembled from records rather than
+# from the conversation, or nothing ever reaches the reference. Re-derived
+# from the full-profile skill_context_cost_payload() producer.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 978452
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

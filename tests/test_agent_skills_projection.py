@@ -50,9 +50,32 @@ class AgentSkillsProjectionTests(unittest.TestCase):
             self.assertEqual(skill_portability(name), PORTABILITY_HERMES_ONLY)
 
     def test_hermes_projection_byte_stable(self):
+        """The only gate that sees a skill BODY change, so it has to name the body.
+
+        `docs ... --check` cannot do this job: those are drift gates, and an
+        intended body edit moves the source and the generated file together,
+        so there is no drift to find. This pin is what fires instead -- and
+        its bare dict compare used to report 124 keys in two different orders
+        (producer here, sorted in the fixture), so the elided preview lined up
+        two unrelated skills and read as though everything had moved. The
+        names below are the whole point: a body change is usually deliberate,
+        and what the author needs is confirmation that exactly the skill they
+        edited moved and nothing else did.
+        """
         from omh.skills.render import builtin_skill_templates
         expected = json.loads((Path(__file__).parent / "fixtures/agent_skills_hermes_digests.json").read_text())
         actual = {t.name: hashlib.sha256(t.content.encode()).hexdigest() for t in builtin_skill_templates()}
+        moved = sorted(name for name in actual.keys() & expected.keys() if actual[name] != expected[name])
+        added = sorted(actual.keys() - expected.keys())
+        removed = sorted(expected.keys() - actual.keys())
+        self.assertEqual(
+            (moved, added, removed),
+            ([], [], []),
+            "skill body digests changed: moved="
+            f"{moved or 'none'} added={added or 'none'} removed={removed or 'none'}. "
+            "If that is the change you meant, re-derive the fixture with "
+            "json.dumps(..., indent=2, sort_keys=True) and commit it with the body edit.",
+        )
         self.assertEqual(actual, expected)
 
     def test_the_digest_fixture_stays_in_sorted_order(self):

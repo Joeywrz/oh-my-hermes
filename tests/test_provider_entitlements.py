@@ -303,6 +303,56 @@ class ConfigReaderTests(unittest.TestCase):
         self.assertEqual(configured_provider_ids("providers:\n  og:\n    base_url: x\nmodel:\n  provider: og\n"), ["og"])
 
 
+class FreeTextPromptTests(unittest.TestCase):
+    """`_ask`, the primitive under every free-text setup prompt.
+
+    The arrow keys that drive the menu right above it keep being pressed into
+    the free-text prompt that follows, and `input()` returns their escape
+    bytes as if they had been typed. Stripping them is `_ask`'s job because
+    every call site would otherwise have to remember to do it, and because a
+    caller that echoes the answer back would write the control bytes into the
+    terminal.
+    """
+
+    def _ask(self, typed: str) -> str:
+        with patch.object(setup_module.sys, "stdin", io.StringIO(typed)), redirect_stdout(io.StringIO()):
+            return setup_module._ask("Add another provider by name", default="", use_color=False)
+
+    def test_a_line_of_arrow_keys_reads_as_enter(self) -> None:
+        # The observed line: down, up, down, then a truncated sequence the
+        # person's Enter cut short. Nothing here was typed, so nothing is
+        # answered -- and "" is what every call site already treats as Enter.
+        self.assertEqual(self._ask("\x1b[B\x1b[A\x1b[B\x1b[\n"), "")
+
+    def test_ordinary_input_still_answers_and_is_still_trimmed(self) -> None:
+        self.assertEqual(self._ask("  gpt5  \n"), "gpt5")
+        self.assertEqual(self._ask("work-relay\n"), "work-relay")
+
+    def test_every_control_form_is_removed_not_only_the_escape_byte(self) -> None:
+        # A CSI stripped as a bare ESC would leave `[B` behind as text, which
+        # reads as a typed answer rather than as nothing.
+        self.assertEqual(self._ask("\x1b[1;5Dog\x1b[3~\n"), "og")
+        # SS3, which is what the arrows send in application-cursor mode.
+        self.assertEqual(self._ask("\x1bOA\x1bOBog\n"), "og")
+        # A sequence the submitting Enter cut short. Its ESC alone is not
+        # enough: `[` left behind reads as a typed answer.
+        self.assertEqual(self._ask("og\x1b[\n"), "og")
+        self.assertEqual(self._ask("og\x1b[1;\n"), "og")
+        self.assertEqual(self._ask("og\x1bO\n"), "og")
+        # A bare ESC, a stray C0, DEL, and a C1 byte.
+        self.assertEqual(self._ask("\x1b\x07o\x7fg\x9b\n"), "og")
+        # Nothing a person can legitimately type is touched.
+        self.assertEqual(self._ask("한국어-provider.v2/x\n"), "한국어-provider.v2/x")
+
+    def test_answer_carries_no_control_byte_for_a_caller_to_echo(self) -> None:
+        answer = self._ask("\x1b[Bmy\x1bOAprovider\x1b[A\n")
+        self.assertEqual(answer, "myprovider")
+        self.assertFalse(any(ord(character) < 0x20 or 0x7F <= ord(character) <= 0x9F for character in answer))
+
+    def test_end_of_input_is_still_an_empty_answer(self) -> None:
+        self.assertEqual(self._ask(""), "")
+
+
 class MultiChoicePromptTests(unittest.TestCase):
     """The multi-select primitive: same shape as `_ask_single_choice`, many answers."""
 
@@ -678,6 +728,51 @@ class SetupInterviewTests(unittest.TestCase):
             parsed, status = load_provider_entitlements(paths.omh_home)
             self.assertEqual(status, "applied")
             self.assertIsNotNone(parsed)
+
+    def test_the_two_rejection_reasons_are_told_apart(self) -> None:
+        # One message that ORed the reasons left the operator guessing which
+        # of the two happened, and only one of them is worth retyping.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._paths(root)
+            self._config(paths, "providers:\n  og:\n    base_url: x\n")
+            args = argparse.Namespace()
+            extra = iter(["og", "my provider", ""])
+            out = io.StringIO()
+            with patch.object(
+                setup_module, "_detect_external_cli_profiles", return_value={"claude-code": {"binary_present": False}, "codex": {"binary_present": False}}
+            ), patch.object(setup_module, "_ask_multi_choice", return_value=["og"]), patch.object(
+                setup_module, "_ask", side_effect=lambda *a, **k: next(extra)
+            ), patch.object(setup_module, "_use_color", return_value=False), redirect_stdout(out):
+                setup_module._ask_provider_entitlements(args, paths, "en")
+            printed = out.getvalue()
+            self.assertIn(tr("en", "provider_add_duplicate", provider="og"), printed)
+            self.assertIn(tr("en", "provider_add_rejected", provider="my provider"), printed)
+            self.assertNotIn("already recorded or is not", printed)
+
+    def test_arrow_keys_into_the_add_prompt_leave_the_loop_without_a_rejection(self) -> None:
+        # The real `_ask` this time: the arrow keys the operator carried over
+        # from the multi-select above have to die inside it, or they become a
+        # provider name, a rejection, and raw escape bytes echoed back into
+        # the terminal.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._paths(root)
+            self._config(paths, "providers:\n  og:\n    base_url: x\n")
+            args = argparse.Namespace()
+            out = io.StringIO()
+            with patch.object(
+                setup_module, "_detect_external_cli_profiles", return_value={"claude-code": {"binary_present": False}, "codex": {"binary_present": False}}
+            ), patch.object(setup_module, "_ask_multi_choice", return_value=["og"]), patch.object(
+                setup_module, "_use_color", return_value=False
+            ), patch.object(setup_module.sys, "stdin", io.StringIO("\x1b[B\x1b[A\x1b[B\x1b[\n")), redirect_stdout(out):
+                setup_module._ask_provider_entitlements(args, paths, "en")
+            printed = out.getvalue()
+            self.assertNotIn("skipped.", printed)
+            self.assertNotIn("\x1b[B", printed)
+            self.assertNotIn("\x1b[A", printed)
+            document = json.loads(provider_entitlements_path(paths.omh_home).read_text(encoding="utf-8"))
+            self.assertEqual(document["providers"], {"og": "gateway"})
 
     def test_invalid_existing_document_is_announced_and_replaced_by_default(self) -> None:
         with TemporaryDirectory() as tmp:

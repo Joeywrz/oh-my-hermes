@@ -3098,7 +3098,14 @@ def _ask_provider_entitlements(args: argparse.Namespace, paths: OmhPaths, langua
         extra = _ask(tr(language, "provider_add_prompt"), default="", use_color=use_color).strip()
         if not extra:
             break
-        if extra in providers or not is_provider_id_token(extra):
+        # Two different things go wrong here and the operator's next move
+        # differs: a duplicate is already in the document and needs nothing,
+        # a malformed id has to be retyped. One message that ORs the reasons
+        # told them neither.
+        if extra in providers:
+            print(_color(tr(language, "provider_add_duplicate", provider=extra), "31", use_color))
+            continue
+        if not is_provider_id_token(extra):
             print(_color(tr(language, "provider_add_rejected", provider=extra), "31", use_color))
             continue
         providers[extra] = ask_kind(extra, previous_providers.get(extra, PROVIDER_KIND_GATEWAY))
@@ -3772,12 +3779,42 @@ def _read_tui_key() -> str:
         termios.tcsetattr(file_descriptor, termios.TCSADRAIN, old_settings)
 
 
+# A person who just answered an arrow-key menu keeps pressing arrows into the
+# next free-text prompt, and `input()` hands back the raw escape bytes
+# (`\x1b[B`, `\x1b[A`, ...) as if they had been typed. Left in, they are
+# scored as an answer, rejected, and echoed back -- which reprograms the
+# terminal and makes the rejection unreadable. Alternation order matters: the
+# multi-byte sequences have to match before the bare-ESC catch-all, or a CSI
+# loses only its ESC and leaves `[B` behind as text.
+_CONTROL_INPUT_RE = re.compile(
+    "\x1b\\[[0-?]*[ -/]*[@-~]"  # CSI: ESC [ params intermediates final
+    "|\x1bO[@-~]"  # SS3: ESC O x, the arrow keys in application-cursor mode
+    # The reported line ended `^[[`: the Enter that submitted it landed
+    # inside a sequence, so the last one has no final byte. Dropping only its
+    # ESC as a C0 would leave `[` standing as a typed answer, which is how a
+    # person who typed nothing got told `[` was not a plain identifier.
+    "|\x1b\\[[0-?]*[ -/]*\\Z"
+    "|\x1bO\\Z"
+    "|[\x00-\x1f\x7f-\x9f]"  # bare ESC, any other C0, DEL, C1
+)
+
+
+def _strip_control_input(value: str) -> str:
+    """Terminal control input removed from a line a person typed."""
+    return _CONTROL_INPUT_RE.sub("", value)
+
+
 def _ask(prompt: str, *, default: str, use_color: bool) -> str:
+    # Stripped here rather than at each call site so every free-text setup
+    # prompt gets it, and so no caller can echo a control byte back: a line of
+    # nothing but arrow keys reads as empty, which each call site already
+    # treats as "Enter".
     try:
-        return input(f"{_color('?', '1;36', use_color)} {prompt} [{default}]: ").strip()
+        raw = input(f"{_color('?', '1;36', use_color)} {prompt} [{default}]: ")
     except EOFError:
         print("")
         return ""
+    return _strip_control_input(raw).strip()
 
 
 def _use_color() -> bool:

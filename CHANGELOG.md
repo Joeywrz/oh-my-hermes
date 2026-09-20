@@ -23,6 +23,7 @@ All notable changes will be documented here.
   `docs/ADDING-A-SKILL.md`, and that its failure named nothing. Both are now
   written down, with the distinction between a drift gate and a pin stated
   where it is needed.
+
 - **Interactive `omh setup` now asks whether OMH should watch for its own
   updates, so the capability stops being invisible.** `omh update-check set
   --mode off|notify|auto` has shipped for a while and runs from the launch
@@ -123,6 +124,70 @@ All notable changes will be documented here.
   rather than quietly turning observed into prepared, and the quiz's table of
   admissible entries is generated from a closed producer so no hand-written
   row can admit a source nothing declares.
+
+- **A code story now has a shape OMH ships, and a stage it does not do stays
+  on the list.** `omh_todo` takes a new optional `template`, whose
+  one value is `code-story`: send it with `action=set` and the plan is
+  declared with the ten phases of a code story — `I. Story`, `II. Implement`,
+  `III. Review`, `IV. QA`, `V. Fix`, `VI. Manual test guide`,
+  `VII. Deep guide`, `VIII. ELI5`, `IX. Quiz`, `X. Close` — in delivery
+  order, one pending item each. The phases come out of the new
+  `todo_templates` module rather than out of whatever the model invents that
+  day, and the name is stored on the record (`template`) and projected into
+  the HUD payload, so "is this a story plan" is a field a reader reads rather
+  than phase labels matched back out of prose.
+
+  The stamp is enforcement, not decoration. Every later write to a stamped
+  record — a whole-list `set`, or a single-item `advance`, which now carries
+  the stored name back through the same builder — is held to the same
+  coverage: all ten phases present, each first appearing in template order,
+  every item inside one of them. A phase this change does not need therefore
+  cannot leave the list; dropping it is refused by name. The way to not do a
+  phase is to carry it as `state=done` with a `blocked_reason` saying why it
+  does not apply. That reason is a convention the tool description and the
+  refusal text ask for, not a rule any validator can hold — a phase that was
+  genuinely worked is also `done` with no reason, so what the record enforces
+  is the phase's presence and nothing more. `done` rather than a fourth item
+  state, for the reason the store recorded when it chose a `blocked_reason`
+  field over a `blocked` state: the counts, the projection and the widget
+  keep reading three states. `done` is also the only state that lets the plan
+  finish — a `pending` item carrying a reason is the plan's own stop
+  criterion and would halt the run at the skipped phase with every later
+  phase unreached.
+
+  A skipped phase now says so on the surfaces a person reads. The checklist
+  row opens its recorded reason with `skipped:` instead of `waiting:` when
+  the item is closed — nobody is waiting on a phase nobody will do — and the
+  HUD payload carries a derived `counts.skipped`, the items that are `done`
+  and carry a reason. Both plan headers name it: a running story reads
+  `Todo · story   5/10 (3 skipped)` and a finished one
+  `Todo · story ✓ 6/10 (4 skipped)` rather than `✓ 10/10`. That mattered
+  because the finished panel drops every item row: the reasons disappeared at
+  exactly the moment anyone would look for them, and the number asserted ten
+  phases of work for a six-phase story. Only the finished line subtracts —
+  the running header's numerator sits above item rows a person can count, so
+  it keeps `done` — and the clause is on both so the step between them is
+  something the reader has been watching rather than something that appears
+  at the end. Nothing new is written to disk and no item state was added: the
+  count is derived from two fields the item already has, and a plan with no
+  skips renders both headers exactly as before.
+
+  A stamped plan that runs out of item budget is told which bound it hit. The
+  template declares ten of the twenty items `omh_todo` allows, so ten are left
+  for work of the plan's own; the twenty-first is refused rather than
+  truncated, nothing partial lands, and the refusal now appends the arithmetic
+  a caller cannot do for itself — what the template holds, what is left, and
+  that nothing was written. A plan that named no template reads the plain
+  `todo items are capped at 20` it always read.
+
+  Nothing detects a story from what a person typed. The declaration is the
+  `template` argument on the call and nothing else, so a one-line question
+  gets no phases, and a plan declared without the field is byte-identical to
+  what this store wrote before the field existed — the additive-optional
+  contract `session_ref` and `deferred_reason` already follow.
+  `tests/test_story_template.py` pins the stamp, the coverage refusals, the
+  skip, the unchanged plain write, and that an older reader still gets every
+  field it knew.
 
 - **The setup keyboard menus stop throwing away keys you pressed while the
   menu was redrawing, and read a whole keypress instead of its first three

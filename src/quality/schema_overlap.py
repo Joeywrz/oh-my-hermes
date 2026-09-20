@@ -169,6 +169,16 @@ REVIEWED_OVERLAP_DECISIONS: dict[str, str] = {
         "keep — the numerals carry meaning the clamp cannot: 0 is a top-level task and 1-3 render "
         "indented beneath their parent. Cutting them leaves a range with no semantics."
     ),
+    "omh_todo.template:OVERLAP_ENUM_RESTATED": (
+        "keep — the one member is the enum, and the rest is the contract the schema cannot "
+        "hold: when to reach for the template, that sending no items declares the ten "
+        "phases, and that a phase this change does not need is kept as done with a "
+        "blocked_reason rather than dropped. A caller that read only 'code-story' would "
+        "send a nine-phase list and have the write refused without knowing why. Trimmed "
+        "once already — the mechanics each refusal restates verbatim at the moment it "
+        "fires were cut, which is the doctrine's own 'schema and refusal already carry it' "
+        "line applied to this description."
+    ),
     "omh_role.action:OVERLAP_ENUM_RESTATED": (
         "prune candidate — 'List available roles or read one role context.' restates list/read "
         "with only the object each acts on. Left in place pending `git blame`: it predates the "

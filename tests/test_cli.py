@@ -15301,7 +15301,7 @@ class RuntimeTodoCliTests(unittest.TestCase):
             self.assertEqual(written["todo"]["status"], "established")
             self.assertEqual(
                 written["todo"]["counts"],
-                {"total": 3, "done": 1, "active": 1, "pending": 1, "phases": 0},
+                {"total": 3, "done": 1, "active": 1, "pending": 1, "skipped": 0, "phases": 0},
             )
 
             status, stdout, _ = run_cli(base + ["show"])

@@ -33,6 +33,12 @@ from typing import Any, Iterator
 # import omh core; a copy here would be the third, and the policy gate in
 # `tests/test_journal_lock_portability.py` exists to stop exactly that.
 from .awareness_delivery import _awareness_delivery_lock
+from .todo_templates import (
+    TODO_TEMPLATES,
+    template_coverage_error,
+    template_items,
+    template_phase_labels,
+)
 
 TODO_SCHEMA_VERSION = "omh_todo/v1"
 TODO_FILENAME = "todo.json"
@@ -113,6 +119,13 @@ MAX_TODO_BLOCKED_REASON_CHARS = 200
 # deferral by default, which is what makes resuming cost nobody a clearing
 # step.
 MAX_TODO_DEFERRED_REASON_CHARS = 200
+# Optional name of the phase template this plan was stamped with
+# (`todo_templates`). A closed vocabulary, not free text: the bound is what a
+# reader allocates for it, and the validator below rejects anything that is
+# not a known template name outright. Additive-optional like every field
+# above it -- a record written without one is byte-identical to what this
+# module wrote before the field existed.
+MAX_TODO_TEMPLATE_CHARS = 40
 # The digest is only ever compared for equality, never inverted, so the bound
 # is about how much record a deferral costs, not about collision resistance;
 # 128 bits is far past what "is this the same item list" needs.
@@ -238,6 +251,7 @@ def build_todo_record(
     source: str,
     session_ref: object = "",
     deferred_reason: object = "",
+    template: object = "",
 ) -> dict[str, Any]:
     """Build the on-disk todo record.
 
@@ -252,6 +266,22 @@ def build_todo_record(
     record is being written with. The two are always written together and
     never separately -- a reason without a digest would be a deferral nothing
     can lapse, which is the hand-cleared flag this field exists instead of.
+
+    ``template`` names a phase template from `todo_templates` and is
+    additive-optional on the same terms again. It does two things and they are
+    the same thing seen from either end of the write: with no ``items`` it
+    FILLS them, one pending item per phase in delivery order, so the shape of
+    the plan comes from the template rather than from whatever the writer
+    invents; with ``items`` it HOLDS them to that shape, refusing a list that
+    drops a phase, renames one, reorders them, or leaves an item outside every
+    phase. A writer that omits the field gets exactly the record this function
+    built before the field existed, items and all.
+
+    The coverage check runs after ``validate_todo_items`` and not before,
+    because it reads the phase each item ended up with, which is the form the
+    record and the HUD will carry. Checking the raw input would judge a phase
+    the record never stores: ``'  I. Story  '`` would be refused as an unknown
+    label for a phase the validator writes as ``'I. Story'``.
     """
     safe_title = strip_control_characters(title)
     if len(safe_title) > MAX_TODO_TITLE_CHARS:
@@ -259,7 +289,18 @@ def build_todo_record(
     safe_source = strip_control_characters(source)[:MAX_TODO_SOURCE_CHARS]
     safe_session_ref = strip_control_characters(session_ref)[:MAX_TODO_SESSION_REF_CHARS]
     safe_deferred_reason = _validated_deferred_reason(deferred_reason)
+    safe_template = _validated_template(template)
+    if safe_template and items in (None, []):
+        items = template_items(safe_template)
+    # The cap refusal, answered here rather than in `validate_todo_items`,
+    # because only this frame knows a template is involved. The generic
+    # sentence is the whole of what an unstamped plan sees and is left
+    # untouched; a stamped one gets the arithmetic it cannot do for itself.
+    if safe_template and isinstance(items, list) and len(items) > MAX_TODO_ITEMS:
+        raise TodoValidationError(_template_cap_error(safe_template, len(items)))
     validated_items = validate_todo_items(items)
+    if safe_template and (error := template_coverage_error(safe_template, validated_items)):
+        raise TodoValidationError(error)
     record: dict[str, Any] = {
         "schema_version": TODO_SCHEMA_VERSION,
         "title": safe_title,
@@ -273,7 +314,63 @@ def build_todo_record(
     if safe_deferred_reason:
         record["deferred_reason"] = safe_deferred_reason
         record["deferred_items_digest"] = todo_items_digest(validated_items)
+    if safe_template:
+        record["template"] = safe_template
     return record
+
+
+def _template_cap_error(template: str, declared_items: int) -> str:
+    """What a stamped plan is told when it overruns ``MAX_TODO_ITEMS``.
+
+    The generic message is true and unactionable in the same breath: a writer
+    that sent ten template phases plus eleven items of its own is told the
+    cap and given no way to learn that the template it asked for is holding
+    half of it. Its two available moves from there are to retry the identical
+    payload or to drop the template, and neither is the one that works. So
+    the sentence keeps its opening -- an unstamped plan reads exactly the
+    string it always read -- and appends the arithmetic only this frame can
+    do: how much the template spends, what is left, and what arrived.
+
+    It also says nothing was written, because a cap that truncates and a cap
+    that refuses call for opposite next moves and a person assumes the first.
+    Nothing partial lands: this raises before `write_todo`, so the record on
+    disk is whatever it was.
+    """
+    holds = len(template_phase_labels(template))
+    return (
+        f"todo items are capped at {MAX_TODO_ITEMS}; template {template!r} declares "
+        f"{holds} of them, leaving {max(0, MAX_TODO_ITEMS - holds)} for items of your "
+        f"own, and this plan has {declared_items}. Nothing was written."
+    )
+
+
+def _validated_template(template: object) -> str:
+    """The template name as it will be stored, or ``""``.
+
+    A closed vocabulary, so an unrecognised name raises instead of being
+    stored: a stamp nothing can project is worse than no stamp, because the
+    coverage rule the stamp exists to impose would then be silently absent
+    from a record that claims to have one. The message names the templates
+    that do exist, since the writer is a model reading a refusal rather than
+    a person reading this file.
+
+    A non-string is rejected rather than coerced, the call
+    ``_validated_deferred_reason`` below makes for the same reason: a number
+    is not a template name in any language. The parallel stops there: that
+    function treats whitespace as absence, and this one strips it and then
+    fails the membership test, so a blank string raises. Deliberate --
+    absence means "no template" and is spelled by omitting the argument,
+    while a writer that sent something got it wrong and should be told.
+    """
+    if template is None or template == "":
+        return ""
+    if not isinstance(template, str):
+        raise TodoValidationError("todo template must be a string")
+    safe = strip_control_characters(template)[:MAX_TODO_TEMPLATE_CHARS]
+    if safe not in TODO_TEMPLATES:
+        known = ", ".join(repr(name) for name in sorted(TODO_TEMPLATES))
+        raise TodoValidationError(f"todo template must be one of: {known}")
+    return safe
 
 
 def _validated_deferred_reason(deferred_reason: object) -> str:
@@ -466,9 +563,28 @@ def advance_todo_item(
     it is enforced structurally rather than by agreement: the new list is the
     stored list with one entry's ``state`` and ``blocked_reason`` replaced,
     and it then goes through ``build_todo_record`` -- the same title, source,
-    session and deferral handling, the same ``validate_todo_items``, the same
-    stamp. There is no second validator here and no second schema; a record
-    this produces is byte-equal to the one `set` produces for the same plan.
+    session, deferral and template handling, the same ``validate_todo_items``,
+    the same stamp. There is no second validator here and no second schema; a
+    record this produces is byte-equal to the one `set` produces for the same
+    plan.
+
+    The template name is read off the stored record and sent back through, so
+    a single-item write neither drops it nor escapes it: the phase coverage
+    the template imposes is re-checked on the advanced list, exactly as it
+    would be on a whole-list `set`. Advancing an item cannot move a
+    phase, so this passes for any record this module wrote; a hand-edited
+    record that no longer covers its template refuses here, naming the phase,
+    and `set` is how it is re-declared.
+
+    A record naming a template this build does not have is the one refusal
+    on this path a caller could not act on, so it is relabelled rather than
+    passed through. The builder's message tells a writer to send a different
+    `template`, and `action=advance` has no such argument -- the name came
+    off the record, not off the call -- so a model reading that wording
+    would look for an argument it never sent. It is also permanent for that
+    record: only `set` clears a stored name, and the replacement says so.
+    Reachable today from a hand edit, or from a bundle rolled back under a
+    record a newer generation stamped.
 
     ``item`` is 1-based, the way the checklist reads, and it is guarded rather
     than trusted. ``item_text`` must be a prefix of the text already stored at
@@ -534,15 +650,54 @@ def advance_todo_item(
             updated.pop("blocked_reason", None)
         items = list(stored)
         items[position] = updated
-        advanced = build_todo_record(
-            record.get("title", ""),
-            items,
-            source=source,
-            session_ref=session_ref,
-            deferred_reason=deferred_reason,
-        )
+        stored_template = record.get("template", "")
+        try:
+            advanced = build_todo_record(
+                record.get("title", ""),
+                items,
+                source=source,
+                session_ref=session_ref,
+                deferred_reason=deferred_reason,
+                template=stored_template,
+            )
+        except TodoValidationError as error:
+            raise _advance_template_error(stored_template, error) from error
         _replace_todo_record(destination)(advanced)
     return advanced
+
+
+def _advance_template_error(
+    stored_template: object, error: TodoValidationError
+) -> TodoValidationError:
+    """Re-label the one advance refusal whose remedy the builder cannot name.
+
+    Every other refusal on this path ends with what to do next -- "declare
+    one with action=set", "read the plan with action=show first". The
+    builder's unknown-template message ends with "must be one of: ..." and
+    means "send a different `template`", which is advice about an argument
+    `action=advance` does not have. Only the unknown-name case is relabelled:
+    a coverage refusal already names its phase and is actionable as written,
+    so it is returned untouched.
+    """
+    # Only a record that NAMES a template this build cannot resolve. An
+    # unstamped record is the common case and every refusal on it is the
+    # builder's own -- an over-length reason, an item text past the cap --
+    # so relabelling those would answer a question about item fields with a
+    # sentence about templates.
+    # `isinstance` before the lookup, not after: a hand-edited record can
+    # carry an unhashable value there, and `{} in TODO_TEMPLATES` raises
+    # TypeError -- inside an exception handler, which would replace a
+    # refusal the caller can read with a crash it cannot.
+    if not stored_template or (
+        isinstance(stored_template, str) and stored_template in TODO_TEMPLATES
+    ):
+        return error
+    known = ", ".join(repr(name) for name in sorted(TODO_TEMPLATES))
+    shown = strip_control_characters(stored_template)[:MAX_TODO_TEMPLATE_CHARS]
+    return TodoValidationError(
+        f"this plan names a template this build does not know ({shown!r}); "
+        f"re-declare it with action=set, using one of: {known}"
+    )
 
 
 def _validated_item_reference(item: object, count: int) -> int:

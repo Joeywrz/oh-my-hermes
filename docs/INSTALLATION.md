@@ -1410,6 +1410,35 @@ does not load TUI widget files, so this panel is a modern-TUI-only surface.
 merge evidence; an all-done list collapses to a single header line and a list
 untouched for 24 hours is hidden as stale.
 
+A plan may be declared from a named phase template instead of from phases the
+model writes out itself. `omh_todo` with `action=set` and
+`template: code-story` declares the ten phases of a code story — `I. Story`,
+`II. Implement`, `III. Review`, `IV. QA`, `V. Fix`, `VI. Manual test guide`,
+`VII. Deep guide`, `VIII. ELI5`, `IX. Quiz`, `X. Close` — in delivery order,
+and stores the template name on the record. Every later write to that record
+is held to the same coverage, so a phase cannot quietly leave the plan: a
+change that needs no manual test guide carries that phase as `state: done`
+with a `blocked_reason` saying why it does not apply, and the panel renders
+the row as `[✓] … (skipped: …)`. Both plan headers count them — a running
+plan reads `Todo · story   5/10 (3 skipped)`, a finished one
+`Todo · story ✓ 6/10 (4 skipped)` — because the summary line is all that
+survives once the item rows collapse, and only the finished form subtracts
+the skips from its numerator. A `set` without `template` declares an
+ordinary plan exactly as before, and nothing infers the template from what
+anyone typed — the argument is the whole of the declaration.
+
+Two bounds worth knowing before declaring one. The template is a plugin-tool
+surface only: `omh runtime todo set` has no `--template`, and a CLI `set`
+over a stamped plan replaces the record and un-stamps it, the same way a
+plain `omh_todo` `set` does. And the ten phases spend half the 20-item cap, so
+a story plan has ten slots left for subtasks across all ten phases. The
+twenty-first item is refused, not truncated, and the whole write is lost with
+it — nothing partial lands and the record on disk is untouched. A stamped plan
+is told which bound it hit: `todo items are capped at 20; template
+'code-story' declares 10 of them, leaving 10 for items of your own, and this
+plan has 21. Nothing was written.` A plan that named no template reads the
+plain `todo items are capped at 20`, as it always has.
+
 The panel belongs to the session that declared the plan. When Hermes
 declares a plan through `omh_todo`, the record is stored for that session
 (`$OMH_HOME/runtime/todos/<session key>.json`) and read back only for it: the

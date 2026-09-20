@@ -48,6 +48,7 @@ from .todo_store import (
     MAX_TODO_PHASE_CHARS,
     MAX_TODO_SESSION_REF_CHARS,
     MAX_TODO_SOURCE_CHARS,
+    MAX_TODO_TEMPLATE_CHARS,
     MAX_TODO_TEXT_CHARS,
     MAX_TODO_TITLE_CHARS,
     TODO_ITEM_STATES,
@@ -2009,6 +2010,47 @@ def todo_blocked_reason_display(item: dict[str, Any]) -> str:
     return reason[: TODO_BLOCKED_REASON_DISPLAY_CHARS - 1] + "…"
 
 
+def _todo_reason_verb(item: dict[str, Any]) -> str:
+    """``skipped`` for a closed item carrying a reason, else ``waiting``.
+
+    The widget keeps its own copy of this one word for the same row, so the
+    rule lives in one sentence here and the pair is pinned together in
+    `tests/test_story_template.py`.
+    """
+    return "skipped" if item.get("state") == "done" else "waiting"
+
+
+def _todo_skipped_clause(counts: dict[str, Any]) -> str:
+    """`` (N skipped)`` when the plan has any, else ``""``.
+
+    Rides BOTH plan headers, and that is the point: the count first appears
+    with the first skip, while the item rows are still on screen to check it
+    against, rather than arriving only on the line a finished plan collapses
+    to. A plan that skipped nothing pays nothing -- the clause is absent and
+    both headers are byte-identical to what they were before it existed.
+
+    The widget keeps the same two rules (`skippedClause`, `workedCount`) for
+    the same two headers, so the panel and the text HUD line cannot disagree
+    about one plan.
+    """
+    skipped = int(counts.get("skipped", 0) or 0)
+    return f" ({skipped} skipped)" if skipped > 0 else ""
+
+
+def _todo_worked_count(counts: dict[str, Any]) -> int:
+    """The phases that were WORKED: ``done`` less the ones that were skipped.
+
+    `counts["skipped"]` is a subset of `counts["done"]` (see the comment
+    where it is derived), so this is the subtraction, in one place. Only the
+    FINISHED line uses it. The running header keeps ``done`` because its
+    numerator sits directly above item rows a person can count, and a
+    numerator that disagrees with the ticks on screen is worse than the step
+    the two forms make at completion -- which is what the clause above, now
+    present on both, is there to reconcile.
+    """
+    return max(0, int(counts.get("done", 0) or 0) - int(counts.get("skipped", 0) or 0))
+
+
 def _todo_summary(
     home: Path,
     hermes: Path | None = None,
@@ -2037,11 +2079,12 @@ def _todo_summary(
         "title": "",
         "source": "",
         "updated_at": "",
-        "counts": {"total": 0, "done": 0, "active": 0, "pending": 0, "phases": 0},
+        "counts": {"total": 0, "done": 0, "active": 0, "pending": 0, "skipped": 0, "phases": 0},
         "items": [],
         "display_items": [],
         "display_phase": "",
         "deferred_reason": "",
+        "template": "",
         "more_count": 0,
         "stall": _todo_stall(None, None),
     }
@@ -2094,6 +2137,18 @@ def _todo_summary(
     summary["source"] = strip_control_characters(record.get("source", ""))[:MAX_TODO_SOURCE_CHARS]
     summary["updated_at"] = strip_control_characters(record.get("updated_at", ""))[:40]
     summary["items"] = items
+    # Projected so a writer can SEE the stamp it is holding. `set` replaces
+    # the whole record, so a re-declaration that forgets the template
+    # re-declares the plan as an ordinary one -- the writer owns the
+    # declaration, the way it owns `deferred_reason`. What it must not have to
+    # do is remember the stamp from a previous turn: `action=show` and every
+    # `omh_todo` result payload carry it back. Bounded rather than validated
+    # against the template catalog, because a reader's job here is to project
+    # what the record says, and the writer is where an unknown name was
+    # already refused.
+    summary["template"] = strip_control_characters(record.get("template", ""))[
+        :MAX_TODO_TEMPLATE_CHARS
+    ]
     # The deferral verdict is decided here, once, for the same reason `stall`
     # is: the TUI panel, the text HUD line, the per-turn reminder, the turn-end
     # directive and `omh runtime todo show` all read one projection, and a
@@ -2120,6 +2175,20 @@ def _todo_summary(
         "done": sum(1 for item in items if item["state"] == "done"),
         "active": sum(1 for item in items if item["state"] == "active"),
         "pending": sum(1 for item in items if item["state"] == "pending"),
+        # Derived, never declared: a phase nobody did is already
+        # distinguishable in the record as `done` carrying a reason, so this
+        # reads the two fields the item already has rather than asking for a
+        # fourth state. It is a SUBSET of `done` and deliberately not
+        # subtracted from it -- `done` answers "is this item still open",
+        # which is what `open_plan_position` and the plan's stop criterion
+        # need, and an item that will never be worked is closed. This answers
+        # the different question a finished plan is read for: how much of it
+        # was work. The display is the one place the two are told apart.
+        "skipped": sum(
+            1
+            for item in items
+            if item["state"] == "done" and item.get("blocked_reason")
+        ),
         "phases": len(phases),
     }
     summary["counts"] = counts
@@ -2330,8 +2399,26 @@ def _hud_todo_lines(todo: dict[str, Any], *, preset: str = "focused") -> list[st
     title = str(todo.get("title", ""))
     label = f"Todo · {title}" if title else "Todo"
     if status == "all_done":
-        return [f"{label} ✓ {counts.get('done', 0)}/{counts.get('total', 0)}"]
-    header = f"{label}   {counts.get('done', 0)}/{counts.get('total', 0)}"
+        # The one line a finished plan leaves, so it is the one line that has
+        # to hold the whole story. The item rows are gone by here, and with
+        # them every recorded reason -- which is exactly when a person looks
+        # to see what the run actually did. `done/total` alone would answer
+        # "10/10" for a story that worked six phases and skipped four, which
+        # is a claim about work the record does not carry. So the numerator
+        # is the phases that were worked and the skipped ones are named
+        # beside it. A plan with no skips renders the identical line it
+        # rendered before this clause existed: the subtraction is zero and
+        # the clause is absent.
+        return [f"{label} ✓ {_todo_worked_count(counts)}/{counts.get('total', 0)}"
+                f"{_todo_skipped_clause(counts)}"]
+    # The running header keeps `done` as its numerator -- see
+    # `_todo_worked_count` -- and carries the same clause, so the skipped
+    # count is visible from the first skip rather than appearing only once
+    # the plan finishes and its rows are gone.
+    header = (
+        f"{label}   {counts.get('done', 0)}/{counts.get('total', 0)}"
+        f"{_todo_skipped_clause(counts)}"
+    )
     if preset == "minimal":
         return [header]
     full = preset == "full"
@@ -2355,9 +2442,19 @@ def _hud_todo_lines(todo: dict[str, Any], *, preset: str = "focused") -> list[st
         # declarations, not execution evidence, and a recorded reason is one
         # of those declarations, never an observation that something is
         # blocking.
+        #
+        # The verb the clause opens with is the item's own state, and that is
+        # the smallest reading of the state the row already draws rather than
+        # a guess at what the reason means. An OPEN item recording a reason
+        # is not proceeding, so it is waiting; a DONE item recording one is
+        # closed and nobody is waiting on it, which is what a skipped phase
+        # is. Before the story template, `done` carrying a reason was a
+        # corner nobody wrote on purpose and "waiting" beside a ✓ was merely
+        # odd; it is now the sanctioned way to drop a phase, so the row would
+        # read as a bug on the main path.
         reason = todo_blocked_reason_display(item)
         if reason:
-            line = f"{line} (waiting: {reason})"
+            line = f"{line} ({_todo_reason_verb(item)}: {reason})"
         return f"{line} (unchanged {unchanged})" if unchanged and item["state"] == "active" else line
 
     lines = [header]

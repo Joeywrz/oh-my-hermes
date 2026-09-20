@@ -93,6 +93,29 @@ export default function register(sdk) {
 
   const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
 
+  // The two rules the reader keeps in `_todo_skipped_clause` and
+  // `_todo_worked_count` (runtime_reader.py), on the same two headers, so the
+  // panel and the text HUD line cannot disagree about how much of one plan
+  // was worked.
+  //
+  // The clause rides BOTH headers: the count first appears with the first
+  // skip, while the item rows are still on screen to check it against,
+  // rather than arriving only on the line a finished plan collapses to. It
+  // is placed immediately after the numerator it modifies, which also
+  // decides what a narrow terminal drops -- `truncate-end` cuts the tail, so
+  // the phase count and the transient parallel-shot badge give way before
+  // this does.
+  //
+  // A payload from a generation that did not derive the count, or a plan
+  // with no skips, renders exactly what it rendered before.
+  const skippedClause = counts => {
+    const skipped = Number(counts.skipped) || 0
+    return skipped > 0 ? ` (${skipped} skipped)` : ''
+  }
+  // Only the FINISHED header subtracts. The running one keeps `done`,
+  // because its numerator sits directly above item rows a person can count.
+  const workedCount = counts => Math.max(0, (Number(counts.done) || 0) - (Number(counts.skipped) || 0))
+
   // Session metrics OMH can honestly source: cost sums observed per-agent
   // cost_usd across live bindings, ctx is the MAIN row's observed context
   // percentage. The host's own token gauge (36.4k/272k) is hermes session
@@ -1035,7 +1058,11 @@ export default function register(sdk) {
           h(Text, { bold: true, color: t.color.primary }, '[Plan]'),
           title ? h(Text, { color: t.color.muted }, ` ${title}`) : null,
           h(Text, { color: t.color.border }, SEPARATOR),
-          h(Text, { color: t.color.ok }, `✓ ${counts.done ?? 0}/${counts.total ?? 0}`),
+          // A finished plan has no item rows left, so this line is the only
+          // place the skipped phases can still be seen, and `done/total`
+          // alone would claim ten phases of work for a six-phase story.
+          h(Text, { color: t.color.ok }, `✓ ${workedCount(counts)}/${counts.total ?? 0}`),
+          h(Text, { color: t.color.muted }, skippedClause(counts)),
           planShotBadge(payload, t),
         ),
         h(Rule, { columns, t }),
@@ -1163,6 +1190,7 @@ export default function register(sdk) {
       title ? h(Text, { color: t.color.muted }, ` ${title}`) : null,
       h(Text, { color: t.color.border }, SEPARATOR),
       h(Text, { color: t.color.warn }, `${counts.done ?? 0}/${counts.total ?? 0}`),
+      h(Text, { color: t.color.muted }, skippedClause(counts)),
       phaseCount > 1 ? h(Text, { color: t.color.muted }, ` · ${phaseCount} phases`) : null,
       planShotBadge(payload, t),
       hasActive && live ? h(PlanPulse, { t }) : null,
@@ -1200,7 +1228,13 @@ export default function register(sdk) {
     // like at a glance" fact the not-live marker is. It states what the plan
     // recorded and stops there; the payload's evidence boundary already says a
     // todo item is a declaration, never execution evidence.
-    const waitingNode = reason => (reason ? h(Text, { color: t.color.warn }, ` (waiting: ${reason})`) : null)
+    // The verb is the item's own state, the same one-word rule the reader
+    // applies in `_todo_reason_verb`: an open item recording a reason is not
+    // proceeding, a done one is closed and nobody is waiting on it. Both
+    // openers are eleven cells, so WAITING_CHROME_CELLS covers either.
+    const reasonVerb = item => (item.state === 'done' ? 'skipped' : 'waiting')
+    const waitingNode = (item, reason) =>
+      reason ? h(Text, { color: t.color.warn }, ` (${reasonVerb(item)}: ${reason})`) : null
     const itemLabel = (item, reason) =>
       `${Object.hasOwn(markers, item.state) ? markers[item.state] : '[ ]'} ${truncateCells(item.text, textCells(reason))}`
     const itemProps = item => ({
@@ -1228,7 +1262,7 @@ export default function register(sdk) {
     // stay the same shape either way, only the state they claim changes.
     const itemNode = (item, indent) => {
       const reason = reasonOf(item)
-      const waiting = waitingNode(reason)
+      const waiting = waitingNode(item, reason)
       // The reason rides ahead of the unchanged hint: where a row carries
       // both, the reason is what explains the age.
       if (item.state !== 'active') {

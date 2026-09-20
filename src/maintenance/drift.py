@@ -274,7 +274,13 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # #1689 adds three: two senses of `serve` that are not a model
             # being served (a CDN, and people), and something broken up that
             # is not code.
-            expected=280,
+            # The story close adds two, both about the same loose word:
+            # `finance-analysis` carried the bare `close` out of the separate
+            # tokens of "month-end close" and claimed a modal and a database
+            # transaction. Only these two -- the lane shipped no chat trigger
+            # of its own, so it contributed no positive cases and no
+            # `story` negatives.
+            expected=282,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",

@@ -126,6 +126,23 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         'Asking which phase the work is in is not a checklist declaration',
         'which phase are we in', 'answer_clarification', '', 'todo-checklist',
     ),
+    # `finance-analysis` carries the accounting phrase "month-end close", whose
+    # separate tokens handed it the bare word `close` and made it the top
+    # candidate on every sentence that merely contains it. The accounting
+    # intent reaches the workflow through its `domain:` cue instead, which
+    # neither of these touches.
+    RoutingPrecisionCase(
+        'finance-close-ui-verb-control',
+        'A modal that closes is not a month-end close',
+        'the modal should close when the user presses escape', 'answer_clarification', '',
+        'finance-analysis',
+    ),
+    RoutingPrecisionCase(
+        'finance-close-resource-verb-control',
+        'Closing a database transaction is not a month-end close',
+        'remember to close the transaction in the finally block', 'answer_clarification', '',
+        'finance-analysis',
+    ),
     RoutingPrecisionCase(
         'recall-apology-control', 'An apology is not a recall incident',
         'Apologize for forgetting.', 'answer_clarification', '', 'memory-sync',

@@ -2537,6 +2537,33 @@ _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS = {
             "versioning",
         }
     ),
+    # `finance-analysis` carries the accounting phrase "month-end close", and
+    # the scorer credits a multi-word trigger as its separate tokens too. That
+    # handed this workflow the bare word `close`, which is a connection, a
+    # modal, a file handle, a tab, and an estimate near a number -- and, on
+    # "close this story, it is done", the top candidate at a score of 4 over
+    # every workflow that has anything to do with finishing work.
+    #
+    # What the hold-back costs, measured rather than assumed. An accounting
+    # request that spells the cue is untouched, because "month-end close" is a
+    # domain trigger in `SPECIALIST_DOMAIN_TRIGGERS` and scores +54 through
+    # `domain:`, never through this token: "month-end close variance for
+    # October", "prepare the month-end close checklist" and "budget variance
+    # for the month-end close" all hold at 54. An accounting request that does
+    # NOT spell it loses the 3 points this token was giving it.
+    # "variance analysis for the monthly close" keeps its dispatch (12 -> 9),
+    # but "we need to close the books for September" and "reconcile the ledger
+    # before the close" lose the top slot in a clarify, and "the quarterly
+    # close is delayed because of accruals" and "revenue recognition and the
+    # period close" drop from medium to low. No accounting sentence lost a
+    # dispatch, which is why this is priced as acceptable and not as untouched;
+    # the fix if it ever matters is a domain cue for those phrasings, which is
+    # a finance-routing change and not this one's.
+    #
+    # Only `close` is held. `month` and `end` were measured on "at the end of
+    # the month we ship the release" and leave this workflow third at 6 inside
+    # a clarify, which is not the reported defect and not this change's to move.
+    "finance-analysis": frozenset({"close"}),
     # `frontend` names its scroll-motion lane out of everyday words: "smooth
     # scroll", "smooth scrolling", "scroll animation", "parallax scroll".
     # Split into tokens, `scroll` alone credited this workflow for any

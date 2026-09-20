@@ -33,6 +33,7 @@ unrecorded rather than guessed at.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -305,17 +306,62 @@ def _unrecorded_row(key: str, present: bool, absent_detail: str) -> ReversalRow:
     )
 
 
+def drop_emptied_containers(
+    config_text: str,
+    empty_before: set[str],
+    *,
+    recorded: Iterable[str] = (),
+    record_is_complete: bool = False,
+) -> ConfigChange:
+    """Drop every managed container this uninstall created and then emptied.
+
+    Two sources answer "did OMH create this container?", and they are not
+    equal. `containers_created` in the write record answers it exactly. The
+    `empty_before` comparison only answers "was it empty when the uninstall
+    started?", which is a GUESS standing in for the record -- and it is wrong
+    in one direction that costs a person their key: a container they already
+    had, empty, before setup, which setup then filled. At uninstall time it
+    has children, so it is not in `empty_before`; the reversal empties it;
+    and the guess concludes OMH created it. The record says otherwise, and
+    the record is right.
+
+    So with a record the guess is not consulted at all -- `record_is_complete`
+    is what says a record was found. Without one, which is the case #1767 is
+    about, the guess is all there is, and its by-construction argument holds
+    for what it does cover: a managed container this run emptied held nothing
+    but OMH's entries, or it would still have a child.
+
+    Every candidate goes in at once rather than only those childless at this
+    moment, because `remove_childless_containers` re-reads the text after each
+    removal and works deepest first. That is what lets a parent leave with its
+    last child in one pass: `plugins:` becomes childless only once
+    `plugins.enabled:` is gone, so a candidate set fixed beforehand could
+    never name it.
+    """
+    named = {str(item) for item in recorded}
+    guessed = set() if record_is_complete else set(MANAGED_CONTAINERS) - empty_before
+    return remove_childless_containers(config_text, sorted(named | guessed))
+
+
 def reverse_managed_config(
     config_text: str,
     record: dict[str, object],
     *,
     config_path: str | Path,
+    text_before_removals: str | None = None,
 ) -> tuple[ConfigChange, list[ReversalRow]]:
     """Take back the managed keys this config still holds at OMH's values.
 
     Returns the accumulated change plus one row per managed key, so the
     uninstall report can name what it reversed, what it left with the person,
     and what it could not attribute at all.
+
+    `text_before_removals` is the config as it stood before the CALLER's own
+    removals, and the caller has to pass it when it removed anything first.
+    Uninstall strips the managed skills directories before this runs, so by
+    the time `config_text` arrives `skills.external_dirs` is already empty
+    and "was it empty before?" answers yes about a container this uninstall
+    emptied. It defaults to `config_text` for a caller that removed nothing.
     """
     owned = load_managed_config_writes(record, config_path=config_path)
     keys = owned.get("keys") if isinstance(owned.get("keys"), dict) else {}
@@ -324,7 +370,8 @@ def reverse_managed_config(
     rows: list[ReversalRow] = []
     text = config_text
     changed = False
-    empty_before = childless_containers(config_text)
+    baseline = config_text if text_before_removals is None else text_before_removals
+    empty_before = childless_containers(baseline)
 
     for key in REVERSIBLE_KEYS:
         recorded = keys.get(key) if isinstance(keys, dict) else None  # type: ignore[union-attr]
@@ -335,15 +382,12 @@ def reverse_managed_config(
             changed = True
         rows.append(row)
 
-    # A managed container this pass emptied is OMH's to drop even with no
-    # record: everything that was in it was OMH's, or it would still have a
-    # child. One the person already kept empty is left exactly as it was.
-    emptied = {
-        path
-        for path in childless_containers(text)
-        if path in MANAGED_CONTAINERS and path not in empty_before
-    }
-    cleanup = remove_childless_containers(text, sorted({*(str(item) for item in containers), *emptied}))
+    cleanup = drop_emptied_containers(
+        text,
+        empty_before,
+        recorded=(str(item) for item in containers),
+        record_is_complete=bool(owned),
+    )
     if cleanup.changed:
         text = cleanup.text
         changed = True

@@ -34,6 +34,48 @@ All notable changes will be documented here.
   `provider_add_duplicate` ("already recorded"), a malformed id keeps
   `provider_add_rejected` and now names what a plain identifier is. Both keys
   are present in all four language tables (en/ko/ja/zh).
+- **Uninstall no longer leaves the sections it created behind as empty keys.**
+  On an install made before the write record existed, `omh uninstall` reversed
+  the keys it can attribute without a record and left
+
+  ```yaml
+  skills:
+    external_dirs:
+
+  plugins:
+  ```
+
+  in the person's `config.yaml`. Two causes, both of them about WHEN a
+  container is read. The scope decides which containers OMH may drop by asking
+  which ones it emptied, and it asked on text from which uninstall had already
+  stripped the managed skills directories -- so `skills.external_dirs` read as
+  a container the person kept empty and was spared. And the candidate set was
+  fixed before the removals ran, so `plugins:`, which becomes childless only
+  once `plugins.enabled:` is gone, was never a candidate at all.
+
+  The baseline is now the config as it stood before the uninstall removed
+  anything, and the candidate set is every managed container at once: the
+  removal pass already re-reads the text after each deletion and works deepest
+  first, so a parent leaves with its last child in the same pass.
+
+  Which container OMH may drop is answered by the write record where there is
+  one, and only guessed where there is not. The two are not equal, and the gap
+  costs a person a key: a container they already had, EMPTY, before setup, and
+  which setup then filled, has children at uninstall time — so "was it empty
+  before?" says no and the guess concludes OMH created it. `containers_created`
+  says otherwise and is right. An install with a record therefore consults the
+  record alone; the guess is what the no-record lane has, and its
+  by-construction argument holds for what it covers.
+
+  That also repairs two containers the previous behaviour already lost on a
+  recorded install: a pre-existing empty `memory:`, and a pre-existing empty
+  nested `display:` / `sections:`. Both now round-trip byte-exactly, as
+  `skills:`, `display:` and `plugins:` continue to.
+
+  `omh uninstall --registration-only` drops the section its registration was
+  the only occupant of, by the same rule and reading the same record, and
+  keeps everything else it kept before. `docs/INSTALLATION.md` said that scope
+  "removes the registration and nothing else"; it now says what it does.
 
 - **The delegation nudge counts distinct searches, and its budget survives a
   plugin-host restart.** It watched `search_files` and fired at five direct

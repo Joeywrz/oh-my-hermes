@@ -61,7 +61,11 @@ from omh.plugin_bundle.omh.todo_reconciliation import (
     host_synthesized_turn,
     turn_opened_by_person,
 )
-from omh.plugin_bundle.omh.todo_store import build_todo_record, write_todo
+from omh.plugin_bundle.omh.todo_store import (
+    TODO_STALE_SECONDS,
+    build_todo_record,
+    write_todo,
+)
 
 SESSION = "tui-session"
 
@@ -98,6 +102,19 @@ class _InjectionTestCase(unittest.TestCase):
             session_ref=session_ref,
         )
         if updated_at:
+            # Refused here rather than discovered later: a plan older than the
+            # reader's stale bound renders nothing, so a fixture that pins a
+            # literal date fails as `absent` in whichever assertion runs next,
+            # a day after anyone touched it. Fail at the fixture, and say why.
+            age = datetime.now(timezone.utc) - datetime.fromisoformat(
+                updated_at.replace("Z", "+00:00")
+            )
+            if age.total_seconds() >= TODO_STALE_SECONDS:
+                raise AssertionError(
+                    f"write_plan was given {updated_at}, which is {age} old; "
+                    f"the reader drops a record past TODO_STALE_SECONDS "
+                    f"({TODO_STALE_SECONDS}s), so derive the stamp from the clock"
+                )
             record["updated_at"] = updated_at
         _ = write_todo(self.home, record)
         return record
@@ -547,7 +564,12 @@ class ReconciliationTurnBudgetTest(_InjectionTestCase):
         # never the thing under test -- `build_todo_record` stamps to the
         # microsecond, so two plans written in one test never collide by
         # accident and the collision has to be arranged.
-        same_stamp = "2026-09-19T00:00:00Z"
+        # Read off the clock, never written down. `TODO_STALE_SECONDS` is 24
+        # hours and the reader drops a record older than that, so a literal
+        # stamp here is a test that passes on the day it is written and
+        # reports `absent` the next -- which is exactly what this one did.
+        # What the case needs is only that the two plans share ONE stamp.
+        same_stamp = _stamp(datetime.now(timezone.utc))
         _ = self.write_plan(
             [("land the fix", "done"), ("open the PR", "active")], updated_at=same_stamp
         )

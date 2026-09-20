@@ -4,6 +4,37 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **Arrow keys pressed into a free-text setup prompt are no longer answered,
+  scolded, and echoed back as raw escape bytes.** The provider question runs
+  an arrow-key multi-select and then asks "Add another provider by name
+  (Enter to skip)" as free text. An operator who kept pressing the arrows had
+  their escape sequences returned by `input()` as if typed, and the observed
+  line read `? Add another provider by name (Enter to skip) []: ^[[B^[[A^[[B^[[
+  is already recorded or is not a plain identifier; skipped.` Nothing was
+  typed, so nothing should have been rejected -- and printing the raw
+  sequences back sends control codes to the terminal and makes the message
+  unreadable.
+
+  `_ask`, the primitive under every free-text prompt in setup, now strips
+  terminal control input before trimming whitespace: complete CSI
+  (`ESC [ … final`) and SS3 (`ESC O x`) sequences, a sequence the submitting
+  Enter cut short (the reported line ended `^[[`, and dropping only its ESC
+  leaves `[` standing as an answer), and any remaining C0/C1 control
+  character or DEL. A line of nothing but arrow keys therefore reads as
+  empty, which every call site already treats as Enter, and no caller can
+  echo a control byte back because none reaches it. The fix sits at the
+  primitive rather than at the one prompt that was reported, so the yes/no
+  fallback and both menu fallbacks get it too. `readline` was not imported to
+  make the arrows editable: it is absent on stock Windows Python and would
+  change the editing model of every prompt in setup.
+
+  The rejection message is also split in two. `provider_add_rejected` ORed
+  two different reasons, so it could not tell an operator which had happened,
+  and only one of them is worth retyping. A duplicate now gets
+  `provider_add_duplicate` ("already recorded"), a malformed id keeps
+  `provider_add_rejected` and now names what a plain identifier is. Both keys
+  are present in all four language tables (en/ko/ja/zh).
+
 - **The delegation nudge counts distinct searches, and its budget survives a
   plugin-host restart.** It watched `search_files` and fired at five direct
   reads, counting CALLS -- so five different greps and one grep five times

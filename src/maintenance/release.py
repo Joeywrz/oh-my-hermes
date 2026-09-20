@@ -1284,7 +1284,18 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # pointer saying "assemble from the records" without saying which would send
 # a writer looking for three stores that do not exist. Re-derived from the
 # full-profile skill_context_cost_payload() producer.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 978520
+# 978520 -> 978992: one quality-bar line on `ultraqa`. The manual test
+# guide -- the artifact written when a check cannot be automated and a
+# person has to try it by hand -- had no owner outside rendered surfaces,
+# which `visual-qa` scopes itself to. The guidance is a reference file and
+# costs this budget nothing. What is paid for here is the pointer, and it
+# is not shorter because two of its clauses are the whole reason the page
+# exists: that the guide is `prepared_not_observed` until somebody runs it,
+# and that a rendered surface belongs to `visual-qa` instead. A pointer
+# naming only the file would let a writer reach the page believing the
+# guide closes the check it describes. Re-derived from the full-profile
+# skill_context_cost_payload() producer.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 978992
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

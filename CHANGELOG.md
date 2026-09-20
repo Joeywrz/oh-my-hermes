@@ -4,6 +4,47 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A change nobody can prove with a command now has a page for the guide a
+  person follows instead.** `VI. Manual test guide` is a phase of the
+  `code-story` plan template, and the repository owned that artifact only for
+  RENDERED surfaces: `omh-visual-qa` covers listing pages, states, and
+  viewports and scopes out everything else on purpose. A CLI flag, a
+  migration, a config change, a daemon restart, an install on a real machine
+  — none of those had a page saying what to write. The new
+  `skills/ulw-qa/references/manual-test-guide.md` is that page, reached from
+  one `ultraqa` quality-bar line, because `ultraqa`'s declared subject is
+  test scenarios and its required inputs (changed behavior, acceptance
+  criteria, known risk areas) are already the guide's inputs.
+
+  The rule the page is built around is the one the tree already held in one
+  place and nowhere else: `skills/ulw-work/references/tdd-red-green.md`
+  refuses manual testing as a way to close a tests-first lane, because a
+  manual check leaves no output to paste and no command to rerun. A manual
+  test guide is a handover artifact and never evidence — a finished guide is
+  `prepared_not_observed`, and only a run moves anything out of that state.
+  Stated in `verification-gate` vocabulary so there is one vocabulary and not
+  two: a written step is a `verification_matrix/v1` row with no result, a
+  person who runs it can supply an `observed_check_results/v1` row, and a
+  report of "looks fine" carries none of that gate's four fields and meets
+  the refusal it already applies to `works as expected`. So `done` on the
+  phase says the guide exists, never that anyone followed it.
+
+  What the page carries beyond the boundary: the four-field step shape
+  (setup, do, expect, broken — `broken` meaning the near-miss, the wrong
+  result that reads like the right one), a closed list of four reasons a step
+  may stay manual at all, so a step that could have been a test is named as
+  one rather than accumulating in a document somebody re-runs by hand every
+  release, and the `enumerate, do not sample` rule generalized off
+  `visual-qa`. Sources follow `omh-wiki/references/handover-artifacts.md`
+  rather than restating it: the plan record is the only one that outlives the
+  session.
+
+  `tests/test_manual_test_guide_reference.py` holds what is machine-checkable
+  — the body pointer and the reference exist together, the named artifacts
+  survive a rewrite, the page points at the source table instead of copying a
+  paragraph of it, and the page and `tdd-red-green.md` cannot drift apart on
+  the classification. The rule's own wording is prose and no gate checks it.
+
 - **The gate that catches a skill body change now says which body changed.**
   Editing a skill body moves a pinned sha256 in
   `tests/fixtures/agent_skills_hermes_digests.json`, and until now the failure

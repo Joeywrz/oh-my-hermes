@@ -232,13 +232,68 @@ console.log(JSON.stringify(results));
                 self.assertEqual(len(case['lines']), 2)
                 for scope, line in zip(case['scopes'], case['lines']):
                     # Rows carry what runs them, not a scope word: a delegate
-                    # child is `[sub]`; the header line still says the scope.
+                    # child is `[sub]`. The header marks `[global]` when rows
+                    # from outside this conversation are listed; neither line
+                    # repeats it.
                     self.assertIn('[sub] ', line)
                     self.assertNotIn('[global]', line)
                     self.assertNotIn('[this chat]', line)
                     self.assertIn('12.3k tokens', line[:case['cols']])
                     self.assertLessEqual(len(line), case['cols'] - 2)
                 self.assertEqual(*[line.index('12.3k tokens') for line in case['lines']])
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is required for the widget boundary')
+    def test_header_marks_the_scope_only_when_rows_from_outside_are_listed(self):
+        # The header word is a presence marker, not a description of the list:
+        # it says rows from outside this conversation are on screen, and says
+        # nothing at all when they are not. A session-only list is already
+        # fully described by the rows' own `[sub]`/`[bot]` tags, and a payload
+        # that names no scope must stay silent rather than pick a side.
+        widget = self.root / 'widget.mjs'
+        widget.write_bytes(widget_payload(Path(sys.executable)))
+        script = """
+import register from './widget.mjs';
+const apps = [];
+const h = (tag, props, ...children) => typeof tag === 'function' ? tag(props) : children.flat(Infinity).filter(x => x != null).join('');
+register({Box:'box', Text:'text', h, defineWidgetApp: app => {apps.push(app); return app}, openWidget:()=>{}, updateWidget:()=>{}});
+const app = apps.find(x => x.id === 'omh-status');
+const row = scope => ({scope, task_id:'worker', action:'Work', state:'running', elapsed_seconds:12, tokens:1200});
+const cases = {
+  session: [{scope:'session', active:1, running:1, rows:[row('session')]}, {rows:[]}],
+  global: [{scope:'global', active:1, running:1, rows:[row('global')]}, {rows:[]}],
+  mixed: [{scope:'mixed', active:1, running:1, rows:[row('session'), row('global')]}, {rows:[]}],
+  absent: [{active:1, running:1, rows:[row('session')]}, {rows:[]}],
+  absent_global_maestro: [{active:1, running:1, rows:[row('session')]}, {rows:[row('global')]}],
+  session_global_maestro: [{scope:'session', active:1, running:1, rows:[row('session')]}, {rows:[row('global')]}],
+};
+const results = {};
+for (const [name, [subagents, maestro]] of Object.entries(cases)) {
+  results[name] = app.render({cols:160, rows:30, state:{payload:{privacy:'metadata_only', active:true, subagents, maestro}}, t:{color:{}}});
+}
+console.log(JSON.stringify(results));
+"""
+        result = subprocess.run(['node', '--input-type=module', '-e', script], cwd=self.root,
+                                encoding='utf-8', capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rendered = json.loads(result.stdout)
+        state = '1 agent · 1 running'
+        # A global row anywhere in the list — the aggregate scope, or a
+        # Maestro row the aggregate does not cover — earns the one marker.
+        for name in ('global', 'mixed', 'absent_global_maestro', 'session_global_maestro'):
+            with self.subTest(case=name):
+                self.assertIn(f'[global] {state}', rendered[name])
+        # Nothing outside this conversation is listed, so the header states
+        # the activity and stops there.
+        for name in ('session', 'absent'):
+            with self.subTest(case=name):
+                self.assertIn(state, rendered[name])
+                self.assertNotIn('[global]', rendered[name])
+        # The retired vocabulary is gone from every branch, including the one
+        # that used to spell both scopes out.
+        for name, view in rendered.items():
+            with self.subTest(case=name):
+                self.assertNotIn('[this chat]', view)
+                self.assertNotIn('this chat + global', view)
 
     @unittest.skipUnless(shutil.which('node'), 'Node is required for the widget boundary')
     def test_widget_renders_owned_rows_and_explicit_global_fallback(self):
@@ -306,9 +361,9 @@ console.log(JSON.stringify({native, omh}));
             self.assertIn('global-node', views['omh'])
             self.assertIn('codex/maestro', views['omh'])
             rendered = views['native']
-            # The header carries the scope word once; every native row carries
-            # the `[sub]` kind tag instead of repeating it.
-            self.assertIn('[global]' if scope == 'global' else '[this chat]', rendered)
+            # The header marks `[global]` once when rows from outside this
+            # conversation are listed and stays silent otherwise; every native
+            # row carries the `[sub]` kind tag either way.
+            self.assertEqual('[global]' in rendered, scope == 'global')
             self.assertEqual(rendered.count('[sub] '), len(rows))
-            if scope == 'global':
-                self.assertNotIn('[this chat]', rendered)
+            self.assertNotIn('[this chat]', rendered)

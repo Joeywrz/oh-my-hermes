@@ -400,9 +400,10 @@ export default function register(sdk) {
   // either way so the ids stay aligned: `[bot]` is a board worker (a
   // profile the dispatcher runs as its own process), `[sub]` is a
   // delegate_task child of this session. Whether this chat created the
-  // row is no longer a per-row word (it read `[global]` / `[this chat]`);
-  // the header line still says the scope. A Maestro or fanout executor
-  // row is neither kind and carries no tag.
+  // row is no longer a per-row word (it read `[global]` / `[this chat]`),
+  // and the header no longer names the scope either -- it only marks
+  // `[global]` when rows from outside this conversation are in the list.
+  // A Maestro or fanout executor row is neither kind and carries no tag.
   const kindTag = row => safeText(row.lane_backend) === 'kanban'
     ? '[bot] '
     : safeText(row.dispatch_lane) || safeText(row.executor_profile) ? '' : '[sub] '
@@ -841,7 +842,17 @@ export default function register(sdk) {
         h(Text, { bold: true, color: t.color.primary }, '⚚ [OMH]'),
         version ? h(Text, { color: t.color.muted }, ` v${version}`) : null,
         h(Text, { color: t.color.border }, SEPARATOR),
-        h(Text, { color: active ? t.color.warn : t.color.ok }, `${agents.scope === 'global' ? '[global] ' : agents.scope === 'mixed' || maestro.rows?.some(row => row.scope === 'global') ? '[this chat + global] ' : agents.scope === 'session' ? '[this chat] ' : ''}${hudStateLabel(active, agents)}`),
+        // One marker, one fact: rows from outside this conversation are in
+        // the list. It is not a description of the list -- `global` (none of
+        // it is this chat's) and `mixed` (some of it is) earn the same word,
+        // because what the reader needs to know is that the figures are not
+        // all theirs. A session-only list says nothing at all: the rows
+        // already carry `[sub]`/`[bot]`, and a second word for the same fact
+        // spent 12 cells on this truncate-end line, where position IS
+        // priority, to repeat them. A payload naming no scope also says
+        // nothing unless a Maestro row is itself global -- absence is not a
+        // scope, and must not become one here.
+        h(Text, { color: active ? t.color.warn : t.color.ok }, `${agents.scope === 'global' || agents.scope === 'mixed' || maestro.rows?.some(row => row.scope === 'global') ? '[global] ' : ''}${hudStateLabel(active, agents)}`),
         // The session repeating itself, immediately after the state label
         // and before everything optional. Position is the width policy: this
         // line has no drop loop, only `truncate-end`, so a segment's place

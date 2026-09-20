@@ -77,6 +77,35 @@ All notable changes will be documented here.
   keeps everything else it kept before. `docs/INSTALLATION.md` said that scope
   "removes the registration and nothing else"; it now says what it does.
 
+- **The HUD header stops naming the scope when the rows already carry it.**
+  The state label had a word in front of it -- `[this chat]`, `[global]`, or
+  `[this chat + global]` -- written before the activity rows had tags of their
+  own. They have had them since the board lanes landed: `[sub]` for a delegate
+  child, `[bot]` for a board worker. The entry for that work recorded that
+  "the header line still states the scope"; that no longer holds. On a
+  session-only list the header word repeated what every row below it already
+  said, and it did so in 12 cells of a `truncate-end` line where a segment's
+  position is its priority.
+
+  The header now carries one marker for one fact: `[global] ` when rows from
+  outside this conversation are in the list, and nothing when they are not. An
+  entirely unowned list and a mixed one read the same deliberately -- what the
+  header owes the reader is that the totals beside it are not all theirs, and
+  which row belongs to whom is the rows' own job. It is the word the DAG block
+  has always used for the same fact, so the HUD now has one vocabulary for it
+  rather than two. A payload naming no scope still says nothing, unless a
+  Maestro row is itself global: absence is not a scope and does not become a
+  claim here.
+
+  `⚚ [OMH] v2.0.3 │ [this chat] 9 done` now reads `⚚ [OMH] v2.0.3 │ 9 done`.
+  Measured on one busy header (version, repeat chip, board counts, cost, ctx,
+  open tool calls, yolo) rendered through the shipped widget: at 80 columns
+  the session line used to cut after `repeat x8 cycle-of-2 blocked` and now
+  reaches `· board 1q`, and the mixed line used to cut mid-chip at
+  `cycle-of-` and now clears the chip and its separator. At 120 columns the
+  session line's open-tool-call segment (`• 2 tools · 41s`) fits whole where
+  it was cut. The global line is unchanged at every width.
+
 - **The delegation nudge counts distinct searches, and its budget survives a
   plugin-host restart.** It watched `search_files` and fired at five direct
   reads, counting CALLS -- so five different greps and one grep five times

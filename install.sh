@@ -12,6 +12,7 @@ OMH_CHANNEL="${OMH_CHANNEL:-stable}"
 OMH_VERSION="${OMH_VERSION:-}"
 OMH_PACKAGE_URL="${OMH_PACKAGE_URL:-}"
 OMH_SOURCE_REF="${OMH_SOURCE_REF:-}"
+OMH_PYTHON_WAS_SET="${OMH_PYTHON:+x}"
 OMH_PYTHON="${OMH_PYTHON:-python3}"
 OMH_PIP_ARGS_WAS_SET="${OMH_PIP_ARGS+x}"
 OMH_PIP_ARGS="${OMH_PIP_ARGS:-}"
@@ -335,11 +336,140 @@ install_into_python() {
   OMH_RUNTIME_PYTHON="$OMH_PYTHON"
 }
 
-if ! command -v "$OMH_PYTHON" >/dev/null 2>&1; then
-  say "omh installer: '$OMH_PYTHON' was not found."
-  say "Set OMH_PYTHON to a Python 3.11+ executable and retry."
-  exit 1
-fi
+# The floor the wheel itself declares (`requires-python` in pyproject.toml).
+# Raising one without the other turns a refusal a person can act on into a pip
+# error several steps later.
+OMH_MIN_PYTHON_MINOR=11
+# What `uv python install` is asked for when it is the last resort. A concrete
+# version rather than a range: uv resolves a range against what it already has,
+# and the point of reaching here is that nothing on this machine qualifies.
+OMH_UV_PYTHON_VERSION=3.12
+OMH_INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh"
+
+python_two_part_version() {
+  # Anchored on a whole line, because this is matched against arbitrary
+  # interpreter output and a wrapper that prints a banner first would
+  # otherwise satisfy it. `-I` keeps a stray PYTHONPATH or a user
+  # site-packages out of the answer. A candidate that is not installed, or is
+  # the Microsoft Store stub, prints nothing and is rejected by the emptiness.
+  "$1" -I -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null |
+    awk '
+      NR == 1 && /^[0-9]+\.[0-9]+$/ { version = $0 }
+      END { if (NR == 1 && version != "") print version }'
+}
+
+python_version_supported() {
+  [ -n "$1" ] || return 1
+  printf '%s' "$1" | awk -F. -v minor="$OMH_MIN_PYTHON_MINOR" '
+    { exit !($1 > 3 || ($1 == 3 && $2 >= minor)) }'
+}
+
+python_candidates() {
+  # An interpreter the operator named is the only candidate. Quietly using a
+  # different one would be the installer overruling a choice, and the reason
+  # OMH_PYTHON exists is that the person knows something the search does not.
+  if [ -n "$OMH_PYTHON_WAS_SET" ]; then
+    printf '%s\n' "$OMH_PYTHON"
+    return 0
+  fi
+  # The machine's own python3 first, then versioned commands newest-first:
+  # the same order packaging/npm/lib/python.js probes, so the curl installer
+  # and the npm launcher land on the same interpreter on one machine.
+  printf '%s\n' python3 python3.14 python3.13 python3.12 python3.11 python
+  # Interpreters a person installed and did not put first on PATH. This is the
+  # case that produced the report: on macOS /usr/bin/python3 is 3.9 and stays
+  # ahead of everything, while the Homebrew or python.org build is one
+  # directory away. Order among these is not a preference -- every interpreter
+  # that passes the probe runs OMH equally well -- so they are only places to
+  # look, and the probe decides.
+  for omh_python_candidate in \
+    /opt/homebrew/bin/python3.[0-9] \
+    /opt/homebrew/bin/python3.[0-9][0-9] \
+    /usr/local/bin/python3.[0-9] \
+    /usr/local/bin/python3.[0-9][0-9] \
+    /Library/Frameworks/Python.framework/Versions/*/bin/python3 \
+    "$OMH_HOME_DIR"/.pyenv/versions/*/bin/python3 \
+    "$OMH_HOME_DIR"/.local/share/uv/python/*/bin/python3
+  do
+    if [ -x "$omh_python_candidate" ]; then
+      printf '%s\n' "$omh_python_candidate"
+    fi
+  done
+}
+
+select_python() {
+  python_candidates | while IFS= read -r omh_python_candidate; do
+    if python_version_supported "$(python_two_part_version "$omh_python_candidate")"; then
+      printf '%s\n' "$omh_python_candidate"
+      break
+    fi
+  done
+}
+
+report_rejected_pythons() {
+  # Only interpreters that exist and answered. A candidate name that is not
+  # installed at all is not a finding, and listing it would bury the one line
+  # that explains the refusal.
+  python_candidates | while IFS= read -r omh_python_candidate; do
+    omh_python_version="$(python_two_part_version "$omh_python_candidate")"
+    if [ -n "$omh_python_version" ]; then
+      say "  $omh_python_candidate is Python $omh_python_version"
+    fi
+  done
+}
+
+
+resolve_python() {
+  # Runs after the header so its one long case -- provisioning an
+  # interpreter -- is announced under the same banner as every other step,
+  # and so the refusal is the last thing on screen when there is one.
+  OMH_SELECTED_PYTHON="$(select_python)"
+
+  # Last resort, and only when the alternative is failing: uv is the person's own
+  # tool, it installs a private interpreter under their data directory, and it
+  # touches nothing else on the machine. Its answer is still put through the same
+  # probe rather than trusted, so a change in uv's flags degrades to the ordinary
+  # refusal below instead of a bad interpreter.
+  if [ -z "$OMH_SELECTED_PYTHON" ] && [ -z "$OMH_PYTHON_WAS_SET" ] && command -v uv >/dev/null 2>&1; then
+    say_note "No Python 3.$OMH_MIN_PYTHON_MINOR+ was found; installing Python $OMH_UV_PYTHON_VERSION with uv, which is already on this machine."
+    if uv python install "$OMH_UV_PYTHON_VERSION" >/dev/null 2>&1; then
+      OMH_UV_PYTHON="$(uv python find ">=3.$OMH_MIN_PYTHON_MINOR" 2>/dev/null || true)"
+      if python_version_supported "$(python_two_part_version "$OMH_UV_PYTHON")"; then
+        OMH_SELECTED_PYTHON="$OMH_UV_PYTHON"
+      else
+        # uv installs into a directory python_candidates already looks in, so a
+        # version of uv whose `find` behaves differently is not a dead end.
+        OMH_SELECTED_PYTHON="$(select_python)"
+      fi
+    fi
+  fi
+
+  if [ -z "$OMH_SELECTED_PYTHON" ]; then
+    if [ -n "$OMH_PYTHON_WAS_SET" ]; then
+      say "omh installer: OMH_PYTHON='$OMH_PYTHON' is not a usable Python 3.$OMH_MIN_PYTHON_MINOR+."
+    else
+      say "omh installer: no Python 3.$OMH_MIN_PYTHON_MINOR+ was found, and oh-my-hermes requires one."
+    fi
+    report_rejected_pythons
+    say "Install one, then run this installer again:"
+    case "$(uname -s 2>/dev/null || printf 'unknown')" in
+      Darwin) say "  brew install python@$OMH_UV_PYTHON_VERSION   (or https://www.python.org/downloads/)" ;;
+      Linux) say "  your distribution's python3.$OMH_MIN_PYTHON_MINOR+ package, or https://www.python.org/downloads/" ;;
+      *) say "  https://www.python.org/downloads/" ;;
+    esac
+    if [ -z "$OMH_PYTHON_WAS_SET" ]; then
+      say "Already have one the search did not look in? Name it:"
+      say "  OMH_PYTHON=/path/to/python$OMH_UV_PYTHON_VERSION sh -c \"\$(curl -fsSL $OMH_INSTALL_SCRIPT_URL)\""
+    else
+      say "Or point OMH_PYTHON at a Python 3.$OMH_MIN_PYTHON_MINOR+ and run it again."
+    fi
+    exit 1
+  fi
+
+  OMH_PYTHON="$OMH_SELECTED_PYTHON"
+  OMH_RUNTIME_PYTHON="$OMH_PYTHON"
+  OMH_SELECTED_PYTHON_VERSION="$(python_two_part_version "$OMH_PYTHON")"
+}
 
 if [ -z "$OMH_PACKAGE_URL" ]; then
   case "$OMH_CHANNEL" in
@@ -419,6 +549,8 @@ say_header "$(msg installer_title)" "$(msg installer_subtitle)"
 say_note "$(msg channel): $OMH_CHANNEL"
 say_note "Source ref: $OMH_SOURCE_REF"
 say_note "$(msg mode): $OMH_INSTALL_MODE"
+resolve_python
+say_note "Python: $OMH_PYTHON ($OMH_SELECTED_PYTHON_VERSION)"
 case "$OMH_INSTALL_MODE" in
   venv)
     install_into_venv

@@ -76,6 +76,31 @@ All notable changes will be documented here.
   the only occupant of, by the same rule and reading the same record, and
   keeps everything else it kept before. `docs/INSTALLATION.md` said that scope
   "removes the registration and nothing else"; it now says what it does.
+- **The universal installer picks a Python the wheel can be installed into.**
+  Reported from a second machine: `curl ... install.sh | sh` created the virtual
+  environment out of `/usr/bin/python3`, and pip then refused with `Package
+  'oh-my-hermes' requires a different Python: 3.9.6 not in '>=3.11'`. The venv
+  was left behind, no `omh` command existed, and the next line the person typed
+  was `omh setup` into `command not found`. install.sh checked only that its
+  interpreter EXISTED -- `install.ps1` had probed the version since it shipped,
+  and said in its own docstring that install.sh had no such probe.
+
+  It has one now, and the same floor the wheel declares. The search runs
+  `python3` first, then the versioned commands newest-first, which is the order
+  `packaging/npm/lib/python.js` already used so the two distribution surfaces
+  land on the same interpreter; then the places an interpreter hides when it is
+  not first on PATH, which is the macOS case exactly: Homebrew, python.org
+  frameworks, pyenv and uv. A candidate is accepted on what it reports, not on
+  where it was found, and the report has to be one line that is only a version
+  -- a wrapper that prints a banner first is refused rather than read past. An
+  interpreter named in `OMH_PYTHON` stays the only candidate, because the
+  variable exists for a person who knows something the search does not.
+
+  With nothing found and `uv` already on the machine, the installer has uv
+  install Python 3.12 and puts its answer through the same probe. With neither,
+  it stops before creating anything and names every version it did find, so the
+  refusal carries the fact the old failure buried three steps down. Every run
+  now prints the interpreter it chose.
 
 - **The delegation nudge counts distinct searches, and its budget survives a
   plugin-host restart.** It watched `search_files` and fired at five direct

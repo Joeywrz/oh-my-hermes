@@ -211,6 +211,15 @@ npm install -g oh-my-hermes
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
 ```
 
+OMH needs Python 3.11+, and the installer finds one itself: it probes `python3`
+and the versioned `python3.x` commands, then the usual Homebrew, python.org,
+pyenv and uv locations, and reports the interpreter it used. macOS's own
+`/usr/bin/python3` is 3.9, so it is skipped rather than used to build a virtual
+environment the wheel cannot be installed into. With nothing suitable found and
+`uv` already on the machine, the installer has uv install Python 3.12; with
+neither, it stops and names the versions it did find. `OMH_PYTHON=/path/to/python3.12`
+overrides the search entirely.
+
 ### Windows (PowerShell 5.1+)
 
 ```powershell

@@ -339,11 +339,13 @@ function Resolve-OmhPython {
     <#
         Return a usable Python 3.11+ command, or stop with guidance.
 
-        The version probe is not caution carried over from install.sh, which has
-        none: on Windows, `python` and `python3` routinely resolve to the
-        Microsoft Store App Execution Alias stub. That stub is on PATH, runs,
-        installs nothing, and exits non-zero -- without this probe the failure
-        surfaces several steps later as an unreadable pip error.
+        install.sh probes for the same floor and for the same reason -- a
+        candidate that is on PATH is not an interpreter the wheel installs
+        into -- but the shape that forces it here is local: on Windows,
+        `python` and `python3` routinely resolve to the Microsoft Store App
+        Execution Alias stub, which is on PATH, runs, installs nothing, and
+        exits non-zero. Without this probe the failure surfaces several steps
+        later as an unreadable pip error.
     #>
     $explicit = Get-OmhEnv 'OMH_PYTHON'
     if ($explicit) { $candidates = @($explicit) } else { $candidates = @('py', 'python', 'python3') }

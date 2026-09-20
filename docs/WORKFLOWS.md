@@ -5750,7 +5750,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The user wants an accepted implementation plan split into parallel lanes with owners and verification commands; use `ultrawork`.
   - The user wants the planning content itself -- options, risks, acceptance criteria before execution; use `ralplan`.
   - The user is asking what coding work is running right now rather than what the plan says; use `running-work-board`.
-- Strong routing signals: `todo-checklist`, `$todo`, `plan checklist`, `todo checklist`, `phase checklist`, `declare a plan checklist`, `declare the plan todo`, `show the plan todo`, `clear the plan todo`
+- Strong routing signals: `todo-checklist`, `$todo`, `plan checklist`, `todo checklist`, `phase checklist`, `declare a plan checklist`, `declare the plan todo`, `show the plan todo`, `clear the plan todo`, `close the story`, `close out the story`
 - Good example:
   - Prompt: declare a plan checklist for this migration so I can see where you are
   - Expected behavior: Declare numbered phases in delivery order with one task per observable outcome, exactly one active, and update states as work completes.
@@ -5766,6 +5766,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The checklist belongs to the session that declared it -- another TUI, Slack, or Discord session neither sees nor overwrites it -- so do not tell a user their checklist is visible somewhere it is not.
   - Two different things stop a plan advancing and they are not interchangeable: an item that cannot proceed carries `blocked_reason`, and a person steering the session elsewhere is `deferred_reason` on the write. Load `references/checklist-discipline.md` before using either.
   - To review whether requirements are fit to build from rather than to track work, load `references/requirements-quality-checklist.md`; its items interrogate the spec, and the party that generates them may not tick them.
+  - Closing a story is reading this record, not ticking it: every `done` is a declaration, a phase marked `done` with a `blocked_reason` was skipped, and landing the change is observed evidence OMH never sees. Load `references/closing-a-story.md` before writing the close report.
 - Completion checklist:
   - Exactly one item is active, or the list is complete and every item is done.
   - Every state change went through `action=advance`, or an `action=set` write sent the whole list back, so no item was dropped by omission.

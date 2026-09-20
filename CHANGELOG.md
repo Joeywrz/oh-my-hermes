@@ -59,6 +59,56 @@ All notable changes will be documented here.
   `unobserved` and reverses the sentence around it passes, because catching
   that needs a matcher over prose and this repository does not match prose.
 
+- **Closing a story has an owner, and the sentence that asks for it reaches
+  one.** The `code-story` plan template stamps ten phases and the last of
+  them, `X. Close`, was the only one nothing answered for.
+  `verification-gate` owns the evidence a claim needs BEFORE completion or
+  merge; `todo-checklist` says a done mark is a declaration;
+  `github-event-ops` labels an issue and never closes one. Nobody owned the
+  act of closing, and the sentence "close this story, it is done" measured on
+  the deciding surface (`build_chat_interaction_payload`, not `omh
+  recommend`) named `finance-analysis` as its top candidate at a score of 4 —
+  an accounting workflow, on a sentence about finishing a change.
+
+  Closing now belongs to `todo-checklist`, through
+  `references/closing-a-story.md`, because a close judgement that reads
+  records can read the plan record and nothing else. `observed_check_results/
+  v1` and `claim_verdict/v1` appear in `src/` only as instruction text:
+  nothing writes them, nothing reads them, there is no store, and the same
+  holds for ranked review findings and QA pass/fail. So the page is scoped to
+  what survives — `state`, `phase` and `blocked_reason` under
+  `$OMH_HOME/runtime/todos/<session key>.json` — and its source table is
+  rendered from the same `HANDOVER_RECORD_SOURCES` the `wiki` handover page
+  uses, so the two cannot come to disagree about which of the four is a
+  record. A verdict still in this conversation is cited as a declared output
+  of this session, never as something the next reader can go back to.
+
+  What the page will not let a close claim is the part worth reading twice.
+  Every phase `done` means every phase was DECLARED done; a phase `done`
+  carrying a `blocked_reason` was skipped on purpose and the template refuses
+  to let it leave the list; no `blocked_reason` anywhere means nothing was
+  RECORDED as blocked, which is not evidence that nothing was. Landing the
+  change happens outside OMH, which makes no network calls and never watches
+  anything merge, so a close report names who observed the merge commit or
+  the CI conclusion, or says it has none.
+
+  On the routing side, the defect and the fix are the same lesson. A
+  multi-word trigger is also scored as its separate tokens, so
+  `finance-analysis`'s accounting phrase "month-end close" handed it the bare
+  word `close` — a connection, a modal, a file handle, an estimate near a
+  number. `close` is now held in `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS`, and the
+  accounting request is untouched because it arrives as a `domain:` cue
+  worth +54, not through that token. Reaching the new owner takes three
+  tokens together and in any order — a closing verb, `story`, and a word
+  saying the work is finishing — because "close this story, it is done" and
+  "the story is done, close it" share no contiguous phrase. The third token
+  is not decoration: with only the pair, "close the story panel when the
+  modal loses focus" and "when is a user story considered closed in scrum"
+  both dispatched at high confidence, since no token set can see that `story`
+  is modifying something else. The cost is that the bare "close the story"
+  reaches a clarify naming the skill rather than a dispatch, which is the
+  right answer for three words that could mean either thing.
+
 - **The gate that catches a skill body change now says which body changed.**
   Editing a skill body moves a pinned sha256 in
   `tests/fixtures/agent_skills_hermes_digests.json`, and until now the failure

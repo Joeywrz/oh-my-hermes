@@ -7142,6 +7142,15 @@ _DEFINITIONS = [
             "declare the plan todo",
             "show the plan todo",
             "clear the plan todo",
+            # The last phase of a code story reads this skill's record and no
+            # other, so closing one belongs here. Both words are everyday
+            # words and both are held in `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS`;
+            # what reaches the skill is the pair `close` + `story`, which
+            # `_todo_checklist_story_close_match` requires together and in
+            # either order, because "the story is done, close it" carries no
+            # contiguous phrase at all.
+            "close the story",
+            "close out the story",
         ),
         (
             "Use when the user wants a declared, HUD-visible plan checklist for the work at hand, or wants to read, "
@@ -7165,6 +7174,7 @@ _DEFINITIONS = [
             "The checklist belongs to the session that declared it -- another TUI, Slack, or Discord session neither sees nor overwrites it -- so do not tell a user their checklist is visible somewhere it is not.",
             "Two different things stop a plan advancing and they are not interchangeable: an item that cannot proceed carries `blocked_reason`, and a person steering the session elsewhere is `deferred_reason` on the write. Load `references/checklist-discipline.md` before using either.",
             "To review whether requirements are fit to build from rather than to track work, load `references/requirements-quality-checklist.md`; its items interrogate the spec, and the party that generates them may not tick them.",
+            "Closing a story is reading this record, not ticking it: every `done` is a declaration, a phase marked `done` with a `blocked_reason` was skipped, and landing the change is observed evidence OMH never sees. Load `references/closing-a-story.md` before writing the close report.",
         ),
         why_this_exists=(
             "`todo-checklist` exists because `omh_todo` is registered on every session while nothing in the skill "

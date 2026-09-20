@@ -126,6 +126,40 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         'Asking which phase the work is in is not a checklist declaration',
         'which phase are we in', 'answer_clarification', '', 'todo-checklist',
     ),
+    # The story-closing pair added `close` and `story` to that same hold-back.
+    # `story` modifying something else is the shape a token set cannot see, so
+    # the boost also requires a word saying the WORK is finishing; neither of
+    # these carries one and neither reaches a dispatch. No `forbidden_candidate`
+    # on the first: `close the story` is a trigger phrase, so it legitimately
+    # names the skill at +6, and the claim here is only that +6 is a clarify.
+    RoutingPrecisionCase(
+        'todo-checklist-story-modifier-control',
+        'A story panel in a UI is not the story being closed',
+        'close the story panel when the modal loses focus', 'answer_clarification', '',
+    ),
+    RoutingPrecisionCase(
+        'todo-checklist-story-definition-control',
+        'Asking what closing a story means in scrum is not closing one',
+        'when is a user story considered closed in scrum', 'answer_clarification', '',
+        'todo-checklist',
+    ),
+    # `finance-analysis` carries the accounting phrase "month-end close", whose
+    # separate tokens handed it the bare word `close` and made it the top
+    # candidate on every sentence that merely contains it. The accounting
+    # intent reaches the workflow through its `domain:` cue instead, which
+    # neither of these touches.
+    RoutingPrecisionCase(
+        'finance-close-ui-verb-control',
+        'A modal that closes is not a month-end close',
+        'the modal should close when the user presses escape', 'answer_clarification', '',
+        'finance-analysis',
+    ),
+    RoutingPrecisionCase(
+        'finance-close-resource-verb-control',
+        'Closing a database transaction is not a month-end close',
+        'remember to close the transaction in the finally block', 'answer_clarification', '',
+        'finance-analysis',
+    ),
     RoutingPrecisionCase(
         'recall-apology-control', 'An apology is not a recall incident',
         'Apologize for forgetting.', 'answer_clarification', '', 'memory-sync',
@@ -3575,6 +3609,39 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "todo-checklist-show-request",
         "Asking for the plan todo reads the checklist rather than replanning",
         "show the plan todo",
+        "dispatch",
+        "todo-checklist",
+        "declare_plan_checklist",
+        "todo_checklist",
+    ),
+    # The last phase of a code story. Before this, the bare word `close` made
+    # `finance-analysis` the top candidate on the first of these -- an
+    # accounting workflow on a sentence about finishing a change -- and
+    # nothing in the catalog owned the act of closing at all. The pair is
+    # order-free on purpose: the second says the same thing with the words
+    # reversed and shares no contiguous phrase with the first.
+    RoutingInterventionCase(
+        "todo-checklist-story-close-request",
+        "Closing a finished story reads the plan record it belongs to",
+        "close this story, it is done",
+        "dispatch",
+        "todo-checklist",
+        "declare_plan_checklist",
+        "todo_checklist",
+    ),
+    RoutingInterventionCase(
+        "todo-checklist-story-close-reversed",
+        "The closing request reaches the checklist with its words reversed",
+        "the story is done, close it",
+        "dispatch",
+        "todo-checklist",
+        "declare_plan_checklist",
+        "todo_checklist",
+    ),
+    RoutingInterventionCase(
+        "todo-checklist-story-close-report",
+        "Closing a story and reporting what landed stays with the plan record",
+        "close out this story and report what landed",
         "dispatch",
         "todo-checklist",
         "declare_plan_checklist",

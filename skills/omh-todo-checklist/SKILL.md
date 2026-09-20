@@ -62,7 +62,7 @@ Bad example:
 
 Use when the user wants a declared, HUD-visible plan checklist for the work at hand, or wants to read, advance, or clear one, without starting a delivery engine.
 
-    Strong routing signals: `todo-checklist`, `$todo`, `plan checklist`, `todo checklist`, `phase checklist`, `declare a plan checklist`, `declare the plan todo`, `show the plan todo`, `clear the plan todo`
+    Strong routing signals: `todo-checklist`, `$todo`, `plan checklist`, `todo checklist`, `phase checklist`, `declare a plan checklist`, `declare the plan todo`, `show the plan todo`, `clear the plan todo`, `close the story`, `close out the story`
 
 ## Catalog Metadata
 
@@ -80,6 +80,7 @@ Quality bar:
 - The checklist belongs to the session that declared it -- another TUI, Slack, or Discord session neither sees nor overwrites it -- so do not tell a user their checklist is visible somewhere it is not.
 - Two different things stop a plan advancing and they are not interchangeable: an item that cannot proceed carries `blocked_reason`, and a person steering the session elsewhere is `deferred_reason` on the write. Load `references/checklist-discipline.md` before using either.
 - To review whether requirements are fit to build from rather than to track work, load `references/requirements-quality-checklist.md`; its items interrogate the spec, and the party that generates them may not tick them.
+- Closing a story is reading this record, not ticking it: every `done` is a declaration, a phase marked `done` with a `blocked_reason` was skipped, and landing the change is observed evidence OMH never sees. Load `references/closing-a-story.md` before writing the close report.
 
 Handoff policy:
 

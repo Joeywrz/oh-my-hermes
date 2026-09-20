@@ -2060,7 +2060,15 @@ _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS = {
     # would widen an open defect rather than only risking its own. The intent
     # lives in the complete phrases, which already score +6 each, and the
     # two-word name means no bare token can reach the +5 `name:` credit either.
-    "todo-checklist": frozenset({"checklist", "clear", "declare", "phase", "plan", "show", "todo"}),
+    # `close`, `out`, and `story` joined the set when the skill gained the
+    # story-closing phrases. They split the same way as the words above: a
+    # loose `close` is a connection, a modal, a file handle, and an estimate
+    # near a number, and a loose `story` is the agile noun every planning lane
+    # writes. Held here, the pair reaches this skill only through
+    # `_todo_checklist_story_close_match`, which needs both words.
+    "todo-checklist": frozenset(
+        {"checklist", "clear", "close", "declare", "out", "phase", "plan", "show", "story", "todo"}
+    ),
     # The overflow phrasings `context-budget-review` needs -- "context window",
     # "running out of context", "hand off to a new session" -- are built from
     # words that mean nothing on their own. Credited as bare tokens they took
@@ -2537,6 +2545,19 @@ _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS = {
             "versioning",
         }
     ),
+    # `finance-analysis` carries the accounting phrase "month-end close", and
+    # the scorer credits a multi-word trigger as its separate tokens too. That
+    # handed this workflow the bare word `close`, which is a connection, a
+    # modal, a file handle, a tab, and an estimate near a number -- and, on
+    # "close this story, it is done", the top candidate at a score of 4 over
+    # every workflow that has anything to do with finishing work. Held back,
+    # the accounting intent is untouched: "month-end close" is a domain cue in
+    # `SPECIALIST_DOMAIN_TRIGGERS`, which scores +54 through `domain:` and
+    # never through this token. Only `close` is held -- `month` and `end` were
+    # measured on "at the end of the month we ship the release" and left this
+    # workflow third at 6, inside a clarify, which is not the reported defect
+    # and not this change's to move.
+    "finance-analysis": frozenset({"close"}),
     # `frontend` names its scroll-motion lane out of everyday words: "smooth
     # scroll", "smooth scrolling", "scroll animation", "parallax scroll".
     # Split into tokens, `scroll` alone credited this workflow for any
@@ -2955,6 +2976,9 @@ def _score_definition(
     if definition.name == "todo-checklist" and _todo_checklist_explicit_match(normalized_query):
         score += 30
         matched.add("direct:todo_checklist")
+    if definition.name == "todo-checklist" and _todo_checklist_story_close_match(query_tokens):
+        score += 30
+        matched.add("direct:todo_checklist_story_close")
     if definition.name == "inference-serving" and _inference_serving_explicit_match(
         normalized_query, query_tokens
     ):
@@ -3720,6 +3744,41 @@ def _contains_any_phrase(normalized_query: str, phrases: tuple[str, ...]) -> boo
 
 def _todo_checklist_explicit_match(normalized_query: str) -> bool:
     return any(_explicit_phrase_match(normalized_query, phrase) for phrase in _TODO_CHECKLIST_EXPLICIT_PHRASES)
+
+
+# Closing a story is a judgement about this skill's record, so `todo-checklist`
+# owns it. The sentence that asks for it puts the words in any order --
+# "close this story, it is done" and "the story is done, close it" mean the
+# same thing and share no contiguous phrase -- which is what a phrase list
+# cannot express and a token set can, the same shape
+# `_inference_serving_explicit_match` is built on.
+#
+# Three tokens, not two, and the third is what the first measurement of this
+# rule was missing. `close` plus `story` alone dispatched "close the story
+# panel when the modal loses focus" and "when is a user story considered
+# closed in scrum" at high confidence: in both, `story` modifies something
+# else rather than being the thing closed, and no token set can see that a
+# noun is a modifier. What those sentences do NOT carry is any word saying the
+# WORK is finishing, so the winding-up cue is required as well. It costs the
+# bare "close the story", which reaches the +6 phrase credit and a clarify
+# naming this skill rather than a dispatch -- the right answer for three words
+# that could mean either thing, and the trade this rule is willing to make.
+#
+# Every one of these words is held in `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS`
+# above, so none of them scores a loose +3 for this skill on its own.
+_TODO_CHECKLIST_STORY_CLOSE_ACTION_TOKENS = frozenset({"close", "closed", "closing"})
+_TODO_CHECKLIST_STORY_CLOSE_SUBJECT_TOKENS = frozenset({"story"})
+_TODO_CHECKLIST_STORY_CLOSE_COMPLETION_TOKENS = frozenset(
+    {"complete", "completed", "done", "finished", "landed", "merged", "report", "shipped"}
+)
+
+
+def _todo_checklist_story_close_match(query_tokens: set[str]) -> bool:
+    return bool(
+        query_tokens & _TODO_CHECKLIST_STORY_CLOSE_ACTION_TOKENS
+        and query_tokens & _TODO_CHECKLIST_STORY_CLOSE_SUBJECT_TOKENS
+        and query_tokens & _TODO_CHECKLIST_STORY_CLOSE_COMPLETION_TOKENS
+    )
 
 
 def _llm_app_dev_explicit_match(normalized_query: str) -> bool:

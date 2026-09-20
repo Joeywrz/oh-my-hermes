@@ -274,7 +274,12 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # #1689 adds three: two senses of `serve` that are not a model
             # being served (a CDN, and people), and something broken up that
             # is not code.
-            expected=280,
+            # The story-closing lane adds four: two where `story` modifies
+            # something else rather than being the thing closed (a UI panel,
+            # and the scrum definition question), and two where `close` is an
+            # ordinary verb that `finance-analysis` used to claim through the
+            # separate tokens of "month-end close" (a modal, a file handle).
+            expected=284,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -333,7 +338,12 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # function), plus a real page operation, because the guard
             # ordering that stops `browser-operator` pre-empting an incident
             # must not cost it its own lane.
-            expected=429,
+            # The story-closing lane adds three: the sentence that closes a
+            # finished story, the same sentence with its words reversed
+            # (which shares no contiguous phrase with the first, and is why
+            # the rule is a token set rather than a phrase list), and one
+            # that asks for the report as well.
+            expected=432,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",

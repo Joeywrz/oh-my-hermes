@@ -1303,7 +1303,18 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # spelled the row's fields out and ran 469; this is that draft with the
 # restatement removed. Re-derived from the full-profile
 # skill_context_cost_payload() producer.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 978906
+# 978520 -> 978840: one quality-bar line on `todo-checklist`. The last phase
+# of a code story -- landing the change and reporting it -- had no owner, and
+# the skill holding the only durable record of what the story declared is the
+# one that can answer for it. The guidance is a reference file and costs this
+# budget nothing. What is paid for here is a pointer carrying three claims
+# rather than a name, because each is the thing a closer gets wrong: `done`
+# is a declaration, a `done` phase with a `blocked_reason` was skipped, and
+# OMH never sees the change land. A pointer reading "load the closing
+# reference" would be shorter and would let a close report be written without
+# ever opening it. Re-derived from the full-profile
+# skill_context_cost_payload() producer.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 979226
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

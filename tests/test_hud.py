@@ -1150,7 +1150,7 @@ class TodoHudTests(unittest.TestCase):
             self.assertEqual(todo["status"], "established")
             self.assertEqual(
                 todo["counts"],
-                {"total": 4, "done": 1, "active": 1, "pending": 2, "phases": 0},
+                {"total": 4, "done": 1, "active": 1, "pending": 2, "skipped": 0, "phases": 0},
             )
             self.assertEqual(
                 [item["text"] for item in todo["display_items"]],

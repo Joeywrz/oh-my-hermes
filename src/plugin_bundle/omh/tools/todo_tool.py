@@ -60,15 +60,13 @@ OMH_TODO_SCHEMA = {
                 "type": "string",
                 "enum": [CODE_STORY_TEMPLATE],
                 "description": (
-                    "For action=set: stamp a named phase template on this plan instead of "
+                    "For action=set: declare this plan from a named phase template instead of "
                     "inventing phases. 'code-story' is the ten-phase code story, I. Story "
                     "through X. Close; use it when the person asks for a change to be carried "
-                    "from story to close. Send it with no items and the ten phases are "
-                    "declared for you; send it with items to keep the stamp on a re-declared "
-                    "plan, where every item sits in one of the ten phases and all ten appear "
-                    "in order. A phase this change does not need cannot be dropped -- that "
-                    "write is refused -- so mark it state=done with a blocked_reason saying "
-                    "why it does not apply. Omit this field for an ordinary plan."
+                    "from story to close. Send no items and the ten phases are declared for "
+                    "you. Every later write must still cover all ten: a phase this change "
+                    "does not need is kept and marked state=done with a blocked_reason, "
+                    "never dropped. Omit this field for an ordinary plan."
                 ),
             },
             "deferred_reason": {

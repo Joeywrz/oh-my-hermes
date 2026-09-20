@@ -125,8 +125,8 @@ All notable changes will be documented here.
   admissible entries is generated from a closed producer so no hand-written
   row can admit a source nothing declares.
 
-- **A code story now has a shape OMH ships, and skipping one of its stages
-  costs a written reason.** `omh_todo` takes a new optional `template`, whose
+- **A code story now has a shape OMH ships, and a stage it does not do stays
+  on the list.** `omh_todo` takes a new optional `template`, whose
   one value is `code-story`: send it with `action=set` and the plan is
   declared with the ten phases of a code story — `I. Story`, `II. Implement`,
   `III. Review`, `IV. QA`, `V. Fix`, `VI. Manual test guide`,
@@ -140,17 +140,32 @@ All notable changes will be documented here.
   The stamp is enforcement, not decoration. Every later write to a stamped
   record — a whole-list `set`, or a single-item `advance`, which now carries
   the stored name back through the same builder — is held to the same
-  coverage: all ten phases present, in template order, every item inside one
-  of them. A phase this change does not need therefore cannot leave the list;
-  dropping it is refused by name. The way to not do a phase is to carry it as
-  `state=done` with a `blocked_reason` saying why it does not apply, which
-  the HUD already renders beside the row. `done` rather than a fourth item
+  coverage: all ten phases present, each first appearing in template order,
+  every item inside one of them. A phase this change does not need therefore
+  cannot leave the list; dropping it is refused by name. The way to not do a
+  phase is to carry it as `state=done` with a `blocked_reason` saying why it
+  does not apply. That reason is a convention the tool description and the
+  refusal text ask for, not a rule any validator can hold — a phase that was
+  genuinely worked is also `done` with no reason, so what the record enforces
+  is the phase's presence and nothing more. `done` rather than a fourth item
   state, for the reason the store recorded when it chose a `blocked_reason`
   field over a `blocked` state: the counts, the projection and the widget
   keep reading three states. `done` is also the only state that lets the plan
   finish — a `pending` item carrying a reason is the plan's own stop
   criterion and would halt the run at the skipped phase with every later
   phase unreached.
+
+  A skipped phase now says so on the surfaces a person reads. The checklist
+  row opens its recorded reason with `skipped:` instead of `waiting:` when
+  the item is closed — nobody is waiting on a phase nobody will do — and the
+  HUD payload carries a derived `counts.skipped`, the items that are `done`
+  and carry a reason. A finished story therefore reads
+  `Todo · story ✓ 6/10 (4 skipped)` rather than `✓ 10/10`, which mattered
+  because the finished panel drops every item row: the reasons disappeared at
+  exactly the moment anyone would look for them, and the number asserted ten
+  phases of work for a six-phase story. Nothing new is written to disk and no
+  item state was added — the count is derived from two fields the item
+  already has, and a plan with no skips renders the line it rendered before.
 
   Nothing detects a story from what a person typed. The declaration is the
   `template` argument on the call and nothing else, so a one-line question

@@ -93,7 +93,7 @@ class BlockedReasonFieldStoreTest(unittest.TestCase):
 
         self.assertEqual(
             projected["counts"],
-            {"total": 2, "done": 1, "active": 1, "pending": 0, "phases": 0},
+            {"total": 2, "done": 1, "active": 1, "pending": 0, "skipped": 0, "phases": 0},
         )
         self.assertEqual(projected["items"][1]["blocked_reason"], "소유자 승인 대기")
 

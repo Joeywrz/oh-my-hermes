@@ -271,9 +271,12 @@ class SkippingCostsAReasonTest(_TodoHomeTest):
             self.home, self.hermes, preset="full", session_ref=SESSION
         )["display"]["todo_lines"]
 
+        # "skipped", not "waiting": nobody is waiting on a phase that is
+        # closed, and this is now the sanctioned way to drop one, so the row
+        # would otherwise read as a bug on the main path.
         self.assertIn(
             "  [✓] Write the manual test guide a person can follow "
-            "(waiting: no UI in this change)",
+            "(skipped: no UI in this change)",
             lines,
         )
 
@@ -296,6 +299,7 @@ class SkippingCostsAReasonTest(_TodoHomeTest):
 
         self.assertEqual(todo["status"], "all_done")
         self.assertEqual(todo["counts"]["done"], 10)
+        self.assertEqual(todo["counts"]["skipped"], 1)
 
     def test_the_skip_is_reachable_through_advance(self):
         write_todo(
@@ -318,6 +322,96 @@ class SkippingCostsAReasonTest(_TodoHomeTest):
 
         self.assertEqual(advanced["items"][5]["state"], "done")
         self.assertEqual(advanced["items"][5]["blocked_reason"], "no UI in this change")
+
+
+class SkippedPhasesStayVisibleTest(_TodoHomeTest):
+    """What a finished story says about the phases it did not work.
+
+    The failure this closes: a story that skipped four of ten finished as
+    `Todo · story ✓ 10/10`, with the item rows collapsed and every recorded
+    reason gone — at exactly the moment a person reads the plan to see what
+    the run did. And the number itself asserted ten phases of work for a
+    six-phase story, which is a claim the record does not carry.
+
+    The count is DERIVED, not declared: a skipped phase is already
+    distinguishable as `done` carrying a `blocked_reason`, so nothing new is
+    written to disk and no item state was added.
+    """
+
+    def _story(self, *, skips: int, finished: bool = True) -> dict:
+        items = [dict(item) for item in template_items(CODE_STORY_TEMPLATE)]
+        for index, item in enumerate(items):
+            item["state"] = "done" if finished or index < 5 else "pending"
+            if index < skips:
+                item["state"] = "done"
+                item["blocked_reason"] = f"phase {index + 1} does not apply"
+        return self.project(
+            build_todo_record(
+                "story", items, source="omh_todo", session_ref=SESSION,
+                template=CODE_STORY_TEMPLATE,
+            )
+        )
+
+    def test_the_skipped_count_is_derived_from_the_two_fields_an_item_already_has(self):
+        items = [dict(item) for item in template_items(CODE_STORY_TEMPLATE)]
+        items[0] = {**items[0], "state": "done", "blocked_reason": "not needed"}
+        items[1] = {**items[1], "state": "done"}
+        items[2] = {**items[2], "state": "active", "blocked_reason": "owner approval"}
+
+        counts = self.project(
+            build_todo_record(
+                "story", items, source="omh_todo", session_ref=SESSION,
+                template=CODE_STORY_TEMPLATE,
+            )
+        )["counts"]
+
+        # Only the closed item carrying a reason. A done item with no reason
+        # is work that happened; an OPEN item with one is waiting, not
+        # skipped, and the plan's stop criterion still reads it.
+        self.assertEqual(counts["skipped"], 1)
+        self.assertEqual(counts["done"], 2)
+        self.assertEqual(counts["active"], 1)
+
+    def test_a_finished_story_names_the_phases_it_skipped(self):
+        todo = self._story(skips=4)
+        lines = read_omh_hud(
+            self.home, self.hermes, session_ref=SESSION
+        )["display"]["todo_lines"]
+
+        self.assertEqual(todo["counts"]["skipped"], 4)
+        self.assertEqual(lines, ["Todo · story ✓ 6/10 (4 skipped)"])
+
+    def test_a_finished_story_with_no_skips_renders_exactly_what_it_did_before(self):
+        todo = self._story(skips=0)
+        lines = read_omh_hud(
+            self.home, self.hermes, session_ref=SESSION
+        )["display"]["todo_lines"]
+
+        self.assertEqual(todo["counts"]["skipped"], 0)
+        self.assertEqual(lines, ["Todo · story ✓ 10/10"])
+
+    def test_an_ordinary_plan_carries_the_count_as_zero(self):
+        # Additive on a derived projection: a plan that has never heard of
+        # the template still answers the question, and answers it with 0.
+        todo = self.project(
+            build_todo_record(
+                "plan", [{"text": "one thing", "state": "done"}], source="omh_todo",
+                session_ref=SESSION,
+            )
+        )
+
+        self.assertEqual(todo["counts"]["skipped"], 0)
+        self.assertEqual(
+            read_omh_hud(self.home, self.hermes, session_ref=SESSION)["display"][
+                "todo_lines"
+            ],
+            ["Todo · plan ✓ 1/1"],
+        )
+
+    def test_an_absent_plan_counts_no_skips(self):
+        self.assertEqual(
+            read_omh_hud(self.home, self.hermes)["todo"]["counts"]["skipped"], 0
+        )
 
 
 class CoverageIsRecheckedOnEveryWriteTest(_TodoHomeTest):
@@ -389,6 +483,73 @@ class CoverageIsRecheckedOnEveryWriteTest(_TodoHomeTest):
 
         self.assertEqual(advanced["template"], CODE_STORY_TEMPLATE)
 
+    def test_a_plan_that_returns_to_an_earlier_phase_is_accepted(self):
+        # Order is over FIRST appearances, not positions. A run that comes
+        # back to III for one more task after X has opened is a plan doing
+        # its job, and refusing it would make the stamp fight the work.
+        items = template_items(CODE_STORY_TEMPLATE)
+        items.append(
+            {"text": "re-review the fix", "state": "pending", "phase": "III. Review"}
+        )
+
+        record = build_todo_record(
+            "story", items, source="omh_todo", template=CODE_STORY_TEMPLATE
+        )
+
+        self.assertEqual(len(record["items"]), 11)
+        self.assertEqual(record["items"][10]["phase"], "III. Review")
+
+    def test_an_advance_on_a_record_naming_an_unknown_template_names_the_remedy(self):
+        # Reachable from a hand edit, or from a bundle rolled back under a
+        # record a newer generation stamped. The builder's own message tells
+        # the writer to send a different `template`, and action=advance has
+        # no such argument -- so the refusal is relabelled with the one thing
+        # that does clear it.
+        record = build_todo_record(
+            "story", None, source="omh_todo", session_ref=SESSION,
+            template=CODE_STORY_TEMPLATE,
+        )
+        record["template"] = "spec-story"
+        write_todo(self.home, record)
+
+        with self.assertRaises(TodoValidationError) as raised:
+            advance_todo_item(
+                self.home,
+                item=1,
+                item_text="Write the story",
+                state="active",
+                source="omh_todo",
+                session_ref=SESSION,
+            )
+
+        message = str(raised.exception)
+        self.assertIn("'spec-story'", message)
+        self.assertIn("action=set", message)
+        self.assertNotIn("todo template must be one of", message)
+
+    def test_an_advance_on_a_record_whose_template_is_not_even_a_name_refuses(self):
+        # A hand edit can put anything there, including a value that is not
+        # hashable. The relabel must not raise while deciding whether to
+        # relabel.
+        record = build_todo_record(
+            "story", None, source="omh_todo", session_ref=SESSION,
+            template=CODE_STORY_TEMPLATE,
+        )
+        record["template"] = {"code": "story"}
+        write_todo(self.home, record)
+
+        with self.assertRaises(TodoValidationError) as raised:
+            advance_todo_item(
+                self.home,
+                item=1,
+                item_text="Write the story",
+                state="active",
+                source="omh_todo",
+                session_ref=SESSION,
+            )
+
+        self.assertIn("action=set", str(raised.exception))
+
     def test_an_advance_on_a_record_that_lost_a_phase_refuses_by_name(self):
         # A hand-edited record, the only way to reach this. It refuses rather
         # than silently re-writing a record whose stamp no longer describes
@@ -414,7 +575,11 @@ class CoverageIsRecheckedOnEveryWriteTest(_TodoHomeTest):
                 session_ref=SESSION,
             )
 
+        # A coverage refusal already names its phase and its remedy, so it
+        # passes through unrelabelled -- only the unknown-name case is
+        # rewritten.
         self.assertIn("'IX. Quiz'", str(raised.exception))
+        self.assertIn("blocked_reason", str(raised.exception))
 
 
 class UnknownTemplateTest(_TodoHomeTest):

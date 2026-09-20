@@ -9,8 +9,10 @@ which is the same thing as not having the shape at all.
 A template is the shape written down once, in this module, and stamped onto
 the record by name. ``build_todo_record`` fills the phases from here when a
 writer asks for the template and sends no items, and holds every later write
-to the same coverage: every template phase present, in template order, each
-item inside one of them. The stamp is a record field (``template``), so a
+to the same coverage: every template phase present, each one first appearing
+in template order, each item inside one of them. First appearance, not
+position, so a plan that returns to an earlier phase for one more task is not
+refused for it. The stamp is a record field (``template``), so a
 reader answers "is this a story plan" by reading a field rather than by
 matching the phase labels back out of prose -- the rule this repository
 already applies to every other plan judgement (`recorded_blocked_reason`).
@@ -36,10 +38,21 @@ nothing at all. ``done`` is also the only state that lets the plan finish --
 reason is the plan's own stop criterion and would halt the run at the skipped
 phase with every later phase unreached.
 
-What no record can see is a phase marked done by a writer that simply did not
-do it. OMH observes no work; it observes declarations. The template makes the
-phase impossible to forget and makes dropping it cost a written reason, and
-that is the whole of what a record can enforce.
+What this module ENFORCES and what it merely ASKS FOR are different, and the
+line is worth stating because the enforcement is the narrower of the two.
+Enforced: the phase cannot leave the list -- ``template_coverage_error`` reads
+only the phase labels, and a stamped plan missing one is refused by name.
+Asked for: that the phase left standing carries a reason. Nothing checks it,
+and nothing can, because a phase that was genuinely worked is also ``done``
+with no reason, so "a done phase needs a reason" is not a rule any validator
+can hold. The reason is carried by the tool description and by the refusal
+text; writing it is the writer's own discipline.
+
+The same boundary one step further out: no record can see a phase marked done
+by a writer that simply did not do it. OMH observes no work; it observes
+declarations. What the template buys is a phase that is impossible to forget
+and impossible to remove without the removal being refused -- and that is the
+whole of what a record can enforce.
 """
 from __future__ import annotations
 
@@ -117,6 +130,13 @@ def effective_item_phases(items: Iterable[dict[str, Any]]) -> list[str]:
 
 def template_coverage_error(name: str, items: list[dict[str, Any]]) -> str:
     """Why ``items`` do not satisfy template ``name``, or ``""``.
+
+    Order is checked over FIRST APPEARANCES, not positions: the phases are
+    de-duplicated in the order they are first named and that sequence must
+    equal the template's. So a plan that comes back to an earlier phase for
+    one more task passes, which is the behaviour a run wants -- returning to
+    `III. Review` after `X. Close` opened is a plan doing its job, not a plan
+    declaring its phases wrongly.
 
     Returns a message rather than raising so the one caller
     (``build_todo_record``) keeps raising the store's own error type, and so

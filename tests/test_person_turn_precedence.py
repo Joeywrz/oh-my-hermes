@@ -236,7 +236,7 @@ class MessageOpenedTurnTest(_PlanHomeTest):
         # reached.
         todo = {
             "status": "established",
-            "counts": {"total": 2, "done": 1, "active": 1, "pending": 0, "phases": 0},
+            "counts": {"total": 2, "done": 1, "active": 1, "pending": 0, "skipped": 0, "phases": 0},
             "items": [
                 {"text": "land the fix", "state": "done"},
                 {"text": "open the PR", "state": "active"},
@@ -405,7 +405,7 @@ class PlanLineForceTest(_PlanHomeTest):
         # not happen is the drive going with it.
         todo = {
             "status": "established",
-            "counts": {"total": 2, "done": 1, "active": 1, "pending": 0, "phases": 0},
+            "counts": {"total": 2, "done": 1, "active": 1, "pending": 0, "skipped": 0, "phases": 0},
             "items": [
                 {"text": "land the fix", "state": "done"},
                 {"text": "open the PR", "state": "active"},

@@ -2010,6 +2010,34 @@ def todo_blocked_reason_display(item: dict[str, Any]) -> str:
     return reason[: TODO_BLOCKED_REASON_DISPLAY_CHARS - 1] + "…"
 
 
+def _todo_reason_verb(item: dict[str, Any]) -> str:
+    """``skipped`` for a closed item carrying a reason, else ``waiting``.
+
+    The widget keeps its own copy of this one word for the same row, so the
+    rule lives in one sentence here and the pair is pinned together in
+    `tests/test_story_template.py`.
+    """
+    return "skipped" if item.get("state") == "done" else "waiting"
+
+
+def _todo_done_text(counts: dict[str, Any]) -> str:
+    """``done/total``, with the skipped phases named when there are any.
+
+    Written once and read by the finished-plan line here and by the widget's
+    own copy of it, so the two surfaces cannot disagree about the arithmetic.
+    The subtraction is the point: `counts["skipped"]` is a subset of
+    `counts["done"]` (see the comment where it is derived), so the phases
+    that were WORKED are `done - skipped`, and printing `done` unqualified
+    is what asserted completion of work nobody did.
+    """
+    done = int(counts.get("done", 0) or 0)
+    total = int(counts.get("total", 0) or 0)
+    skipped = int(counts.get("skipped", 0) or 0)
+    if skipped <= 0:
+        return f"{done}/{total}"
+    return f"{max(0, done - skipped)}/{total} ({skipped} skipped)"
+
+
 def _todo_summary(
     home: Path,
     hermes: Path | None = None,
@@ -2038,7 +2066,7 @@ def _todo_summary(
         "title": "",
         "source": "",
         "updated_at": "",
-        "counts": {"total": 0, "done": 0, "active": 0, "pending": 0, "phases": 0},
+        "counts": {"total": 0, "done": 0, "active": 0, "pending": 0, "skipped": 0, "phases": 0},
         "items": [],
         "display_items": [],
         "display_phase": "",
@@ -2101,9 +2129,10 @@ def _todo_summary(
     # re-declares the plan as an ordinary one -- the writer owns the
     # declaration, the way it owns `deferred_reason`. What it must not have to
     # do is remember the stamp from a previous turn: `action=show` and every
-    # HUD surface read this field. Bounded rather than validated against the
-    # template catalog, because a reader's job here is to project what the
-    # record says and the writer is where an unknown name was already refused.
+    # `omh_todo` result payload carry it back. Bounded rather than validated
+    # against the template catalog, because a reader's job here is to project
+    # what the record says, and the writer is where an unknown name was
+    # already refused.
     summary["template"] = strip_control_characters(record.get("template", ""))[
         :MAX_TODO_TEMPLATE_CHARS
     ]
@@ -2133,6 +2162,20 @@ def _todo_summary(
         "done": sum(1 for item in items if item["state"] == "done"),
         "active": sum(1 for item in items if item["state"] == "active"),
         "pending": sum(1 for item in items if item["state"] == "pending"),
+        # Derived, never declared: a phase nobody did is already
+        # distinguishable in the record as `done` carrying a reason, so this
+        # reads the two fields the item already has rather than asking for a
+        # fourth state. It is a SUBSET of `done` and deliberately not
+        # subtracted from it -- `done` answers "is this item still open",
+        # which is what `open_plan_position` and the plan's stop criterion
+        # need, and an item that will never be worked is closed. This answers
+        # the different question a finished plan is read for: how much of it
+        # was work. The display is the one place the two are told apart.
+        "skipped": sum(
+            1
+            for item in items
+            if item["state"] == "done" and item.get("blocked_reason")
+        ),
         "phases": len(phases),
     }
     summary["counts"] = counts
@@ -2343,7 +2386,17 @@ def _hud_todo_lines(todo: dict[str, Any], *, preset: str = "focused") -> list[st
     title = str(todo.get("title", ""))
     label = f"Todo · {title}" if title else "Todo"
     if status == "all_done":
-        return [f"{label} ✓ {counts.get('done', 0)}/{counts.get('total', 0)}"]
+        # The one line a finished plan leaves, so it is the one line that has
+        # to hold the whole story. The item rows are gone by here, and with
+        # them every recorded reason -- which is exactly when a person looks
+        # to see what the run actually did. `done/total` alone would answer
+        # "10/10" for a story that worked six phases and skipped four, which
+        # is a claim about work the record does not carry. So the numerator
+        # is the phases that were worked and the skipped ones are named
+        # beside it. A plan with no skips renders the identical line it
+        # rendered before this clause existed: the subtraction is zero and
+        # the clause is absent.
+        return [f"{label} ✓ {_todo_done_text(counts)}"]
     header = f"{label}   {counts.get('done', 0)}/{counts.get('total', 0)}"
     if preset == "minimal":
         return [header]
@@ -2368,9 +2421,19 @@ def _hud_todo_lines(todo: dict[str, Any], *, preset: str = "focused") -> list[st
         # declarations, not execution evidence, and a recorded reason is one
         # of those declarations, never an observation that something is
         # blocking.
+        #
+        # The verb the clause opens with is the item's own state, and that is
+        # the smallest reading of the state the row already draws rather than
+        # a guess at what the reason means. An OPEN item recording a reason
+        # is not proceeding, so it is waiting; a DONE item recording one is
+        # closed and nobody is waiting on it, which is what a skipped phase
+        # is. Before the story template, `done` carrying a reason was a
+        # corner nobody wrote on purpose and "waiting" beside a ✓ was merely
+        # odd; it is now the sanctioned way to drop a phase, so the row would
+        # read as a bug on the main path.
         reason = todo_blocked_reason_display(item)
         if reason:
-            line = f"{line} (waiting: {reason})"
+            line = f"{line} ({_todo_reason_verb(item)}: {reason})"
         return f"{line} (unchanged {unchanged})" if unchanged and item["state"] == "active" else line
 
     lines = [header]

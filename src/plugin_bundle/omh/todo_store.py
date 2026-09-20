@@ -273,9 +273,10 @@ def build_todo_record(
     built before the field existed, items and all.
 
     The coverage check runs after ``validate_todo_items`` and not before,
-    because it reads the phase each item ended up with -- the validator is
-    where a blank phase becomes an absent one, and checking coverage against
-    the raw input would accept a whitespace phase the record does not carry.
+    because it reads the phase each item ended up with, which is the form the
+    record and the HUD will carry. Checking the raw input would judge a phase
+    the record never stores: ``'  I. Story  '`` would be refused as an unknown
+    label for a phase the validator writes as ``'I. Story'``.
     """
     safe_title = strip_control_characters(title)
     if len(safe_title) > MAX_TODO_TITLE_CHARS:
@@ -318,8 +319,12 @@ def _validated_template(template: object) -> str:
     a person reading this file.
 
     A non-string is rejected rather than coerced, the call
-    ``_validated_deferred_reason`` above makes for the same reason: a number
-    is not a template name in any language.
+    ``_validated_deferred_reason`` below makes for the same reason: a number
+    is not a template name in any language. The parallel stops there: that
+    function treats whitespace as absence, and this one strips it and then
+    fails the membership test, so a blank string raises. Deliberate --
+    absence means "no template" and is spelled by omitting the argument,
+    while a writer that sent something got it wrong and should be told.
     """
     if template is None or template == "":
         return ""
@@ -535,6 +540,16 @@ def advance_todo_item(
     record that no longer covers its template refuses here, naming the phase,
     and `set` is how it is re-declared.
 
+    A record naming a template this build does not have is the one refusal
+    on this path a caller could not act on, so it is relabelled rather than
+    passed through. The builder's message tells a writer to send a different
+    `template`, and `action=advance` has no such argument -- the name came
+    off the record, not off the call -- so a model reading that wording
+    would look for an argument it never sent. It is also permanent for that
+    record: only `set` clears a stored name, and the replacement says so.
+    Reachable today from a hand edit, or from a bundle rolled back under a
+    record a newer generation stamped.
+
     ``item`` is 1-based, the way the checklist reads, and it is guarded rather
     than trusted. ``item_text`` must be a prefix of the text already stored at
     that position, so a reference computed against a list that has since been
@@ -599,16 +614,54 @@ def advance_todo_item(
             updated.pop("blocked_reason", None)
         items = list(stored)
         items[position] = updated
-        advanced = build_todo_record(
-            record.get("title", ""),
-            items,
-            source=source,
-            session_ref=session_ref,
-            deferred_reason=deferred_reason,
-            template=record.get("template", ""),
-        )
+        stored_template = record.get("template", "")
+        try:
+            advanced = build_todo_record(
+                record.get("title", ""),
+                items,
+                source=source,
+                session_ref=session_ref,
+                deferred_reason=deferred_reason,
+                template=stored_template,
+            )
+        except TodoValidationError as error:
+            raise _advance_template_error(stored_template, error) from error
         _replace_todo_record(destination)(advanced)
     return advanced
+
+
+def _advance_template_error(
+    stored_template: object, error: TodoValidationError
+) -> TodoValidationError:
+    """Re-label the one advance refusal whose remedy the builder cannot name.
+
+    Every other refusal on this path ends with what to do next -- "declare
+    one with action=set", "read the plan with action=show first". The
+    builder's unknown-template message ends with "must be one of: ..." and
+    means "send a different `template`", which is advice about an argument
+    `action=advance` does not have. Only the unknown-name case is relabelled:
+    a coverage refusal already names its phase and is actionable as written,
+    so it is returned untouched.
+    """
+    # Only a record that NAMES a template this build cannot resolve. An
+    # unstamped record is the common case and every refusal on it is the
+    # builder's own -- an over-length reason, an item text past the cap --
+    # so relabelling those would answer a question about item fields with a
+    # sentence about templates.
+    # `isinstance` before the lookup, not after: a hand-edited record can
+    # carry an unhashable value there, and `{} in TODO_TEMPLATES` raises
+    # TypeError -- inside an exception handler, which would replace a
+    # refusal the caller can read with a crash it cannot.
+    if not stored_template or (
+        isinstance(stored_template, str) and stored_template in TODO_TEMPLATES
+    ):
+        return error
+    known = ", ".join(repr(name) for name in sorted(TODO_TEMPLATES))
+    shown = strip_control_characters(stored_template)[:MAX_TODO_TEMPLATE_CHARS]
+    return TodoValidationError(
+        f"this plan names a template this build does not know ({shown!r}); "
+        f"re-declare it with action=set, using one of: {known}"
+    )
 
 
 def _validated_item_reference(item: object, count: int) -> int:

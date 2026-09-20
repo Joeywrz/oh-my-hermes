@@ -1280,6 +1280,68 @@ class TodoPanelWaitingRowTests(unittest.TestCase):
             [row["text"] for row in rows],
         )
 
+    def test_a_closed_item_carrying_a_reason_reads_skipped_not_waiting(self) -> None:
+        # Nobody is waiting on a phase that is closed. Before the story
+        # template `done` + `blocked_reason` was a corner nobody wrote on
+        # purpose; it is now the sanctioned way to drop a phase, so a ✓ row
+        # saying "waiting" would read as a bug on the main path. The verb is
+        # the item's own state and nothing else -- the reader applies the
+        # same one-word rule in `_todo_reason_verb`.
+        rows = self._rows(
+            [
+                {"text": "Manual test guide", "state": "done", "blocked_reason": "no UI"},
+                {"text": "Close", "state": "active"},
+            ]
+        )
+
+        texts = [row["text"] for row in rows]
+        self.assertIn("[✓] Manual test guide (skipped: no UI)", texts)
+        self.assertNotIn("waiting", " ".join(texts))
+        skipped = [row for row in rows if "(skipped:" in row["text"]]
+        self.assertEqual(len(skipped), 1, texts)
+        self.assertIn({"color": "warn", "text": " (skipped: no UI)"}, skipped[0]["parts"])
+
+    def test_a_finished_plan_names_the_phases_it_skipped(self) -> None:
+        # The finished panel is one line with no item rows, so it is the only
+        # place the skips can still be seen. `done/total` alone answered
+        # "10/10" for a story that worked six phases and skipped four.
+        rows = self._rows(
+            [
+                {"text": "Implement", "state": "done"},
+                {"text": "Manual test guide", "state": "done", "blocked_reason": "no UI"},
+                {"text": "ELI5", "state": "done", "blocked_reason": "internal change"},
+            ]
+        )
+
+        self.assertEqual(rows[0]["text"], "[Plan] init │ ✓ 1/3 (2 skipped)")
+
+    def test_a_finished_plan_with_no_skips_renders_exactly_what_it_did_before(self) -> None:
+        rows = self._rows(
+            [
+                {"text": "Implement", "state": "done"},
+                {"text": "Close", "state": "done"},
+            ]
+        )
+
+        self.assertEqual(rows[0]["text"], "[Plan] init │ ✓ 2/2")
+
+    def test_a_payload_predating_the_skip_count_renders_as_it_always_did(self) -> None:
+        # A widget refreshed ahead of the plugin reads a payload whose counts
+        # have no `skipped` key at all. It must not render `NaN` or drop the
+        # line; it renders what that generation rendered.
+        def strip_count(payload: dict) -> None:
+            payload["todo"]["counts"].pop("skipped", None)
+
+        rows = self._rows(
+            [
+                {"text": "Implement", "state": "done"},
+                {"text": "Manual test guide", "state": "done", "blocked_reason": "no UI"},
+            ],
+            edit=strip_count,
+        )
+
+        self.assertEqual(rows[0]["text"], "[Plan] init │ ✓ 2/2")
+
     def test_a_long_reason_is_cut_on_the_row_and_left_whole_in_the_payload(self) -> None:
         # Truncation is a render concern on both surfaces. The widget cuts in
         # terminal cells, so the ceiling it shares with the text HUD line is

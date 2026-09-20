@@ -1418,10 +1418,19 @@ model writes out itself. `omh_todo` with `action=set` and
 and stores the template name on the record. Every later write to that record
 is held to the same coverage, so a phase cannot quietly leave the plan: a
 change that needs no manual test guide carries that phase as `state: done`
-with a `blocked_reason` saying why it does not apply, which the panel renders
-beside the row. A `set` without `template` declares an ordinary plan exactly
-as before, and nothing infers the template from what anyone typed — the
-argument is the whole of the declaration.
+with a `blocked_reason` saying why it does not apply, and the panel renders
+the row as `[✓] … (skipped: …)`. A finished plan's single summary line names
+them — `Todo · story ✓ 6/10 (4 skipped)` — because that line is all that
+survives once the item rows collapse. A `set` without `template` declares an
+ordinary plan exactly as before, and nothing infers the template from what
+anyone typed — the argument is the whole of the declaration.
+
+Two bounds worth knowing before declaring one. The template is a plugin-tool
+surface only: `omh runtime todo set` has no `--template`, and a CLI `set`
+over a stamped plan replaces the record and un-stamps it, the same way a
+plain `omh_todo` `set` does. And the ten phases spend half the 20-item cap, so
+a story plan has ten slots left for subtasks across all ten phases; past that
+the write is refused by the ordinary item-cap message.
 
 The panel belongs to the session that declared the plan. When Hermes
 declares a plan through `omh_todo`, the record is stored for that session

@@ -34,6 +34,34 @@ All notable changes will be documented here.
   `provider_add_duplicate` ("already recorded"), a malformed id keeps
   `provider_add_rejected` and now names what a plain identifier is. Both keys
   are present in all four language tables (en/ko/ja/zh).
+- **Uninstall no longer leaves the sections it created behind as empty keys.**
+  On an install made before the write record existed, `omh uninstall` reversed
+  the keys it can attribute without a record and left
+
+  ```yaml
+  skills:
+    external_dirs:
+
+  plugins:
+  ```
+
+  in the person's `config.yaml`. Two causes, both of them about WHEN a
+  container is read. The scope decides which containers OMH may drop by asking
+  which ones it emptied, and it asked on text from which uninstall had already
+  stripped the managed skills directories -- so `skills.external_dirs` read as
+  a container the person kept empty and was spared. And the candidate set was
+  fixed before the removals ran, so `plugins:`, which becomes childless only
+  once `plugins.enabled:` is gone, was never a candidate at all.
+
+  The baseline is now the config as it stood before the uninstall removed
+  anything, and every managed container goes in as a candidate: the removal
+  pass already re-reads the text after each deletion and works deepest first,
+  so a parent leaves with its last child in the same pass. A container the
+  person kept empty is still in the baseline and is still left exactly as it
+  was. `omh uninstall --registration-only` drops the section its registration
+  lived in for the same reason and by the same rule, and keeps everything else
+  it kept before. Installs carrying the record were already clean and are
+  unchanged, byte for byte.
 
 - **The delegation nudge counts distinct searches, and its budget survives a
   plugin-host restart.** It watched `search_files` and fired at five direct

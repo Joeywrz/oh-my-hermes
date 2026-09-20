@@ -592,6 +592,57 @@ class ReverseManagedConfigTests(unittest.TestCase):
 
         self.assertEqual(change.text, "memory:\n")
 
+    def test_an_install_with_no_record_leaves_behind_no_container_omh_created(self) -> None:
+        """#1767. Uninstall unregisters first, so the baseline is the pre-removal text."""
+        before = "version: 1\n"
+        after = _apply_setup_writes(before)
+        unregistered = remove_external_dir(after, "/tmp/omh/skills").text
+        self.assertIn("  external_dirs:\n", unregistered)
+
+        change, _rows = reverse_managed_config(
+            unregistered, {}, config_path=CONFIG_PATH, text_before_removals=after
+        )
+
+        # `display:` stays with the person: `interface: tui` and three
+        # collapsed sections are values a person can hold, and a pre-record
+        # install has nothing that says OMH wrote them. Everything OMH names
+        # by construction goes, and takes its containers with it.
+        self.assertEqual(
+            change.text,
+            "version: 1\n"
+            "\n"
+            "display:\n"
+            "  sections:\n"
+            "    thinking: collapsed\n"
+            "    tools: collapsed\n"
+            "    subagents: collapsed\n"
+            "  interface: tui\n",
+        )
+
+    def test_the_baseline_is_the_text_before_the_callers_own_removals(self) -> None:
+        """Mutation proof for #1767, and the contract of the default.
+
+        Read on the post-removal text, `skills.external_dirs` is already
+        childless and reads as a container the person kept empty, so it
+        survives. That is the right answer for a caller that removed nothing
+        first -- which is what the default means -- and the wrong one for
+        uninstall, which strips the registration before it gets here.
+        """
+        after = _apply_setup_writes("version: 1\n")
+        unregistered = remove_external_dir(after, "/tmp/omh/skills").text
+
+        default_baseline, _rows = reverse_managed_config(unregistered, {}, config_path=CONFIG_PATH)
+
+        self.assertIn("  external_dirs:\n", default_baseline.text)
+
+    def test_a_container_goes_with_the_last_child_this_pass_removed(self) -> None:
+        """`plugins:` is childless only once `plugins.enabled:` is gone."""
+        change, _rows = reverse_managed_config(
+            "version: 1\nplugins:\n  enabled:\n    - omh\n", {}, config_path=CONFIG_PATH
+        )
+
+        self.assertEqual(change.text, "version: 1\n")
+
     def test_an_absent_key_reports_absent_rather_than_left_in_place(self) -> None:
         _change, rows = reverse_managed_config("version: 1\n", {}, config_path=CONFIG_PATH)
 

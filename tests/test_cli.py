@@ -12769,7 +12769,13 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertTrue(payload["registration_only"])
             self.assertTrue((omh_home / "skills").exists())
             self.assertTrue((hermes_home / "plugins" / "omh" / "plugin.yaml").exists())
-            self.assertNotIn(str(omh_home / "skills"), (hermes_home / "config.yaml").read_text(encoding="utf-8"))
+            remaining = (hermes_home / "config.yaml").read_text(encoding="utf-8")
+            self.assertNotIn(str(omh_home / "skills"), remaining)
+            # The registration was the only thing in the section setup created
+            # for it, so the section goes with it rather than staying behind as
+            # a null-valued key (#1767). Everything else this scope keeps.
+            self.assertNotIn("skills:", remaining)
+            self.assertIn("  provider: omh", remaining)
 
     def test_uninstall_restores_the_config_bytes_that_were_there_before_setup(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -12825,6 +12831,40 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(stderr, "")
             self.assertEqual(status, 0)
             self.assertEqual(config_path.read_text(encoding="utf-8"), before)
+
+    def test_uninstall_on_an_install_made_before_the_record_leaves_no_empty_section(self) -> None:
+        """#1767. An install from before #1764 has no record, and still comes back clean."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            hermes_home.mkdir(parents=True, exist_ok=True)
+            base = ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home)]
+            config_path = hermes_home / "config.yaml"
+            before = "version: 1\n"
+            config_path.write_text(before, encoding="utf-8", newline="")
+
+            self.assertEqual(run_cli(base + ["setup", "--with-plugin", "--yes"])[0], 0)
+            # Imitate an install that predates the write record: everything
+            # setup wrote is in the config, nothing says OMH wrote it.
+            state_path = omh_home / "runtime" / "state.json"
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertIn("hermes_config_writes", state)
+            del state["hermes_config_writes"]
+            state_path.write_text(json.dumps(state), encoding="utf-8", newline="")
+
+            status, stdout, stderr = run_cli(base + ["uninstall"])
+
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            remaining = config_path.read_text(encoding="utf-8")
+            # The two containers setup created for keys it can reverse without
+            # a record go with them; `display:` stays because `interface: tui`
+            # and the collapsed sections are the person's for all we know.
+            self.assertNotIn("skills:", remaining)
+            self.assertNotIn("plugins:", remaining)
+            self.assertNotIn("memory:", remaining)
+            self.assertIn("  interface: tui", remaining)
 
     def test_uninstall_keeps_a_managed_config_key_the_user_has_since_changed(self) -> None:
         with TemporaryDirectory() as tmp:

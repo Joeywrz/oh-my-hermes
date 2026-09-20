@@ -42,6 +42,7 @@ from ..config_adapter import (
     activate_display_sections,
     activate_omh_skin,
     activate_tui_interface,
+    childless_containers,
     display_interface_selection,
     display_sections_selection,
     display_skin_selection,
@@ -60,6 +61,7 @@ from ..config_adapter import (
 from ..install.compression_defaults import ensure_compression_defaults
 from ..install.config_reversal import (
     MANAGED_CONFIG_WRITES_STATE_KEY,
+    drop_emptied_containers,
     managed_config_writes,
     reverse_managed_config,
 )
@@ -805,9 +807,18 @@ def _unregister_and_reverse(
     """
     change = _remove_managed_external_dirs(config_text, paths)
     if not remove_all:
-        return change, []
+        # Unregistering is the whole scope here, but the container the
+        # registration lived in goes with it: a `skills.external_dirs:` this
+        # run emptied is a key OMH left behind, not a choice of the person's.
+        # Every other managed container reads the same before and after, so
+        # naming them all costs nothing and removes none of them.
+        cleanup = drop_emptied_containers(change.text, childless_containers(config_text))
+        return ConfigChange(change.changed or cleanup.changed, change.message, cleanup.text), []
     reversal, rows = reverse_managed_config(
-        change.text, record, config_path=paths.hermes_config_path
+        change.text,
+        record,
+        config_path=paths.hermes_config_path,
+        text_before_removals=config_text,
     )
     return (
         ConfigChange(change.changed or reversal.changed, change.message, reversal.text),

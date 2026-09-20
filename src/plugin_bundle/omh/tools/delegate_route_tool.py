@@ -233,7 +233,10 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
         return json.dumps(error, sort_keys=True)
     observation = observe_plugin_tool_call("omh_delegate_route", args, kwargs)
     # Only the host keyword names the session; tool args are model-supplied and
-    # must not be able to claim another session's route record.
+    # must not be able to claim another session's route record. Two stores
+    # read it: the restore baseline below, and the provenance record, whose
+    # owner decides which conversation's HUD may label a child with this
+    # route.
     session_id = host_session_id(kwargs)
     # The host gives a tool handler `task_id` but never `turn_id`
     # (`model_tools._execute_tool`), so the task is the finest scope a route
@@ -296,7 +299,11 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
             # preceded it, or a later child on a coincidentally matching
             # model would still inherit that record's label.
             result["route_provenance"] = append_delegation_route_provenance(
-                {"origin": "cleared", "written_at": time.time()},
+                {
+                    "origin": "cleared",
+                    "session_id": session_id,
+                    "written_at": time.time(),
+                },
                 omh_home,
             )
         result["evidence_boundary"] = _EVIDENCE_BOUNDARY
@@ -434,6 +441,7 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                         "origin": "exhausted_to_inherit",
                         "category": category,
                         "from_alias": current_alias,
+                        "session_id": session_id,
                         "written_at": time.time(),
                     },
                     omh_home,
@@ -481,6 +489,7 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                     "provider": next_provider,
                     "reasoning_effort": next_effort,
                     "from_alias": current_alias,
+                    "session_id": session_id,
                     "written_at": time.time(),
                 },
                 omh_home,
@@ -602,6 +611,7 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                 "wire_model": wire_model,
                 "provider": provider,
                 "reasoning_effort": effort,
+                "session_id": session_id,
                 "written_at": time.time(),
             },
             omh_home,

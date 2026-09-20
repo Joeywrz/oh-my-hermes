@@ -548,10 +548,14 @@ model the parent session itself runs as `category(model =parent)` — one
 `category(model tag)` shape for every lane, where the category names the
 lane and only the parenthesized model and state token move. A child on the
 parent's model with no route record at all is the plain `inherit(model)`:
-inherit is not a category. It is written automatically,
-carries its own `claim_boundary` (prepared routes only, never dispatch
-evidence), and is safe to delete — an absent or invalid file only means HUD
-rows fall back to plain category projection.
+inherit is not a category. Each record also names the Hermes session that
+prepared the route, so a HUD reading one conversation labels the lanes that
+conversation routed and leaves another conversation's alone; a record
+written before that field existed names no session, and a session-scoped
+HUD leaves those unclaimed rather than guessing. It is written
+automatically, carries its own `claim_boundary` (prepared routes only,
+never dispatch evidence), and is safe to delete — an absent or invalid file
+only means HUD rows fall back to plain category projection.
 
 Beside it, `~/.omh/routing/route-restore.json`
 (`delegation_route_restore/v2`) holds the way back out of a route. The first

@@ -968,6 +968,11 @@ def configured_route_for_wire(
 # inherit. The record is preparation evidence only: a label upgrade for an
 # observed child whose wire identity matches, never execution evidence and
 # never a routing input.
+#
+# Each record also names the session that prepared the route, so a
+# session-scoped reader can keep its own conversation's records instead of
+# discarding the history whole. It stays a route record: identity, model,
+# category, timestamp and owner — never anything about what was said.
 DELEGATION_ROUTE_PROVENANCE_SCHEMA_VERSION = "delegation_route_provenance/v1"
 _PROVENANCE_RECORD_LIMIT = 32
 # A route write immediately precedes its dispatch (the tool contract is
@@ -1012,6 +1017,17 @@ def _valid_provenance_record(record: object) -> dict[str, Any] | None:
         if not isinstance(value, str) or len(value) > 160:
             return None
         cleaned[field] = value
+    # `session_id` names the Hermes session that prepared this route, and is
+    # additive-optional inside `delegation_route_provenance/v1`: the key is
+    # kept only when non-empty, so a writer that cannot name its session
+    # produces exactly the record this function produced before the field
+    # existed. A malformed owner refuses the record the same way every other
+    # malformed field does, which the loader turns into "no provenance".
+    owner = record.get("session_id", "")
+    if not isinstance(owner, str) or len(owner) > 160:
+        return None
+    if owner:
+        cleaned["session_id"] = owner
     return cleaned
 
 
@@ -1870,8 +1886,20 @@ def served_model_attestation(
 
 
 def _query_state_db(state_db: Path, *, now: float, session_ref: str | None = None) -> dict[str, Any]:
-    """Read child sessions, usage tallies, and delegation states, read-only."""
-    result: dict[str, Any] = {"children": [], "delegation_states": {}, "parent_models": {}, "scope": "global"}
+    """Read child sessions, usage tallies, and delegation states, read-only.
+
+    `owners` is the conversation the rows were selected for, and is empty in
+    global scope. It is reported rather than kept private because ownership
+    of a child and ownership of the route prepared for it are the same
+    question, answered once here.
+    """
+    result: dict[str, Any] = {
+        "children": [],
+        "delegation_states": {},
+        "parent_models": {},
+        "owners": frozenset(),
+        "scope": "global",
+    }
     try:
         connection = sqlite3.connect(
             f"file:{state_db}?mode=ro", uri=True, timeout=0.25
@@ -1885,6 +1913,7 @@ def _query_state_db(state_db: Path, *, now: float, session_ref: str | None = Non
             owners = _conversation_session_ids(connection, session_ref)
             if owners:
                 result["scope"] = "session"
+                result["owners"] = frozenset(owners)
                 placeholders = ",".join("?" for _ in owners)
                 owner_filter = (
                     " AND CASE WHEN json_valid(model_config) THEN "
@@ -2061,8 +2090,21 @@ def read_hermes_native_subagents(
         if payload["scope"] == "global" else []
     )
     if payload["scope"] == "session":
-        # Prepared route records likewise carry no conversation ownership.
-        route_provenance = []
+        # A prepared route belongs to the session that wrote it, and that
+        # session is the same identity the child filter above selected on,
+        # so the history is filtered rather than discarded. Discarding it
+        # was why the upgrade never once fired in the HUD: the widget reads
+        # session-scoped, and every record went out with the bathwater.
+        #
+        # A record with no owner is not this conversation's by default. It
+        # predates the field or came from a writer that could not name its
+        # session, and unknown ownership is exactly what must not be
+        # borrowed — which is also what those records did before, so no
+        # install gets a worse label than it has today.
+        owners = state.get("owners") or frozenset()
+        route_provenance = [
+            record for record in route_provenance if record.get("session_id") in owners
+        ]
     payload["attestation_coverage"] = ATTESTATION_COVERAGE_CLAIM
     # The requested side of the attestation, for children whose session row
     # names no model: `delegation.model` is what the next `delegate_task`

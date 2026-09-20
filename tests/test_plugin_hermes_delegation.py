@@ -1886,6 +1886,45 @@ class RouteProvenanceStoreTest(unittest.TestCase):
         )
         self.assertEqual(load_delegation_route_provenance(self.home), [])
 
+    def test_the_preparing_session_round_trips_when_the_writer_names_one(self):
+        append_delegation_route_provenance(_record(session_id=PARENT_ID), self.home)
+        self.assertEqual(
+            load_delegation_route_provenance(self.home)[-1]["session_id"], PARENT_ID
+        )
+
+    def test_a_writer_that_names_no_session_writes_the_pre_field_record(self):
+        # Additive-optional: an empty owner and an absent one both produce
+        # the record shape this store had before the field existed, so a
+        # caller that cannot name its session writes the same bytes it did.
+        for record in (_record(), _record(session_id="")):
+            with self.subTest(keys=sorted(record)):
+                (self.home / "routing" / "route-provenance.json").unlink(missing_ok=True)
+                append_delegation_route_provenance(record, self.home)
+                written = load_delegation_route_provenance(self.home)[-1]
+                self.assertEqual(
+                    sorted(written),
+                    [
+                        "alias",
+                        "category",
+                        "from_alias",
+                        "origin",
+                        "provider",
+                        "reasoning_effort",
+                        "wire_model",
+                        "written_at",
+                    ],
+                )
+
+    def test_a_malformed_owner_reads_as_no_provenance_and_never_raises(self):
+        for owner in (17, None, ["a"], {"id": "a"}, True, "x" * 161):
+            with self.subTest(owner=owner):
+                self.assertEqual(
+                    append_delegation_route_provenance(_record(session_id=owner), self.home),
+                    "unrecorded: invalid record",
+                )
+                _write_provenance(self.home, [_record(session_id=owner)])
+                self.assertEqual(load_delegation_route_provenance(self.home), [])
+
     def test_an_invalid_document_reads_empty_whole(self):
         path = self.home / "routing" / "route-provenance.json"
         path.parent.mkdir(parents=True)

@@ -15,7 +15,14 @@ from unittest import mock
 from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
 from omh.tui_widget_pack import widget_payload
 from test_kanban_board_reader import build_board, task
-from test_plugin_hermes_delegation import NOW, PARENT_ID, _build_state_db, _write_manifest
+from test_plugin_hermes_delegation import (
+    NOW,
+    PARENT_ID,
+    _build_state_db,
+    _record,
+    _write_manifest,
+    _write_provenance,
+)
 
 
 class HudConversationScopeTests(unittest.TestCase):
@@ -111,6 +118,86 @@ class HudConversationScopeTests(unittest.TestCase):
             result = self.hud(session_ref=reference)
             self.assertEqual({row['task_id'] for row in result['subagents']['rows']}, {'own', 'continue', 'real-chi'})
         self.assertEqual({row['task_id'] for row in self.hud(session_ref='real-child')['subagents']['rows']}, {'nested'})
+
+    def _own_row(self, records, reference=PARENT_ID):
+        # `child_own` runs the parent's own model, so the chain projection
+        # alone says `inherit` and only a route record can say the lane was
+        # routed there — the owner's `deep` head is that exact shape.
+        if not (self.hermes / 'state.db').exists():
+            self.build()
+        _write_provenance(self.omh, records)
+        rows = self.hud(session_ref=reference)['subagents']['rows']
+        return next(row for row in rows if row['task_id'] == 'own')
+
+    @staticmethod
+    def _head_record(**overrides):
+        return _record(**{'origin': 'head', 'alias': 'gpt-5.6-sol', 'wire_model': 'gpt-5.6-sol',
+                          'provider': '', 'written_at': NOW - 60, **overrides})
+
+    def test_a_route_this_conversation_prepared_labels_its_own_child(self):
+        # The upgrade had never once fired in the HUD: the widget always
+        # reads session-scoped, and session scope discarded every record.
+        row = self._own_row([self._head_record(session_id=PARENT_ID)])
+        self.assertEqual(row['category'], 'visual-engineering')
+        self.assertEqual(row['category_source'], 'route_provenance')
+        self.assertIs(row['same_as_parent'], True)
+
+    def test_a_route_another_conversation_prepared_never_labels_this_one(self):
+        row = self._own_row([self._head_record(session_id='other-owner')])
+        self.assertEqual(row['category'], 'inherit')
+        self.assertNotIn('category_source', row)
+        self.assertNotIn('same_as_parent', row)
+
+    def test_a_route_record_naming_no_session_is_never_claimed_by_one(self):
+        # Records written before the field existed carry no ownership, and
+        # unknown ownership is not this conversation's. This is also what
+        # those records did before, so no install loses a label it had.
+        row = self._own_row([self._head_record()])
+        self.assertEqual(row['category'], 'inherit')
+        self.assertNotIn('category_source', row)
+
+    def test_an_exhaustion_record_is_owned_like_every_other_route_record(self):
+        # The exhaustion claim is precomputed against the same record list,
+        # so a foreign record must never reach it: it would relabel an
+        # ordinary inherit lane as another conversation's cleared chain.
+        exhausted = dict(origin='exhausted_to_inherit', alias='', wire_model='', provider='')
+        row = self._own_row([self._head_record(session_id=PARENT_ID, **exhausted)])
+        self.assertEqual(row['route_origin'], 'exhausted_to_inherit')
+        self.assertEqual(row['route_category'], 'visual-engineering')
+        row = self._own_row([self._head_record(session_id='other-owner', **exhausted)])
+        self.assertEqual(row['category'], 'inherit')
+        self.assertNotIn('route_origin', row)
+
+    def test_a_route_prepared_before_a_compression_survives_into_it(self):
+        # Ownership is the conversation, not one session row: the reader
+        # already selects children across a compression edge, so a route
+        # the pre-compression session prepared still belongs to the
+        # continuation reading its own HUD.
+        self.build()
+        with closing(sqlite3.connect(self.hermes / 'state.db')) as db, db:
+            for column in ('parent_session_id TEXT', 'end_reason TEXT', 'source TEXT'):
+                db.execute('ALTER TABLE sessions ADD COLUMN ' + column)
+            db.execute("UPDATE sessions SET end_reason='compression', source='tui' WHERE id=?", (PARENT_ID,))
+            db.execute('INSERT INTO sessions (id, model, model_config, started_at, parent_session_id, source) VALUES (?, ?, ?, ?, ?, ?)',
+                       ('continued', 'gpt-5.6-sol', '{}', NOW - 400, PARENT_ID, 'tui'))
+        _write_provenance(self.omh, [self._head_record(session_id=PARENT_ID)])
+        rows = self.hud(session_ref='continued')['subagents']['rows']
+        row = next(row for row in rows if row['task_id'] == 'own')
+        self.assertEqual(row['category_source'], 'route_provenance')
+        self.assertIs(row['same_as_parent'], True)
+
+    def test_global_scope_reads_every_route_record_whoever_prepared_it(self):
+        # Global scope makes no ownership claim at all — it already shows
+        # children from every conversation — so filtering it would hide a
+        # record from the one scope that never promised to be selective.
+        self.build()
+        for owner in ({}, {'session_id': PARENT_ID}, {'session_id': 'other-owner'}):
+            with self.subTest(owner=owner):
+                _write_provenance(self.omh, [self._head_record(**owner)])
+                rows = self.hud(tui_session_ref='unmapped')['subagents']['rows']
+                row = next(row for row in rows if row['task_id'] == 'own')
+                self.assertEqual(row['category'], 'visual-engineering')
+                self.assertEqual(row['category_source'], 'route_provenance')
 
     def test_unowned_manifests_cannot_supply_labels_or_liveness(self):
         self.build()

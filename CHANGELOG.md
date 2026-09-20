@@ -4,6 +4,26 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The gate that catches a skill body change now says which body changed.**
+  Editing a skill body moves a pinned sha256 in
+  `tests/fixtures/agent_skills_hermes_digests.json`, and until now the failure
+  was a bare dict compare over 124 keys: `Diff is 11220 characters long`, the
+  elided preview lining up two unrelated skills because the produced dict is
+  in catalog order and the fixture is sorted, and the edited skill's name
+  nowhere on screen. It now reports `moved=[...] added=[...] removed=[...]`
+  and says to re-derive the fixture sorted-key in the same commit.
+
+  The reason this matters is that no other gate sees a body change at all.
+  The ten `docs ... --check` gates compare a producer against its generated
+  file, so they find DRIFT; an intended body edit moves both sides together
+  and every one of them stays green. That is correct behaviour for a drift
+  gate and is not a gap in them — the digest fixture is a pin, and it fired
+  exactly as it should. What was missing was that the pin was undocumented in
+  both places a person doing this work looks, `CLAUDE.md` and
+  `docs/ADDING-A-SKILL.md`, and that its failure named nothing. Both are now
+  written down, with the distinction between a drift gate and a pin stated
+  where it is needed.
+
 - **The setup keyboard menus stop throwing away keys you pressed while the
   menu was redrawing, and read a whole keypress instead of its first three
   bytes.** `_read_tui_key()` called `tty.setraw(fd)`, whose default is

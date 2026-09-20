@@ -118,6 +118,15 @@ does not clear them:
   string, and `tests/test_routing_precision.py` additionally asserts
   `total_case_count` and `total_passing_count`, which are the negative and
   intervention corpora summed rather than either count alone.
+- `tests/fixtures/agent_skills_hermes_digests.json` — a pinned sha256 per
+  skill body, checked by `test_hermes_projection_byte_stable`. It is the only
+  gate that sees a body CHANGE: the `docs ... --check` gates look for drift
+  between a producer and its generated file, and an intended body edit moves
+  both together, so they stay green. Editing a body therefore moves one
+  digest, and the fixture is re-derived with
+  `json.dumps(..., indent=2, sort_keys=True)` and committed alongside the
+  edit. The failure names the skills whose digests moved, so confirm the list
+  is exactly the bodies you meant to touch before re-deriving.
 
 ## 4. Regenerate every generated artifact family
 

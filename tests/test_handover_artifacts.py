@@ -17,8 +17,12 @@ import unittest
 from omh.plugin_bundle.omh.todo_store import validate_todo_items
 from omh.skills.catalog import builtin_definitions
 from omh.skills.render import (
+    HANDOVER_DURABLE_RECORD,
     HANDOVER_ELI5_LEVEL,
+    HANDOVER_QUIZ_BASIS,
+    HANDOVER_QUIZ_ENTRIES,
     HANDOVER_RECORD_SOURCES,
+    HANDOVER_SESSION_TRANSCRIPT,
     wiki_reference_templates,
     wiki_skill,
 )
@@ -54,17 +58,6 @@ def _todo_item_fields() -> frozenset[str]:
     return frozenset(validated[0])
 
 
-def _quiz_table_tokens(content: str) -> set[str]:
-    quiz = content.split("## Quiz", 1)[1].split("## Boundary", 1)[0]
-    tokens: set[str] = set()
-    for line in quiz.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("|") or set(stripped) <= set("| -"):
-            continue
-        parts = stripped.split("`")
-        tokens.update(part for part in parts[1::2] if part)
-    return tokens
-
 
 class HandoverRecordSourceTest(unittest.TestCase):
     def test_skill_citations_are_declared_by_the_skill_named_beside_them(self) -> None:
@@ -74,14 +67,45 @@ class HandoverRecordSourceTest(unittest.TestCase):
                 continue
             declared = _declared_contract_strings(source.declared_by)
             for citation in source.citations:
-                with self.subTest(skill=source.declared_by, citation=citation):
+                with self.subTest(skill=source.declared_by, citation=citation.token):
+                    matching = [entry for entry in declared if citation.token in entry]
                     self.assertTrue(
-                        any(citation in entry for entry in declared),
-                        f"`{citation}` is cited as coming from `{source.declared_by}`, but that "
-                        f"skill declares none of it: {declared}",
+                        matching,
+                        f"`{citation.token}` is cited as coming from `{source.declared_by}`, but "
+                        f"that skill declares none of it: {declared}",
                     )
                     checked += 1
         self.assertGreater(checked, 0, "no skill-declared citation was checked")
+
+    def test_citations_match_what_the_producing_surface_says_they_are(self) -> None:
+        """Being declared is not enough; the declaration has to mean the same thing.
+
+        `verification-gate` declares a plan (`verification_matrix/v1`) and a
+        result (`observed_check_results/v1`). A test that only asks whether a
+        citation is declared passes the swap between them, and that swap turns
+        observed into prepared. So each citation also names a word its own
+        declaration must carry, and the word is re-read from the declaration
+        here rather than copied beside it.
+        """
+
+        checked = 0
+        for source in HANDOVER_RECORD_SOURCES:
+            if not source.declared_by:
+                continue
+            declared = _declared_contract_strings(source.declared_by)
+            for citation in source.citations:
+                if not citation.must_declare:
+                    continue
+                with self.subTest(citation=citation.token, must_declare=citation.must_declare):
+                    matching = [entry for entry in declared if citation.token in entry]
+                    self.assertTrue(
+                        any(citation.must_declare in entry for entry in matching),
+                        f"`{citation.token}` is cited for {citation.must_declare!r}, but "
+                        f"`{source.declared_by}` declares it as {matching} — the citation and "
+                        "the declaration no longer mean the same thing",
+                    )
+                    checked += 1
+        self.assertGreater(checked, 0, "no citation carried a must_declare word to check")
 
     def test_plan_record_citations_are_todo_item_fields(self) -> None:
         fields = _todo_item_fields()
@@ -89,12 +113,33 @@ class HandoverRecordSourceTest(unittest.TestCase):
         self.assertTrue(plan_sources, "the record table declares no plan record row")
         for source in plan_sources:
             for citation in source.citations:
-                with self.subTest(citation=citation):
+                with self.subTest(citation=citation.token):
                     self.assertIn(
-                        citation,
+                        citation.token,
                         fields,
-                        f"`{citation}` is cited as a plan-record field, but an omh_todo/v1 item "
-                        f"carries only {sorted(fields)}",
+                        f"`{citation.token}` is cited as a plan-record field, but an omh_todo/v1 "
+                        f"item carries only {sorted(fields)}",
+                    )
+
+    def test_only_the_plan_record_is_claimed_to_outlive_the_session(self) -> None:
+        """The scoping claim the whole page rests on, checked against the code.
+
+        Only the plan record has a store (`todo_path`). The other three are
+        declared outputs that nothing writes and nothing reads back, so a row
+        that starts claiming durability is a page that argues against itself.
+        """
+
+        durable = {s.label for s in HANDOVER_RECORD_SOURCES if s.held_in == HANDOVER_DURABLE_RECORD}
+        self.assertEqual(durable, {"Plan record"})
+        for source in HANDOVER_RECORD_SOURCES:
+            with self.subTest(source=source.label):
+                if source.held_in == HANDOVER_DURABLE_RECORD:
+                    self.assertTrue(source.read_with, "a durable source must name how to read it")
+                else:
+                    self.assertEqual(source.held_in, HANDOVER_SESSION_TRANSCRIPT)
+                    self.assertFalse(
+                        source.read_with,
+                        "a transcript-resident source must not offer a command that reads it",
                     )
 
     def test_every_declared_source_reaches_the_rendered_table(self) -> None:
@@ -103,7 +148,7 @@ class HandoverRecordSourceTest(unittest.TestCase):
             with self.subTest(source=source.label):
                 self.assertIn(f"| {source.label} (", content)
                 for citation in source.citations:
-                    self.assertIn(f"`{citation}`", content)
+                    self.assertIn(f"`{citation.token}`", content)
 
 
 class HandoverEli5LevelTest(unittest.TestCase):
@@ -120,24 +165,73 @@ class HandoverEli5LevelTest(unittest.TestCase):
 
 
 class HandoverQuizTraceabilityTest(unittest.TestCase):
-    def test_quiz_admits_only_sources_the_record_table_declares(self) -> None:
-        admissible = {source.declared_by for source in HANDOVER_RECORD_SOURCES if source.declared_by}
-        admissible.update(
-            citation for source in HANDOVER_RECORD_SOURCES for citation in source.citations
-        )
-        tokens = _quiz_table_tokens(_handover_reference_content())
-        self.assertTrue(tokens, "the quiz declares no admissible entries")
-        unbacked = sorted(tokens - admissible)
-        self.assertFalse(
-            unbacked,
-            f"the quiz admits {unbacked}, which the record table does not declare; a question "
-            "citing one of those cannot be traced back to a record",
-        )
+    def test_every_quiz_entry_draws_on_a_declared_source(self) -> None:
+        labels = {source.label for source in HANDOVER_RECORD_SOURCES}
+        self.assertTrue(HANDOVER_QUIZ_ENTRIES, "the quiz admits nothing at all")
+        for entry in HANDOVER_QUIZ_ENTRIES:
+            with self.subTest(entry=entry.label):
+                self.assertTrue(entry.source_labels, "an admissible entry must name its source")
+                for label in entry.source_labels:
+                    self.assertIn(
+                        label,
+                        labels,
+                        f"the quiz admits {entry.label!r} from {label!r}, which is not a source "
+                        "the record table declares; a question citing it is untraceable",
+                    )
 
-    def test_quiz_states_the_citation_rule_and_the_empty_case(self) -> None:
+    def test_the_rendered_quiz_table_is_generated_from_those_entries(self) -> None:
+        """The table that states the prohibition must not be hand-written.
+
+        It was, in the first version, and the test read only backticked spans
+        from it — so a row admitting "a transcript recollection, whatever the
+        session still remembers" carried no backticks, contributed no tokens,
+        and passed every gate including `docs workflows --check`. Rendering
+        the table from the entries is what closes that: a row can only exist
+        if something in `HANDOVER_QUIZ_ENTRIES` put it there, and the test
+        above then binds every entry to a declared source.
+        """
+
         content = _handover_reference_content()
-        self.assertIn("a question that cannot cite one is\nnot written", content)
-        self.assertIn("no_admissible_entries", content)
+        quiz = content.split("## Quiz", 1)[1].split("## Boundary", 1)[0]
+        rendered_rows = [
+            line.strip()
+            for line in quiz.splitlines()
+            # Keep header and content rows; drop only the `| --- |` separator.
+            if line.strip().startswith("|") and not set(line.strip()) <= set("| -")
+        ]
+        # One header row plus exactly one row per admissible entry, and nothing else.
+        self.assertEqual(len(rendered_rows), len(HANDOVER_QUIZ_ENTRIES) + 1)
+        for entry in HANDOVER_QUIZ_ENTRIES:
+            self.assertTrue(
+                any(row.startswith(f"| {entry.label} |") for row in rendered_rows),
+                f"{entry.label!r} is admissible but renders no row",
+            )
+
+    def test_quiz_states_the_citation_rule_and_refuses_a_clean_bill(self) -> None:
+        content = _handover_reference_content()
+        self.assertIn("a question that cannot cite one is not\nwritten", content)
+        # An empty quiz must report which basis it is empty on, never "nothing
+        # went wrong" — zero entries is the ordinary outcome, not a result.
+        self.assertIn("Zero questions is the ordinary outcome, not a clean bill of health.", content)
+        for state in HANDOVER_QUIZ_BASIS:
+            with self.subTest(state=state):
+                self.assertIn(f"`{state}`", content)
+
+    def test_the_empty_basis_separates_unread_from_read_and_empty(self) -> None:
+        """`paper-learning`'s distinction, kept rather than re-coined.
+
+        Exactly one basis says something about the change; the others say
+        something about what could be read. Collapsing them is how an absent
+        source becomes a positive claim that nothing went wrong.
+        """
+
+        self.assertIn("sources_read_no_entries", HANDOVER_QUIZ_BASIS)
+        self.assertIn("unknown_or_missing", HANDOVER_QUIZ_BASIS)
+        unreadable = set(HANDOVER_QUIZ_BASIS) - {"entries_observed", "sources_read_no_entries"}
+        self.assertTrue(
+            unreadable,
+            "with no basis for an unreadable source, an empty quiz can only read as a clean run",
+        )
 
 
 class HandoverReachabilityTest(unittest.TestCase):

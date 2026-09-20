@@ -1753,7 +1753,7 @@ Load `references/wiki-blueprint.md` for the interview turns and `{WIKI_BLUEPRINT
 
 ## Closing A Long Piece Of Work
 
-When work finishes, the capture for the next reader is three artifacts: a deep guide, an ELI5 pass at level `{HANDOVER_ELI5_LEVEL}`, and a quiz that checks the guide rather than the reader. Assemble all three from the plan, verification, review, and QA records, never from the conversation, whose early reasoning compaction has already taken. Load `references/handover-artifacts.md` for the admissible record fields and the quiz's citation rule.
+When work finishes, the capture for the next reader is three artifacts: a deep guide, an ELI5 pass at level `{HANDOVER_ELI5_LEVEL}`, and a quiz that checks the guide rather than the reader. Build them from the plan record (`omh runtime todo show`, the only source that outlives the session) plus whatever verification, review, and QA output the session still holds, and record which of those you could actually read. Load `references/handover-artifacts.md` for the admissible sources and the quiz's citation rule.
 
 ## Boundary
 
@@ -1775,60 +1775,153 @@ A `{WIKI_BLUEPRINT_SCHEMA_VERSION}` is prepared design context, not evidence tha
 
 
 @dataclass(frozen=True)
+class HandoverCitation:
+    """One name a handover artifact may cite, plus what makes it that name.
+
+    ``must_declare`` is a word the producing surface's OWN declaration of
+    ``token`` has to contain. Membership alone is too weak a check: a skill
+    declares several artifacts and swapping one citation for a sibling passes
+    any test that only asks "is this declared?". `verification_matrix/v1` is a
+    plan and `observed_check_results/v1` is a result, so that swap silently
+    turns observed into prepared -- the one distinction this repository does
+    not let slide. The word is re-read from the declaration, never copied
+    beside it.
+    """
+
+    token: str
+    must_declare: str = ""
+
+
+# Where a source physically lives, which decides whether it survives the
+# session. This is the fact the rest of the page is scoped to.
+HANDOVER_DURABLE_RECORD = "durable_record"
+HANDOVER_SESSION_TRANSCRIPT = "session_transcript"
+
+
+@dataclass(frozen=True)
 class HandoverRecordSource:
-    """One record the closing handover artifacts may be assembled from.
+    """One source the closing handover artifacts may be assembled from.
 
     ``declared_by`` is the canonical skill whose own contract emits the
     citations, or ``""`` for the plan record, whose fields belong to the
-    ``omh_todo/v1`` item contract rather than to any skill. Every citation is
-    reproduced verbatim from that surface, which is what makes the rendered
-    table checkable: a test re-derives each one from the surface named beside
-    it and fails when an artifact is renamed or an output retired, instead of
-    leaving the reference quietly pointing at a record nothing writes.
+    ``omh_todo/v1`` item contract rather than to any skill.
+
+    ``held_in`` is load-bearing and was wrong in the first version of this
+    page. Only the plan record is persisted. The verification, review, and QA
+    names below are declared outputs -- OMH instructs a model to produce them
+    and stores none of them -- so they live in the session's own transcript,
+    which is exactly the place this page tells the reader not to rely on. The
+    page has to say that per row rather than present four equal records, or it
+    argues against itself.
     """
 
     label: str
     declared_by: str
-    citations: tuple[str, ...]
+    citations: tuple[HandoverCitation, ...]
     supplies: str
+    held_in: str
+    read_with: str = ""
 
 
-# The level the ELI5 pass records. It reuses `paper-learning`'s vocabulary so
-# one idea keeps one name across two surfaces; two words for one level is a
-# defect this repository has paid for before. Spelled out rather than indexed
-# out of PAPER_LEARNING_LEVELS, because a reordering of that tuple must not
-# silently re-point the ELI5 pass at `moderate` -- the membership check that
-# keeps the two surfaces honest belongs in a test, not in an index.
+# The level the ELI5 pass is written at. It reuses `paper-learning`'s
+# vocabulary so one idea keeps one name across two surfaces; two words for one
+# level is a defect this repository has paid for before. Nothing records this
+# level -- there is no handover store to record it in -- so the word is a
+# shared vocabulary, not a stored field. Spelled out rather than indexed out of
+# PAPER_LEARNING_LEVELS, because a reordering of that tuple must not silently
+# re-point the ELI5 pass at `moderate`; the membership check that keeps the two
+# surfaces honest belongs in a test, not in an index.
 HANDOVER_ELI5_LEVEL = "very_easy"
 # The whole admissible input set for a deep guide, an ELI5 pass, and a quiz.
 # Closed on purpose: a writer allowed to reach outside it is a writer allowed
-# to reach into the transcript, and by the time these artifacts are written the
-# transcript's early reasoning is gone.
+# to reach into whatever is still in context and call it a record.
 HANDOVER_RECORD_SOURCES = (
     HandoverRecordSource(
         label="Plan record",
         declared_by="",
-        citations=("state", "phase", "blocked_reason"),
+        citations=(
+            HandoverCitation("state"),
+            HandoverCitation("phase"),
+            HandoverCitation("blocked_reason"),
+        ),
         supplies="what was done, which stage it belonged to, and what was skipped with its reason",
+        held_in=HANDOVER_DURABLE_RECORD,
+        read_with="omh runtime todo show",
     ),
     HandoverRecordSource(
         label="Verification gate",
         declared_by="verification-gate",
-        citations=("observed_check_results/v1", "claim_verdict/v1"),
+        citations=(
+            HandoverCitation("observed_check_results/v1", must_declare="observed"),
+            HandoverCitation("claim_verdict/v1", must_declare="PASS"),
+        ),
         supplies="which command actually ran, its exit status, and which checks are missing or failed",
+        held_in=HANDOVER_SESSION_TRANSCRIPT,
     ),
     HandoverRecordSource(
         label="Review",
         declared_by="code-review",
-        citations=("ranked findings per axis",),
+        citations=(HandoverCitation("ranked findings per axis", must_declare="findings"),),
         supplies="what a reader misses unless someone tells them",
+        held_in=HANDOVER_SESSION_TRANSCRIPT,
     ),
     HandoverRecordSource(
         label="QA",
         declared_by="ultraqa",
-        citations=("pass/fail evidence",),
+        citations=(HandoverCitation("pass/fail evidence", must_declare="evidence"),),
         supplies="what nobody thought of the first time",
+        held_in=HANDOVER_SESSION_TRANSCRIPT,
     ),
+)
+
+
+@dataclass(frozen=True)
+class HandoverQuizEntry:
+    """One admissible quiz question kind, bound to the sources it may cite.
+
+    Generated rather than written into the reference by hand. The first
+    version hand-wrote this table and tested it by scanning backticked spans,
+    so a row admitting "a transcript recollection -- whatever the session
+    still remembers" carried no backticks, contributed no tokens, and passed
+    every gate. The one thing the page exists to forbid was reachable through
+    the table that states the prohibition.
+    """
+
+    label: str
+    source_labels: tuple[str, ...]
+    proves: str
+
+
+HANDOVER_QUIZ_ENTRIES = (
+    HandoverQuizEntry(
+        label="A review finding",
+        source_labels=("Review",),
+        proves="a reader misses this unless told",
+    ),
+    HandoverQuizEntry(
+        label="A failed check",
+        source_labels=("QA", "Verification gate"),
+        proves="nobody thought of it the first time",
+    ),
+    HandoverQuizEntry(
+        label="A recorded `blocked_reason`",
+        source_labels=("Plan record",),
+        proves="a judgement was made and needs explaining",
+    ),
+)
+# What the quiz reports when it has no questions, modelled on
+# PAPER_LEARNING_SOURCE_STATES. Zero questions is the ORDINARY outcome here --
+# three of the four sources are transcript-resident, `omh_todo` is opt-in, and
+# a plan record from another session is unlinked after TODO_STALE_SECONDS --
+# so an empty quiz must never read as "nothing went wrong". A source that could
+# not be read and a source that was read and held nothing are different
+# answers, and only the second one is about the change.
+HANDOVER_QUIZ_BASIS = (
+    "entries_observed",
+    "sources_read_no_entries",
+    "session_sources_lost",
+    "plan_record_absent",
+    "unknown_or_missing",
 )
 
 
@@ -1974,13 +2067,35 @@ def _handover_record_source_rows() -> list[str]:
     rows = []
     for source in HANDOVER_RECORD_SOURCES:
         origin = "`omh_todo/v1` item" if not source.declared_by else f"`{source.declared_by}`"
-        citations = ", ".join(f"`{citation}`" for citation in source.citations)
-        rows.append(f"| {source.label} ({origin}) | {citations} | {source.supplies} |")
+        citations = ", ".join(f"`{citation.token}`" for citation in source.citations)
+        if source.held_in == HANDOVER_DURABLE_RECORD:
+            held = f"durable record, read with `{source.read_with}`"
+        else:
+            held = "this session only"
+        rows.append(f"| {source.label} ({origin}) | {held} | {citations} | {source.supplies} |")
+    return rows
+
+
+def _handover_quiz_rows() -> list[str]:
+    sources = {source.label: source for source in HANDOVER_RECORD_SOURCES}
+    rows = []
+    for entry in HANDOVER_QUIZ_ENTRIES:
+        origins = []
+        for label in entry.source_labels:
+            source = sources[label]
+            suffix = "" if source.held_in == HANDOVER_DURABLE_RECORD else " (this session only)"
+            origins.append(f"{label}{suffix}")
+        rows.append(f"| {entry.label} | {', '.join(origins)} | {entry.proves} |")
     return rows
 
 
 def _handover_artifacts_reference() -> str:
     source_table = "\n".join(_handover_record_source_rows())
+    quiz_table = "\n".join(_handover_quiz_rows())
+    durable = next(s for s in HANDOVER_RECORD_SOURCES if s.held_in == HANDOVER_DURABLE_RECORD)
+    session_only = [s.label for s in HANDOVER_RECORD_SOURCES if s.held_in == HANDOVER_SESSION_TRANSCRIPT]
+    session_list = ", ".join(session_only[:-1]) + f" and {session_only[-1]}"
+    basis_list = "\n".join(f"- `{state}`" for state in HANDOVER_QUIZ_BASIS)
     return f"""# Handover Artifacts
 
 Three artifacts close a long piece of work: a **deep guide**, an **ELI5 pass**,
@@ -1991,7 +2106,7 @@ Not a teammate being onboarded, not an outsider, and not publication prose.
 `wiki`'s interview asks whether an agent is one of the readers. Here the answer
 is always yes, so write for recall: short, named, and searchable over polished.
 
-## Assemble from the record, not from the conversation
+## Assemble from what is readable, never from what you remember
 
 The other three sections depend on this one.
 
@@ -2001,38 +2116,57 @@ no longer see will reconstruct one. The reconstruction is fluent, it agrees
 with the diff, and it is invented. It is also the worst thing to leave behind,
 because nothing downstream can tell it from the reason that was actually there.
 
-The reasons are not gone. They were written down while they were still true.
+Some of the reasons were written down while they were still true.
 
-| Record | Read these | What it supplies |
-| --- | --- | --- |
+| Source | Held where | Read these | What it supplies |
+| --- | --- | --- | --- |
 {source_table}
+
+**Read the "held where" column before planning the work.** Exactly one of those
+is a record that outlives the session: the plan record, at
+`$OMH_HOME/runtime/todos/<session key>.json`, read with `{durable.read_with}`.
+The other three -- {session_list} -- are
+declared outputs: OMH asks a model to produce them and stores none of them, so
+they live in this session's context and nowhere else.
+
+That means the three transcript-resident sources are subject to the same
+compaction as the reasoning above, and a guide written late in a long story may
+find nothing left in them. That is a property of the tooling today, not a
+failure of the person writing. Do not reconstruct what is gone; record which
+sources you could actually read, and write the guide from what is there.
 
 Every sentence in all three artifacts either restates one of those fields or is
 marked as the writer's own inference. There is no third category. Quote the
 field rather than paraphrasing it; a paraphrase of a reason is where the drift
 starts.
 
-An empty field is an answer. No item carrying a `blocked_reason` means nothing
-was blocked - it does not mean the reason is somewhere in the transcript.
-Write `none` and move on.
+An empty field is an answer, and an unreadable source is a different answer.
+No item carrying a `blocked_reason` means nothing was blocked. A verification
+verdict you cannot find means you cannot say whether one was issued. Never
+collapse the second into the first.
 
 This repository already applies the rule one stage earlier. `blocked_reason`
 is a field because the stop criterion used to be inferred from item text, and
 the inference was wrong in both directions on ordinary input. Reading a record
 instead of a sentence is that same fix, applied at the end of the work instead
-of the middle.
+of the middle - and it works exactly as far as there is a record to read.
 
 ## Deep guide
 
 The next reader has the diff. What they do not have is why it looks like that,
 and that is all the deep guide carries.
 
-- One section per done item, in `phase` order. A done item absent from the
-  guide is a gap: either write it or name it as deliberately omitted.
-- Each section answers three questions from three fields. **What changed** -
-  the item's own text. **Why this way** - the `blocked_reason` of what was not
-  taken, plus the review findings that landed. **What proves it** - the
-  observed check rows, by command and exit status.
+- Start from the plan record, because it is the only source you can still read
+  in full: `{durable.read_with}`. One section per done item, in `phase` order.
+  A done item absent from the guide is a gap: either write it or name it as
+  deliberately omitted.
+- Each section answers three questions. **What changed** - the item's own
+  text. **Why this way** - the `blocked_reason` of what was not taken, plus
+  whichever review findings the session still holds. **What proves it** - the
+  observed check rows, by command and exit status, when they are still in
+  reach; `not_in_reach` when they are not. The third answer is the one most
+  often missing, and a guide that says so is more useful than one that fills
+  the gap in.
 - Delete any sentence `git show` would have told the reader. A guide that
   narrates the diff costs a read and returns nothing.
 - Name the file and the symbol. Never the line number and never a count: both
@@ -2043,9 +2177,11 @@ and that is all the deep guide carries.
 
 ## ELI5 pass
 
-Level `{HANDOVER_ELI5_LEVEL}`, the same word `paper-learning` records, so one idea keeps
-one name. The ELI5 pass is the deep guide at that level - not a second
-document and not a second source.
+Level `{HANDOVER_ELI5_LEVEL}`, the word `paper-learning` uses for the same idea, so one
+level keeps one name. Nothing records the level - there is no handover store
+to record it in - so it is shared vocabulary for saying what you wrote, not a
+field anything reads back. The ELI5 pass is the deep guide at that level: not
+a second document and not a second source.
 
 - It is a projection. A claim the deep guide does not make was invented at the
   moment of simplifying.
@@ -2063,32 +2199,46 @@ document and not a second source.
 The quiz is a completeness check on the deep guide. It is not a study aid and
 nobody is being graded.
 
-**Every question cites one record entry, and a question that cannot cite one is
-not written.** Three entry kinds are admissible and no others.
+**Every question cites one entry, and a question that cannot cite one is not
+written.** Three entry kinds are admissible and no others.
 
 | Admissible entry | Where it comes from | What it proves |
 | --- | --- | --- |
-| A review finding | `code-review` ranked findings | a reader misses this unless told |
-| A failed check | `ultraqa` pass/fail evidence, or a HOLD/BLOCK `claim_verdict/v1` | nobody thought of it the first time |
-| A `blocked_reason` | the plan record | a judgement was made and needs explaining |
+{quiz_table}
 
 Each one is a record of something that actually went wrong or was actually
 decided. That is the entire admission test, and it is what stops the quiz
 becoming "what does this change do" - a question whose answer is in the diff,
 which tests nothing and passes always.
 
+The rule stands whatever the source. What the "held where" column changes is
+its reach: only a `blocked_reason` can be cited **durably**, because only the
+plan record survives the session. The other two kinds are citable while this
+session still holds them, and a question built on one of them cannot be
+re-checked by the next reader. Say which kind a question is, so the next
+reader knows whether they can go back to the entry or only to your account
+of it.
+
 - Carry the citation with the question: the entry kind and the entry's own
   identifier - finding id, check name, or the item the reason hangs on.
 - Answer from the deep guide only. **A question the deep guide cannot answer is
   a hole in the deep guide.** Record it as a gap and fix the guide. Do not
-  soften the question, and never answer it from the transcript - answering
-  from the transcript is the invention this page exists to prevent.
+  soften the question, and do not answer it from memory of the session.
 - One question per admissible entry, and no padding. Two findings, no failed
   checks and nothing blocked is a two-question quiz, and two is the right
   answer rather than a thin one.
-- Zero admissible entries is `no_admissible_entries`, written as that. Not an
-  empty quiz and not an invented one: a change nothing caught, nothing failed
-  on, and nothing was skipped in has no completeness check to run.
+
+**Zero questions is the ordinary outcome, not a clean bill of health.** Three
+of the four sources vanish with the session, the plan record is opt-in, and
+one written by another session is unlinked after a day. So an empty quiz never
+says "nothing went wrong". Report the basis instead, one of:
+
+{basis_list}
+
+That is the distinction `paper-learning` draws with its own source states,
+where "not observed" and "observed and absent" are different answers. Only
+`sources_read_no_entries` is a statement about the change; the rest are
+statements about what could be read.
 
 ## Boundary
 
@@ -2096,6 +2246,13 @@ The three artifacts are prepared retained knowledge. They are not execution,
 verification, review, CI, merge-readiness, or merge evidence. A deep guide
 restating a PASS verdict has not re-proved it, and writing all three closes
 nothing that was not already closed.
+
+One sentence about why this page is scoped the way it is, so the next reader
+does not take the scope for a preference: OMH asks a model to produce
+verification verdicts, review findings, and QA evidence, and persists none of
+them, so only the plan record can be cited after the session ends. Whether
+that changes is a product question filed separately; until it does, write
+these artifacts against what is actually readable and say what was not.
 """
 
 

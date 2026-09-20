@@ -68,7 +68,7 @@ Load `references/wiki-blueprint.md` for the interview turns and `wiki_blueprint/
 
 ## Closing A Long Piece Of Work
 
-When work finishes, the capture for the next reader is three artifacts: a deep guide, an ELI5 pass at level `very_easy`, and a quiz that checks the guide rather than the reader. Assemble all three from the plan, verification, review, and QA records, never from the conversation, whose early reasoning compaction has already taken. Load `references/handover-artifacts.md` for the admissible record fields and the quiz's citation rule.
+When work finishes, the capture for the next reader is three artifacts: a deep guide, an ELI5 pass at level `very_easy`, and a quiz that checks the guide rather than the reader. Build them from the plan record (`omh runtime todo show`, the only source that outlives the session) plus whatever verification, review, and QA output the session still holds, and record which of those you could actually read. Load `references/handover-artifacts.md` for the admissible sources and the quiz's citation rule.
 
 ## Boundary
 

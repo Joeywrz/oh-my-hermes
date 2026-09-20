@@ -1799,6 +1799,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertEqual(
             sorted(references),
             [
+                "references/handover-artifacts.md",
                 "references/wiki-blueprint.md",
                 "references/wiki-ecosystem.md",
                 "references/wiki-operations.md",

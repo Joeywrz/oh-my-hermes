@@ -24,6 +24,71 @@ All notable changes will be documented here.
   written down, with the distinction between a drift gate and a pin stated
   where it is needed.
 
+- **The three artifacts that close a long piece of work — a deep guide, an
+  ELI5 pass, and a quiz — now have written guidance, on `wiki`.** A coverage
+  pass over all 124 shipped skills found these late stages unowned: `docs`
+  says outright that it is not a generic documentation writer, and
+  `materials-package` routes code documentation away to "the docs/wiki
+  workflow", which leaves the wiki half of that pointer as the only live
+  destination. `paper-learning` already had the level vocabulary and a
+  coverage ledger, but its input is a supplied paper, not the change you just
+  shipped. Nothing at all matched `quiz`, `flashcard`, or `exam`.
+
+  The load-bearing rule in the new `wiki/references/handover-artifacts.md` is
+  that all three are assembled from what is readable, never from what you
+  remember. By the time they get written the early reasoning is out of
+  context — compaction took it — and a model asked to explain a decision it
+  can no longer see reconstructs a fluent, diff-consistent, invented one that
+  nothing downstream can tell from the real reason. This is the rule the
+  repository already applies to stop criteria, one stage later —
+  `blocked_reason` exists as a field because inferring it from item text was
+  wrong in both directions.
+
+  What "readable" means is stated per source, because only one of the four is
+  a record. The plan record is persisted under
+  `$OMH_HOME/runtime/todos/<session key>.json` and read with
+  `omh runtime todo show`: it carries `state`, `phase`, and `blocked_reason`,
+  and it outlives the session. The verification, review, and QA names —
+  `observed_check_results/v1`, `claim_verdict/v1`, ranked findings, pass/fail
+  evidence — are declared outputs that OMH asks a model to produce and
+  stores nowhere, so they live in the session's own context and are subject
+  to the same compaction as the reasoning above. The page says so in a "held
+  where" column rather than presenting four equal records, and tells the
+  writer to record which sources were actually readable instead of
+  reconstructing what is gone.
+
+  The quiz is a completeness check on the deep guide, not a study aid, and
+  its admission rule is what keeps it from degenerating into "what does this
+  PR do": **every question cites one record entry, and a question that cannot
+  cite one is not written.** Only three entry kinds qualify — a review
+  finding, a failed check, or a `blocked_reason` — because each is a record
+  of something that actually went wrong or was actually decided. A question
+  the deep guide cannot answer is a hole in the deep guide, which is what the
+  quiz is for. The rule's reach is stated too: only a `blocked_reason` can be
+  cited durably, because only the plan record survives the session.
+
+  An empty quiz does not claim a clean run. With three sources unstored,
+  `omh_todo` opt-in, and another session's record unlinked after a day, zero
+  entries is the ordinary outcome, so the quiz reports a basis drawn from
+  `HANDOVER_QUIZ_BASIS` — modelled on `PAPER_LEARNING_SOURCE_STATES`, next
+  door to the level vocabulary it already borrows — where "could not read it"
+  and "read it and found nothing" stay different answers. Only
+  `sources_read_no_entries` says anything about the change itself.
+
+  The guidance is a reference file, so it loads on demand and costs the
+  always-loaded skill pack nothing; only the pointer section on `wiki`'s body
+  is paid for, and `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT` moves by that section
+  alone. The ELI5 pass is written at level `very_easy`, reusing
+  `paper-learning`'s word rather than coining a second name for one idea, and
+  `tests/test_handover_artifacts.py` re-derives every citation from the
+  surface that declares it — the todo validator for the plan-record fields,
+  each skill's own declared outputs for the rest. A citation also names a
+  word its own declaration must carry, so swapping
+  `observed_check_results/v1` for the sibling `verification_matrix/v1` fails
+  rather than quietly turning observed into prepared, and the quiz's table of
+  admissible entries is generated from a closed producer so no hand-written
+  row can admit a source nothing declares.
+
 - **The setup keyboard menus stop throwing away keys you pressed while the
   menu was redrawing, and read a whole keypress instead of its first three
   bytes.** `_read_tui_key()` called `tty.setraw(fd)`, whose default is

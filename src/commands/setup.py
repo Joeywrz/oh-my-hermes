@@ -62,6 +62,7 @@ from ..install.compression_defaults import ensure_compression_defaults
 from ..install.config_reversal import (
     MANAGED_CONFIG_WRITES_STATE_KEY,
     drop_emptied_containers,
+    load_managed_config_writes,
     managed_config_writes,
     reverse_managed_config,
 )
@@ -810,9 +811,18 @@ def _unregister_and_reverse(
         # Unregistering is the whole scope here, but the container the
         # registration lived in goes with it: a `skills.external_dirs:` this
         # run emptied is a key OMH left behind, not a choice of the person's.
-        # Every other managed container reads the same before and after, so
-        # naming them all costs nothing and removes none of them.
-        cleanup = drop_emptied_containers(change.text, childless_containers(config_text))
+        # The record decides that the same way the full scope decides it --
+        # without reading it, this scope would drop a `skills:` the record
+        # says the person already had. Every other managed container reads
+        # the same before and after, so the guess names them and removes none.
+        owned = load_managed_config_writes(record, config_path=paths.hermes_config_path)
+        created = owned.get("containers_created") if isinstance(owned.get("containers_created"), list) else []
+        cleanup = drop_emptied_containers(
+            change.text,
+            childless_containers(config_text),
+            recorded=(str(item) for item in created),
+            record_is_complete=bool(owned),
+        )
         return ConfigChange(change.changed or cleanup.changed, change.message, cleanup.text), []
     reversal, rows = reverse_managed_config(
         change.text,

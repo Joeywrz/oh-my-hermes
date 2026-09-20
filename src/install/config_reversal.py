@@ -311,25 +311,36 @@ def drop_emptied_containers(
     empty_before: set[str],
     *,
     recorded: Iterable[str] = (),
+    record_is_complete: bool = False,
 ) -> ConfigChange:
-    """Drop every managed container an uninstall emptied on its way through.
+    """Drop every managed container this uninstall created and then emptied.
 
-    A managed container that is childless now and was not childless before
-    the uninstall started is OMH's to drop even with no record: everything
-    that was in it was OMH's, or it would still have a child. One the person
-    already kept empty is in `empty_before` and is left exactly as it was.
+    Two sources answer "did OMH create this container?", and they are not
+    equal. `containers_created` in the write record answers it exactly. The
+    `empty_before` comparison only answers "was it empty when the uninstall
+    started?", which is a GUESS standing in for the record -- and it is wrong
+    in one direction that costs a person their key: a container they already
+    had, empty, before setup, which setup then filled. At uninstall time it
+    has children, so it is not in `empty_before`; the reversal empties it;
+    and the guess concludes OMH created it. The record says otherwise, and
+    the record is right.
 
-    Every managed container goes in as a candidate rather than only those
-    childless at this moment, because `remove_childless_containers` re-reads
-    the text after each removal and works deepest first. That is what lets a
-    parent go with its last child in one pass: `plugins:` only becomes
-    childless once `plugins.enabled:` is gone, so a candidate set fixed
-    beforehand can never name it. The `empty_before` subtraction is what
-    keeps the wide candidate set safe -- a container this run did not touch
-    reads the same before and after, so it is excluded either way.
+    So with a record the guess is not consulted at all -- `record_is_complete`
+    is what says a record was found. Without one, which is the case #1767 is
+    about, the guess is all there is, and its by-construction argument holds
+    for what it does cover: a managed container this run emptied held nothing
+    but OMH's entries, or it would still have a child.
+
+    Every candidate goes in at once rather than only those childless at this
+    moment, because `remove_childless_containers` re-reads the text after each
+    removal and works deepest first. That is what lets a parent leave with its
+    last child in one pass: `plugins:` becomes childless only once
+    `plugins.enabled:` is gone, so a candidate set fixed beforehand could
+    never name it.
     """
-    candidates = {*recorded, *(set(MANAGED_CONTAINERS) - empty_before)}
-    return remove_childless_containers(config_text, sorted(candidates))
+    named = {str(item) for item in recorded}
+    guessed = set() if record_is_complete else set(MANAGED_CONTAINERS) - empty_before
+    return remove_childless_containers(config_text, sorted(named | guessed))
 
 
 def reverse_managed_config(
@@ -372,7 +383,10 @@ def reverse_managed_config(
         rows.append(row)
 
     cleanup = drop_emptied_containers(
-        text, empty_before, recorded=(str(item) for item in containers)
+        text,
+        empty_before,
+        recorded=(str(item) for item in containers),
+        record_is_complete=bool(owned),
     )
     if cleanup.changed:
         text = cleanup.text

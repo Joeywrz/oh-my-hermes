@@ -54,14 +54,28 @@ All notable changes will be documented here.
   once `plugins.enabled:` is gone, was never a candidate at all.
 
   The baseline is now the config as it stood before the uninstall removed
-  anything, and every managed container goes in as a candidate: the removal
-  pass already re-reads the text after each deletion and works deepest first,
-  so a parent leaves with its last child in the same pass. A container the
-  person kept empty is still in the baseline and is still left exactly as it
-  was. `omh uninstall --registration-only` drops the section its registration
-  lived in for the same reason and by the same rule, and keeps everything else
-  it kept before. Installs carrying the record were already clean and are
-  unchanged, byte for byte.
+  anything, and the candidate set is every managed container at once: the
+  removal pass already re-reads the text after each deletion and works deepest
+  first, so a parent leaves with its last child in the same pass.
+
+  Which container OMH may drop is answered by the write record where there is
+  one, and only guessed where there is not. The two are not equal, and the gap
+  costs a person a key: a container they already had, EMPTY, before setup, and
+  which setup then filled, has children at uninstall time — so "was it empty
+  before?" says no and the guess concludes OMH created it. `containers_created`
+  says otherwise and is right. An install with a record therefore consults the
+  record alone; the guess is what the no-record lane has, and its
+  by-construction argument holds for what it covers.
+
+  That also repairs two containers the previous behaviour already lost on a
+  recorded install: a pre-existing empty `memory:`, and a pre-existing empty
+  nested `display:` / `sections:`. Both now round-trip byte-exactly, as
+  `skills:`, `display:` and `plugins:` continue to.
+
+  `omh uninstall --registration-only` drops the section its registration was
+  the only occupant of, by the same rule and reading the same record, and
+  keeps everything else it kept before. `docs/INSTALLATION.md` said that scope
+  "removes the registration and nothing else"; it now says what it does.
 
 - **The delegation nudge counts distinct searches, and its budget survives a
   plugin-host restart.** It watched `search_files` and fired at five direct

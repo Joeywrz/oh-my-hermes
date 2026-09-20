@@ -619,6 +619,32 @@ class ReverseManagedConfigTests(unittest.TestCase):
             "  interface: tui\n",
         )
 
+    def test_a_container_the_person_had_before_setup_survives_a_recorded_uninstall(self) -> None:
+        """The record says OMH did not create `skills:`; the guess must not outvote it.
+
+        The axis the older empty-container case does not cover: empty BEFORE
+        setup, filled by OMH, empty again after the reversal. `empty_before`
+        cannot see it -- at uninstall time the container has children -- so
+        only `containers_created` knows, and a candidate set that unions the
+        guess on top of the record deletes the person's key.
+        """
+        # The last two are containers `main` already lost before this change:
+        # `memory:` at the top level and the nested `display.sections:`.
+        for section in ("skills", "display", "plugins", "memory", "display:\n  sections"):
+            with self.subTest(section=section):
+                before = f"version: 1\n{section}:\n"
+                after = _apply_setup_writes(before)
+                record = _record(before, after)
+                created = _entry(record)["containers_created"]
+                self.assertNotIn(section.replace(":\n  ", "."), created)  # type: ignore[operator]
+                unregistered = remove_external_dir(after, "/tmp/omh/skills").text
+
+                change, _rows = reverse_managed_config(
+                    unregistered, record, config_path=CONFIG_PATH, text_before_removals=after
+                )
+
+                self.assertEqual(change.text, before)
+
     def test_the_baseline_is_the_text_before_the_callers_own_removals(self) -> None:
         """Mutation proof for #1767, and the contract of the default.
 

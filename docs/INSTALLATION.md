@@ -3198,9 +3198,11 @@ An install made before OMH kept that record gets the honest subset.
 fallback chain are values you could equally have chosen yourself, so they are
 left in place and the uninstall output says which and why.
 
-`--registration-only` reverses none of this; it removes the registration and
-nothing else, because that scope exists to leave a working install
-unregistered. `--dry-run` lists every key it would reverse and writes nothing.
+`--registration-only` reverses none of this; it removes the registration, and
+the section the registration was the only occupant of, and nothing else,
+because that scope exists to leave a working install unregistered. A `skills:`
+the write record says you already had is left with you even when OMH's entry
+was the last thing in it. `--dry-run` lists every key it would reverse and writes nothing.
 A `config.yaml` that reversal empties is left in place: OMH does not delete a
 file in your Hermes home.
 If `omh` still runs after uninstall, that means the command package is still on

@@ -12,11 +12,22 @@ generated file still sits on disk.
 
 What these assertions can and cannot hold is worth stating, because the
 page's central rule is prose. They hold the reachability of the page, the
-named artifacts the mechanism is built from, that the page does not copy the
-source table it defers to, and that the page and `tdd-red-green.md` cannot
-drift apart on how manual testing is classified. They do not hold the rule's
-wording: a rewrite that keeps every token below and softens the sentence
-around it passes here and is caught only by review.
+named artifacts the mechanism is built from, that the row shape is the gate's
+own declaration rather than a fourth hand-written copy, that the page does not
+copy the source table it defers to, and that neither the page nor
+`tdd-red-green.md` can DELETE the refusal they share.
+
+Two things they do not hold, stated rather than implied:
+
+- The rule's own wording. A rewrite that keeps every token below and softens
+  the sentence around it passes here.
+- A REVERSAL of the shared refusal. `test_the_deferred_refusal_is_not_deleted`
+  checks that the row exists, that it still carries `unobserved`, and that the
+  page still cites it. Rewriting the row to "it is unobserved in the strict
+  sense, but a careful person's report closes a tests-first lane well enough"
+  keeps all three and passes. Catching that needs a matcher over prose, which
+  this repository forbids for reasons that outlive this page, so the gate is
+  deletion-only and its name says so.
 """
 
 from __future__ import annotations
@@ -26,7 +37,7 @@ import unittest
 from omh.skills.catalog import builtin_definitions
 from omh.skills.duplicate_content import MIN_BLOCK_CHARS, normalize_block
 from omh.skills.packaging import builtin_skill_reference_templates
-from omh.skills.render import workflow_skill_from_definition
+from omh.skills.render import observed_check_results_declaration, workflow_skill_from_definition
 
 REFERENCE_PATH = "references/manual-test-guide.md"
 OWNING_SKILL = "ultraqa"
@@ -161,13 +172,44 @@ class ManualTestGuideReferenceTests(unittest.TestCase):
             f"{shared[0][:120] if shared else ''!r}",
         )
 
-    def test_manual_testing_stays_unobserved_on_both_pages(self):
-        """The two pages may not drift apart on the same classification.
+    def test_the_row_shape_is_the_gate_s_own_declaration(self):
+        """Quote the gate, never a fourth copy of its field list.
 
-        `tdd-red-green.md` already refuses manual testing as a way to close a
+        Three places already enumerate `observed_check_results/v1` in prose
+        and no two agree, so a hand-written fourth would have been a fourth
+        variant -- and the field it would most likely lose is freshness,
+        which is the one this page exists to make somebody record. The page
+        renders the declaration instead, so the two cannot disagree; this
+        pins that it is still rendered and still the live catalog value.
+        """
+        content = _reference_content(OWNING_SKILL, REFERENCE_PATH)
+        declaration = observed_check_results_declaration()
+        self.assertIn(
+            declaration,
+            content,
+            f"{REFERENCE_PATH} no longer carries verification-gate's own "
+            f"declaration of the row ({declaration!r}); it must quote it rather "
+            "than restate the fields, or the two surfaces can disagree",
+        )
+        self.assertIn(
+            "timestamp/source",
+            declaration,
+            "the freshness field left verification-gate's declaration; the "
+            f"page quotes whatever it says, so check what {REFERENCE_PATH} now "
+            "claims a manual run has to record",
+        )
+
+    def test_the_deferred_refusal_is_not_deleted(self):
+        """Deletion-only, on purpose, and named for it.
+
+        `tdd-red-green.md` refuses manual testing as a way to close a
         tests-first lane. This page exists to say what to WRITE in that case,
-        which only stays honest while the refusal it defers to is still there.
-        Softening either one alone fails here, naming the other.
+        which stays honest only while that refusal is still there to defer
+        to. Removing either half fails here, naming the other.
+
+        What this does NOT catch is a reversal that keeps the tokens -- see
+        the module docstring. Matching the sentence is the only thing that
+        would, and this repository does not match prose.
         """
         guide = _reference_content(OWNING_SKILL, REFERENCE_PATH)
         tdd = _reference_content("ultrawork", "references/tdd-red-green.md")

@@ -3831,8 +3831,38 @@ The fixer's `parents` are the observed task ids from the three probe receipts, s
 """
 
 
+# The `observed_check_results/v1` row shape, taken from where `verification-gate`
+# declares it rather than written out again here.
+#
+# Three places in this repository enumerate that row and no two agree: this
+# artifact expectation, the gate's own "Record command/source, freshness, exit
+# status, and scope" quality-bar line, and `omh-wiki`'s handover table, which
+# names two of the fields. A fourth hand-written copy on the manual test guide
+# page would be a fourth variant, and the one it would most likely lose is
+# freshness -- which is the field that page exists to make somebody record,
+# because a person's report is the likeliest stale output there is. So the page
+# quotes the declaration instead of restating it, and cannot drift from the gate
+# it defers to. Which of the three is canonical is a question for the gate, not
+# for this page; the artifact expectation is used because declaring the row's
+# shape is that section's job.
+_OBSERVED_CHECK_RESULTS_PREFIX = "observed_check_results/v1 with "
+
+
+def observed_check_results_declaration() -> str:
+    """How `verification-gate` declares the row, verbatim from its catalog entry."""
+    definition = _definitions_by_name()["verification-gate"]
+    for entry in definition.artifact_expectations:
+        if entry.startswith(_OBSERVED_CHECK_RESULTS_PREFIX):
+            return entry
+    raise ValueError(
+        "verification-gate declares no observed_check_results/v1 artifact expectation; "
+        "the manual test guide reference quotes it and cannot be rendered without it"
+    )
+
+
 def _manual_test_guide_reference() -> str:
-    return """# Manual Test Guide
+    observed_row = observed_check_results_declaration()
+    return f"""# Manual Test Guide
 
 Load this reference when part of a change cannot be proved by a check that runs on its own and a person has to try it by hand: a CLI flag, a migration, a config change, a daemon restart, an install on a real machine. If the surface RENDERS -- a page, an image, a TUI frame -- its guide is `visual-qa`'s viewport and state matrix instead, and that skill owns the capture rules this page does not repeat.
 
@@ -3840,7 +3870,9 @@ Load this reference when part of a change cannot be proved by a check that runs 
 
 Writing the steps does not run them. A finished guide is `prepared_not_observed`, and nothing the writer does moves it out of that state -- only a run can, and a run produces its own separate record.
 
-In `verification-gate` vocabulary: each written step is a `verification_matrix/v1` row with no result yet. A person who runs one can supply an `observed_check_results/v1` row -- the command or source, the exit status, the summary, the scope -- and that row is the evidence, never the step it came from. A report of "looks fine" carries none of those four fields; it is the self-referential shape (`TBD`, `works as expected`) that gate already refuses, and a spoken report earns no exemption from the refusal.
+In `verification-gate` vocabulary: each written step is a `verification_matrix/v1` row with no result yet. A person who runs one can supply what that skill declares as "{observed_row}" -- quoted from its own artifact expectations rather than restated, so this page cannot drift from the gate it defers to. That row is the evidence, never the step it came from. Freshness is the field a manual run most needs and most often loses: a person's report is the likeliest stale output there is, and the gate refuses stale output as evidence outright. A report of "looks fine" supplies none of the fields at all, and is the self-referential shape (`TBD`, `works as expected`) that gate already refuses; a spoken report earns no exemption from the refusal.
+
+The row is also where the evidence stops. OMH persists no verification output (#1782), so a row a person reports lives in this session's context and nowhere else -- the same thing `omh-wiki/references/handover-artifacts.md` marks with its "Held where" column. A later reader cannot re-read the result; they can only run the step again, which is one more reason every step names the build it ran against.
 
 `ulw-work/references/tdd-red-green.md` refuses manual testing as a way to close a tests-first lane, because it leaves no output to paste and no command to rerun. That refusal is unchanged here. This page is what to write when a check genuinely cannot be automated; it is not a second route to the claim the other page denies.
 
@@ -3896,7 +3928,7 @@ The reason is the deliverable in that case, so write one worth reading. Name the
 
 `done` on `VI. Manual test guide` says the guide exists. It does not say anyone followed it, and no record can say that: OMH observes declarations, never work.
 
-A completion claim citing this guide is therefore citing a plan. `verification-gate` returns HOLD on it with the manual checks listed as not-run, which is the correct verdict. The guide's job is to make that list short, specific, and cheap for somebody to close.
+A completion claim citing this guide is therefore citing a plan. `verification-gate` returns HOLD or BLOCK on it with the manual checks listed as not-run, which is the correct verdict. The guide's job is to make that list short, specific, and cheap for somebody to close.
 """
 
 

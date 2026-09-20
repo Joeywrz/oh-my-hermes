@@ -1284,18 +1284,26 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # pointer saying "assemble from the records" without saying which would send
 # a writer looking for three stores that do not exist. Re-derived from the
 # full-profile skill_context_cost_payload() producer.
-# 978520 -> 978992: one quality-bar line on `ultraqa`. The manual test
-# guide -- the artifact written when a check cannot be automated and a
-# person has to try it by hand -- had no owner outside rendered surfaces,
-# which `visual-qa` scopes itself to. The guidance is a reference file and
-# costs this budget nothing. What is paid for here is the pointer, and it
-# is not shorter because two of its clauses are the whole reason the page
-# exists: that the guide is `prepared_not_observed` until somebody runs it,
-# and that a rendered surface belongs to `visual-qa` instead. A pointer
-# naming only the file would let a writer reach the page believing the
-# guide closes the check it describes. Re-derived from the full-profile
+# 978520 -> 978906: one 383-character quality-bar line on `ultraqa`. The
+# manual test guide -- the artifact written when a check cannot be automated
+# and a person has to try it by hand -- had no owner outside rendered
+# surfaces, which `visual-qa` scopes itself to. The guidance is a reference
+# file and costs this budget nothing; the pointer is the whole bill.
+#
+# What each clause buys, because a ratchet that records only that a line was
+# added is a ratchet nobody can re-examine. `prepared_not_observed` and
+# `visual-qa` are the two a reader needs WITHOUT opening the page: without
+# the first a writer reaches the reference believing the guide closes the
+# check it describes, and without the second they write one for a surface
+# `visual-qa` already owns. `observed_check_results/v1` names what a run has
+# to record instead, and replaced an enumeration of that row's fields -- the
+# page quotes the gate's own declaration now, so neither surface restates it.
+# The step shape and the four reasons are what makes the page worth opening
+# at all, and the phase id is how a `code-story` run finds it. A first draft
+# spelled the row's fields out and ran 469; this is that draft with the
+# restatement removed. Re-derived from the full-profile
 # skill_context_cost_payload() producer.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 978992
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 978906
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

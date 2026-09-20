@@ -23,11 +23,20 @@ All notable changes will be documented here.
   test guide is a handover artifact and never evidence — a finished guide is
   `prepared_not_observed`, and only a run moves anything out of that state.
   Stated in `verification-gate` vocabulary so there is one vocabulary and not
-  two: a written step is a `verification_matrix/v1` row with no result, a
-  person who runs it can supply an `observed_check_results/v1` row, and a
-  report of "looks fine" carries none of that gate's four fields and meets
-  the refusal it already applies to `works as expected`. So `done` on the
-  phase says the guide exists, never that anyone followed it.
+  two: a written step is a `verification_matrix/v1` row with no result, and a
+  person who runs it can supply an `observed_check_results/v1` row. The page
+  does not restate that row's fields — it renders `verification-gate`'s own
+  declaration of them, because three places in the repository already
+  enumerate that row in prose and no two agree, and the field a fourth copy
+  would most likely lose is freshness, which is precisely the field a manual
+  run most needs and most often loses. A report of "looks fine" supplies none
+  of the fields and meets the refusal the gate already applies to `works as
+  expected`. The row is also where the evidence stops: OMH persists no
+  verification output (#1782), so it lives in the session and nowhere else,
+  the same thing `handover-artifacts.md` marks with its "Held where" column.
+  `done` on the phase therefore says the guide exists, never that anyone
+  followed it, and a claim citing it earns HOLD or BLOCK with the manual
+  checks listed not-run.
 
   What the page carries beyond the boundary: the four-field step shape
   (setup, do, expect, broken — `broken` meaning the near-miss, the wrong
@@ -41,9 +50,14 @@ All notable changes will be documented here.
 
   `tests/test_manual_test_guide_reference.py` holds what is machine-checkable
   — the body pointer and the reference exist together, the named artifacts
-  survive a rewrite, the page points at the source table instead of copying a
-  paragraph of it, and the page and `tdd-red-green.md` cannot drift apart on
-  the classification. The rule's own wording is prose and no gate checks it.
+  survive a rewrite, the row shape is still the gate's live declaration, the
+  page points at the source table instead of copying a paragraph of it, and
+  neither the page nor `tdd-red-green.md` can delete the refusal they share.
+  Two limits are stated rather than implied, in the test's own docstring as
+  well as here: the rule's wording is prose and no gate checks it, and the
+  shared-refusal test is deletion-only — a rewrite that keeps the word
+  `unobserved` and reverses the sentence around it passes, because catching
+  that needs a matcher over prose and this repository does not match prose.
 
 - **The gate that catches a skill body change now says which body changed.**
   Editing a skill body moves a pinned sha256 in

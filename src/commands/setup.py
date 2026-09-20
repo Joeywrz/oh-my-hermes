@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 import json
 import os
 from pathlib import Path
@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 import time
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 import unicodedata
 
 try:
@@ -2660,9 +2660,15 @@ def _preset_tui_identity_choice(args: argparse.Namespace) -> None:
         args._omh_tui_choice = True
 
 
-def _ask_tui_identity_choice(args: argparse.Namespace, paths: OmhPaths, language: str) -> None:
+def _will_ask_tui_identity(args: argparse.Namespace, paths: OmhPaths) -> bool:
+    """Whether `_ask_tui_identity_choice` puts a question on screen.
+
+    The group itself returns early on this predicate, so the step count the
+    wizard prints and the questions that appear are one condition read twice
+    rather than two conditions that can drift.
+    """
     if hasattr(args, "_omh_tui_choice"):
-        return
+        return False
     config_text = read_config(paths.hermes_config_path)
     # Any shipped theme counts as identity-active: asking a crimson user to
     # switch to the default skin is asking them to lose a choice they made.
@@ -2676,12 +2682,16 @@ def _ask_tui_identity_choice(args: argparse.Namespace, paths: OmhPaths, language
     # a state OMH itself created. The trigger stays the two keys it always
     # was; `--yes` is how an already-branded install takes the third.
     if display_interface_selection(config_text) == "tui" and is_omh_skin_name(selected_skin):
-        return
+        return False
     target_skin = selected_skin if is_omh_skin_name(selected_skin) else SKIN_NAME
-    if (
-        not activate_tui_interface(config_text).changed
-        and not activate_omh_skin(config_text, target_skin).changed
-    ):
+    return bool(
+        activate_tui_interface(config_text).changed
+        or activate_omh_skin(config_text, target_skin).changed
+    )
+
+
+def _ask_tui_identity_choice(args: argparse.Namespace, paths: OmhPaths, language: str) -> None:
+    if not _will_ask_tui_identity(args, paths):
         return
     args._omh_tui_choice = _ask_yes_no(
         tr(language, "tui_identity_prompt"),
@@ -2719,6 +2729,23 @@ def _detect_external_cli_profiles(home: Path | None = None) -> dict[str, dict[st
     return detected
 
 
+def _detected_external_cli_profiles() -> list[str]:
+    """External coding CLIs whose binary resolves on PATH, in profile order."""
+    detected = _detect_external_cli_profiles()
+    return [profile for profile in EXTERNAL_CLI_PROFILES if detected[profile]["binary_present"]]
+
+
+def _will_ask_maestro_delegation(args: argparse.Namespace, paths: OmhPaths) -> bool:
+    """Whether `_ask_maestro_delegation_choice` puts a question on screen.
+
+    Same shape as `_will_ask_tui_identity`: the group returns early on this,
+    so the wizard can count the question before the first prompt is printed.
+    """
+    if hasattr(args, "_maestro_delegation_choice"):
+        return False
+    return bool(_detected_external_cli_profiles())
+
+
 def _ask_maestro_delegation_choice(args: argparse.Namespace, paths: OmhPaths, language: str) -> None:
     """Ask, at most once, whether to set up the maestro coding-delegation lane.
 
@@ -2728,13 +2755,13 @@ def _ask_maestro_delegation_choice(args: argparse.Namespace, paths: OmhPaths, la
     it -- see `_detect_external_cli_profiles`. A "no" or no detected CLI
     changes nothing and prints nothing persistent.
     """
-    if hasattr(args, "_maestro_delegation_choice"):
+    if not _will_ask_maestro_delegation(args, paths):
+        # A repeat call keeps the answer it already has; a first call with no
+        # detected CLI records "not asked" the way it always did.
+        if not hasattr(args, "_maestro_delegation_choice"):
+            args._maestro_delegation_choice = None
         return
-    detected = _detect_external_cli_profiles()
-    detected_profiles = [profile for profile in EXTERNAL_CLI_PROFILES if detected[profile]["binary_present"]]
-    if not detected_profiles:
-        args._maestro_delegation_choice = None
-        return
+    detected_profiles = _detected_external_cli_profiles()
     accepted = _ask_yes_no(
         tr(language, "maestro_delegation_prompt", clis=", ".join(detected_profiles)),
         default=False,
@@ -2767,6 +2794,17 @@ def _stdin_is_tty() -> bool:
     return sys.stdin.isatty()
 
 
+def _will_ask_model_chains_interview(args: argparse.Namespace, paths: OmhPaths) -> bool:
+    """Whether `_ask_model_chains_interview` puts a question on screen.
+
+    The group returns early on this, so the wizard counts the question the
+    same way the group decides to ask it.
+    """
+    if hasattr(args, "_model_chains_interview_choice"):
+        return False
+    return _stdin_is_tty()
+
+
 def _ask_model_chains_interview(args: argparse.Namespace, paths: OmhPaths, language: str) -> None:
     """Ask, at most once, whether to walk the native lane's model chains now.
 
@@ -2783,10 +2821,11 @@ def _ask_model_chains_interview(args: argparse.Namespace, paths: OmhPaths, langu
     worth asking, which is the same reason the maestro question stays silent
     when no external CLI is on PATH.
     """
-    if hasattr(args, "_model_chains_interview_choice"):
-        return
-    if not _stdin_is_tty():
-        args._model_chains_interview_choice = None
+    if not _will_ask_model_chains_interview(args, paths):
+        # A repeat call keeps the answer it already has; a first call without
+        # a terminal records "not asked" the way it always did.
+        if not hasattr(args, "_model_chains_interview_choice"):
+            args._model_chains_interview_choice = None
         return
     accepted = _ask_yes_no(
         tr(language, "model_chains_interview_prompt"),
@@ -2969,6 +3008,30 @@ def _provider_entitlement_options(
     return options, [provider_id for provider_id in order if provider_id in preselect], kinds
 
 
+def _detected_subscription_cli_profiles() -> list[str]:
+    """Subscription CLIs whose binary resolves on PATH, in profile order."""
+    from ..plugin_bundle.omh.hermes_delegation import SUBSCRIPTION_CLI_PROFILES
+
+    detected = _detect_external_cli_profiles()
+    return [
+        profile
+        for profile in SUBSCRIPTION_CLI_PROFILES
+        if detected.get(profile, {}).get("binary_present")
+    ]
+
+
+def _will_ask_provider_entitlements(args: argparse.Namespace, paths: OmhPaths) -> bool:
+    """Whether `_ask_provider_entitlements` puts a question on screen.
+
+    Nothing found and no subscription CLI on PATH leaves the operator with an
+    empty list and a yes/no about nothing, so the group says nothing at all --
+    and this is the same read, called by the group for its own early return.
+    """
+    if hasattr(args, "_provider_entitlements"):
+        return False
+    return bool(_provider_candidates(paths) or _detected_subscription_cli_profiles())
+
+
 def _ask_provider_entitlements(args: argparse.Namespace, paths: OmhPaths, language: str) -> None:
     """Ask, at most once, which providers and subscription CLIs this machine holds.
 
@@ -3010,7 +3073,11 @@ def _ask_provider_entitlements(args: argparse.Namespace, paths: OmhPaths, langua
     routing consequence is the Claude Code `--model` preference, seeded to the
     Claude chain head when the operator has not set one.
     """
-    if hasattr(args, "_provider_entitlements"):
+    if not _will_ask_provider_entitlements(args, paths):
+        # A repeat call keeps the answer it already has; a first call with
+        # nothing to offer records "not asked" the way it always did.
+        if not hasattr(args, "_provider_entitlements"):
+            args._provider_entitlements = None
         return
     from ..plugin_bundle.omh.hermes_delegation import (
         MULTI_VENDOR_PROVIDER_KINDS,
@@ -3018,22 +3085,13 @@ def _ask_provider_entitlements(args: argparse.Namespace, paths: OmhPaths, langua
         PROVIDER_FAMILY_VOCABULARY,
         PROVIDER_KIND_GATEWAY,
         PROVIDER_KIND_UNKNOWN,
-        SUBSCRIPTION_CLI_PROFILES,
         is_provider_id_token,
         load_provider_entitlements,
     )
 
     existing, existing_status = load_provider_entitlements(paths.omh_home)
     candidates = _provider_candidates(paths)
-    detected = _detect_external_cli_profiles()
-    detected_profiles = [
-        profile
-        for profile in SUBSCRIPTION_CLI_PROFILES
-        if detected.get(profile, {}).get("binary_present")
-    ]
-    if not candidates and not detected_profiles:
-        args._provider_entitlements = None
-        return
+    detected_profiles = _detected_subscription_cli_profiles()
     use_color = _use_color()
     if existing_status.startswith("invalid:"):
         print(_color(tr(language, "provider_entitlements_invalid", status=existing_status), "33", use_color))
@@ -3321,6 +3379,79 @@ def _ask_setup_scope(*, use_color: bool, language: str) -> str:
     )
 
 
+class _WizardQuestion(NamedTuple):
+    """One question group of the interactive setup wizard.
+
+    `will_ask` is the predicate the group itself returns early on, so the
+    heading the operator reads is counted from the groups that actually speak
+    instead of being declared beside them.
+    """
+
+    key: str
+    label_key: str
+    will_ask: Callable[[argparse.Namespace, OmhPaths], bool]
+    ask: Callable[[argparse.Namespace, OmhPaths, str], None]
+
+
+def _wizard_question_groups() -> tuple[_WizardQuestion, ...]:
+    """The wizard's question groups, in the order it asks them.
+
+    Built at call time rather than as a module constant so the rows can name
+    functions defined further down this file.
+    """
+    return (
+        _WizardQuestion(
+            "tui_identity",
+            "wizard_step_tui_identity",
+            _will_ask_tui_identity,
+            _ask_tui_identity_choice,
+        ),
+        _WizardQuestion(
+            "maestro_delegation",
+            "wizard_step_maestro_delegation",
+            _will_ask_maestro_delegation,
+            _ask_maestro_delegation_choice,
+        ),
+        _WizardQuestion(
+            "provider_entitlements",
+            "wizard_step_provider_entitlements",
+            _will_ask_provider_entitlements,
+            _ask_provider_entitlements,
+        ),
+        # Last of the prompting block that touches routing: the entitlement
+        # answers are what reorder the chains, so the operator meets the chain
+        # editor right after the explanation of how chains get shaped on this
+        # machine. Ordering against `_seed_model_chains_result` (step 3) is
+        # non-destructive either way -- the seed early-returns
+        # `already_present` when the interview has just written the document,
+        # and seeds it empty when nothing changed.
+        _WizardQuestion(
+            "model_chains",
+            "wizard_step_model_chains",
+            _will_ask_model_chains_interview,
+            _ask_model_chains_interview,
+        ),
+        _WizardQuestion(
+            "mcp_host",
+            "wizard_step_mcp_host",
+            _will_ask_mcp_host,
+            _ask_mcp_host_choice,
+        ),
+    )
+
+
+def _planned_wizard_questions(args: argparse.Namespace, paths: OmhPaths) -> list[_WizardQuestion]:
+    """The groups that will ask something, decided before the first prompt.
+
+    Every predicate reads only argparse flags, the Hermes config file, PATH,
+    and whether stdin is a terminal. No group's answer or side effect feeds a
+    later group's predicate -- the two groups that write, write under
+    `omh_home` -- so the total printed in `[k/n]` is the total the operator
+    ends up answering, and the numbering stays contiguous.
+    """
+    return [question for question in _wizard_question_groups() if question.will_ask(args, paths)]
+
+
 def _run_setup_wizard(args: argparse.Namespace, paths, language: str) -> None:
     use_color = _use_color()
     explicit_profile_packs = list(getattr(args, "profile_pack", []) or [])
@@ -3335,27 +3466,30 @@ def _run_setup_wizard(args: argparse.Namespace, paths, language: str) -> None:
     else:
         print(f"{tr(language, 'hermes_config')}: {_color(str(paths.hermes_config_path), '36', use_color)} ({tr(language, 'status_will_create')})")
     print(f"{tr(language, 'managed_skills')}: {_color(str(paths.skills_dir), '36', use_color)}")
-    _ask_tui_identity_choice(args, paths, language)
-    _ask_maestro_delegation_choice(args, paths, language)
-    _ask_provider_entitlements(args, paths, language)
-    # Last of the prompting block: the entitlement answers are what reorder
-    # the chains, so the operator meets the chain editor right after the
-    # explanation of how chains get shaped on this machine. Ordering against
-    # `_seed_model_chains_result` (step 3) is non-destructive either way --
-    # the seed early-returns `already_present` when the interview has just
-    # written the document, and seeds it empty when nothing changed.
-    _ask_model_chains_interview(args, paths, language)
+    # The same `[k/n]` framing the apply phase uses, over the groups that will
+    # actually ask something on this machine, so a question phase that skips
+    # two groups says so instead of counting questions nobody sees.
+    questions = _planned_wizard_questions(args, paths)
+    numbering = {question.key: index for index, question in enumerate(questions, start=1)}
+    progress = _HumanProgress(enabled=True, use_color=use_color)
+    for question in _wizard_question_groups():
+        index = numbering.get(question.key)
+        if index is not None:
+            # Same renderer as the apply phase, so the line is identical;
+            # `pause=False` because what follows is a prompt that waits.
+            progress.step(index, len(questions), tr(language, question.label_key), pause=False)
+        # Every group is still called, heading or not: a group that asks
+        # nothing records "not asked" on the namespace the way it always did.
+        question.ask(args, paths, language)
 
+    # This default used to sit between the chain question and the MCP one,
+    # which is now inside the loop. It is a recorded default rather than
+    # something the operator was asked, and no question group reads
+    # `args.profile`, so the two are order-independent.
     if not args.profile and not getattr(args, "default_executor", None):
         # No upfront coding-owner question: safety-first records "choose" so
         # Hermes asks at the first coding request instead of setup time.
         args.profile = ["safety-first"]
-    if args.with_mcp and str(getattr(args, "mcp_host", "generic") or "generic") == "generic":
-        args.mcp_host = _ask_mcp_host(
-            use_color=use_color,
-            language=language,
-            default_host=_default_mcp_host_for_executor(str(getattr(args, "default_executor", "") or "")),
-        )
     args.profile_pack = explicit_profile_packs
     print("")
 
@@ -3407,6 +3541,27 @@ def _ask_mcp_host(*, use_color: bool, language: str, default_host: str = "generi
         default_choice=default_choice,
         use_color=use_color,
         language=language,
+    )
+
+
+def _will_ask_mcp_host(args: argparse.Namespace, paths: OmhPaths) -> bool:
+    """Whether `_ask_mcp_host_choice` puts a question on screen.
+
+    `--with-mcp` without an explicit `--mcp-host` is the only combination
+    that asks, and neither flag is touched by an earlier answer.
+    """
+    if not getattr(args, "with_mcp", False):
+        return False
+    return str(getattr(args, "mcp_host", "generic") or "generic") == "generic"
+
+
+def _ask_mcp_host_choice(args: argparse.Namespace, paths: OmhPaths, language: str) -> None:
+    if not _will_ask_mcp_host(args, paths):
+        return
+    args.mcp_host = _ask_mcp_host(
+        use_color=_use_color(),
+        language=language,
+        default_host=_default_mcp_host_for_executor(str(getattr(args, "default_executor", "") or "")),
     )
 
 
@@ -3839,14 +3994,22 @@ class _HumanProgress:
         print(subtitle)
         print("")
 
-    def step(self, index: int, total: int, label: str, *, detail: str = "") -> None:
+    def step(self, index: int, total: int, label: str, *, detail: str = "", pause: bool = True) -> None:
         if not self.enabled:
             return
         prefix = _color(f"[{index}/{total}]", "1;36", self.use_color)
         print(f"{prefix} {label}...", flush=True)
         if detail:
             print(f"      {detail}", flush=True)
-        self._brief_tty_pause()
+        # `pause=False` renders the identical line without the settle. The
+        # settle makes a line readable when more output lands on top of it
+        # immediately, which is the apply phase; a heading over a question is
+        # followed by a prompt that waits for a person, so it buys nothing --
+        # and `_read_tui_key` flushes the input queue on every read (#1778),
+        # so delay added before a menu's first read is a window in which a
+        # keypress is silently discarded.
+        if pause:
+            self._brief_tty_pause()
 
     def done(self, message: str = "done") -> None:
         if not self.enabled:

@@ -35,6 +35,32 @@ All notable changes will be documented here.
   `provider_add_rejected` and now names what a plain identifier is. Both keys
   are present in all four language tables (en/ko/ja/zh).
 
+- **The interactive setup wizard says where you are in the questions.** The
+  apply phase has narrated itself since it shipped (`[1/5] Installing OMH
+  workflows...`); the question phase that runs before it printed a header and
+  then fired the display question, the coding-delegation question and the
+  provider list back to back with nothing between them. Each question group
+  now carries the same `[k/n] <what this decides>` heading in the same style,
+  localized in all four languages.
+
+  The total is derived, not declared. Several groups skip themselves -- a
+  config that is already TUI plus an OMH skin, no external coding CLI on PATH,
+  nothing to offer as a provider, no terminal, no `--with-mcp` -- so a fixed
+  `[1/5]` would over-count on most machines. Each group's "will I ask?"
+  condition is now a named predicate that the group itself returns early on,
+  and the wizard builds the list of groups that will speak before printing the
+  first heading. A group that stays silent gets no number and the numbering
+  stays contiguous. No question's wording, order, default, or behaviour
+  changed, and non-interactive runs (`--yes`, `--json`, no terminal) print
+  none of it.
+
+  The heading renders through the apply phase's own `_HumanProgress.step`, so
+  the line is identical, but without its 40ms settle. That settle makes a line
+  readable when more output lands on top of it at once; a heading over a
+  question is followed by a prompt that waits for a person, and `_read_tui_key`
+  flushes the input queue on every read (#1778), so delay added before a menu's
+  first read is a window in which a keypress is silently discarded.
+
 - **The delegation nudge counts distinct searches, and its budget survives a
   plugin-host restart.** It watched `search_files` and fired at five direct
   reads, counting CALLS -- so five different greps and one grep five times

@@ -62,8 +62,17 @@ The next reader has the diff. What they do not have is why it looks like that,
 and that is all the deep guide carries.
 
 - Start from the plan record, because it is the only source you can still read
-  in full: `omh runtime todo show`. One section per done item, in `phase` order.
-  A done item absent from the guide is a gap: either write it or name it as
+  in full: `omh runtime todo show`. One section per done item, taken in plan
+  order and grouped by `phase` where items carry one. There is no phase
+  order to sort by: `phase` is a free-text label with no canonical sequence,
+  and it is absent entirely on an item that was given none. The list's own
+  order is the only order there is.
+- Know what the record can hold before planning around it. It caps at
+  20 items, so the guide has at most that many sections, and an
+  item's text caps at 200 characters, which is the whole of
+  "what changed" the record can give you. A plan that spends items on phase
+  headers has that many fewer for the work.
+- A done item absent from the guide is a gap: either write it or name it as
   deliberately omitted.
 - Each section answers three questions. **What changed** - the item's own
   text. **Why this way** - the `blocked_reason` of what was not taken, plus

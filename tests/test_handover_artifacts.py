@@ -142,6 +142,33 @@ class HandoverRecordSourceTest(unittest.TestCase):
                         "a transcript-resident source must not offer a command that reads it",
                     )
 
+    def test_the_page_is_right_that_phase_gives_no_order(self) -> None:
+        """The deep guide says to use plan order because `phase` has none.
+
+        Checked behaviourally: an item given no phase carries no `phase` key
+        at all. A page telling a writer to sort by it would be telling them to
+        sort by a field that is not always there and never ranks.
+        """
+
+        items = validate_todo_items(
+            [
+                {"text": "no phase here", "state": "done"},
+                {"text": "has one", "state": "done", "phase": "Delivery"},
+            ]
+        )
+        self.assertNotIn("phase", items[0], "an item given no phase must carry no phase key")
+        self.assertEqual(items[1]["phase"], "Delivery")
+        self.assertIn("There is no phase\n  order to sort by", _handover_reference_content())
+
+    def test_the_page_takes_the_plan_record_caps_from_the_producer(self) -> None:
+        """Caps are interpolated, never typed, so the prose cannot drift from the code."""
+
+        from omh.plugin_bundle.omh.todo_store import MAX_TODO_ITEMS, MAX_TODO_TEXT_CHARS
+
+        content = _handover_reference_content()
+        self.assertIn(f"caps at\n  {MAX_TODO_ITEMS} items", content)
+        self.assertIn(f"caps at {MAX_TODO_TEXT_CHARS} characters", content)
+
     def test_every_declared_source_reaches_the_rendered_table(self) -> None:
         content = _handover_reference_content()
         for source in HANDOVER_RECORD_SOURCES:

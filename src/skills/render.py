@@ -66,6 +66,7 @@ from ..plugin_bundle.omh.awareness import (
     awareness_workflow_context_markdown,
     router_keyword_summary,
 )
+from ..plugin_bundle.omh.todo_store import MAX_TODO_ITEMS, MAX_TODO_TEXT_CHARS
 from ..workflows.wiki_blueprint import WIKI_BLUEPRINT_SCHEMA_VERSION, wiki_ecosystem_coverage
 from ..workflows.wiki_patterns import wiki_agent_reader_rules, wiki_operation_rules, wiki_patterns
 
@@ -2157,8 +2158,17 @@ The next reader has the diff. What they do not have is why it looks like that,
 and that is all the deep guide carries.
 
 - Start from the plan record, because it is the only source you can still read
-  in full: `{durable.read_with}`. One section per done item, in `phase` order.
-  A done item absent from the guide is a gap: either write it or name it as
+  in full: `{durable.read_with}`. One section per done item, taken in plan
+  order and grouped by `phase` where items carry one. There is no phase
+  order to sort by: `phase` is a free-text label with no canonical sequence,
+  and it is absent entirely on an item that was given none. The list's own
+  order is the only order there is.
+- Know what the record can hold before planning around it. It caps at
+  {MAX_TODO_ITEMS} items, so the guide has at most that many sections, and an
+  item's text caps at {MAX_TODO_TEXT_CHARS} characters, which is the whole of
+  "what changed" the record can give you. A plan that spends items on phase
+  headers has that many fewer for the work.
+- A done item absent from the guide is a gap: either write it or name it as
   deliberately omitted.
 - Each section answers three questions. **What changed** - the item's own
   text. **Why this way** - the `blocked_reason` of what was not taken, plus

@@ -97,10 +97,28 @@ All notable changes will be documented here.
   variable exists for a person who knows something the search does not.
 
   With nothing found and `uv` already on the machine, the installer has uv
-  install Python 3.12 and puts its answer through the same probe. With neither,
-  it stops before creating anything and names every version it did find, so the
-  refusal carries the fact the old failure buried three steps down. Every run
-  now prints the interpreter it chose.
+  install Python 3.12, shows uv's own output while it does, and then runs its
+  own search again rather than asking `uv python find` — that command resolves
+  a PROJECT environment first and is cwd-dependent, and `curl … | sh` runs
+  wherever the person is standing, so from a checkout it answers that
+  checkout's `.venv`. A `.venv` reports a supported version and would sail
+  through the probe, and as the BASE of OMH's environment it is strictly worse
+  than the interpreter uv was just asked for: rebuild that project and `omh`
+  breaks. `--managed-python` does not reliably prevent it either, measured on
+  uv 0.12.5. The search instead reads uv's managed directory from
+  `uv python dir`, which is cwd-independent and also finds interpreters on a
+  machine where `UV_PYTHON_INSTALL_DIR` or `XDG_DATA_HOME` has moved it.
+  Downloading a language runtime is a kind of side effect this script has never
+  had, so it is announced before it starts and `OMH_PROVISION_PYTHON=0`
+  declines it without having to name an interpreter instead.
+
+  With neither, it stops before creating anything and names every version it
+  did find, and says so differently when the interpreter was one the person
+  named: a path that is not there reports "was not found" rather than a verdict
+  on the version of a file that does not exist. Interpreter resolution runs
+  before the release lookup, so a machine with no usable Python and an
+  unreachable GitHub gets the interpreter diagnosis rather than a release
+  error. Every run prints the interpreter it chose.
 
 - **The delegation nudge counts distinct searches, and its budget survives a
   plugin-host restart.** It watched `search_files` and fired at five direct

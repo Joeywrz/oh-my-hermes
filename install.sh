@@ -344,6 +344,11 @@ OMH_MIN_PYTHON_MINOR=11
 # version rather than a range: uv resolves a range against what it already has,
 # and the point of reaching here is that nothing on this machine qualifies.
 OMH_UV_PYTHON_VERSION=3.12
+# Declines the interpreter download; any other value leaves it available.
+OMH_PROVISION_PYTHON="${OMH_PROVISION_PYTHON:-1}"
+# Set when provisioning ran and still did not produce an interpreter, so the
+# refusal can say that instead of repeating "none was found".
+OMH_PROVISION_TRIED=0
 OMH_INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh"
 
 python_two_part_version() {
@@ -395,6 +400,23 @@ python_candidates() {
       printf '%s\n' "$omh_python_candidate"
     fi
   done
+  # uv's managed interpreters, asked for by uv rather than assumed. The line
+  # above covers uv's default location only, and `UV_PYTHON_INSTALL_DIR` or
+  # `XDG_DATA_HOME` moves it -- on such a machine a perfectly good interpreter
+  # sits one directory away and the search would report none. `uv python dir`
+  # answers the same from any working directory; `uv python find` does NOT and
+  # must not be used here, because it resolves a PROJECT environment first and
+  # `curl ... | sh` runs wherever the person is standing.
+  if command -v uv >/dev/null 2>&1; then
+    omh_uv_root="$(uv python dir 2>/dev/null | tail -1)"
+    if [ -n "$omh_uv_root" ] && [ -d "$omh_uv_root" ]; then
+      for omh_python_candidate in "$omh_uv_root"/*/bin/python3 "$omh_uv_root"/*/bin/python3.[0-9] "$omh_uv_root"/*/bin/python3.[0-9][0-9]; do
+        if [ -x "$omh_python_candidate" ]; then
+          printf '%s\n' "$omh_python_candidate"
+        fi
+      done
+    fi
+  fi
 }
 
 select_python() {
@@ -426,27 +448,46 @@ resolve_python() {
   OMH_SELECTED_PYTHON="$(select_python)"
 
   # Last resort, and only when the alternative is failing: uv is the person's own
-  # tool, it installs a private interpreter under their data directory, and it
-  # touches nothing else on the machine. Its answer is still put through the same
-  # probe rather than trusted, so a change in uv's flags degrades to the ordinary
-  # refusal below instead of a bad interpreter.
-  if [ -z "$OMH_SELECTED_PYTHON" ] && [ -z "$OMH_PYTHON_WAS_SET" ] && command -v uv >/dev/null 2>&1; then
-    say_note "No Python 3.$OMH_MIN_PYTHON_MINOR+ was found; installing Python $OMH_UV_PYTHON_VERSION with uv, which is already on this machine."
-    if uv python install "$OMH_UV_PYTHON_VERSION" >/dev/null 2>&1; then
-      OMH_UV_PYTHON="$(uv python find ">=3.$OMH_MIN_PYTHON_MINOR" 2>/dev/null || true)"
-      if python_version_supported "$(python_two_part_version "$OMH_UV_PYTHON")"; then
-        OMH_SELECTED_PYTHON="$OMH_UV_PYTHON"
-      else
-        # uv installs into a directory python_candidates already looks in, so a
-        # version of uv whose `find` behaves differently is not a dead end.
-        OMH_SELECTED_PYTHON="$(select_python)"
+  # tool and it installs a private interpreter under their data directory. It is
+  # still a download of a language runtime, which is a kind of side effect this
+  # script has never had -- until now it fetched only OMH's own wheel -- so it
+  # says what it is about to do, shows uv's own output while it does it, and
+  # `OMH_PROVISION_PYTHON=0` declines it without having to name an interpreter.
+  if [ -z "$OMH_SELECTED_PYTHON" ] \
+    && [ -z "$OMH_PYTHON_WAS_SET" ] \
+    && [ "$OMH_PROVISION_PYTHON" != "0" ] \
+    && command -v uv >/dev/null 2>&1; then
+    say_note "No Python 3.$OMH_MIN_PYTHON_MINOR+ was found. Asking uv, which is already on this machine, for Python $OMH_UV_PYTHON_VERSION."
+    say_note "This downloads an interpreter (~66 MB). Decline with OMH_PROVISION_PYTHON=0."
+    if uv python install "$OMH_UV_PYTHON_VERSION"; then
+      # Deliberately NOT `uv python find`: it resolves a PROJECT environment
+      # before it considers uv's own interpreters and is cwd-dependent, and
+      # `curl ... | sh` runs wherever the person is standing. From a checkout
+      # with a `.venv` it answers that `.venv` -- which reports a supported
+      # version, passes the probe, and would become the BASE of OMH's venv,
+      # leaving it pointing at an interpreter that vanishes when that project
+      # is rebuilt. `--managed-python` does not reliably prevent it either:
+      # measured on uv 0.12.5, both forms still answered with the project's
+      # `.venv`. So the search runs again instead, and it now reads uv's
+      # managed directory from `uv python dir`, which is cwd-independent.
+      OMH_SELECTED_PYTHON="$(select_python)"
+      if [ -z "$OMH_SELECTED_PYTHON" ]; then
+        OMH_PROVISION_TRIED=1
       fi
+    else
+      OMH_PROVISION_TRIED=1
     fi
   fi
 
   if [ -z "$OMH_SELECTED_PYTHON" ]; then
-    if [ -n "$OMH_PYTHON_WAS_SET" ]; then
+    if [ -n "$OMH_PYTHON_WAS_SET" ] && ! command -v "$OMH_PYTHON" >/dev/null 2>&1; then
+      # A typo is the likeliest way this variable goes wrong, and "not a usable
+      # Python 3.11+" would send the person to look at the wrong thing.
+      say "omh installer: OMH_PYTHON='$OMH_PYTHON' was not found."
+    elif [ -n "$OMH_PYTHON_WAS_SET" ]; then
       say "omh installer: OMH_PYTHON='$OMH_PYTHON' is not a usable Python 3.$OMH_MIN_PYTHON_MINOR+."
+    elif [ "$OMH_PROVISION_TRIED" = "1" ]; then
+      say "omh installer: no Python 3.$OMH_MIN_PYTHON_MINOR+ was found, and asking uv for one did not produce a usable interpreter (uv's own output is above)."
     else
       say "omh installer: no Python 3.$OMH_MIN_PYTHON_MINOR+ was found, and oh-my-hermes requires one."
     fi
@@ -471,6 +512,15 @@ resolve_python() {
   OMH_SELECTED_PYTHON_VERSION="$(python_two_part_version "$OMH_PYTHON")"
 }
 
+
+say_header "$(msg installer_title)" "$(msg installer_subtitle)"
+# The interpreter first, and before any network work. Resolving the release
+# used to run ahead of it, so a machine with no usable Python and an
+# unreachable GitHub reported the release failure -- burying the very
+# diagnosis this step exists to surface, and losing the older
+# "OMH_PYTHON was not found" one as well.
+resolve_python
+say_note "Python: $OMH_PYTHON ($OMH_SELECTED_PYTHON_VERSION)"
 if [ -z "$OMH_PACKAGE_URL" ]; then
   case "$OMH_CHANNEL" in
     preview)
@@ -544,13 +594,9 @@ elif [ -z "$OMH_SOURCE_REF" ]; then
     *) OMH_SOURCE_REF="custom-url" ;;
   esac
 fi
-
-say_header "$(msg installer_title)" "$(msg installer_subtitle)"
 say_note "$(msg channel): $OMH_CHANNEL"
 say_note "Source ref: $OMH_SOURCE_REF"
 say_note "$(msg mode): $OMH_INSTALL_MODE"
-resolve_python
-say_note "Python: $OMH_PYTHON ($OMH_SELECTED_PYTHON_VERSION)"
 case "$OMH_INSTALL_MODE" in
   venv)
     install_into_venv

@@ -138,6 +138,42 @@ class InstallerPythonSelectionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("is not a usable Python 3.11+", result.stdout)
 
+    def test_a_named_interpreter_that_is_not_there_is_reported_as_missing(self) -> None:
+        """A typo is the likeliest way OMH_PYTHON goes wrong, and "not a usable
+        Python 3.11+" would send the person to look at the version of a file
+        that does not exist."""
+        result = self._run(OMH_PYTHON=str(self.bin / "pyhton3.12"))
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("was not found", result.stdout)
+        self.assertNotIn("is not a usable", result.stdout)
+
+    def test_the_interpreter_is_resolved_before_any_release_lookup(self) -> None:
+        """Otherwise an unreachable GitHub hides the diagnosis this exists for."""
+        self._stub("python3", STUB_OLD)
+
+        result = self._run(
+            OMH_PYTHON=str(self.bin / "python3"),
+            OMH_PACKAGE_URL="",
+            OMH_REPO_LATEST_URL="http://127.0.0.1:1/nope",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("is not a usable Python 3.11+", result.stdout)
+        self.assertNotIn("could not resolve the latest release", result.stdout)
+
+    def test_provisioning_can_be_declined_without_naming_an_interpreter(self) -> None:
+        """`OMH_PROVISION_PYTHON=0` is the opt-out; the alternative opt-out is
+        setting OMH_PYTHON, which requires already having what is missing."""
+        self._stub("python3", STUB_OLD)
+        # A `uv` that would succeed loudly if it were ever reached.
+        self._stub("uv", '#!/bin/sh\necho "uv was invoked" >&2\nexit 0\n')
+
+        result = self._run(OMH_PROVISION_PYTHON="0", OMH_PYTHON=str(self.bin / "python3"))
+
+        self.assertNotIn("uv was invoked", result.stdout + result.stderr)
+        self.assertNotIn("Asking uv", result.stdout)
+
     def test_the_floor_matches_the_one_the_wheel_declares(self) -> None:
         """Two places state it; a drift between them is the failure this fixes."""
         pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")

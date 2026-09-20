@@ -42,6 +42,7 @@ from omh.plugin_bundle.omh.todo_store import (
     advance_todo_item,
     build_todo_record,
     todo_items_digest,
+    validate_todo_items,
     write_todo,
 )
 from omh.plugin_bundle.omh.todo_templates import (
@@ -606,6 +607,104 @@ class CoverageIsRecheckedOnEveryWriteTest(_TodoHomeTest):
         # rewritten.
         self.assertIn("'IX. Quiz'", str(raised.exception))
         self.assertIn("blocked_reason", str(raised.exception))
+
+
+class ItemCapTest(_TodoHomeTest):
+    """What a stamped plan is told when it runs out of item budget.
+
+    The template declares ten of the twenty items, so a story plan has ten
+    slots for work of its own. Measured, the twenty-first item is REFUSED and
+    nothing partial lands -- which is the opposite of what a person assumes a
+    cap does, and the reason the refusal says so.
+
+    The generic sentence is unchanged for every plan that named no template.
+    That half is pinned first, because the last refusal this branch relabelled
+    keyed on a condition that was also true of the empty string and caught
+    every unstamped write with it.
+    """
+
+    def _with_subtasks(self, count: int) -> list[dict]:
+        items = [dict(item) for item in template_items(CODE_STORY_TEMPLATE)]
+        for index in range(count):
+            items.insert(
+                2 + index,
+                {"text": f"subtask {index + 1}", "state": "pending", "depth": 1},
+            )
+        return items
+
+    def test_the_template_leaves_exactly_half_the_cap_for_work_of_your_own(self):
+        self.assertEqual(len(template_items(CODE_STORY_TEMPLATE)), 10)
+        self.assertEqual(MAX_TODO_ITEMS, 20)
+
+        record = build_todo_record(
+            "story", self._with_subtasks(10), source="omh_todo",
+            template=CODE_STORY_TEMPLATE,
+        )
+
+        self.assertEqual(len(record["items"]), MAX_TODO_ITEMS)
+
+    def test_the_first_item_past_the_cap_is_refused_with_the_template_arithmetic(self):
+        with self.assertRaises(TodoValidationError) as raised:
+            build_todo_record(
+                "story", self._with_subtasks(11), source="omh_todo",
+                template=CODE_STORY_TEMPLATE,
+            )
+
+        self.assertEqual(
+            str(raised.exception),
+            "todo items are capped at 20; template 'code-story' declares 10 of them, "
+            "leaving 10 for items of your own, and this plan has 21. Nothing was "
+            "written.",
+        )
+
+    def test_nothing_partial_lands_when_the_cap_refuses(self):
+        # A cap that truncates and a cap that refuses ask for opposite next
+        # moves, and a person assumes the first. The record is untouched and
+        # no file appears, which is what the message claims.
+        with self.assertRaises(TodoValidationError):
+            build_todo_record(
+                "story", self._with_subtasks(11), source="omh_todo",
+                session_ref=SESSION, template=CODE_STORY_TEMPLATE,
+            )
+
+        todo = read_omh_hud(self.home, self.hermes, session_ref=SESSION)["todo"]
+        self.assertEqual(todo["status"], "absent")
+        self.assertEqual(list((self.home / "runtime").glob("*")), [])
+
+    def test_a_plan_that_named_no_template_reads_the_sentence_it_always_read(self):
+        # Byte-identical, through both doors: the shared validator, and the
+        # builder that now has a template-aware branch in front of it.
+        overflowing = [{"text": f"task {n}"} for n in range(MAX_TODO_ITEMS + 1)]
+
+        with self.assertRaises(TodoValidationError) as direct:
+            validate_todo_items(overflowing)
+        with self.assertRaises(TodoValidationError) as built:
+            build_todo_record("plan", overflowing, source="omh_todo")
+
+        self.assertEqual(str(direct.exception), "todo items are capped at 20")
+        self.assertEqual(str(built.exception), "todo items are capped at 20")
+
+    def test_the_refusal_reaches_the_model_as_an_invalid_todo(self):
+        import os
+        from unittest.mock import patch
+
+        with patch.dict(os.environ, {"OMH_HOME": str(self.home)}):
+            result = json.loads(
+                omh_todo_handler(
+                    {
+                        "action": "set",
+                        "title": "story",
+                        "template": CODE_STORY_TEMPLATE,
+                        "items": self._with_subtasks(11),
+                    },
+                    session_id=SESSION,
+                )
+            )
+
+        self.assertEqual(result["status"], "invalid_todo")
+        self.assertIn("template 'code-story' declares 10 of them", result["error"])
+        self.assertIn("Nothing was written", result["error"])
+        self.assertEqual(result["todo"]["status"], "absent")
 
 
 class UnknownTemplateTest(_TodoHomeTest):

@@ -159,13 +159,26 @@ All notable changes will be documented here.
   row opens its recorded reason with `skipped:` instead of `waiting:` when
   the item is closed — nobody is waiting on a phase nobody will do — and the
   HUD payload carries a derived `counts.skipped`, the items that are `done`
-  and carry a reason. A finished story therefore reads
-  `Todo · story ✓ 6/10 (4 skipped)` rather than `✓ 10/10`, which mattered
+  and carry a reason. Both plan headers name it: a running story reads
+  `Todo · story   5/10 (3 skipped)` and a finished one
+  `Todo · story ✓ 6/10 (4 skipped)` rather than `✓ 10/10`. That mattered
   because the finished panel drops every item row: the reasons disappeared at
   exactly the moment anyone would look for them, and the number asserted ten
-  phases of work for a six-phase story. Nothing new is written to disk and no
-  item state was added — the count is derived from two fields the item
-  already has, and a plan with no skips renders the line it rendered before.
+  phases of work for a six-phase story. Only the finished line subtracts —
+  the running header's numerator sits above item rows a person can count, so
+  it keeps `done` — and the clause is on both so the step between them is
+  something the reader has been watching rather than something that appears
+  at the end. Nothing new is written to disk and no item state was added: the
+  count is derived from two fields the item already has, and a plan with no
+  skips renders both headers exactly as before.
+
+  A stamped plan that runs out of item budget is told which bound it hit. The
+  template declares ten of the twenty items `omh_todo` allows, so ten are left
+  for work of the plan's own; the twenty-first is refused rather than
+  truncated, nothing partial lands, and the refusal now appends the arithmetic
+  a caller cannot do for itself — what the template holds, what is left, and
+  that nothing was written. A plan that named no template reads the plain
+  `todo items are capped at 20` it always read.
 
   Nothing detects a story from what a person typed. The declaration is the
   `template` argument on the call and nothing else, so a one-line question

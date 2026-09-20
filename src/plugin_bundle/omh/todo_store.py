@@ -33,7 +33,12 @@ from typing import Any, Iterator
 # import omh core; a copy here would be the third, and the policy gate in
 # `tests/test_journal_lock_portability.py` exists to stop exactly that.
 from .awareness_delivery import _awareness_delivery_lock
-from .todo_templates import TODO_TEMPLATES, template_coverage_error, template_items
+from .todo_templates import (
+    TODO_TEMPLATES,
+    template_coverage_error,
+    template_items,
+    template_phase_labels,
+)
 
 TODO_SCHEMA_VERSION = "omh_todo/v1"
 TODO_FILENAME = "todo.json"
@@ -287,6 +292,12 @@ def build_todo_record(
     safe_template = _validated_template(template)
     if safe_template and items in (None, []):
         items = template_items(safe_template)
+    # The cap refusal, answered here rather than in `validate_todo_items`,
+    # because only this frame knows a template is involved. The generic
+    # sentence is the whole of what an unstamped plan sees and is left
+    # untouched; a stamped one gets the arithmetic it cannot do for itself.
+    if safe_template and isinstance(items, list) and len(items) > MAX_TODO_ITEMS:
+        raise TodoValidationError(_template_cap_error(safe_template, len(items)))
     validated_items = validate_todo_items(items)
     if safe_template and (error := template_coverage_error(safe_template, validated_items)):
         raise TodoValidationError(error)
@@ -306,6 +317,31 @@ def build_todo_record(
     if safe_template:
         record["template"] = safe_template
     return record
+
+
+def _template_cap_error(template: str, declared_items: int) -> str:
+    """What a stamped plan is told when it overruns ``MAX_TODO_ITEMS``.
+
+    The generic message is true and unactionable in the same breath: a writer
+    that sent ten template phases plus eleven items of its own is told the
+    cap and given no way to learn that the template it asked for is holding
+    half of it. Its two available moves from there are to retry the identical
+    payload or to drop the template, and neither is the one that works. So
+    the sentence keeps its opening -- an unstamped plan reads exactly the
+    string it always read -- and appends the arithmetic only this frame can
+    do: how much the template spends, what is left, and what arrived.
+
+    It also says nothing was written, because a cap that truncates and a cap
+    that refuses call for opposite next moves and a person assumes the first.
+    Nothing partial lands: this raises before `write_todo`, so the record on
+    disk is whatever it was.
+    """
+    holds = len(template_phase_labels(template))
+    return (
+        f"todo items are capped at {MAX_TODO_ITEMS}; template {template!r} declares "
+        f"{holds} of them, leaving {max(0, MAX_TODO_ITEMS - holds)} for items of your "
+        f"own, and this plan has {declared_items}. Nothing was written."
+    )
 
 
 def _validated_template(template: object) -> str:

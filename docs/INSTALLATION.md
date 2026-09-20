@@ -1433,8 +1433,11 @@ over a stamped plan replaces the record and un-stamps it, the same way a
 plain `omh_todo` `set` does. And the ten phases spend half the 20-item cap, so
 a story plan has ten slots left for subtasks across all ten phases. The
 twenty-first item is refused, not truncated, and the whole write is lost with
-it — the refusal is the ordinary `todo items are capped at 20`, which does not
-mention that the template spent the first ten.
+it — nothing partial lands and the record on disk is untouched. A stamped plan
+is told which bound it hit: `todo items are capped at 20; template
+'code-story' declares 10 of them, leaving 10 for items of your own, and this
+plan has 21. Nothing was written.` A plan that named no template reads the
+plain `todo items are capped at 20`, as it always has.
 
 The panel belongs to the session that declared the plan. When Hermes
 declares a plan through `omh_todo`, the record is stored for that session

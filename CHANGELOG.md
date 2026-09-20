@@ -59,25 +59,21 @@ All notable changes will be documented here.
   `unobserved` and reverses the sentence around it passes, because catching
   that needs a matcher over prose and this repository does not match prose.
 
-- **Closing a story has an owner, and the sentence that asks for it reaches
-  one.** The `code-story` plan template stamps ten phases and the last of
-  them, `X. Close`, was the only one nothing answered for.
-  `verification-gate` owns the evidence a claim needs BEFORE completion or
-  merge; `todo-checklist` says a done mark is a declaration;
+- **Closing a story has an owner.** The `code-story` plan template stamps ten
+  phases and the last of them, `X. Close`, was the only one nothing answered
+  for. `verification-gate` owns the evidence a claim needs BEFORE completion
+  or merge; `todo-checklist` says a done mark is a declaration;
   `github-event-ops` labels an issue and never closes one. Nobody owned the
-  act of closing, and the sentence "close this story, it is done" measured on
-  the deciding surface (`build_chat_interaction_payload`, not `omh
-  recommend`) named `finance-analysis` as its top candidate at a score of 4 —
-  an accounting workflow, on a sentence about finishing a change.
+  act of closing.
 
-  Closing now belongs to `todo-checklist`, through
+  It belongs to `todo-checklist` now, through
   `references/closing-a-story.md`, because a close judgement that reads
-  records can read the plan record and nothing else. `observed_check_results/
-  v1` and `claim_verdict/v1` appear in `src/` only as instruction text:
+  records can read the plan record and nothing else.
+  `observed_check_results/v1` and `claim_verdict/v1` are instruction text:
   nothing writes them, nothing reads them, there is no store, and the same
   holds for ranked review findings and QA pass/fail. So the page is scoped to
-  what survives — `state`, `phase` and `blocked_reason` under
-  `$OMH_HOME/runtime/todos/<session key>.json` — and its source table is
+  what survives -- `state`, `phase` and `blocked_reason` under
+  `$OMH_HOME/runtime/todos/<session key>.json` -- and its source table is
   rendered from the same `HANDOVER_RECORD_SOURCES` the `wiki` handover page
   uses, so the two cannot come to disagree about which of the four is a
   record. A verdict still in this conversation is cited as a declared output
@@ -92,22 +88,37 @@ All notable changes will be documented here.
   anything merge, so a close report names who observed the merge commit or
   the CI conclusion, or says it has none.
 
-  On the routing side, the defect and the fix are the same lesson. A
+  **A run reaches the page through the phase template, not by asking in
+  plain words, and that gap is open.** A chat trigger was built, measured and
+  withdrawn. Built from `close`, `story` and a finishing word as an unordered
+  token set, it dispatched nine sentences at high confidence that have
+  nothing to do with a plan -- a bedtime story, a closing ceremony, a
+  newspaper layout, a Jira ticket, an incident -- including two that were its
+  own negative controls with one word added. As a closed phrase list it still
+  matched inside "close the story book", because `phrase_is_spoken` enforces
+  a right edge only for single-word phrases. And it missed four of the six
+  natural phrasings of the real request, `close this story` among them. A
+  trigger that is simultaneously too wide and too narrow is measuring the
+  wrong thing, so none of it shipped. The measured corpus, and the two
+  reasons reading a record instead cannot be the discriminator either, are
+  filed as #1789.
+
+- **The bare word `close` no longer names an accounting workflow.** A
   multi-word trigger is also scored as its separate tokens, so
-  `finance-analysis`'s accounting phrase "month-end close" handed it the bare
-  word `close` — a connection, a modal, a file handle, an estimate near a
-  number. `close` is now held in `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS`, and the
-  accounting request is untouched because it arrives as a `domain:` cue
-  worth +54, not through that token. Reaching the new owner takes three
-  tokens together and in any order — a closing verb, `story`, and a word
-  saying the work is finishing — because "close this story, it is done" and
-  "the story is done, close it" share no contiguous phrase. The third token
-  is not decoration: with only the pair, "close the story panel when the
-  modal loses focus" and "when is a user story considered closed in scrum"
-  both dispatched at high confidence, since no token set can see that `story`
-  is modifying something else. The cost is that the bare "close the story"
-  reaches a clarify naming the skill rather than a dispatch, which is the
-  right answer for three words that could mean either thing.
+  `finance-analysis`'s phrase "month-end close" handed it `close` -- a
+  connection, a modal, a file handle, an estimate near a number -- and made
+  it the top candidate on every sentence containing the word, including
+  "close this story, it is done" at a score of 4. The token is held back now.
+
+  An accounting request that spells the cue is untouched: "month-end close"
+  is a domain trigger worth +54 through `domain:`, and the three phrasings
+  carrying it hold at 54. An accounting request that does not spell it loses
+  the 3 points the loose token was giving it -- "variance analysis for the
+  monthly close" keeps its dispatch at 9, but "we need to close the books for
+  September" and "reconcile the ledger before the close" lose the top slot in
+  a clarify, and two more drop from medium to low. No accounting sentence
+  lost a dispatch, which is why this is priced as acceptable rather than
+  described as untouched.
 
 - **The gate that catches a skill body change now says which body changed.**
   Editing a skill body moves a pinned sha256 in

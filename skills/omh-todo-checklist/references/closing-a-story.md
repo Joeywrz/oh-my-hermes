@@ -72,9 +72,13 @@ Five parts. The first and the last are the ones usually missing.
    between a close and a confident silence.
 
 2. **Phase by phase, in the list's own order.** Quote `phase`, `state`, and
-   `blocked_reason` rather than paraphrasing them. There is no phase order to
-   sort by: `phase` is a free-text label with no canonical sequence, and the
-   order the items are stored in is the only order there is.
+   `blocked_reason` rather than paraphrasing them, and do not sort. On an
+   ordinary plan `phase` is a free-text label the store never ranks, and an
+   item may carry none at all, so stored order is the only order there is. A
+   `code-story` plan does have a delivery order -- its labels are
+   numbered, and a stamped plan that first names them out of sequence is
+   refused -- but stored order already is that order. Reading the list as it
+   stands is right either way; re-deriving an order is not.
 
 3. **What was not delivered.** Every item not `done`, plus every `done` item
    carrying a `blocked_reason`. A plan closed with items still open is an

@@ -1303,7 +1303,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # spelled the row's fields out and ran 469; this is that draft with the
 # restatement removed. Re-derived from the full-profile
 # skill_context_cost_payload() producer.
-# 978520 -> 978840: one quality-bar line on `todo-checklist`. The last phase
+# 978906 -> 979184: one quality-bar line on `todo-checklist`. The last phase
 # of a code story -- landing the change and reporting it -- had no owner, and
 # the skill holding the only durable record of what the story declared is the
 # one that can answer for it. The guidance is a reference file and costs this
@@ -1312,9 +1312,18 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # is a declaration, a `done` phase with a `blocked_reason` was skipped, and
 # OMH never sees the change land. A pointer reading "load the closing
 # reference" would be shorter and would let a close report be written without
-# ever opening it. Re-derived from the full-profile
-# skill_context_cost_payload() producer.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 979226
+# ever opening it.
+#
+# The line costs 320 and the net is 278, because the same change also
+# REMOVED two trigger phrases from that skill's routing-signals line. They
+# were a chat trigger for closing a story, withdrawn after measurement:
+# `close the story` matches inside "close the story book", so the phrases
+# named this skill on prose while still missing four of the six natural
+# phrasings of the real request. Re-derived from the full-profile
+# skill_context_cost_payload() producer, which is why the step is 278 and
+# not the 320 the added line weighs. The step is what this entry owns:
+# rebasing past `ultraqa`'s raise moved both endpoints and left 278 alone.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 979184
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

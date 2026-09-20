@@ -5750,7 +5750,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The user wants an accepted implementation plan split into parallel lanes with owners and verification commands; use `ultrawork`.
   - The user wants the planning content itself -- options, risks, acceptance criteria before execution; use `ralplan`.
   - The user is asking what coding work is running right now rather than what the plan says; use `running-work-board`.
-- Strong routing signals: `todo-checklist`, `$todo`, `plan checklist`, `todo checklist`, `phase checklist`, `declare a plan checklist`, `declare the plan todo`, `show the plan todo`, `clear the plan todo`, `close the story`, `close out the story`
+- Strong routing signals: `todo-checklist`, `$todo`, `plan checklist`, `todo checklist`, `phase checklist`, `declare a plan checklist`, `declare the plan todo`, `show the plan todo`, `clear the plan todo`
 - Good example:
   - Prompt: declare a plan checklist for this migration so I can see where you are
   - Expected behavior: Declare numbered phases in delivery order with one task per observable outcome, exactly one active, and update states as work completes.

@@ -62,7 +62,7 @@ Bad example:
 
 Use when the user wants a declared, HUD-visible plan checklist for the work at hand, or wants to read, advance, or clear one, without starting a delivery engine.
 
-    Strong routing signals: `todo-checklist`, `$todo`, `plan checklist`, `todo checklist`, `phase checklist`, `declare a plan checklist`, `declare the plan todo`, `show the plan todo`, `clear the plan todo`, `close the story`, `close out the story`
+    Strong routing signals: `todo-checklist`, `$todo`, `plan checklist`, `todo checklist`, `phase checklist`, `declare a plan checklist`, `declare the plan todo`, `show the plan todo`, `clear the plan todo`
 
 ## Catalog Metadata
 

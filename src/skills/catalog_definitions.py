@@ -7142,15 +7142,16 @@ _DEFINITIONS = [
             "declare the plan todo",
             "show the plan todo",
             "clear the plan todo",
-            # The last phase of a code story reads this skill's record and no
-            # other, so closing one belongs here. Both words are everyday
-            # words and both are held in `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS`;
-            # what reaches the skill is the pair `close` + `story`, which
-            # `_todo_checklist_story_close_match` requires together and in
-            # either order, because "the story is done, close it" carries no
-            # contiguous phrase at all.
-            "close the story",
-            "close out the story",
+            # No trigger for closing a story, deliberately. The skill owns the
+            # close (see the quality bar below and
+            # `references/closing-a-story.md`), and the phase template is how
+            # a run reaches it; asking for it in plain words is an open gap,
+            # not an oversight. Every wording tried was built from `close`,
+            # `story` and a finishing word, which as a token set dispatched
+            # nine sentences about bedtime stories, closing ceremonies and
+            # Jira tickets, and as a phrase list still matched inside "close
+            # the story book" (#1789 carries the measurements and the two
+            # reasons a record cannot be the discriminator either).
         ),
         (
             "Use when the user wants a declared, HUD-visible plan checklist for the work at hand, or wants to read, "

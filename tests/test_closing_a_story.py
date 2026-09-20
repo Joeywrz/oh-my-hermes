@@ -1,21 +1,25 @@
-"""Closing a story has an owner, and the sentence that asks for it reaches it.
+"""Closing a story has an owner, and the page it opens may only cite records.
 
-Two claims, and each is pinned against the producer rather than a second copy
-of it.
-
-The routing claim: `close` and `story` are both everyday words, and the boost
-that carries a closing request to `todo-checklist` requires a third word
-saying the WORK is finishing. Each of the three is proved necessary by cutting
-it out of the sentence and measuring again, on `build_chat_interaction_payload`
--- the surface that decides a dispatch. `omh recommend` only ranks, and this
-repository has already reported a routing defect that did not exist by
-measuring the other one.
+Two claims, each pinned against the producer rather than a second copy of it.
 
 The page claim: `references/closing-a-story.md` may only tell a closer to read
 records that exist. Its source table is rendered from the same
 `HANDOVER_RECORD_SOURCES` the `wiki` handover page uses, so the two cannot
 disagree about which of the four outlives the session, and its caps and phase
 label are interpolated from the store and the template rather than typed.
+
+The routing claim is narrower than it first looks, and deliberately so. There
+is NO chat trigger for closing a story: every wording tried was built from
+`close`, `story` and a finishing word, which as an unordered token set
+dispatched nine sentences about bedtime stories, closing ceremonies and Jira
+tickets at high confidence, and as a phrase list still matched inside "close
+the story book". A run reaches the page through the `code-story` phase
+template instead. What IS pinned here is the half that stands on its own:
+`finance-analysis` carried the bare word `close` out of its "month-end close"
+phrase, and no longer does. Measured on `build_chat_interaction_payload` --
+the surface that decides a dispatch -- because `omh recommend` only ranks, and
+this repository has already reported a routing defect that did not exist by
+measuring the other one.
 """
 
 from __future__ import annotations
@@ -27,15 +31,12 @@ from omh.plugin_bundle.omh.todo_store import (
     MAX_TODO_TEXT_CHARS,
     TODO_STALE_SECONDS,
 )
-from omh.plugin_bundle.omh.todo_templates import CODE_STORY_TEMPLATE, template_phase_labels
-from omh.routing.recommend import (
-    _TODO_CHECKLIST_STORY_CLOSE_ACTION_TOKENS,
-    _TODO_CHECKLIST_STORY_CLOSE_COMPLETION_TOKENS,
-    _TODO_CHECKLIST_STORY_CLOSE_SUBJECT_TOKENS,
-    _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS,
-    _prepared_routable_definitions,
-    _tokens,
+from omh.plugin_bundle.omh.todo_templates import (
+    CODE_STORY_TEMPLATE,
+    template_coverage_error,
+    template_phase_labels,
 )
+from omh.routing.recommend import _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS
 from omh.skills.render import (
     HANDOVER_DURABLE_RECORD,
     HANDOVER_QUIZ_BASIS,
@@ -44,8 +45,6 @@ from omh.skills.render import (
     todo_checklist_reference_templates,
 )
 from omh.wrapper.contract import build_chat_interaction_payload
-
-CLOSE_BOOST = "direct:todo_checklist_story_close"
 
 
 def _route(message: str) -> dict:
@@ -66,80 +65,49 @@ def _closing_reference_content() -> str:
     raise AssertionError(f"{TODO_CHECKLIST_CLOSING_REFERENCE_PATH} is not rendered for todo-checklist")
 
 
-class StoryCloseRoutingTest(unittest.TestCase):
-    def test_a_finished_story_dispatches_to_the_skill_that_holds_the_record(self) -> None:
-        route = _route("close this story, it is done")
-        self.assertEqual(route["action"], "dispatch")
-        self.assertEqual(route["candidate_skill"], "todo-checklist")
-        self.assertEqual(route["confidence"], "high")
+# Measured on the deciding surface while a `close` + `story` + finishing-word
+# token set was in the tree. Every one of them dispatched to `todo-checklist`
+# at high confidence, scoring 30-36 against fields of 3-7. They are kept here
+# because the evidence is the expensive part (#1789): the first two are this
+# file's own negative controls with one finishing word added, which showed
+# that the finishing word filters a corpus rather than detecting that `story`
+# is the object of `close`.
+STORY_CLOSE_COUNTEREXAMPLES = (
+    "close the modal when the story carousel has finished",
+    "a user story that is closed in jira shows as done",
+    "the news story about the merger is done being edited, close the tab",
+    "closing the story arc in chapter twelve, the hero is finally done",
+    "the closing ceremony is done and the story of the games is over",
+    "the story of this outage is not done until we close the incident",
+    "the newspaper story is finished, close the layout file",
+    "close the story book after the child is done reading",
+    "the closing paragraph of the story is done",
+    "the story branch was merged, close the stale PR",
+    "we shipped the story to the newsroom and closed the comment thread",
+    "the release story is shipped, close the docs tab",
+)
 
-    def test_the_same_request_reaches_it_with_the_words_reversed(self) -> None:
-        """Why the rule is a token set and not a phrase list.
 
-        "the story is done, close it" shares no contiguous run of words with
-        the sentence above, and means the same thing.
-        """
+class StoryCloseHasNoChatTriggerTest(unittest.TestCase):
+    """The plain-words path is an open gap, and this is the bar it has to clear.
 
-        route = _route("the story is done, close it")
-        self.assertEqual(route["action"], "dispatch")
-        self.assertEqual(route["candidate_skill"], "todo-checklist")
+    These pass trivially today, because nothing routes a closing request at
+    all -- the skill is reached through the `code-story` phase template. They
+    are not a pin on the empty state: a correct trigger leaves every one of
+    them alone, so the battery states the property any future trigger must
+    have rather than freezing the absence of one. Whoever writes that trigger
+    should run this file first.
+    """
 
-    def test_each_of_the_three_token_kinds_is_load_bearing(self) -> None:
-        """Cut one word out and the boost has to go with it.
-
-        A rule nobody can drop a clause from is a rule that is doing less than
-        it claims. Each sentence below is the dispatching one with exactly one
-        of the three required kinds removed.
-        """
-
-        self.assertIn(CLOSE_BOOST, _matched_for("close this story, it is done", "todo-checklist"))
-        for missing, message in (
-            ("action", "this story, it is done"),
-            ("subject", "close this, it is done"),
-            ("completion", "close this story"),
-        ):
-            with self.subTest(missing=missing):
-                self.assertNotIn(CLOSE_BOOST, _matched_for(message, "todo-checklist"))
-                self.assertNotEqual(_route(message).get("action"), "dispatch")
-
-    def test_story_modifying_something_else_is_not_a_dispatch(self) -> None:
-        """The limit this rule accepts, written down rather than left implicit.
-
-        No token set can see that `story` modifies `panel` instead of being
-        the thing closed. The winding-up cue is what keeps these out of a
-        dispatch; `close the story` is still a trigger phrase, so the UI
-        sentence legitimately names the skill at clarify level, and that is
-        the trade -- not an oversight.
-        """
-
-        for message in (
-            "close the story panel when the modal loses focus",
-            "when is a user story considered closed in scrum",
-            "add a close button to the story carousel component",
-        ):
+    def test_no_counterexample_reaches_a_dispatch(self) -> None:
+        for message in STORY_CLOSE_COUNTEREXAMPLES:
             with self.subTest(message=message):
-                self.assertNotIn(CLOSE_BOOST, _matched_for(message, "todo-checklist"))
-
-    def test_every_token_the_rule_uses_is_held_back_for_this_skill(self) -> None:
-        """A word added to a set without a hold-back widens the skill silently.
-
-        These words also reach `todo-checklist` as the separate tokens of its
-        own trigger phrases, where they would each score a loose +3. The
-        hold-back is what leaves them scoring only through the pair.
-        """
-
-        prepared = {p.definition.name: p for p in _prepared_routable_definitions()}["todo-checklist"]
-        required = (
-            _TODO_CHECKLIST_STORY_CLOSE_ACTION_TOKENS
-            | _TODO_CHECKLIST_STORY_CLOSE_SUBJECT_TOKENS
-            | _TODO_CHECKLIST_STORY_CLOSE_COMPLETION_TOKENS
-        )
-        for token in sorted(required):
-            with self.subTest(token=token):
-                self.assertFalse(
-                    _tokens(token) & prepared.trigger_tokens,
-                    f"`{token}` scores a loose trigger-token credit for todo-checklist; add it to "
-                    "_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS or the pair is not what carries the intent",
+                route = _route(message)
+                self.assertNotEqual(
+                    (route.get("action"), route.get("candidate_skill")),
+                    ("dispatch", "todo-checklist"),
+                    "a closing trigger must not dispatch on a sentence that merely contains "
+                    "a closing verb, `story`, and a finishing word",
                 )
 
 
@@ -178,6 +146,33 @@ class ClosingReferenceContentTest(unittest.TestCase):
     def test_the_page_names_the_close_phase_from_the_template(self) -> None:
         close_phase = template_phase_labels(CODE_STORY_TEMPLATE)[-1]
         self.assertIn(f"`{close_phase}` in the `{CODE_STORY_TEMPLATE}` plan", _closing_reference_content())
+
+    def test_the_page_does_not_call_its_own_template_unordered(self) -> None:
+        """"No canonical sequence" is true of `omh_todo/v1`, not of this page's subject.
+
+        The page tells a closer to read the list as it stands, which is right
+        for both cases and for different reasons. An ordinary plan has no
+        order to derive; a `code-story` plan has one, numbered and enforced,
+        and stored order already is it. Both halves are checked against the
+        template rather than asserted in prose.
+        """
+
+        labels = template_phase_labels(CODE_STORY_TEMPLATE)
+        self.assertEqual(labels[0].split(".", 1)[0], "I")
+        self.assertEqual(labels[-1].split(".", 1)[0], "X")
+        reversed_plan = [
+            {"text": f"item {index}", "state": "done", "phase": label}
+            for index, label in enumerate(reversed(labels))
+        ]
+        self.assertIn(
+            "out of order",
+            template_coverage_error(CODE_STORY_TEMPLATE, reversed_plan),
+            "the page says a stamped plan naming its phases out of sequence is refused",
+        )
+        content = _closing_reference_content()
+        self.assertIn("**Phase by phase, in the list's own order.**", content)
+        self.assertIn("free-text label the store never ranks", content)
+        self.assertIn(f"A\n   `{CODE_STORY_TEMPLATE}` plan does have a delivery order", content)
 
     def test_the_page_takes_the_record_bounds_from_the_store(self) -> None:
         """Interpolated, never typed, so the prose cannot drift from the code."""

@@ -4,6 +4,43 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The setup keyboard menus stop throwing away keys you pressed while the
+  menu was redrawing, and read a whole keypress instead of its first three
+  bytes.** `_read_tui_key()` called `tty.setraw(fd)`, whose default is
+  `TCSAFLUSH` — the same call as `TCSADRAIN` except that it also DISCARDS
+  input not yet read. Because it ran once per keypress rather than once per
+  menu, every read began by destroying whatever had been typed in the
+  meantime. Measured on a pty: a Down arrow queued before the read survives
+  `TCSANOW` and `TCSADRAIN`, and is gone after `TCSAFLUSH`. Nothing wanted
+  that flush — discarding on entry is a technique for dropping a terminal's
+  unsolicited reply, and setup never queries the terminal, so the entry mode
+  is now `TCSADRAIN`, which differs from the old one in exactly the discard
+  and in nothing else, including where it can block.
+
+  The two halves had to ship together, because fixing the flush alone makes a
+  worse bug reachable. The read took a fixed two characters after an ESC, so
+  a keypress longer than three bytes — a modified arrow such as Ctrl+Left
+  (`ESC [ 1 ; 5 D`), a mouse report — left its tail in the queue. The flush
+  used to destroy that tail. Without the flush and without this second fix,
+  the tail is read as separate keypresses, and measured on a pty the menu
+  then sees `;`, then `5` — which is a menu choice, so one Ctrl+Left silently
+  selects option 5 and returns — and then leaks `D` onto the next prompt.
+  `_read_escape_tail()` now consumes a CSI through its final byte (`@`–`~`)
+  and an SS3 through its one byte, so no fragment of a keypress can arrive as
+  another. A complete sequence always starts with ESC and so can never equal
+  a single-character menu choice: the silent selection is unreachable by
+  construction rather than merely unlikely.
+
+  Reading to a terminator needs a bound, and a hang in an installer prompt is
+  worse than the bug being fixed, so there are two. The tail reads use
+  `VMIN=0`/`VTIME=1`, so a lone Esc — a real key — returns after a tenth of a
+  second instead of waiting forever for a sequence that is not coming (the
+  old fixed two-character read hung there). The CSI loop also stops at 16
+  characters, past every sequence a keyboard sends, so an unterminated
+  parameter run cannot hold it. `tests/test_setup_keyboard_input.py` drives
+  all of this against a real pty; the existing menu tests patch
+  `_read_tui_key` and so could never see any of it.
+
 - **Arrow keys pressed into a free-text setup prompt are no longer answered,
   scolded, and echoed back as raw escape bytes.** The provider question runs
   an arrow-key multi-select and then asks "Add another provider by name

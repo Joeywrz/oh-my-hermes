@@ -3764,16 +3764,70 @@ def _keyboard_menu_available() -> bool:
     )
 
 
+# `termios.tcgetattr` returns [iflag, oflag, cflag, lflag, ispeed, ospeed, cc].
+_TERMIOS_CONTROL_CHARACTERS = 6
+# Both bounds exist because a keypress is not the only thing that can arrive.
+# VTIME is in tenths of a second and ends a read with nothing to return, so a
+# lone ESC -- a real key, pressed to back out -- cannot hang the installer
+# waiting for a sequence that is never coming. The character cap ends a
+# sequence whose final byte never arrives, so a stream of parameter bytes
+# cannot hold the loop either. Sixteen is past every sequence a keyboard
+# sends; the longest one named here is six (`ESC [ 1 ; 5 D`).
+_ESCAPE_TAIL_TIMEOUT_TENTHS = 1
+_ESCAPE_SEQUENCE_MAX_CHARACTERS = 16
+
+
+def _read_escape_tail() -> str:
+    """The rest of one escape sequence after its ESC, read to its own end.
+
+    Reading a fixed two characters left the rest of a longer keypress -- a
+    modified arrow such as `ESC [ 1 ; 5 D`, or a mouse report -- in the input
+    queue, where the next read takes it for separate keypresses. That matters
+    more now that the queue is no longer flushed: `5` is a menu choice, so one
+    Ctrl+Left would otherwise pick option 5 and return. Consuming the whole
+    sequence is what makes that unreachable rather than merely unlikely.
+    """
+    file_descriptor = sys.stdin.fileno()
+    mode = termios.tcgetattr(file_descriptor)
+    mode[_TERMIOS_CONTROL_CHARACTERS][termios.VMIN] = 0
+    mode[_TERMIOS_CONTROL_CHARACTERS][termios.VTIME] = _ESCAPE_TAIL_TIMEOUT_TENTHS
+    termios.tcsetattr(file_descriptor, termios.TCSANOW, mode)
+    introducer = sys.stdin.read(1)
+    if introducer == "":
+        return ""  # a lone ESC: the key itself, not the start of anything
+    if introducer == "O":
+        return introducer + sys.stdin.read(1)  # SS3, always exactly one more
+    if introducer != "[":
+        return introducer  # ESC + one character, which is how Alt+key arrives
+    sequence = introducer
+    while len(sequence) < _ESCAPE_SEQUENCE_MAX_CHARACTERS:
+        character = sys.stdin.read(1)
+        if character == "":
+            return sequence  # cut short; there is nothing left to wait for
+        sequence += character
+        if "\x40" <= character <= "\x7e":
+            return sequence  # the CSI final byte, and the end of the keypress
+    return sequence
+
+
 def _read_tui_key() -> str:
     if termios is None or tty is None:
         return "\n"
     file_descriptor = sys.stdin.fileno()
     old_settings = termios.tcgetattr(file_descriptor)
     try:
-        tty.setraw(file_descriptor)
+        # TCSADRAIN rather than `tty.setraw`'s default TCSAFLUSH. The two are
+        # the same call except that TCSAFLUSH also DISCARDS input not yet
+        # read, and this runs once per keypress rather than once per menu --
+        # so the default threw away everything the operator typed while the
+        # menu was repainting. Nothing here wanted that flush: discarding on
+        # entry is a technique for dropping a terminal's unsolicited reply,
+        # and setup never queries the terminal. Both forms wait for pending
+        # output first, so this is not a new place to block.
+        tty.setraw(file_descriptor, termios.TCSADRAIN)
         key = sys.stdin.read(1)
         if key == "\x1b":
-            key += sys.stdin.read(2)
+            key += _read_escape_tail()
         return key
     finally:
         termios.tcsetattr(file_descriptor, termios.TCSADRAIN, old_settings)

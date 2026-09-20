@@ -1301,6 +1301,36 @@ class TodoPanelWaitingRowTests(unittest.TestCase):
         self.assertEqual(len(skipped), 1, texts)
         self.assertIn({"color": "warn", "text": " (skipped: no UI)"}, skipped[0]["parts"])
 
+    def test_a_running_plan_names_its_skips_on_the_header(self) -> None:
+        # The clause rides the running header too, so the count is there
+        # from the first skip rather than appearing on the line a finished
+        # plan collapses to. The numerator stays `done`, matching the ticks
+        # on the rows directly beneath it.
+        rows = self._rows(
+            [
+                {"text": "Implement", "state": "done"},
+                {"text": "Manual test guide", "state": "done", "blocked_reason": "no UI"},
+                {"text": "Close", "state": "active"},
+            ]
+        )
+
+        # The trailing dot is the live-plan pulse, which an active item earns.
+        self.assertEqual(rows[0]["text"], "[Plan] init │ 2/3 (1 skipped) .")
+        # Muted, like the phase count beside it: secondary to the numerator
+        # it modifies, and placed immediately after it so a narrow terminal
+        # truncates the phase count and the transient shot badge first.
+        self.assertIn({"color": "muted", "text": " (1 skipped)"}, rows[0]["parts"])
+
+    def test_a_running_plan_with_no_skips_renders_exactly_what_it_did_before(self) -> None:
+        rows = self._rows(
+            [
+                {"text": "Implement", "state": "done"},
+                {"text": "Close", "state": "active"},
+            ]
+        )
+
+        self.assertEqual(rows[0]["text"], "[Plan] init │ 1/2 .")
+
     def test_a_finished_plan_names_the_phases_it_skipped(self) -> None:
         # The finished panel is one line with no item rows, so it is the only
         # place the skips can still be seen. `done/total` alone answered

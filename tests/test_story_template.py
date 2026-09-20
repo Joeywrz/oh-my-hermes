@@ -372,6 +372,32 @@ class SkippedPhasesStayVisibleTest(_TodoHomeTest):
         self.assertEqual(counts["done"], 2)
         self.assertEqual(counts["active"], 1)
 
+    def test_a_running_story_names_its_skips_while_the_rows_are_still_there(self):
+        # The clause appears with the FIRST skip, not only at the end: the
+        # finished line's numerator drops (9/10 -> 6/10), and a person who
+        # has been reading `(3 skipped)` all along can reconcile that step
+        # instead of watching a number go backwards. It also outlasts the
+        # panel's eight-row window, which folds the skipped rows away long
+        # before the plan finishes.
+        todo = self._story(skips=3, finished=False)
+        lines = read_omh_hud(
+            self.home, self.hermes, session_ref=SESSION
+        )["display"]["todo_lines"]
+
+        self.assertEqual(todo["status"], "established")
+        # The numerator is still `done`, matching the ticks a reader can
+        # count on the rows below it; only the finished line subtracts.
+        self.assertEqual(todo["counts"]["done"], 5)
+        self.assertEqual(lines[0], "Todo · story   5/10 (3 skipped)")
+
+    def test_a_running_story_with_no_skips_renders_exactly_what_it_did_before(self):
+        self._story(skips=0, finished=False)
+        lines = read_omh_hud(
+            self.home, self.hermes, session_ref=SESSION
+        )["display"]["todo_lines"]
+
+        self.assertEqual(lines[0], "Todo · story   5/10")
+
     def test_a_finished_story_names_the_phases_it_skipped(self):
         todo = self._story(skips=4)
         lines = read_omh_hud(

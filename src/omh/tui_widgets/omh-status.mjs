@@ -93,21 +93,28 @@ export default function register(sdk) {
 
   const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
 
-  // `done/total` for a plan's header, with the skipped phases named when the
-  // record carries any. The reader's `_todo_done_text` (runtime_reader.py) is
-  // the same arithmetic on the same fields and the pair is pinned together,
-  // because a panel and a text HUD line disagreeing about how much of one
-  // plan was worked is worse than either number alone. `skipped` is a subset
-  // of `done`, so the worked phases are the difference. A payload from a
-  // generation that did not derive the count, or a plan with no skips,
-  // renders exactly what it rendered before.
-  const todoDoneText = counts => {
-    const done = Number(counts.done) || 0
-    const total = Number(counts.total) || 0
+  // The two rules the reader keeps in `_todo_skipped_clause` and
+  // `_todo_worked_count` (runtime_reader.py), on the same two headers, so the
+  // panel and the text HUD line cannot disagree about how much of one plan
+  // was worked.
+  //
+  // The clause rides BOTH headers: the count first appears with the first
+  // skip, while the item rows are still on screen to check it against,
+  // rather than arriving only on the line a finished plan collapses to. It
+  // is placed immediately after the numerator it modifies, which also
+  // decides what a narrow terminal drops -- `truncate-end` cuts the tail, so
+  // the phase count and the transient parallel-shot badge give way before
+  // this does.
+  //
+  // A payload from a generation that did not derive the count, or a plan
+  // with no skips, renders exactly what it rendered before.
+  const skippedClause = counts => {
     const skipped = Number(counts.skipped) || 0
-    if (skipped <= 0) return `${done}/${total}`
-    return `${Math.max(0, done - skipped)}/${total} (${skipped} skipped)`
+    return skipped > 0 ? ` (${skipped} skipped)` : ''
   }
+  // Only the FINISHED header subtracts. The running one keeps `done`,
+  // because its numerator sits directly above item rows a person can count.
+  const workedCount = counts => Math.max(0, (Number(counts.done) || 0) - (Number(counts.skipped) || 0))
 
   // Session metrics OMH can honestly source: cost sums observed per-agent
   // cost_usd across live bindings, ctx is the MAIN row's observed context
@@ -1051,14 +1058,11 @@ export default function register(sdk) {
           h(Text, { bold: true, color: t.color.primary }, '[Plan]'),
           title ? h(Text, { color: t.color.muted }, ` ${title}`) : null,
           h(Text, { color: t.color.border }, SEPARATOR),
-          // The reader's `_todo_done_text` arithmetic, kept in step with it:
-          // a finished plan has no item rows left, so this line is the only
+          // A finished plan has no item rows left, so this line is the only
           // place the skipped phases can still be seen, and `done/total`
           // alone would claim ten phases of work for a six-phase story.
-          // `skipped` is a subset of `done`, so the worked phases are the
-          // difference; with no skips this is byte-identical to the line
-          // this branch rendered before.
-          h(Text, { color: t.color.ok }, `✓ ${todoDoneText(counts)}`),
+          h(Text, { color: t.color.ok }, `✓ ${workedCount(counts)}/${counts.total ?? 0}`),
+          h(Text, { color: t.color.muted }, skippedClause(counts)),
           planShotBadge(payload, t),
         ),
         h(Rule, { columns, t }),
@@ -1186,6 +1190,7 @@ export default function register(sdk) {
       title ? h(Text, { color: t.color.muted }, ` ${title}`) : null,
       h(Text, { color: t.color.border }, SEPARATOR),
       h(Text, { color: t.color.warn }, `${counts.done ?? 0}/${counts.total ?? 0}`),
+      h(Text, { color: t.color.muted }, skippedClause(counts)),
       phaseCount > 1 ? h(Text, { color: t.color.muted }, ` · ${phaseCount} phases`) : null,
       planShotBadge(payload, t),
       hasActive && live ? h(PlanPulse, { t }) : null,

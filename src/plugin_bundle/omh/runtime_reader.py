@@ -2020,22 +2020,35 @@ def _todo_reason_verb(item: dict[str, Any]) -> str:
     return "skipped" if item.get("state") == "done" else "waiting"
 
 
-def _todo_done_text(counts: dict[str, Any]) -> str:
-    """``done/total``, with the skipped phases named when there are any.
+def _todo_skipped_clause(counts: dict[str, Any]) -> str:
+    """`` (N skipped)`` when the plan has any, else ``""``.
 
-    Written once and read by the finished-plan line here and by the widget's
-    own copy of it, so the two surfaces cannot disagree about the arithmetic.
-    The subtraction is the point: `counts["skipped"]` is a subset of
-    `counts["done"]` (see the comment where it is derived), so the phases
-    that were WORKED are `done - skipped`, and printing `done` unqualified
-    is what asserted completion of work nobody did.
+    Rides BOTH plan headers, and that is the point: the count first appears
+    with the first skip, while the item rows are still on screen to check it
+    against, rather than arriving only on the line a finished plan collapses
+    to. A plan that skipped nothing pays nothing -- the clause is absent and
+    both headers are byte-identical to what they were before it existed.
+
+    The widget keeps the same two rules (`skippedClause`, `workedCount`) for
+    the same two headers, so the panel and the text HUD line cannot disagree
+    about one plan.
     """
-    done = int(counts.get("done", 0) or 0)
-    total = int(counts.get("total", 0) or 0)
     skipped = int(counts.get("skipped", 0) or 0)
-    if skipped <= 0:
-        return f"{done}/{total}"
-    return f"{max(0, done - skipped)}/{total} ({skipped} skipped)"
+    return f" ({skipped} skipped)" if skipped > 0 else ""
+
+
+def _todo_worked_count(counts: dict[str, Any]) -> int:
+    """The phases that were WORKED: ``done`` less the ones that were skipped.
+
+    `counts["skipped"]` is a subset of `counts["done"]` (see the comment
+    where it is derived), so this is the subtraction, in one place. Only the
+    FINISHED line uses it. The running header keeps ``done`` because its
+    numerator sits directly above item rows a person can count, and a
+    numerator that disagrees with the ticks on screen is worse than the step
+    the two forms make at completion -- which is what the clause above, now
+    present on both, is there to reconcile.
+    """
+    return max(0, int(counts.get("done", 0) or 0) - int(counts.get("skipped", 0) or 0))
 
 
 def _todo_summary(
@@ -2396,8 +2409,16 @@ def _hud_todo_lines(todo: dict[str, Any], *, preset: str = "focused") -> list[st
         # beside it. A plan with no skips renders the identical line it
         # rendered before this clause existed: the subtraction is zero and
         # the clause is absent.
-        return [f"{label} ✓ {_todo_done_text(counts)}"]
-    header = f"{label}   {counts.get('done', 0)}/{counts.get('total', 0)}"
+        return [f"{label} ✓ {_todo_worked_count(counts)}/{counts.get('total', 0)}"
+                f"{_todo_skipped_clause(counts)}"]
+    # The running header keeps `done` as its numerator -- see
+    # `_todo_worked_count` -- and carries the same clause, so the skipped
+    # count is visible from the first skip rather than appearing only once
+    # the plan finishes and its rows are gone.
+    header = (
+        f"{label}   {counts.get('done', 0)}/{counts.get('total', 0)}"
+        f"{_todo_skipped_clause(counts)}"
+    )
     if preset == "minimal":
         return [header]
     full = preset == "full"

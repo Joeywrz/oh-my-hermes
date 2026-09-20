@@ -1410,6 +1410,19 @@ does not load TUI widget files, so this panel is a modern-TUI-only surface.
 merge evidence; an all-done list collapses to a single header line and a list
 untouched for 24 hours is hidden as stale.
 
+A plan may be declared from a named phase template instead of from phases the
+model writes out itself. `omh_todo` with `action=set` and
+`template: code-story` declares the ten phases of a code story — `I. Story`,
+`II. Implement`, `III. Review`, `IV. QA`, `V. Fix`, `VI. Manual test guide`,
+`VII. Deep guide`, `VIII. ELI5`, `IX. Quiz`, `X. Close` — in delivery order,
+and stores the template name on the record. Every later write to that record
+is held to the same coverage, so a phase cannot quietly leave the plan: a
+change that needs no manual test guide carries that phase as `state: done`
+with a `blocked_reason` saying why it does not apply, which the panel renders
+beside the row. A `set` without `template` declares an ordinary plan exactly
+as before, and nothing infers the template from what anyone typed — the
+argument is the whole of the declaration.
+
 The panel belongs to the session that declared the plan. When Hermes
 declares a plan through `omh_todo`, the record is stored for that session
 (`$OMH_HOME/runtime/todos/<session key>.json`) and read back only for it: the

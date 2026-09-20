@@ -48,6 +48,7 @@ from .todo_store import (
     MAX_TODO_PHASE_CHARS,
     MAX_TODO_SESSION_REF_CHARS,
     MAX_TODO_SOURCE_CHARS,
+    MAX_TODO_TEMPLATE_CHARS,
     MAX_TODO_TEXT_CHARS,
     MAX_TODO_TITLE_CHARS,
     TODO_ITEM_STATES,
@@ -2042,6 +2043,7 @@ def _todo_summary(
         "display_items": [],
         "display_phase": "",
         "deferred_reason": "",
+        "template": "",
         "more_count": 0,
         "stall": _todo_stall(None, None),
     }
@@ -2094,6 +2096,17 @@ def _todo_summary(
     summary["source"] = strip_control_characters(record.get("source", ""))[:MAX_TODO_SOURCE_CHARS]
     summary["updated_at"] = strip_control_characters(record.get("updated_at", ""))[:40]
     summary["items"] = items
+    # Projected so a writer can SEE the stamp it is holding. `set` replaces
+    # the whole record, so a re-declaration that forgets the template
+    # re-declares the plan as an ordinary one -- the writer owns the
+    # declaration, the way it owns `deferred_reason`. What it must not have to
+    # do is remember the stamp from a previous turn: `action=show` and every
+    # HUD surface read this field. Bounded rather than validated against the
+    # template catalog, because a reader's job here is to project what the
+    # record says and the writer is where an unknown name was already refused.
+    summary["template"] = strip_control_characters(record.get("template", ""))[
+        :MAX_TODO_TEMPLATE_CHARS
+    ]
     # The deferral verdict is decided here, once, for the same reason `stall`
     # is: the TUI panel, the text HUD line, the per-turn reminder, the turn-end
     # directive and `omh runtime todo show` all read one projection, and a

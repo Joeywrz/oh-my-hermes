@@ -445,6 +445,24 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class JevTargetClassificationTests(unittest.TestCase):
+    def test_jev_ids_classify_as_model_targets(self) -> None:
+        # The second classifier surface, kept in step with
+        # `_MODEL_FAMILY_PREFIXES`: a prefix that lands in one table and not
+        # the other makes the two surfaces name the same id differently.
+        for target in ("jev-1.13.0", "jev-latest", "jev-preview"):
+            with self.subTest(target=target):
+                self.assertEqual(parse_agent_spec(target).target_type, "model")
+                self.assertEqual(parse_agent_spec(target).cost_tier, "operator-selected")
+
+    def test_jev_near_misses_keep_their_own_classification(self) -> None:
+        # The prefix is `jev-`, so a word that merely starts with the letters
+        # is not a model, and neither is the plugin tool name a Hermes
+        # catalog entry declares.
+        self.assertEqual(parse_agent_spec("jevons-paradox").target_type, "agent")
+        self.assertEqual(parse_agent_spec("jev_evaluate").target_type, "agent")
+
+
 class MiniMaxTargetClassificationTests(unittest.TestCase):
     def test_minimax_ids_classify_as_model_targets(self) -> None:
         # Mirrors `_MODEL_FAMILY_PREFIXES` in model_routing: both classifier

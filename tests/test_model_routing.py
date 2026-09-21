@@ -18,11 +18,15 @@ from omh.coding.fanout_dispatch import build_dispatch_argv  # noqa: E402
 from omh.coding.model_routing import (  # noqa: E402
     CODING_MODEL_ROUTE_SCHEMA_VERSION,
     EXECUTOR_MODEL_OPTIONS,
+    GENERATIVE_MODEL_CLASS,
+    MODEL_CLASSES,
     MODEL_ROLES,
     MODEL_ROUTE_PROVENANCES,
     MODEL_ROUTE_STATUSES,
+    NON_GENERATIVE_MODEL_CLASS,
     REASONING_EFFORT_LADDER,
     ROLE_MODEL_CHAINS,
+    model_class,
     model_family,
     model_route_for_unit,
     resolve_model_route,
@@ -186,6 +190,132 @@ class FamilyPrefixParityTests(unittest.TestCase):
         self.assertEqual(model_family("deepseek"), "unknown")
         self.assertEqual(model_family("zai/glm-5"), "glm")
         self.assertEqual(model_family("opencode/big-pickle"), "unknown")
+
+
+_JEV_ROUTE_SPELLINGS = (
+    "jev",
+    "jev-latest",
+    "jev-1.13.0",
+    "typesafe/jev",
+    # A vendor's dated snapshot of an id the catalog knows resolves to its
+    # base, so the refusal has to survive that suffix too.
+    "jev-1.13.0-2026-09-15",
+)
+
+
+class NonGenerativeModelTests(unittest.TestCase):
+    """The first model class that cannot own a coding handoff.
+
+    Jev answers a typed Choice, Score, or Noul over options the caller
+    supplies and is not trained to generate text
+    (docs.typesafe.ai/model-jaggedness/jev-1.13, read 2026-09-21). OMH
+    recognizes it, contracts it, prices it, and refuses it everywhere a model
+    would be handed work to write.
+    """
+
+    def test_jev_family_is_recognized_on_every_served_spelling(self) -> None:
+        for model in ("jev-1.13.0", "jev-latest", "jev-preview", "JEV-1.13.0"):
+            with self.subTest(model=model):
+                self.assertEqual(model_family(model), "jev")
+        # The bare id is a served id, not a vendor word: TypeSafe's own docs
+        # send `jev-latest` in the `model` field and a gateway spells the
+        # bare form `typesafe/jev`, which strips to the same token.
+        self.assertEqual(model_family("jev"), "jev")
+        self.assertEqual(model_family("typesafe/jev"), "jev")
+
+    def test_near_misses_and_a_tool_name_stay_unknown(self) -> None:
+        # The prefix is `jev-` and the bare set holds exactly `jev`, so a
+        # word that merely begins with the letters does not classify, and
+        # neither does the plugin TOOL name a Hermes catalog entry declares
+        # (`jev_evaluate`) -- a tool is not a model.
+        for model in ("jevon", "jevons", "jev_evaluate", "jevity-7b", "typesafe/jevon"):
+            with self.subTest(model=model):
+                self.assertEqual(model_family(model), "unknown")
+                self.assertEqual(model_class(model), GENERATIVE_MODEL_CLASS)
+
+    def test_model_class_is_generative_by_default(self) -> None:
+        # The default is what keeps every model the catalog has never met
+        # routing exactly as it routes today.
+        for model in ("gpt-6-astra", "claude-opus-5", "opencode/big-pickle", "", "deepseek"):
+            with self.subTest(model=model):
+                self.assertEqual(model_class(model), GENERATIVE_MODEL_CLASS)
+        for model in _JEV_ROUTE_SPELLINGS:
+            with self.subTest(model=model):
+                self.assertEqual(model_class(model), NON_GENERATIVE_MODEL_CLASS)
+        self.assertEqual(MODEL_CLASSES, (GENERATIVE_MODEL_CLASS, NON_GENERATIVE_MODEL_CLASS))
+
+    def test_a_requested_non_generative_model_is_refused_not_routed(self) -> None:
+        for profile in ("codex", "claude-code", "hermes", "generic"):
+            for model in _JEV_ROUTE_SPELLINGS:
+                route = resolve_model_route(profile, requested_model=model, requested_effort="high")
+                with self.subTest(profile=profile, model=model):
+                    self.assertEqual(route["status"], "model_refused")
+                    self.assertIn(route["status"], MODEL_ROUTE_STATUSES)
+                    self.assertEqual(route["provenance"], "request_named_model")
+                    # Nothing was prepared, so nothing is reported: no model,
+                    # no effort, no chain, and no effort_change for a
+                    # requested effort to have changed into.
+                    self.assertEqual(route["selected_model"], "")
+                    self.assertEqual(route["selected_reasoning_effort"], "")
+                    self.assertEqual(route["chain"], [])
+                    self.assertNotIn("effort_change", route)
+                    refusal = route["refusal"]
+                    self.assertEqual(refusal["kind"], "non_generative_model")
+                    # The id is a field, so a JSON consumer never parses the
+                    # sentence to learn what was refused.
+                    self.assertEqual(refusal["requested_model"], model)
+                    self.assertEqual(route["attempted"][-1]["outcome"], "refused")
+
+    def test_the_hermes_recommendation_path_cannot_route_around_the_refusal(self) -> None:
+        # `resolve_model_route` hands Hermes to a separate resolver whenever
+        # a confirmed-active set is supplied; the refusal is decided from the
+        # id before that hand-off, so both paths answer the same way.
+        route = resolve_model_route(
+            "hermes", requested_model="jev-latest", active_models=("jev-latest", "kimi-k3")
+        )
+        self.assertEqual(route["status"], "model_refused")
+        self.assertEqual(route["selected_model"], "")
+        self.assertEqual(route["catalog_kind"], "editorial_recommendations")
+
+    def test_a_generative_request_still_wins_over_the_catalog(self) -> None:
+        # The invariant the refusal narrows and must not replace: an
+        # explicitly requested generative model is still never adjudicated.
+        route = resolve_model_route("codex", requested_model="custom-model-1", requested_effort="high")
+        self.assertEqual(route["status"], "routed")
+        self.assertEqual(route["selected_model"], "custom-model-1")
+
+    def test_a_non_generative_chain_entry_is_skipped_on_record(self) -> None:
+        # Defensive: no shipped chain names one, `omh model-chains set`
+        # refuses to write one, and the operator category config rejects one
+        # on read. A hand-edited document is the path that still reaches
+        # here, and the next generative entry must take the head rather than
+        # a model that answers with a Choice.
+        chains = {
+            "codex": {
+                "brain": (
+                    {"model_id": "jev-1.13.0", "reasoning_effort": "low"},
+                    {"model_id": "gpt-5.6-sol", "reasoning_effort": "high"},
+                )
+            }
+        }
+        route = resolve_model_route("codex", role="brain", chains=chains)
+        self.assertEqual(route["status"], "routed")
+        self.assertEqual(route["selected_model"], "gpt-5.6-sol")
+        self.assertEqual([entry["model_id"] for entry in route["chain"]], ["gpt-5.6-sol"])
+        skipped = [entry for entry in route["attempted"] if entry["stage"] == "chain_entry"]
+        self.assertEqual(len(skipped), 1)
+        self.assertEqual(skipped[0]["outcome"], "skipped")
+        self.assertIn("jev-1.13.0", skipped[0]["reason"])
+        self.assertIn(NON_GENERATIVE_MODEL_CLASS, skipped[0]["reason"])
+
+    def test_no_shipped_chain_names_a_non_generative_model(self) -> None:
+        # The claim the skip above is defensive about, asserted rather than
+        # assumed, over every profile and role the catalog ships.
+        for profile, chains in ROLE_MODEL_CHAINS.items():
+            for role, entries in chains.items():
+                for entry in entries:
+                    with self.subTest(profile=profile, role=role, model=entry["model_id"]):
+                        self.assertEqual(model_class(entry["model_id"]), GENERATIVE_MODEL_CLASS)
 
 
 _LOCAL_CATALOG = {
@@ -472,6 +602,12 @@ class RouteVocabularyPolicyTests(unittest.TestCase):
             for role in (*MODEL_ROLES, "tester"):
                 routes.append(resolve_model_route(profile, role=role))
         routes.append(resolve_model_route("codex", role="review", chains={"codex": {}}))
+        # The refusal path joins the enumerating gate: a status emitted by
+        # the resolver and absent from `MODEL_ROUTE_STATUSES` is exactly what
+        # this test exists to catch, and a branch it never reaches is not
+        # covered by it.
+        routes.append(resolve_model_route("codex", requested_model="jev-1.13.0"))
+        routes.append(resolve_model_route("hermes", requested_model="jev", active_models=()))
         return routes
 
     def test_emitted_statuses_and_provenances_are_declared(self) -> None:

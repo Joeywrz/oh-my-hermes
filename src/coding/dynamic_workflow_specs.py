@@ -84,6 +84,7 @@ _MODEL_TARGET_PREFIXES: Final[tuple[str, ...]] = (
     "deepseek-",
     "codestral-",
     "solar-",
+    "jev-",
 )
 _RUNTIME_TARGET_SUFFIXES: Final[tuple[str, ...]] = ("-runtime", "-executor")
 _TOOL_TARGET_SUFFIXES: Final[tuple[str, ...]] = ("-tool", "-mcp")

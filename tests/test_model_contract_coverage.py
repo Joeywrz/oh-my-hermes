@@ -77,6 +77,42 @@ class CoverageMatrixTests(unittest.TestCase):
         # does not turn that wire routing into an inherited contract.
         self.assertEqual(rows["deepseek/deepseek-v4-flash"]["status"], "missing")
 
+    def test_jev_reports_effort_category_and_provider_as_honestly_missing(self) -> None:
+        """Three dimensions report `missing` for Jev and all three are right.
+
+        `effort` is missing because the model has no effort parameter;
+        `category_projection` and `provider_eligibility` are missing because
+        the model is in no shipped chain, which is the decision, not an
+        oversight. The only lever that would turn any of them green is an
+        invented rung, an invented chain entry, or an `intentional_exclusion`
+        row -- and an exclusion would say OMH deliberately does not cover a
+        model it does cover, which is a different and false claim. This test
+        exists so nobody greens the row by reaching for one of them.
+        """
+        rows = {
+            row["requested_model"]: row
+            for row in build_model_contract_coverage(
+                _inventory(("jev-1.13.0", "typesafe/jev-latest"))
+            )["comparison"]["models"]
+        }
+        exact = rows["jev-1.13.0"]
+        self.assertEqual(exact["status"], "exact")
+        self.assertEqual(rows["typesafe/jev-latest"]["status"], "declared_inheritance")
+        for requested, row in rows.items():
+            with self.subTest(model=requested):
+                self.assertEqual(row["contract_model_id"], "jev-1.13.0")
+                self.assertEqual(row["dimensions"]["effort"]["status"], "missing")
+                self.assertEqual(row["dimensions"]["effort"]["reasoning_efforts"], [])
+                self.assertEqual(row["dimensions"]["category_projection"]["status"], "missing")
+                self.assertEqual(row["dimensions"]["provider_eligibility"]["status"], "missing")
+                # What IS covered, so the row is not read as an unfinished
+                # onboarding: the contract, its documentation, and its price.
+                self.assertEqual(row["dimensions"]["contract"]["status"], "covered")
+                self.assertEqual(row["dimensions"]["docs"]["status"], "covered")
+                self.assertEqual(row["dimensions"]["price"]["status"], "documented_list")
+                self.assertEqual(row["dimensions"]["family_recognition"]["family"], "jev")
+        self.assertEqual(exact["dimensions"]["price"]["prices_usd_per_mtok"]["output"], 0.0)
+
     def test_astra_catalog_reports_exact_declared_and_unknown_rows_by_dimension(self) -> None:
         inventory = _inventory(
             (

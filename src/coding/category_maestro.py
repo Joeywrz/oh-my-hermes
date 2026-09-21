@@ -31,7 +31,9 @@ from ..system.local_store import atomic_write_json, read_json_object_result
 from .model_routing import (
     BUILTIN_CATEGORY_MODELS,
     MODEL_CATEGORIES,
+    NON_GENERATIVE_MODEL_CLASS,
     canonical_model_category,
+    model_class,
 )
 
 CATEGORY_MAESTRO_SCHEMA_VERSION: Final[str] = "omh_category_maestro/v1"
@@ -78,6 +80,18 @@ def _validated_entry(entry: object, *, where: str, rejected: list[str]) -> dict[
     ):
         rejected.append(
             f"{where}: model_id must be a non-empty token without whitespace or a leading '-'"
+        )
+        return None
+    # Shape alone cannot catch this one: the token is well formed and the
+    # model is real, but a non-generative model answers typed questions and
+    # will never write the unit a category chain hands it. Named in
+    # `rejected` like every other dropped piece, so `omh coding
+    # category-maestro show` reports it instead of the category silently
+    # routing to a model that cannot do the work.
+    if model_class(model_id) == NON_GENERATIVE_MODEL_CLASS:
+        rejected.append(
+            f"{where}: model_id {model_id!r} is a {NON_GENERATIVE_MODEL_CLASS} model "
+            "(it answers typed questions and cannot write code)"
         )
         return None
     effort = str(entry.get("reasoning_effort", "") or "").strip().casefold()

@@ -44,12 +44,28 @@ All notable changes will be documented here.
   follows the field.
 
   The approval gate is the strongest thing OMH can do to a person's turn, so
-  every state the records cannot settle is silence. No record, another
-  session's record, a stale one, a finished plan, an unreadable home, a stamp
-  this build cannot classify, a call the host named no session for, and every
-  tool that is not one of the host's two file-mutating ones all return nothing
-  — the discipline #1738 landed for the unarmed-wait directive, applied to a
-  stronger action. Absence of the field is unknown rather than "not accepted",
+  every state the records cannot settle is silence. No record, a record this
+  session does not own, a stale one, a finished plan, an unreadable home, a
+  stamp this build cannot classify, a call the host named no session for, and
+  every tool that is not one of the host's two file-mutating ones all return
+  nothing — the discipline #1738 landed for the unarmed-wait directive,
+  applied to a stronger action.
+
+  Ownership is asked separately from freshness, and the separation is a
+  correction rather than a flourish. The renderer's `established` verdict
+  does not answer "whose plan is this": its identity rule reads an
+  unattributable plan as BELONGING, deliberately, so a real checklist is
+  never hidden from its owner on missing evidence. A gate that stops a
+  person's turn needs the opposite default — and a home-wide stamped record,
+  which the chat writer produces whenever the host names no session on the
+  same call that carries the stamp, projects as `established` for every
+  session id that asks. Reusing the renderer's verdict as ownership armed
+  this gate for three unrelated sessions under review. The projection now
+  states the raw fact, `own_record`, decided after transport ids are
+  translated to durable keys so a comparison of raw ids cannot refuse a
+  record the session does own; the gate reads that first. A stamped record
+  with no owner is unattributable by construction, and refusing it loses
+  nothing. Absence of the field is unknown rather than "not accepted",
   so a delivery checklist, a CLI write, and a record predating the field are
   all ungated; reading absence the other way would put this in front of every
   edit anyone makes with a todo list open.

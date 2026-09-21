@@ -32,21 +32,28 @@ fields of it decide everything, and neither is anybody's prose.
   the session limit" as blocked while missing "waiting on the owner's review"
   -- wrong in both directions on ordinary input (`todo_store`,
   `MAX_TODO_BLOCKED_REASON_CHARS`).
-* `status == "established"` -- the projection's own verdict that this
-  session's record is fresh and still has open work. Reused rather than
-  re-derived, because "whose plan is this" is a question the HUD, the
-  turn-end directive and `omh runtime todo show` already answer, and a second
-  copy of the session and staleness rules is how two readers come to disagree
-  about the same plan.
+* `own_record is True` -- the projection came from this session's OWN
+  record rather than the home-wide fallback. Ownership is asked separately
+  and answered first, because the renderer's verdict does not answer it: an
+  unattributable plan reads as belonging, deliberately, so that a real plan
+  is never hidden from its owner. A gate that stops a turn needs the
+  opposite default, and reading the renderer's answer as ownership is the
+  defect this gate shipped with (see the call site).
+* `status == "established"` -- the projection's own verdict that the record
+  is fresh and still has open work. Reused rather than re-derived, because
+  staleness and "is there work left" are questions the HUD, the turn-end
+  directive and `omh runtime todo show` already answer, and a second copy of
+  those rules is how two readers come to disagree about the same plan.
 
 Unknown never accuses
 ---------------------
 The discipline PR #1738 landed for the unarmed-wait directive, applied to a
 stronger action. Every path out of the narrow positive case returns None, and
 the list is the point rather than an accident of control flow: no record, a
-record belonging to another session, a stale record, a finished plan, a
-record this build cannot classify, an unreadable home, a call with no session
-id, and a tool that is not an edit. A wrong escalation stops a person's work
+record this session does not own -- including a home-wide one belonging to
+nobody -- a stale record, a finished plan, a record this build cannot
+classify, an unreadable home, a call with no session id, and a tool that is
+not an edit. A wrong escalation stops a person's work
 and costs trust; a missed one leaves them exactly where the prose rule already
 left them.
 
@@ -158,8 +165,14 @@ def plan_stage_edit_directive(
 
     The conjunction, in the order it is cheapest to refuse: this call is one
     of the host's two file-mutating tools, the host named a session, a person
-    could answer a prompt raised here, and that session's plan record is
+    could answer a prompt raised here, and this session's OWN plan record is
     established and stamped `awaiting_acceptance`. Anything else is None.
+
+    The session test is now an ordering choice rather than a correctness
+    one -- the ownership test below refuses an unnamed call anyway, since a
+    record cannot be owned by no session -- so what it buys is that such a
+    call never pays a file read. That is the property its test asserts,
+    because the verdict alone cannot tell the two arrangements apart.
 
     Never raises. Hermes logs a hook exception at WARNING and proceeds, so a
     handler that raised would leave a refusal nobody sees and an edit nobody
@@ -179,10 +192,37 @@ def plan_stage_edit_directive(
         return None
     if not isinstance(todo, dict):
         return None
-    # `established` is the projection's own word for "this session's record,
-    # fresh, with work still open". It already excludes `absent` (no record),
-    # `stale` (too old, or belonging to another session) and `all_done` (a
-    # finished plan), so those four refusals are one test rather than four
+    # Ownership FIRST, and as its own test rather than folded into the one
+    # below, because the two answer different questions and only one of them
+    # was ever being asked here. An earlier version of this gate read
+    # `established` alone and claimed it excluded "a record belonging to
+    # another session". It does not. The renderer's identity rule reads an
+    # unanswerable case as BELONGING, on purpose -- a real plan must never be
+    # hidden from its owner on missing evidence
+    # (`_todo_belongs_to_another_session`) -- so a stamped HOME-WIDE record
+    # projects as `established` for every session id that asks. That record
+    # is not hypothetical: the chat writer produces it whenever the host
+    # names no session, on the same call that carries the stamp
+    # (`tools/todo_tool.py`, `host_session_id`). Measured before the fix, one
+    # such record armed this gate for three unrelated session ids and stayed
+    # silent only for the empty one a test happened to pin.
+    #
+    # A gate that stops a person's turn needs the opposite default from a
+    # renderer: never escalate on a plan it cannot attribute. `own_record` is
+    # that fact -- this projection came from the session's OWN path -- and it
+    # is taken from the reader rather than re-derived here, because the
+    # reference a caller holds is not always the key a record is written
+    # under: a created TUI carries the gateway transport id while records are
+    # keyed on the durable session key. `_reading_session` translates that
+    # before ownership is decided, so comparing our own raw `session_id`
+    # against a stored `session_ref` would refuse a record this session
+    # really does own. A stamped record with no owner is unattributable by
+    # construction, and refusing it loses nothing.
+    if not todo.get("own_record"):
+        return None
+    # Freshness and open work, which is what `established` actually answers:
+    # it excludes `absent` (no record), `stale` (too old) and `all_done` (a
+    # finished plan), so those three refusals are one test rather than three
     # re-derivations of rules the HUD owns.
     if str(todo.get("status", "")) != "established":
         return None

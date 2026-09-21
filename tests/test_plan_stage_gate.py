@@ -435,30 +435,83 @@ class PlanStageUnknownIsSilentTest(_PlanStageHomeTest):
             with self.subTest(session_id=session):
                 self.assertIsNone(self.directive(session_id=session))
 
+    def test_a_call_with_no_session_is_refused_without_reading_anything(self):
+        """What the empty-session check is FOR, now that it is not the
+        correctness guard.
+
+        Ownership subsumes it: `_own_todo_record` returns False for an empty
+        id, so a session-less call could not arm the gate even if this check
+        were deleted -- and deleting it is invisible to every assertion
+        about the verdict. What it still buys is the docstring's own claim
+        about ordering, that the conjunction is tested cheapest-first: a
+        call the host named no session for must not pay a file read. So the
+        property under test is that the reader is never reached, which is
+        the only thing that distinguishes keeping this check from dropping
+        it.
+        """
+        _ = self.write_plan(plan_stage=PLAN_STAGE_AWAITING_ACCEPTANCE)
+        for session in ("", "   ", None):
+            with self.subTest(session_id=session):
+                with mock.patch.object(plan_stage_gate, "read_omh_todo") as reader:
+                    self.assertIsNone(self.directive(session_id=session))
+                reader.assert_not_called()
+        # The same patch DOES fire for a named session, so the assertion
+        # above is the guard answering rather than the patch never being
+        # reachable in this fixture.
+        with mock.patch.object(
+            plan_stage_gate, "read_omh_todo", return_value={}
+        ) as reader:
+            _ = self.directive(session_id=SESSION)
+        self.assertTrue(reader.called)
+
     def test_a_stamped_home_wide_record_escalates_for_nobody(self):
         """The case that makes the session test above a guard rather than a
         coincidence.
 
-        With the plan stored under a session, an unnamed call resolves to the
-        home-wide file, finds nothing, and is refused by the `established`
-        test -- so the session check itself is never what answered. Here the
-        stamped record IS the home-wide file, so the reader does find one for
-        a call the host named no session for, and only the session check
-        stands between it and an approval prompt attributed to no session.
-        Nothing writes this record today; it is the shape a hand-edit or a
-        future writer produces, which is why the guard is cheap to keep.
+        The chat writer produces exactly this record. `host_session_id`
+        returns `""` when the host names no session, and that is the same
+        `action=set` call that carries `plan_stage` (`tools/todo_tool.py`),
+        so a stamped home-wide record is a thing this build writes rather
+        than a shape only a hand-edit reaches.
+
+        An earlier version of this test pinned only `session_id=""` and was
+        titled as though it had shown more. It had not. The record projects
+        as `established` for EVERY id, because the renderer's identity rule
+        reads an unattributable plan as belonging rather than hide a real
+        plan on missing evidence -- and measured against that version, three
+        unrelated session ids armed the gate while the empty one it happened
+        to pin did not. The title's claim is the one worth holding, so the
+        table spans the ids that fail differently: the empty one, a
+        well-formed OMH session id, a gateway-shaped id, an arbitrary string.
         """
         record = build_todo_record(
             "shell plan", PLANNING_ITEMS, source="omh_todo", session_ref=""
         )
         record["plan_stage"] = PLAN_STAGE_AWAITING_ACCEPTANCE
         self.rewrite(record)
-        # The record really is readable and really is stamped, so the refusal
-        # below cannot be the file simply failing to load.
-        projection = read_omh_todo(str(self.home), str(self.hermes), session_ref="")
+        # Readable, stamped, and `established` for a named session -- so
+        # every refusal below is the ownership test answering, not the file
+        # failing to load and not staleness.
+        projection = read_omh_todo(str(self.home), str(self.hermes), session_ref=SESSION)
         self.assertEqual(projection.get("plan_stage"), PLAN_STAGE_AWAITING_ACCEPTANCE)
         self.assertEqual(projection.get("status"), "established")
-        self.assertIsNone(self.directive(session_id=""))
+        self.assertFalse(projection.get("own_record"))
+        for session in ("", SESSION, "some-discord-session", "totally-unrelated"):
+            with self.subTest(session_id=session or "(none)"):
+                self.assertIsNone(self.directive(session_id=session))
+
+    def test_the_session_that_owns_its_record_is_still_gated(self):
+        """The ownership refusal must not be a blanket one.
+
+        Paired with the table above on purpose: that test would pass just as
+        well if the gate had stopped working altogether, so this asserts the
+        positive half over the same fixture shape -- same stamp, same items,
+        written under a session instead of home-wide.
+        """
+        _ = self.write_plan(plan_stage=PLAN_STAGE_AWAITING_ACCEPTANCE)
+        projection = read_omh_todo(str(self.home), str(self.hermes), session_ref=SESSION)
+        self.assertTrue(projection.get("own_record"))
+        self.assertIsNotNone(self.directive(session_id=SESSION))
 
     def test_a_read_that_raises_is_a_record_this_gate_cannot_classify(self):
         """Hermes logs a hook exception at WARNING and proceeds.

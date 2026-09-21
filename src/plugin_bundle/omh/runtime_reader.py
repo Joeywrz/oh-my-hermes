@@ -2088,6 +2088,11 @@ def _todo_summary(
         "deferred_reason": "",
         "template": "",
         "plan_stage": "",
+        # Whether this projection came from the reading session's OWN record
+        # rather than the home-wide fallback. False here because there is no
+        # record at all, which is the same answer a consumer needs: an absent
+        # plan belongs to nobody.
+        "own_record": False,
         "more_count": 0,
         "stall": _todo_stall(None, None),
     }
@@ -2172,6 +2177,25 @@ def _todo_summary(
         : MAX_TODO_PLAN_STAGE_CHARS + 1
     ]
     summary["plan_stage"] = plan_stage if plan_stage in TODO_PLAN_STAGES else ""
+    # Ownership, stated as a fact about WHICH RECORD this is rather than as a
+    # verdict about whether to show it. `status` cannot answer it: the
+    # identity rule behind `established` reads an unanswerable case as
+    # BELONGING, deliberately and correctly, because a checklist must never
+    # be hidden from the session that owns it on missing evidence
+    # (`_todo_belongs_to_another_session`). A consumer that stops a person's
+    # turn needs the opposite default, so it gets the raw fact and picks its
+    # own direction.
+    #
+    # This is `_own_todo_record`'s answer and not a re-derivation, which
+    # matters for one case a session-id comparison gets wrong: the reference
+    # a caller holds is not always the key a record is written under -- a
+    # created TUI carries the gateway TRANSPORT id while records are keyed on
+    # the durable session key. `_reading_session` translates that above,
+    # BEFORE this is decided, so a consumer comparing its own raw id against
+    # a stored `session_ref` would refuse a record the session really does
+    # own. Hence a boolean decided here, not an id exported for others to
+    # compare.
+    summary["own_record"] = own_record
     # The deferral verdict is decided here, once, for the same reason `stall`
     # is: the TUI panel, the text HUD line, the per-turn reminder, the turn-end
     # directive and `omh runtime todo show` all read one projection, and a

@@ -58,6 +58,7 @@ references rather than normal user steps.
 | Judge whether a realtime voice connector keeps whole spoken turns | [Realtime Voice Trial Receipts](REALTIME-VOICE-TRIAL-RECEIPTS.md) |
 | See which OMH workflow owns each plugin in the active host catalog | [Plugin Catalog Coverage](PLUGIN-CATALOG-COVERAGE.md) |
 | Tell whether a local plugin's declared hooks can block an action or only watch one | [Declared Plugin Hook Contract](PLUGIN-HOOK-CONTRACT.md) |
+| Understand final Kanban readback limits, omissions and claim labels | [Kanban Readback Ceiling](KANBAN-READBACK-CEILING.md) |
 | Tell whether a local plugin can replace its own installed code outside the host update path | [Plugin Self-Update and Code Replacement](PLUGIN-SELF-UPDATE-AUDIT.md) |
 | Choose a situation-level workflow | [Playbooks](PLAYBOOKS.md) |
 | Prepare or verify a release | [Release](RELEASE.md) |

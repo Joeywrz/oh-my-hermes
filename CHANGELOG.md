@@ -4,6 +4,8 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+## 2.0.4 - 2026-09-21
+
 - **A prepared route now names the session that prepared it, so the HUD label
   it exists to upgrade finally reaches the HUD.** `omh_delegate_route` records
   every route it writes in `~/.omh/routing/route-provenance.json`, and the

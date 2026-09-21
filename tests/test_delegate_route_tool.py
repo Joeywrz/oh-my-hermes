@@ -929,10 +929,15 @@ class RouteProvenanceRecordingTest(unittest.TestCase):
         self.config = self.home / "config.yaml"
         self.omh_home = self.home / ".omh"
 
-    def _call(self, **args) -> dict:
+    def _call(self, *, host_session: str | None = None, **args) -> dict:
+        # `host_session` goes where the host puts it -- a dispatch keyword --
+        # while everything in `args` is model-supplied. That split is what
+        # the ownership field rests on.
+        dispatch = {} if host_session is None else {"session_id": host_session}
         return json.loads(
             omh_delegate_route_handler(
-                {"hermes_home": str(self.home), "omh_home": str(self.omh_home), **args}
+                {"hermes_home": str(self.home), "omh_home": str(self.omh_home), **args},
+                **dispatch,
             )
         )
 
@@ -971,3 +976,35 @@ class RouteProvenanceRecordingTest(unittest.TestCase):
         self.assertEqual(records[-1]["origin"], "explicit")
         self.assertEqual(records[-1]["category"], "quick")
         self.assertEqual(records[-1]["wire_model"], "my-model")
+
+    def test_every_origin_records_the_session_that_prepared_the_route(self):
+        # The host passes `session_id` on every tool dispatch
+        # (`model_tools._execute_tool` -> `registry.dispatch`), and the value
+        # is the durable id `state.db` names, so a session-scoped HUD can
+        # keep its own conversation's routes instead of discarding the whole
+        # history to avoid borrowing someone else's.
+        owner = "20260920_233032_739b8a"
+        self._call(action="set", category="quick", host_session=owner)
+        for _ in range(4):
+            self._call(action="fallback", category="quick", host_session=owner)
+        self._call(action="set", category="quick", model="my-model", host_session=owner)
+        self._call(action="clear", host_session=owner)
+        records = load_delegation_route_provenance(self.omh_home)
+        self.assertEqual(
+            sorted({record["origin"] for record in records}),
+            ["cleared", "exhausted_to_inherit", "explicit", "fallback", "head"],
+        )
+        self.assertEqual({record["session_id"] for record in records}, {owner})
+
+    def test_a_dispatch_that_names_no_session_records_no_owner(self):
+        # Additive-optional: the key is absent, not empty, so the record is
+        # the one this tool wrote before the field existed.
+        self._call(action="set", category="quick")
+        self.assertNotIn("session_id", load_delegation_route_provenance(self.omh_home)[-1])
+
+    def test_a_model_supplied_session_id_cannot_claim_ownership(self):
+        # Tool args come from the model. If one could name the session, a
+        # model could stamp another conversation's id on a route and have
+        # that conversation's HUD relabel children it never dispatched.
+        self._call(action="set", category="quick", session_id="20260920_233032_739b8a")
+        self.assertNotIn("session_id", load_delegation_route_provenance(self.omh_home)[-1])

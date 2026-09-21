@@ -968,6 +968,11 @@ def configured_route_for_wire(
 # inherit. The record is preparation evidence only: a label upgrade for an
 # observed child whose wire identity matches, never execution evidence and
 # never a routing input.
+#
+# Each record also names the session that prepared the route, so a
+# session-scoped reader can keep its own conversation's records instead of
+# discarding the history whole. It stays a route record: identity, model,
+# category, timestamp and owner — never anything about what was said.
 DELEGATION_ROUTE_PROVENANCE_SCHEMA_VERSION = "delegation_route_provenance/v1"
 _PROVENANCE_RECORD_LIMIT = 32
 # A route write immediately precedes its dispatch (the tool contract is
@@ -1012,6 +1017,17 @@ def _valid_provenance_record(record: object) -> dict[str, Any] | None:
         if not isinstance(value, str) or len(value) > 160:
             return None
         cleaned[field] = value
+    # `session_id` names the Hermes session that prepared this route, and is
+    # additive-optional inside `delegation_route_provenance/v1`: the key is
+    # kept only when non-empty, so a writer that cannot name its session
+    # produces exactly the record this function produced before the field
+    # existed. A malformed owner refuses the record the same way every other
+    # malformed field does, which the loader turns into "no provenance".
+    owner = record.get("session_id", "")
+    if not isinstance(owner, str) or len(owner) > 160:
+        return None
+    if owner:
+        cleaned["session_id"] = owner
     return cleaned
 
 
@@ -1869,9 +1885,64 @@ def served_model_attestation(
     return attestation
 
 
+def _attach_opening_goals(connection: sqlite3.Connection, children: list[dict[str, Any]]) -> None:
+    """The dispatch prompt each child was opened with, as its own row's label.
+
+    The HUD already renders a goal sentence -- `action` is the manifest task's
+    `goal`, which IS the text the dispatcher wrote -- so this adds no new class
+    of content to the screen. What it adds is OWNERSHIP. A manifest names no
+    session, so in session scope it cannot be attributed and is dropped, and
+    the row loses its label; a child's own first user message is in that
+    child's session row, so the attribution is a primary key rather than a
+    timestamp guess. That is why this is read here and the manifest is not.
+
+    Rendered and never written anywhere: the reader persists nothing, and the
+    awareness ledger's rule about never recording what was said is untouched
+    by a label the HUD draws and forgets.
+
+    The limit here bounds what the READER holds, not what renders -- the row
+    applies `_ACTION_LIMIT` again on its way to `action`, so a first message
+    that is a 100 KB paste never becomes 32 of those in memory. One number,
+    two jobs; only the render one is observable from a row, so only that one
+    is pinned by a test.
+
+    Best-effort like every other enrichment here. A missing table, an older
+    schema, or a child whose first row is not a user message leaves the label
+    empty, which is what the row showed before.
+    """
+    pending = [child for child in children if not child.get("opening_goal")]
+    if not pending:
+        return
+    placeholders = ",".join("?" for _ in pending)
+    try:
+        cursor = connection.execute(
+            "SELECT session_id, content FROM messages WHERE rowid IN ("
+            f"SELECT MIN(rowid) FROM messages WHERE session_id IN ({placeholders}) "
+            "AND role = 'user' GROUP BY session_id)",
+            tuple(child["session_id"] for child in pending),
+        )
+        opened = {str(row[0]): _text(row[1], limit=_ACTION_LIMIT) for row in cursor.fetchall()}
+    except sqlite3.Error:
+        return
+    for child in pending:
+        child["opening_goal"] = opened.get(child["session_id"], "")
+
+
 def _query_state_db(state_db: Path, *, now: float, session_ref: str | None = None) -> dict[str, Any]:
-    """Read child sessions, usage tallies, and delegation states, read-only."""
-    result: dict[str, Any] = {"children": [], "delegation_states": {}, "parent_models": {}, "scope": "global"}
+    """Read child sessions, usage tallies, and delegation states, read-only.
+
+    `owners` is the conversation the rows were selected for, and is empty in
+    global scope. It is reported rather than kept private because ownership
+    of a child and ownership of the route prepared for it are the same
+    question, answered once here.
+    """
+    result: dict[str, Any] = {
+        "children": [],
+        "delegation_states": {},
+        "parent_models": {},
+        "owners": frozenset(),
+        "scope": "global",
+    }
     try:
         connection = sqlite3.connect(
             f"file:{state_db}?mode=ro", uri=True, timeout=0.25
@@ -1885,6 +1956,7 @@ def _query_state_db(state_db: Path, *, now: float, session_ref: str | None = Non
             owners = _conversation_session_ids(connection, session_ref)
             if owners:
                 result["scope"] = "session"
+                result["owners"] = frozenset(owners)
                 placeholders = ",".join("?" for _ in owners)
                 owner_filter = (
                     " AND CASE WHEN json_valid(model_config) THEN "
@@ -1996,6 +2068,7 @@ def _query_state_db(state_db: Path, *, now: float, session_ref: str | None = Non
                 }
             for child in children:
                 child["usage"] = usage.get(child["session_id"], {})
+            _attach_opening_goals(connection, children)
 
         cursor = connection.execute(
             "SELECT delegation_id, state FROM async_delegations WHERE dispatched_at >= ?",
@@ -2061,8 +2134,21 @@ def read_hermes_native_subagents(
         if payload["scope"] == "global" else []
     )
     if payload["scope"] == "session":
-        # Prepared route records likewise carry no conversation ownership.
-        route_provenance = []
+        # A prepared route belongs to the session that wrote it, and that
+        # session is the same identity the child filter above selected on,
+        # so the history is filtered rather than discarded. Discarding it
+        # was why the upgrade never once fired in the HUD: the widget reads
+        # session-scoped, and every record went out with the bathwater.
+        #
+        # A record with no owner is not this conversation's by default. It
+        # predates the field or came from a writer that could not name its
+        # session, and unknown ownership is exactly what must not be
+        # borrowed — which is also what those records did before, so no
+        # install gets a worse label than it has today.
+        owners = state.get("owners") or frozenset()
+        route_provenance = [
+            record for record in route_provenance if record.get("session_id") in owners
+        ]
     payload["attestation_coverage"] = ATTESTATION_COVERAGE_CLAIM
     # The requested side of the attestation, for children whose session row
     # names no model: `delegation.model` is what the next `delegate_task`
@@ -2256,7 +2342,12 @@ def read_hermes_native_subagents(
             "state": row_state,
             "task_id": session_tail,
             "role": "hermes-native",
-            "action": _text(task.get("goal", ""), limit=_ACTION_LIMIT),
+            # The manifest task's goal when one could be attributed, else the
+            # prompt the child itself was opened with. Same sentence, and the
+            # fallback is the one with provable ownership -- see
+            # `_attach_opening_goals`.
+            "action": _text(task.get("goal", ""), limit=_ACTION_LIMIT)
+            or _text(child.get("opening_goal", ""), limit=_ACTION_LIMIT),
             "alias": route_alias,
             "provider": route_provider,
             "model": wire_model,

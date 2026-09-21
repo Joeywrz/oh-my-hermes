@@ -4,6 +4,53 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A prepared route now names the session that prepared it, so the HUD label
+  it exists to upgrade finally reaches the HUD.** `omh_delegate_route` records
+  every route it writes in `~/.omh/routing/route-provenance.json`, and the
+  reader uses that record to say a lane was ROUTED to the parent's own model
+  rather than merely inheriting it — the shape the owner's `deep` chain
+  produces, since its head is the model the session itself runs. The reader
+  threw the whole history away in session scope, on the correct observation
+  that a record carrying no owner cannot be claimed by one conversation. The
+  TUI widget always reads session-scoped, so the upgrade had never once fired
+  on screen: three children observably routed to `deep` rendered as
+  `inherit(deepseek-flash:high)`, twenty seconds after the record that said
+  otherwise.
+
+  The row's LABEL came back the same way, from the one source that can prove
+  it. The title column renders a dispatch goal, and it had been reading the
+  host manifest — which names no session, so session scope drops it and the
+  row went out blank beside its id. A child's first user row is inside that
+  child's own session, so attributing it is a primary key rather than a
+  timestamp guess, and the sentence is the same sentence: the manifest's
+  `goal` IS the dispatch prompt, so nothing new in kind reaches the screen.
+  The manifest stays unattributable and stays dropped; the fallback never
+  outranks a goal that was attributed.
+
+  The fix is the owner the record was missing, not a scope exemption. The
+  tool handler already reads the dispatching session from the host keyword
+  (`host_session_id(kwargs)`, the durable id `state.db` names) to scope the
+  route-restore baseline, and now stamps the same id on the provenance
+  record; session scope filters the history by that owner using the same
+  conversation set it already selects children with, so a record another
+  conversation prepared still cannot label this one's lanes.
+
+  The field is additive-optional inside `delegation_route_provenance/v1` and
+  the schema version does not move, on the same terms `session_ref` and
+  `deferred_reason` joined `omh_todo/v1`: the key is written only when
+  non-empty, so a writer that cannot name its session produces the record it
+  produced before, and a reader that predates the field ignores it. Bumping
+  the version would have been the harmful choice — every existing reader
+  discards a document whose `schema_version` it does not recognise, so a
+  rollback would lose the global-scope labels that work today. An ownerless
+  record stays unclaimed in session scope, which is exactly what it did
+  before, so no install gets a worse label than it has; global scope is
+  unchanged and still reads every record, because it makes no ownership
+  claim about the children it lists either. A malformed owner refuses its
+  record like any other malformed field, which the loader turns into "no
+  provenance" — provenance only ever upgrades a label and still never gates
+  routing.
+
 - **A change nobody can prove with a command now has a page for the guide a
   person follows instead.** `VI. Manual test guide` is a phase of the
   `code-story` plan template, and the repository owned that artifact only for

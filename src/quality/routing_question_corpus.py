@@ -46,9 +46,12 @@ from ..routing.route_question import (
     FIT_QUESTION_PREFIX,
     NO_WORKFLOW_OPTION,
     ROUTE_CHOICE_KEY,
+    build_route_question_for_candidate_handoff,
     build_route_question_from_candidates,
     clean_skill_description,
     fit_question_skill,
+    message_digest,
+    normalized_route_candidates,
 )
 from ..skills.catalog import builtin_definitions
 from .reported_rate import reported_rate
@@ -72,6 +75,18 @@ INTERVENTION_CORPUS = "intervention"
 
 DETERMINISTIC_ARM = "deterministic"
 UNKNOWN_ARM = "unknown"
+
+# Where an item's question came from, and whether a live route would ask it.
+#
+# A live route attaches a question only where it could not decide, and it
+# builds that question from the candidate handoff. Every other case is one the
+# router resolved, so live never asks about it: the corpus still carries a
+# question for it -- an offline arm can answer the whole corpus -- but no
+# recorded live answer can ever exist for it, and counting those cases against
+# a live arm would report it as having failed to answer questions it was never
+# asked.
+HANDOFF_QUESTION_SOURCE = "candidate_handoff"
+RECOMMENDATIONS_QUESTION_SOURCE = "recommendations"
 
 # The action vocabulary an answer set resolves to. `none` covers both "no
 # workflow applies" and the router's own `fallback`, which is the same
@@ -120,8 +135,13 @@ _SCORE_CLAIM_BOUNDARY = (
     "`agree` is an exact match on both questions and is not a pass metric: the router "
     "answers `clarify` on negative controls where asking one question is the "
     "correct non-hijacking behaviour, and those count as disagreements here "
-    "while staying passes there. An arm's score describes these corpora at "
-    "this revision and nothing beyond them."
+    "while staying passes there. An arm answering recorded live routes is "
+    "scored only on the cases a live route asks about; the rest are named "
+    "`not_live_joinable` and excluded from its denominators, never counted as "
+    "questions it failed to answer. A `digest_mismatch` is an answer about "
+    "this request asked over a shortlist cut differently by the surface that "
+    "asked it; it is scored and reported, not dropped. An arm's score "
+    "describes these corpora at this revision and nothing beyond them."
 )
 
 
@@ -139,6 +159,17 @@ class AnswerRecord:
     question_digest: str
     answers: dict[str, Any]
     error: str = ""
+    # The message this answer was about. It is the primary join key, because a
+    # question digest also covers the candidate shortlist and the shortlist is
+    # cut differently per surface -- a route-hint question carries two
+    # candidates where a full route carries three -- so the same request
+    # produces a different digest depending on which surface asked. The message
+    # does not move.
+    message_sha256: str = ""
+    # True when this came from a `route_question_answer/v1` record, which is
+    # what a live route writes. It decides which denominator the arm is read
+    # against: a live arm can only ever answer the items a live route asks.
+    from_live_record: bool = False
 
 
 def report_safe_text(value: object, *, max_chars: int = MAX_REPORT_FIELD_CHARS) -> str:
@@ -279,7 +310,7 @@ def build_routing_question_corpus(*, source: str = "discord", limit: int = 3) ->
                 case_id=case.id,
                 corpus=NEGATIVE_CONTROL_CORPUS,
                 message=case.message,
-                message_sha256=str(interaction.get("message_sha256") or ""),
+                message_sha256=message_digest(case.message),
                 route=route,
                 descriptions=descriptions,
                 limit=limit,
@@ -303,7 +334,7 @@ def build_routing_question_corpus(*, source: str = "discord", limit: int = 3) ->
                 case_id=case.id,
                 corpus=INTERVENTION_CORPUS,
                 message=case.message,
-                message_sha256=str(interaction.get("message_sha256") or ""),
+                message_sha256=message_digest(case.message),
                 route=route,
                 descriptions=descriptions,
                 limit=limit,
@@ -328,6 +359,19 @@ def build_routing_question_corpus(*, source: str = "discord", limit: int = 3) ->
             "intervention_case_count": len(ROUTING_INTERVENTION_CASES),
         },
         "question_contract": routing_question_contract(),
+        # Both counts, because the difference is what a live arm can be scored
+        # on. Only a handoff item's question is one a live route ever asks, so
+        # a report that quoted the item count as a live denominator would be
+        # quoting questions nobody was asked.
+        "question_sources": {
+            HANDOFF_QUESTION_SOURCE: sum(
+                1 for item in items if item.get("question_source") == HANDOFF_QUESTION_SOURCE
+            ),
+            RECOMMENDATIONS_QUESTION_SOURCE: sum(
+                1 for item in items if item.get("question_source") == RECOMMENDATIONS_QUESTION_SOURCE
+            ),
+            "live_joinable": sum(1 for item in items if item.get("live_joinable")),
+        },
         "items": items,
         "claim_boundary": _CORPUS_CLAIM_BOUNDARY,
     }
@@ -345,21 +389,38 @@ def _corpus_item(
     expected: Mapping[str, str],
     deterministic: Mapping[str, object],
 ) -> dict[str, object]:
-    candidates = _candidates_from_route(route, descriptions, limit=limit)
-    reason = str(route.get("reason") or "")
-    # The message digest comes from the interaction payload this case was
-    # routed with, so the question digest identifies the case and not the
-    # shortlist it happens to share with several hundred others.
-    question = build_route_question_from_candidates(
-        candidates,
-        message_sha256=message_sha256,
-        reasons=(reason,) if reason else (),
-    )
+    # An undecidable route carries a candidate handoff, and that handoff is
+    # what a live route builds its question from. Mirroring it here -- same
+    # candidates, same reasons, same builder call -- is what lets an answer
+    # recorded on a live route be scored against this corpus at all. Reading
+    # `route["recommendations"]` instead would ask about the same skills with
+    # different text and different reasons, and every live record would land
+    # as unmatched with nothing saying why.
+    handoff = route.get("candidate_handoff")
+    if isinstance(handoff, Mapping):
+        question = build_route_question_for_candidate_handoff(handoff, message=message)
+        candidates = normalized_route_candidates(
+            [row for row in handoff.get("candidates", []) if isinstance(row, Mapping)]
+        )
+        question_source = HANDOFF_QUESTION_SOURCE
+    else:
+        # A decided route. Live never questions it, so this question exists for
+        # the offline arms alone and `limit` is the only thing cutting it.
+        candidates = normalized_route_candidates(_candidates_from_route(route, descriptions, limit=limit))
+        reason = str(route.get("reason") or "")
+        question = build_route_question_from_candidates(
+            candidates,
+            message_sha256=message_sha256,
+            reasons=(reason,) if reason else (),
+        )
+        question_source = RECOMMENDATIONS_QUESTION_SOURCE
     return {
         "case_id": case_id,
         "corpus": corpus,
         "message": message,
         "message_sha256": message_sha256,
+        "question_source": question_source,
+        "live_joinable": question_source == HANDOFF_QUESTION_SOURCE,
         "candidates": candidates,
         "question": question,
         "expected": dict(expected),
@@ -388,6 +449,15 @@ def corpus_shape_errors(corpus: object) -> tuple[str, ...]:
             errors.append(f"item {index} has no expected answer")
         if not isinstance(item.get("question"), Mapping):
             errors.append(f"item {index} has no question block")
+        # The message digest is the primary join key for a recorded answer, and
+        # `live_joinable` decides whether a live arm is scored on this item at
+        # all. A corpus missing either cannot be joined or denominated
+        # correctly, and both failures are silent -- an arm reads as having
+        # answered nothing -- so they are refused here instead.
+        if not str(item.get("message_sha256") or ""):
+            errors.append(f"item {index} has no message_sha256")
+        if not isinstance(item.get("live_joinable"), bool):
+            errors.append(f"item {index} does not say whether a live route asks it")
         # `case_passed` is the producer's own verdict on this case, and the
         # score report fails on it. A corpus that does not carry it cannot be
         # scored as a reading of the routing-precision gate, only as a
@@ -436,6 +506,8 @@ def parse_answer_row(
     ref: str,
     arm_default: str = "",
     digest_default: str = "",
+    message_default: str = "",
+    from_live_record: bool = False,
 ) -> AnswerRecord:
     """Read one `routing_question_answers/v1` row, keeping why it failed.
 
@@ -448,7 +520,14 @@ def parse_answer_row(
     external arm and the report is an artifact operators attach to a PR.
     """
     ref = report_safe_text(ref)
-    blank = AnswerRecord(ref=ref, arm=UNKNOWN_ARM, case_id="", question_digest="", answers={})
+    blank = AnswerRecord(
+        ref=ref,
+        arm=UNKNOWN_ARM,
+        case_id="",
+        question_digest="",
+        answers={},
+        from_live_record=from_live_record,
+    )
     if not isinstance(row, Mapping):
         return _failed(blank, "row is not an object")
     if row.get("schema_version") != ROUTING_QUESTION_ANSWERS_SCHEMA_VERSION:
@@ -460,7 +539,16 @@ def parse_answer_row(
     arm = report_safe_text(row.get("arm") or arm_default or "")
     case_id = report_safe_text(row.get("case_id") or "")
     digest = report_safe_text(row.get("question_digest") or digest_default or "")
-    record = AnswerRecord(ref=ref, arm=arm or UNKNOWN_ARM, case_id=case_id, question_digest=digest, answers={})
+    message = report_safe_text(row.get("message_sha256") or message_default or "")
+    record = AnswerRecord(
+        ref=ref,
+        arm=arm or UNKNOWN_ARM,
+        case_id=case_id,
+        question_digest=digest,
+        answers={},
+        message_sha256=message,
+        from_live_record=from_live_record,
+    )
     if not arm:
         return _failed(record, "row names no arm")
     if arm == DETERMINISTIC_ARM:
@@ -469,10 +557,18 @@ def parse_answer_row(
         # counted into a tally the report then replaces: its answers would
         # vanish while its malformed rows stayed visible, and the two halves of
         # one report would disagree. The name is refused instead, by name.
-        reserved = AnswerRecord(ref=ref, arm=UNKNOWN_ARM, case_id=case_id, question_digest=digest, answers={})
+        reserved = AnswerRecord(
+            ref=ref,
+            arm=UNKNOWN_ARM,
+            case_id=case_id,
+            question_digest=digest,
+            answers={},
+            message_sha256=message,
+            from_live_record=from_live_record,
+        )
         return _failed(reserved, f"arm name '{DETERMINISTIC_ARM}' is reserved for the router's own reading")
-    if not case_id and not digest:
-        return _failed(record, "row names neither case_id nor question_digest")
+    if not case_id and not digest and not message:
+        return _failed(record, "row names no case_id, question_digest, or message_sha256")
     answers = row.get("answers")
     if not isinstance(answers, Mapping):
         return _failed(record, "row carries no answers object")
@@ -488,6 +584,8 @@ def parse_answer_row(
         case_id=case_id,
         question_digest=digest,
         answers=dict(answers),
+        message_sha256=message,
+        from_live_record=from_live_record,
     )
 
 
@@ -499,6 +597,8 @@ def _failed(record: AnswerRecord, reason: str) -> AnswerRecord:
         question_digest=record.question_digest,
         answers={},
         error=reason,
+        message_sha256=record.message_sha256,
+        from_live_record=record.from_live_record,
     )
 
 
@@ -583,7 +683,9 @@ def read_answer_records_from_directory(path: Path) -> list[AnswerRecord]:
 
 
 def _record_from_document(document: object, *, ref: str) -> AnswerRecord:
-    blank = AnswerRecord(ref=ref, arm=UNKNOWN_ARM, case_id="", question_digest="", answers={})
+    blank = AnswerRecord(
+        ref=ref, arm=UNKNOWN_ARM, case_id="", question_digest="", answers={}, from_live_record=True
+    )
     if not isinstance(document, Mapping):
         return _failed(blank, "record is not an object")
     if document.get("schema_version") != ROUTE_QUESTION_ANSWER_SCHEMA_VERSION:
@@ -594,6 +696,8 @@ def _record_from_document(document: object, *, ref: str) -> AnswerRecord:
         ref=ref,
         arm_default=answered_by,
         digest_default=report_safe_text(document.get("question_digest") or ""),
+        message_default=report_safe_text(document.get("message_sha256") or ""),
+        from_live_record=True,
     )
 
 
@@ -652,6 +756,7 @@ class _ArmTally:
     wrong_workflow: int = 0
     correct_workflow: int = 0
     band_mismatch: int = 0
+    digest_mismatch: int = 0
     agree: int = 0
     no_dispatch_denominator: int = 0
     intervention_denominator: int = 0
@@ -698,8 +803,15 @@ def _tally_item(
             tally.wrong_workflow += 1
 
 
-def _arm_payload(tally: _ArmTally, *, case_count: int) -> dict[str, object]:
+def _arm_payload(tally: _ArmTally, *, case_count: int, live_only: bool = False) -> dict[str, object]:
     excluded = ("unanswered_cases", "malformed_answer_rows")
+    if live_only:
+        # A live arm answers only the questions a live route asks, which is the
+        # undecidable cases. Counting the decided ones against it would report
+        # an arm that answered everything it was asked as having answered a
+        # fraction, so they leave the denominator and the exclusion is named
+        # rather than silent.
+        excluded = excluded + ("not_live_joinable",)
     # `unanswered` counts cases and `malformed` counts rows, so a case whose
     # only row was malformed is in both: it is one row this arm wrote that
     # could not be read, and one case it therefore has no answer for. Neither
@@ -708,11 +820,13 @@ def _arm_payload(tally: _ArmTally, *, case_count: int) -> dict[str, object]:
     return {
         "answered": tally.answered,
         "unanswered": max(case_count - tally.answered, 0),
+        "case_count": case_count,
         "malformed": tally.malformed,
         "overroute": tally.overroute,
         "missed": tally.missed,
         "wrong_workflow": tally.wrong_workflow,
         "band_mismatch": tally.band_mismatch,
+        "digest_mismatch": tally.digest_mismatch,
         "agree": tally.agree,
         "overroute_rate": reported_rate(
             numerator=tally.overroute,
@@ -776,44 +890,75 @@ def score_routing_question_answers(
     by_case: dict[str, Mapping[str, Any]] = {}
     for item in items:
         by_case.setdefault(str(item.get("case_id") or ""), item)
+    by_message: dict[str, list[Mapping[str, Any]]] = {}
     by_digest: dict[str, list[Mapping[str, Any]]] = {}
     for item in items:
+        message = str(item.get("message_sha256") or "")
+        if message:
+            by_message.setdefault(message, []).append(item)
         question = item.get("question")
         digest = str(question.get("question_digest") or "") if isinstance(question, Mapping) else ""
         if digest:
             by_digest.setdefault(digest, []).append(item)
 
     tallies: dict[str, _ArmTally] = {}
+    live_arms: set[str] = set()
     seen: dict[tuple[str, str], str] = {}
     malformed: list[dict[str, str]] = []
     unmatched: list[dict[str, str]] = []
     ambiguous: list[dict[str, object]] = []
+    matched: list[dict[str, object]] = []
     for record in answer_records:
         tally = tallies.setdefault(record.arm or UNKNOWN_ARM, _ArmTally())
+        if record.from_live_record:
+            live_arms.add(record.arm or UNKNOWN_ARM)
         if record.error:
             tally.malformed += 1
             malformed.append({"ref": record.ref, "arm": record.arm, "reason": record.error})
             continue
         item = by_case.get(record.case_id) if record.case_id else None
+        joined_by = "case_id" if item is not None else ""
+        collision: list[Mapping[str, Any]] = []
+        collision_by = ""
+        # The message first, then the digest. A digest covers the candidate
+        # shortlist as well as the request, and the shortlist is cut per
+        # surface -- a route hint shows two candidates where a full route shows
+        # three -- so the same request asked on two surfaces produces two
+        # digests. The message does not move, so it is the key that joins an
+        # answer to the case it was about; the digest then says whether the
+        # shortlist was the same one.
+        if item is None and record.message_sha256:
+            matches = by_message.get(record.message_sha256, [])
+            if len(matches) == 1:
+                item, joined_by = matches[0], "message_sha256"
+            elif matches:
+                collision, collision_by = matches, "message_sha256"
         if item is None and record.question_digest:
-            # A digest that reaches more than one item identifies no item. The
-            # record is reported rather than scored against the first match:
-            # scoring it would charge this arm with what some other case
-            # expected, and the report would say nothing about the join.
+            # Tried even when the message was ambiguous: the digest is the
+            # narrower key, so two items carrying one request can still be told
+            # apart when they were asked about different shortlists.
             matches = by_digest.get(record.question_digest, [])
             if len(matches) == 1:
-                item = matches[0]
-            elif len(matches) > 1:
-                ambiguous.append(
-                    {
-                        "ref": record.ref,
-                        "arm": record.arm,
-                        "question_digest": record.question_digest,
-                        "case_count": len(matches),
-                        "case_ids": [str(match.get("case_id") or "") for match in matches[:MAX_NAMED_CASES]],
-                    }
-                )
-                continue
+                item, joined_by = matches[0], "question_digest"
+            elif matches:
+                collision, collision_by = matches, "question_digest"
+        if item is None and collision:
+            # More than one corpus item is the same question, on every key the
+            # record carries. Scoring it against the first would charge this
+            # arm with what some other case expected, and the report would say
+            # nothing about it.
+            ambiguous.append(
+                {
+                    "ref": record.ref,
+                    "arm": record.arm,
+                    "by": collision_by,
+                    "question_digest": record.question_digest,
+                    "message_sha256": record.message_sha256,
+                    "case_count": len(collision),
+                    "case_ids": [str(match.get("case_id") or "") for match in collision[:MAX_NAMED_CASES]],
+                }
+            )
+            continue
         if item is None:
             unmatched.append(
                 {
@@ -821,6 +966,7 @@ def score_routing_question_answers(
                     "arm": record.arm,
                     "case_id": record.case_id,
                     "question_digest": record.question_digest,
+                    "message_sha256": record.message_sha256,
                 }
             )
             continue
@@ -839,6 +985,25 @@ def score_routing_question_answers(
             )
             continue
         seen[key] = record.ref
+        question = item.get("question")
+        item_digest = str(question.get("question_digest") or "") if isinstance(question, Mapping) else ""
+        # A digest mismatch is a different shortlist cut of the same request,
+        # not a different request. It is scored, because the answer is about
+        # this case; it is reported, because an arm answering a two-candidate
+        # shortlist is not being asked quite what a three-candidate corpus item
+        # asks, and a reader comparing arms has to be able to see that.
+        digest_match = bool(record.question_digest) and record.question_digest == item_digest
+        if record.question_digest and not digest_match:
+            tally.digest_mismatch += 1
+        matched.append(
+            {
+                "ref": record.ref,
+                "arm": record.arm,
+                "case_id": str(item.get("case_id") or ""),
+                "joined_by": joined_by,
+                "digest_match": digest_match,
+            }
+        )
         action, choice = resolve_answer_action(
             record.answers,
             fits_dispatch=fits_dispatch,
@@ -862,7 +1027,15 @@ def score_routing_question_answers(
         )
 
     case_count = len(items)
-    arms = {name: _arm_payload(tally, case_count=case_count) for name, tally in sorted(tallies.items())}
+    live_case_count = sum(1 for item in items if bool(item.get("live_joinable")))
+    arms = {
+        name: _arm_payload(
+            tally,
+            case_count=live_case_count if name in live_arms else case_count,
+            live_only=name in live_arms,
+        )
+        for name, tally in sorted(tallies.items())
+    }
     deterministic_payload = _arm_payload(deterministic, case_count=case_count)
     # The producer's verdict, carried beside the counts this module derives
     # from the same items. The two can disagree: a router that dispatches on
@@ -879,7 +1052,9 @@ def score_routing_question_answers(
         "source": str(corpus.get("source") or ""),
         "case_count": case_count,
         "thresholds": {"fits_dispatch": fits_dispatch, "fits_clarify": fits_clarify},
+        "live_joinable_case_count": live_case_count,
         "arms": arms,
+        "matched": matched,
         "malformed": malformed,
         "unmatched": unmatched,
         "ambiguous": ambiguous,
@@ -912,10 +1087,17 @@ def format_routing_question_corpus(corpus: Mapping[str, Any]) -> str:
     items = items if isinstance(items, list) else []
     negative = sum(1 for item in items if isinstance(item, Mapping) and item.get("corpus") == NEGATIVE_CONTROL_CORPUS)
     intervention = sum(1 for item in items if isinstance(item, Mapping) and item.get("corpus") == INTERVENTION_CORPUS)
+    sources = corpus.get("question_sources")
+    sources = sources if isinstance(sources, Mapping) else {}
     lines = [
         f"Routing question corpus ({corpus.get('schema_version')}) from {generated.get('schema')}",
         f"Source: {corpus.get('source')}",
         f"Items: {len(items)} ({negative} negative-control, {intervention} intervention)",
+        (
+            f"Questions: {sources.get(HANDOFF_QUESTION_SOURCE, 0)} from the candidate handoff "
+            f"(a live route asks these), {sources.get(RECOMMENDATIONS_QUESTION_SOURCE, 0)} from the "
+            "router's recommendations (offline arms only)"
+        ),
         f"Boundary: {corpus.get('claim_boundary', '')}",
     ]
     return "\n".join(lines)
@@ -933,10 +1115,12 @@ def format_routing_question_score(score: Mapping[str, Any]) -> str:
         if not isinstance(arm, Mapping):
             continue
         lines.append(
-            f"- {name}: answered {arm.get('answered')}, unanswered {arm.get('unanswered')}, "
+            f"- {name}: answered {arm.get('answered')}/{arm.get('case_count')}, "
+            f"unanswered {arm.get('unanswered')}, "
             f"malformed {arm.get('malformed')}, overroute {arm.get('overroute')}, "
             f"missed {arm.get('missed')}, wrong workflow {arm.get('wrong_workflow')}, "
-            f"band mismatch {arm.get('band_mismatch')}, agree {arm.get('agree')}"
+            f"band mismatch {arm.get('band_mismatch')}, "
+            f"digest mismatch {arm.get('digest_mismatch')}, agree {arm.get('agree')}"
         )
     malformed = score.get("malformed")
     if isinstance(malformed, list) and malformed:
@@ -953,6 +1137,14 @@ def format_routing_question_score(score: Mapping[str, Any]) -> str:
         for entry in ambiguous[:10]:
             if isinstance(entry, Mapping):
                 lines.append(f"- {entry.get('ref')}: {entry.get('case_count')} cases share this question digest")
+    mismatched = sum(
+        1 for entry in (score.get("matched") or []) if isinstance(entry, Mapping) and not entry.get("digest_match")
+    )
+    if mismatched:
+        lines.append(
+            f"Answers joined by message with a different shortlist cut: {mismatched} "
+            "(scored; the question asked about a different candidate list)"
+        )
     arm = arms.get(DETERMINISTIC_ARM)
     if isinstance(arm, Mapping) and int(arm.get("producer_failed", 0) or 0):
         lines.append(
@@ -1002,6 +1194,7 @@ __all__ = [
     "CLARIFY_ACTION",
     "DETERMINISTIC_ARM",
     "DISPATCH_ACTION",
+    "HANDOFF_QUESTION_SOURCE",
     "INTERVENTION_CORPUS",
     "MAX_ANSWER_RECORD_BYTES",
     "MAX_ANSWER_SOURCE_BYTES",
@@ -1009,6 +1202,7 @@ __all__ = [
     "MAX_REPORT_FIELD_CHARS",
     "NEGATIVE_CONTROL_CORPUS",
     "NONE_ACTION",
+    "RECOMMENDATIONS_QUESTION_SOURCE",
     "ROUTE_QUESTION_ANSWER_SCHEMA_VERSION",
     "ROUTING_QUESTION_ANSWERS_SCHEMA_VERSION",
     "ROUTING_QUESTION_CORPUS_SCHEMA_VERSION",

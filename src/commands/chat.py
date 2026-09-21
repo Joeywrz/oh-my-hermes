@@ -1324,7 +1324,14 @@ def _add_chat_commands(sub) -> None:
         "--limit",
         type=int,
         default=3,
-        help="Maximum candidate workflows carried into each question as Choice options.",
+        help=(
+            "Maximum candidate workflows carried into a question built from the router's "
+            "recommendations. It does not cut a question built from an undecidable route's "
+            "candidate handoff, which is the one a live route asks; leave it at 3 so those "
+            "match. An answer recorded against a shortlist cut differently, such as a "
+            "route-hint question's two candidates, still joins by message and is reported "
+            "with digest_match false."
+        ),
     )
     route_questions_export.add_argument("--output", default=None, help="Write the full corpus JSON to this path.")
     route_questions_export.add_argument(

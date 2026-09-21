@@ -31,6 +31,18 @@ through `precision_case_verdict` and `intervention_case_verdict`. It is not
 re-derived here, which is what keeps this lane and `omh chat routing-precision`
 from disagreeing about the same router on the same cases.
 
+## What a live arm can be scored on
+
+A live route attaches a question only where it could not decide, and it builds
+that question from the candidate handoff. The corpus carries a question for
+every case, so an offline arm answers all of them; only the handoff cases
+(`question_source: candidate_handoff`, `live_joinable: true`) are ones a live
+route ever asks. An arm answering recorded live routes is therefore denominated
+on those alone, and the rest are named `not_live_joinable` in each rate's
+`excluded` list rather than counted as questions it failed to answer. The
+export summary reports both counts, and a score report carries
+`live_joinable_case_count` beside `case_count`.
+
 ## Safety and claim boundary
 
 - Offline by default. `export`, `deterministic` and `score` spend nothing.
@@ -85,10 +97,21 @@ is checked before the first dispatch, and the refusal names the batch count it
 measured, so an under-set cap costs nothing.
 
 `--answers` also accepts a directory of `route_question_answer/v1` records, the
-shape an answer recorded on a live route is written in; those join a corpus
-item by question digest. A digest covers the request and its candidate
-shortlist, so it names one case; a record whose digest still reaches more than
-one case is reported as ambiguous and scored against none of them.
+shape an answer recorded on a live route is written in. Those join a corpus
+item by `message_sha256` first and by question digest only as a fallback. The
+digest covers the candidate shortlist as well as the request, and the shortlist
+is cut per surface -- `omh chat route-hint` asks about two candidates where a
+full route asks about three -- so the same request asked on two surfaces
+produces two digests. The message does not move, so it is the key; the digest
+then reports whether the shortlist was the same one, as `digest_match`. A
+mismatch is scored, not dropped, and counted per arm as `digest_mismatch`. A
+record whose message or digest still reaches more than one corpus item is
+reported as ambiguous and scored against none of them.
+
+Export at `--limit 3`, which is the default. The limit cuts only a question
+built from the router's recommendations; a question built from an undecidable
+route's candidate handoff is not cut, because the live route does not cut it
+either.
 
 ## Producing an external arm
 

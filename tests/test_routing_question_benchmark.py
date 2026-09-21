@@ -27,6 +27,16 @@ from omh.routing.route_question import (  # noqa: E402
     ROUTE_CHOICE_KEY,
     ROUTE_QUESTION_SCHEMA_VERSION,
 )
+from omh.commands.main import build_parser  # noqa: E402
+
+
+def _option_help(parser, command: list[str], option: str) -> str:
+    """The help string one subcommand's option carries, read off the parser."""
+    target = parser
+    for name in command:
+        actions = [action for action in target._actions if getattr(action, "choices", None)]
+        target = next(action.choices[name] for action in actions if name in (action.choices or {}))
+    return next(action.help or "" for action in target._actions if option in action.option_strings)
 
 ROOT = Path(__file__).resolve().parents[1]
 LANE = ROOT / "benchmarks" / "routing-questions" / "v1"
@@ -72,6 +82,9 @@ def _item(case_id: str, skill: str = "plan") -> dict[str, object]:
         "case_id": case_id,
         "corpus": "intervention",
         "message": f"please {skill} this",
+        "message_sha256": f"message-sha-{case_id}",
+        "question_source": "candidate_handoff",
+        "live_joinable": True,
         "candidates": [{"skill": skill, "description": f"{skill} workflow"}],
         "question": {
             "schema_version": "route_question/v1",
@@ -508,6 +521,23 @@ class RoutingQuestionLaneContractTests(unittest.TestCase):
                 after_truncate = path.read_text(encoding="utf-8")
         self.assertEqual([row["case_id"] for row in after_append], ["a", "b"])
         self.assertEqual(after_truncate, "")
+
+    def test_the_export_default_limit_is_pinned_and_documented(self) -> None:
+        # The limit decides the shortlist a recommendations-sourced question
+        # asks about, so it decides that question's digest. Moving it silently
+        # re-cuts every one of them.
+        parser = build_parser()
+        args = parser.parse_args(["chat", "route-questions", "export"])
+        self.assertEqual(args.limit, 3)
+        self.assertEqual(args.source, "discord")
+        help_text = _option_help(parser, ["chat", "route-questions", "export"], "--limit")
+        self.assertIn("candidate handoff", help_text)
+        self.assertIn("digest_match", help_text)
+        readme = (LANE / "README.md").read_text(encoding="utf-8")
+        self.assertIn("--limit 3", readme)
+        self.assertIn("digest_match", readme)
+        self.assertIn("not_live_joinable", readme)
+        self.assertIn("message_sha256", readme)
 
     def test_the_lane_never_imports_the_package_it_measures(self) -> None:
         # The lane measures the installed product through its executable. An

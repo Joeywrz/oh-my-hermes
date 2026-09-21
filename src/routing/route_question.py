@@ -92,6 +92,29 @@ def _candidate_rows(candidates: Iterable[Mapping[str, Any]]) -> list[tuple[str, 
     return rows
 
 
+def message_digest(message: str) -> str:
+    """The one producer of the message digest every route surface reports.
+
+    `routing_record_payload` publishes this same value under `message_sha256`,
+    and so does the chat interaction payload. It is named here because three
+    things now have to agree on it -- a corpus item, the question digest built
+    from it, and a recorded answer joined back by it -- and a fourth inline
+    `hashlib` call is how they would stop agreeing. A test pins this against
+    the routing record's own field.
+    """
+    return hashlib.sha256(str(message).encode("utf-8")).hexdigest()
+
+
+def normalized_route_candidates(candidates: Iterable[Mapping[str, Any]]) -> list[dict[str, str]]:
+    """The candidate rows a question is built from, as the question carries them.
+
+    A caller that wants to show the same shortlist it asked about -- a prompt,
+    a corpus item -- reads it from here rather than rebuilding it, so what is
+    shown and what was digested cannot diverge.
+    """
+    return [{"skill": skill, "description": description} for skill, description in _candidate_rows(candidates)]
+
+
 def fit_question_key(skill: str) -> str:
     """The absolute per-candidate question id for one skill."""
     return f"{FIT_QUESTION_PREFIX}{skill}"
@@ -195,6 +218,42 @@ def build_route_question_from_candidates(
     }
 
 
+def build_route_question_for_candidate_handoff(
+    candidate_handoff: Mapping[str, Any],
+    *,
+    message: str,
+) -> dict[str, object]:
+    """Build the question for an undecidable route, from the handoff alone.
+
+    This is the whole call shape, in one place, because two callers have to
+    produce byte-identical inputs or the thing the digest exists for stops
+    working: the live route attaches a question to an undecidable route, and
+    the offline corpus projects the same message, and an answer recorded on
+    one is scored against the other. Two call sites assembling the same
+    arguments by hand is how they drift, and the drift is silent -- the digests
+    simply stop matching and every recorded answer lands as unmatched.
+
+    The candidates come from the handoff rather than from `route`'s public
+    `recommendations`, which is a compacted projection that drops
+    `description`; a question built from it asks about the same skills with
+    none of the text that lets an answerer judge them. The reasons are the
+    handoff's own machine codes, not the route's prose reason.
+
+    `limit` has no place here. The handoff decided its own shortlist, and a
+    corpus that cut it further would ask a different question than the live
+    route asks.
+    """
+    rows = candidate_handoff.get("candidates") if isinstance(candidate_handoff, Mapping) else None
+    candidates = [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else []
+    raw_reasons = candidate_handoff.get("reasons") if isinstance(candidate_handoff, Mapping) else None
+    reasons = [str(reason) for reason in raw_reasons] if isinstance(raw_reasons, list) else []
+    return build_route_question_from_candidates(
+        candidates,
+        message_sha256=message_digest(message),
+        reasons=reasons,
+    )
+
+
 __all__ = [
     "FITS_CLARIFY_THRESHOLD",
     "FITS_DISPATCH_THRESHOLD",
@@ -203,9 +262,12 @@ __all__ = [
     "NO_WORKFLOW_OPTION",
     "ROUTE_CHOICE_KEY",
     "ROUTE_QUESTION_SCHEMA_VERSION",
+    "build_route_question_for_candidate_handoff",
     "build_route_question_from_candidates",
     "clean_skill_description",
     "fit_question_key",
     "fit_question_skill",
+    "message_digest",
+    "normalized_route_candidates",
     "route_question_digest",
 ]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .. import runtime_paths
+from ..engagement_nudges import observe_engagement_outcome
 
 from collections.abc import Mapping
 from datetime import datetime, timezone
@@ -306,10 +307,17 @@ def post_tool_call(**kwargs: object) -> dict[str, object] | None:
     """
     try:
         omh_home = str(runtime_paths.plugin_home(kwargs.get("omh_home")))
-        runtime_paths.plugin_home(kwargs.get("hermes_home"), hermes=True)
+        hermes_home = str(runtime_paths.plugin_home(kwargs.get("hermes_home"), hermes=True))
     except (runtime_paths.RuntimeBindingError, OSError, RuntimeError) as exc:
         return runtime_binding_degradation(exc)
     _ = observe_plugin_hook_call("post_tool_call", kwargs)
+    observe_engagement_outcome(
+        tool_name=kwargs.get("tool_name"), result=kwargs.get("result"),
+        args=_tool_arguments(kwargs), session_id=str(kwargs.get("session_id") or ""),
+        tool_call_id=kwargs.get("tool_call_id") or "", turn_id=kwargs.get("turn_id") or "",
+        status=str(kwargs.get("status") or ""), omh_home=omh_home,
+        hermes_home=hermes_home,
+    )
     bridge = _agent_board_bridge()
     if bridge is not None:
         bridge.post_agent_board(kwargs)

@@ -59,8 +59,8 @@ modules and pins the disjointness, so a pass that later widens into
 ``terminal`` fails there rather than silently sharing a result.
 
 **Why unarmed remote waits runs last of the annotating passes.** It is the
-only one whose DECISION reads fields of the host's result rather than just
-its tool name: ``exit_code`` to know the command succeeded, ``status`` /
+pass which reads terminal-specific outcome fields: ``exit_code`` to know the
+command succeeded, ``status`` /
 ``approval_pending`` for the gate, and ``session_id`` to recognise a
 background spawn. Being disjoint from the others it always sees the host's
 own object anyway, and running it immediately before the diff pass states
@@ -100,14 +100,14 @@ def transform_tool_result(**kwargs: Any) -> str | None:
         # delegation nudge counts DISTINCT searches, and this is the only
         # thing at this seam that can tell one search twice from two (#1701).
         args=kwargs.get("args"),
+        tool_call_id=kwargs.get("tool_call_id") or "",
+        turn_id=kwargs.get("turn_id") or "",
+        status=str(kwargs.get("status") or ""),
         session_id=session_id,
         # The host passes this seam the identity fields, the result, and the
         # timing — no home (`model_tools._apply_transform_tool_result_hook`).
-        # Empty here means the nudge's plan read and its budget store both
-        # fall back to the default home, the way every other bundle reader
-        # does; the kwargs are still consulted so a bundle-internal caller or
-        # a test can bind one. The two must agree, and they do because they
-        # are the same string.
+        # The observer resolves both via runtime_paths, so native profile
+        # scope (not a cached launch home) owns its counters and plan reads.
         omh_home=str(kwargs.get("omh_home", "") or ""),
         hermes_home=str(kwargs.get("hermes_home", "") or ""),
     )

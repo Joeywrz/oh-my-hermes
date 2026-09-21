@@ -16,7 +16,7 @@ The shape is taken from oh-my-openagent's `agent-usage-reminder` hook, which
 solves the same problem for opencode, and it keeps four of that hook's five
 properties:
 
-* the trigger is a tool call, not a phrase;
+* the trigger is an observed tool outcome, not a phrase;
 * the text rides the tool result (`transform_tool_result`), so it costs no
   extra turn and needs no second injection point;
 * it is bounded per session (`MAX_ENGAGEMENT_NUDGES`);
@@ -38,8 +38,9 @@ raised would leave no trace at all -- the failure would be invisible rather
 than loud. Every decline is counted by reason instead, readable through
 `engagement_nudge_declines()`.
 
-The nudges are prepared instruction. Emitting one is not evidence that a plan
-was declared, a lane was routed, or any work was done.
+The nudges are prepared instruction. Candidate budgets do not prove delivery:
+Hermes selects the first transformer string, not necessarily ours. Outcome
+observation is independent; see docs/ENGAGEMENT-OBSERVATION.md for its bounds.
 """
 
 from __future__ import annotations
@@ -48,7 +49,10 @@ import json
 from collections import Counter
 from typing import Any, Final
 
+from . import runtime_paths
 from .hooks.nudge_budget import (
+    ENGAGEMENT_LOCK,
+    engagement_call,
     DELEGATION_LATCH_FIELD,
     DELEGATION_NUDGES_FIELD,
     DIRECT_READS_FIELD,
@@ -79,8 +83,8 @@ ENGAGEMENT_NUDGE_KEY: Final = "omh_engagement"
 # parity test can exist for these the way it can for the router vocabulary.
 # Each set names its source file so a reader can check it by hand.
 #
-# `agent/tool_result_classification.py`: FILE_MUTATING_TOOL_NAMES. The host's
-# own named set for "this call changed the repository", and deliberately not
+# `agent/tool_result_classification.py`: FILE_MUTATING_TOOL_NAMES. These tools
+# CAN change files; their structured outcomes establish whether they did. Not
 # widened to `terminal` or `execute_code`: a session that only ran tests has
 # done no work a checklist would track, and both of those are mostly that.
 FILE_MUTATING_TOOLS: Final[frozenset[str]] = frozenset({"write_file", "patch"})
@@ -91,11 +95,8 @@ FILE_MUTATING_TOOLS: Final[frozenset[str]] = frozenset({"write_file", "patch"})
 DIRECT_READ_TOOLS: Final[frozenset[str]] = frozenset(
     {"read_file", "search_files", "web_search", "web_extract"}
 )
-# Routing a lane, either way round: `delegate_task` is Hermes' own subagent
-# tool (`tools/delegate_tool.py`) and `omh_delegate_route` is OMH's
-# (`metadata.PROVIDED_TOOLS`). Observing either IS the record that the model
-# routed -- the tool name the host handed this hook, never a claim it made in
-# prose.
+# These tool results describe preparation/control/attempts, not child starts.
+# Only the host's subagent_start lifecycle event sets the delegation latch.
 DELEGATION_TOOLS: Final[frozenset[str]] = frozenset({"delegate_task", "omh_delegate_route"})
 
 # Counter names in the shared per-session map. Defined at `nudge_budget`,
@@ -168,8 +169,8 @@ PLAN_NUDGE_TEXT: Final = (
 # vocabulary, and the call sites are named here so a reader can check by hand.
 DELEGATION_NUDGE_TEXT: Final = (
     "[OMH delegation] This session has run {count} different search/read calls "
-    "directly and routed nothing. A lane does that work in one call and off this "
-    "context window: omh_delegate_route picks the model for the next "
+    "directly; no child start was observed. Consider a lane for independent work "
+    "outside this context: omh_delegate_route picks the model for the next "
     "dispatch, delegate_task spawns the subagent. Never wait or poll on a "
     "dispatched lane -- carry on with what does not depend on it. Routing is "
     "a prepared handoff, never execution, review, CI, or merge evidence."
@@ -218,6 +219,9 @@ def annotate_engagement_nudge(
     session_id: str = "",
     omh_home: str = "",
     hermes_home: str = "",
+    tool_call_id: str = "",
+    turn_id: str = "",
+    status: str = "",
 ) -> str | None:
     """Return *result* carrying a nudge, or ``None`` to pass through untouched.
 
@@ -230,14 +234,12 @@ def annotate_engagement_nudge(
     clean, budgeted, unlatched nudge returns ``None`` after recording why.
     """
     try:
-        return _annotate(
-            tool_name=tool_name,
-            result=result,
-            args=args,
-            session_id=session_id,
-            omh_home=omh_home,
-            hermes_home=hermes_home,
-        )
+        with ENGAGEMENT_LOCK:
+            return _annotate(
+                tool_name=tool_name, result=result, args=args,
+                session_id=session_id, omh_home=omh_home, hermes_home=hermes_home,
+                tool_call_id=tool_call_id, turn_id=turn_id, status=status,
+            )
     except Exception as exc:  # noqa: BLE001 - see module docstring: the host
         # swallows and debug-logs anything this raises, so a raise here is a
         # silent disappearance. The failure is recorded by type and the tool
@@ -246,58 +248,131 @@ def annotate_engagement_nudge(
         return None
 
 
-def _annotate(
-    *,
-    tool_name: object,
-    result: object,
-    args: object,
-    session_id: str,
-    omh_home: str,
-    hermes_home: str,
-) -> str | None:
-    name = str(tool_name or "")
-    session = str(session_id or "")
+def _result_object(result: object) -> dict:
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except (ValueError, TypeError):
+            return {}
+    return result if isinstance(result, dict) else {}
 
-    # Routing is observed before anything else, so a session that delegated on
-    # this very call is latched before the call could also be counted as work.
-    if name in DELEGATION_TOOLS:
-        latch_engagement(session, _DELEGATION_LATCH, omh_home=omh_home)
-        _declines["routed_this_call"] += 1
+
+def _mutation_effect(name: str, data: dict, status: str) -> str:
+    """Read the file-tool contract, never success words in free text.
+
+    The host's file_mutation_result_landed checks bytes_written / success.
+    Also honor no_change and partial V4A results. A generic error may occur
+    after the write, so missing effect evidence is unknown, not no effect.
+    """
+    if status == "blocked" or data.get("no_change") is True:
+        return "none"
+    changed_paths = any(isinstance(data.get(field), list) and bool(data[field])
+                        for field in ("files_modified", "files_created", "files_deleted"))
+    bytes_written = data.get("bytes_written")
+    landed = (
+        name == "write_file" and type(bytes_written) is int and bytes_written >= 0
+    ) or (name == "patch" and data.get("success") is True)
+    failed = status not in ("", "ok") or bool(data.get("error")) or data.get("success") is False
+    if failed:
+        # WriteResult(error=...) includes bytes_written=0 by default: on an
+        # error that zero cannot prove even an empty-file write took place.
+        known_effect = changed_paths or (type(bytes_written) is int and bytes_written > 0)
+        return "partial" if known_effect else "unknown"
+    return "landed" if landed else "unknown"
+
+
+def observe_engagement_outcome(**kwargs: Any) -> dict[str, Any] | None:
+    """Keep an observer fault from skipping the other post-tool observers."""
+    try:
+        return _observe_engagement_outcome(**kwargs)
+    except Exception as exc:  # noqa: BLE001 - classified in the policy gate
+        record_engagement_observer_failure(type(exc).__name__)
         return None
 
-    if not session:
-        # An unkeyed session shares no row (see `bump_engagement_count`), so it
-        # can never reach a threshold. Recorded rather than silently skipped.
+
+def _observe_engagement_outcome(
+    *, tool_name: object, result: object, args: object = None,
+    session_id: str = "", tool_call_id: str = "", turn_id: str = "",
+    status: str = "", omh_home: str = "", hermes_home: str = "",
+) -> dict[str, Any] | None:
+    """Observe a terminal outcome independently of presentation.
+
+    Registry calls post before transform; the outer executor suppresses that
+    post and emits its own AFTER transform. The transform may therefore feed
+    this same observer, using host call identity to count once in either order.
+    No call identity means unknown correlation and no count, not invented work.
+    """
+    name = str(tool_name or "")
+    if name not in FILE_MUTATING_TOOLS | DIRECT_READ_TOOLS | DELEGATION_TOOLS:
+        _declines["tool_not_watched"] += 1
+        return None
+    if not session_id:
         _declines["no_session_id"] += 1
         return None
-    if session_is_delegated(session):
-        _declines["delegated_session"] += 1
+    if not isinstance(tool_call_id, str) or not tool_call_id or len(tool_call_id) > 512:
+        _declines["unknown_call_identity"] += 1
         return None
+    home = str(runtime_paths.plugin_home(omh_home or None))
+    runtime_paths.plugin_home(hermes_home or None, hermes=True)
+    with ENGAGEMENT_LOCK:
+        if session_is_delegated(session_id, omh_home=home):
+            _declines["delegated_session"] += 1
+            return None
+        event = engagement_call(session_id, tool_call_id, str(turn_id or ""), name, omh_home=home)
+        if event:
+            return event
+        data = _result_object(result)
+        event.update(kind="none", count=0, rendered=False)
+        if name in FILE_MUTATING_TOOLS:
+            effect = _mutation_effect(name, data, status)
+            event["effect"] = effect
+            field = {"landed": _MUTATIONS, "partial": "partial_file_mutations", "unknown": "unknown_file_mutations"}.get(effect)
+            if field:
+                count = bump_engagement_count(session_id, field, omh_home=home)
+                if effect == "landed":
+                    event.update(kind="mutation", count=count)
+        elif name in DIRECT_READ_TOOLS:
+            # Attempts still describe search effort, but pre-dispatch refusals do not.
+            if status != "blocked":
+                bump_engagement_count(session_id, _DIRECT_READS, omh_home=home)
+                digest = tool_args_digest(args)
+                if digest:
+                    count = record_distinct_direct_read(session_id, f"{name}:{digest}", omh_home=home)
+                    event.update(kind="read", count=count)
+        elif name == "omh_delegate_route":
+            action = args.get("action", "set") if isinstance(args, dict) else None
+            if (action in ("set", "fallback") and status in ("", "ok")
+                    and not data.get("error") and data.get("status") in ("routed", "fell_back", "exhausted_to_inherit")):
+                bump_engagement_count(session_id, "route_prepared", omh_home=home)
+                event["kind"] = "prepared"
+        # delegate_task results (including status/list/stop and failed dispatch)
+        # never prove a child existed. subagent_start is the source of that fact.
+        return event
 
-    if name in FILE_MUTATING_TOOLS:
-        # Calls, not distinct calls. Writing the same file three times IS
-        # three changes to the repository, which is what this threshold
-        # counts; the distinctness question belongs to the read side, where
-        # the same call twice produces the same answer twice.
-        count = bump_engagement_count(session, _MUTATIONS, omh_home=omh_home)
-        return _plan_nudge(
-            session=session,
-            count=count,
-            result=result,
-            omh_home=omh_home,
-            hermes_home=hermes_home,
-        )
-    if name in DIRECT_READ_TOOLS:
-        # The call counter is still kept, and is still the one the declines
-        # and any later surface can read for "how much searching happened".
-        # It is simply no longer what the threshold reads.
-        _ = bump_engagement_count(session, _DIRECT_READS, omh_home=omh_home)
-        distinct = record_distinct_direct_read(session, f"{name}:{tool_args_digest(args)}")
-        return _delegation_nudge(
-            session=session, count=distinct, result=result, omh_home=omh_home
-        )
 
-    _declines["tool_not_watched"] += 1
+def _annotate(
+    *, tool_name: object, result: object, args: object, session_id: str,
+    omh_home: str, hermes_home: str, tool_call_id: str, turn_id: str, status: str,
+) -> str | None:
+    event = observe_engagement_outcome(
+        tool_name=tool_name, result=result, args=args, session_id=session_id,
+        omh_home=omh_home, hermes_home=hermes_home, tool_call_id=tool_call_id,
+        turn_id=turn_id, status=status,
+    )
+    if event is None or event["rendered"]:
+        return None
+    # This budgets a candidate, NOT delivery: Hermes may select another
+    # transformer's string. There is no output-acceptance receipt on this hook.
+    event["rendered"] = True
+    if event["kind"] not in ("mutation", "read"):
+        return None
+    home = str(runtime_paths.plugin_home(omh_home or None))
+    host_home = str(runtime_paths.plugin_home(hermes_home or None, hermes=True))
+    if event["kind"] == "mutation":
+        return _plan_nudge(session=session_id, count=event["count"], result=result,
+                           omh_home=home, hermes_home=host_home)
+    if event["kind"] == "read":
+        return _delegation_nudge(session=session_id, count=event["count"], result=result, omh_home=home)
     return None
 
 
@@ -342,7 +417,7 @@ def _delegation_nudge(*, session: str, count: int, result: object, omh_home: str
         _declines["below_read_threshold"] += 1
         return None
     if engagement_count(session, _DELEGATION_LATCH, omh_home=omh_home):
-        _declines["lane_already_routed"] += 1
+        _declines["lane_already_started"] += 1
         return None
     if engagement_count(session, _DELEGATION_NUDGES, omh_home=omh_home) >= MAX_ENGAGEMENT_NUDGES:
         _declines["delegation_budget_spent"] += 1

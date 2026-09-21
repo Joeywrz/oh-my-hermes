@@ -994,15 +994,19 @@ class TuiWidgetPackTests(unittest.TestCase):
         # One label shape for every lane: category(model tag). The category
         # names the lane and never changes; only the parenthesized model and
         # its state token (fallback / inherit) move.
-        self.assertIn("routeOrigin === 'fallback' ? ['fallback', parentTag]", widget)
+        self.assertIn("routeOrigin === 'fallback' ? 'fallback'", widget)
         self.assertIn("routeOrigin === 'exhausted_to_inherit' ? 'inherit'", widget)
         # A lane routed to the parent's own model keeps its category and
-        # wears `=parent`; a child with no route record on that model is
-        # the plain `inherit(model)` — inherit is not a category, so it
-        # never wears the `category:` prefix.
-        self.assertIn("const parentTag = row.same_as_parent === true ? '=parent' : ''", widget)
-        # A fallback that landed on the parent's model keeps both tokens.
-        self.assertIn("['fallback', parentTag].filter(Boolean).join(' ')", widget)
+        # wears no token of its own (the owner's call): the row already
+        # names the model that ran, so the `=parent` it used to carry
+        # compared that name against the parent's model, which the row
+        # never shows. The reader still reports `same_as_parent` in the
+        # payload -- the assertion below is about the WIDGET, which must
+        # not read it. A child with no route record on that model is the
+        # plain `inherit(model)` -- inherit is not a category, so it never
+        # wears the `category:` prefix.
+        self.assertNotIn("=parent", widget)
+        self.assertNotIn("same_as_parent", widget)
         self.assertIn("displayCategory === 'inherit'", widget)
         self.assertIn("? `inherit${model ? `(${model})` : ''}`", widget)
         self.assertNotIn("→inherit", widget)

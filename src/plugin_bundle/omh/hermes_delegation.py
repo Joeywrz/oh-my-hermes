@@ -963,7 +963,7 @@ def configured_route_for_wire(
 # records each successful route write here so the HUD can label a fallback
 # lane as a fallback instead of rendering it indistinguishable from a head
 # route, an exhausted chain as `category(model inherit)`, and a lane routed
-# to the model the parent session itself runs as `category(model =parent)`
+# to the model the parent session itself runs as that lane's own category
 # — the category names the lane and never changes — instead of plain
 # inherit. The record is preparation evidence only: a label upgrade for an
 # observed child whose wire identity matches, never execution evidence and
@@ -1171,7 +1171,8 @@ def _provenance_for_dispatch(
         # category the tool prepared was thrown away. The chain projection
         # alone still says inherit (it cannot tell the two apart); a fresh
         # record whose identity matches is what tells them apart, and the
-        # caller marks the row `same_as_parent` so the label says both.
+        # caller keeps the lane's category on the row. It also marks the row
+        # `same_as_parent` for the payload; the TUI renders no token for it.
         matched = (wire_model and wire_model == record["wire_model"]) or (
             alias and alias == record["alias"]
         )
@@ -2412,13 +2413,16 @@ def read_hermes_native_subagents(
                 if provenance["category"]:
                     if row["category"] == "inherit":
                         # Routed to the model the parent also runs: the
-                        # category is the lane's, and the row says the
-                        # model is the parent's own so nobody reads the
-                        # label as a cheaper dispatch than it was. Gated on
-                        # the record carrying a category by decision: an
-                        # explicit bare-model route (`set` with a model and
-                        # no category) onto the parent's model has no lane
-                        # to name, so it stays the plain `inherit(model)`.
+                        # category is the lane's, and the payload records
+                        # that the model is the parent's own for a caller
+                        # holding both. The TUI row spends no token on it —
+                        # the row names the model that ran, and the
+                        # comparison is against a model it never shows.
+                        # Gated on the record carrying a category by
+                        # decision: an explicit bare-model route (`set` with
+                        # a model and no category) onto the parent's model
+                        # has no lane to name, so it stays the plain
+                        # `inherit(model)`.
                         row["same_as_parent"] = True
                     row["category"] = provenance["category"]
                     row["category_source"] = "route_provenance"

@@ -1,0 +1,482 @@
+"""Where an answer to a route question is recorded, and what it may claim.
+
+A route question is built by the deterministic router when it cannot decide
+(`omh.routing.route_question`). Something else answers it -- the host model
+reading the payload, or a Jev-class plugin the operator installed -- and this
+module is where that answer is written down: one
+``route_question_answer/v1`` record per (session, question) under
+``$OMH_HOME/runtime/route-questions/``.
+
+Recording an answer changes no route. The record exists to be MEASURED: it
+embeds one ``routing_question_answers/v1`` row, which is the shape
+``omh chat route-questions score --answers <dir>`` already reads, so an
+answerer's judgments are scored against the same corpus as the deterministic
+router instead of sitting in a write-only ledger.
+
+Two things this module deliberately does not do. It does not call anything --
+the answer arrives as tool arguments from a caller that already has it. And it
+does not decide that an answer is right: ``confidence_source`` records WHO
+said it (``self_reported`` for the model answering about itself,
+``answerer_declared`` for a plugin reporting a number OMH did not observe),
+never that a confidence was calibrated, which is a claim about a vendor's
+model and not about a row OMH wrote from an argument.
+
+Stdlib and intra-bundle imports only; the write takes the bundle's one
+sanctioned lock, the same object `todo_store` and `tool_bursts` take.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import hashlib
+import json
+import os
+import re
+import secrets
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterator, Mapping
+
+from .awareness_delivery import _awareness_delivery_lock
+from .todo_store import strip_control_characters
+
+ROUTE_ANSWER_SCHEMA_VERSION = "route_question_answer/v1"
+# The row shape the corpus scorer reads. Restated here as a literal because
+# the bundle cannot import `omh.quality.routing_question_corpus`;
+# `tests/test_route_answer_tool.py` pins it against that producer, so a drift
+# is a test failure rather than a silently unreadable record.
+ANSWER_ROW_SCHEMA_VERSION = "routing_question_answers/v1"
+
+ROUTE_ANSWER_DIRNAME = "route-questions"
+
+ANSWERED_BY_JEV_PLUGIN = "jev_plugin"
+ANSWERED_BY_MAIN_MODEL = "main_model"
+ANSWERED_BY_VALUES = (ANSWERED_BY_JEV_PLUGIN, ANSWERED_BY_MAIN_MODEL)
+
+# Who said the numbers, never how good they are. `calibrated` is not a value
+# OMH can write: it never sees the request, the response, or whether a plugin
+# called anything at all.
+CONFIDENCE_SELF_REPORTED = "self_reported"
+CONFIDENCE_ANSWERER_DECLARED = "answerer_declared"
+
+DISPATCH_ACTION = "dispatch"
+CLARIFY_ACTION = "clarify"
+NONE_ACTION = "none"
+
+NO_WORKFLOW_OPTION = "none"
+ROUTE_CHOICE_KEY = "route_choice"
+FIT_QUESTION_PREFIX = "fits::"
+
+# Restated from `omh.routing.route_question`, pinned by the same parity test
+# as the schema strings above. A record has to resolve its own action on a
+# machine where the package is not importable, and the thresholds are what
+# resolve it.
+FITS_DISPATCH_THRESHOLD = 0.8
+FITS_CLARIFY_THRESHOLD = 0.5
+
+MAX_FIT_ANSWERS = 8
+MAX_CHOICE_OPTIONS = 16
+MAX_SKILL_NAME_CHARS = 80
+MAX_NOTE_CHARS = 200
+MAX_SESSION_REF_CHARS = 160
+MAX_DIGEST_CHARS = 64
+MAX_ROUTE_ANSWER_RECORD_BYTES = 32_768
+# Records past this age are removed on the next write in the same directory.
+# The directory is otherwise unbounded on purpose: one session answers one
+# question once, a measurement run writes one record per question it answered,
+# and evicting a fresh record to make room for a fresher one would drop the
+# measurement the record exists for.
+ROUTE_ANSWER_STALE_SECONDS = 604_800
+
+CLAIM_BOUNDARY = (
+    "A recorded answer is a routing judgment declared by the caller, not "
+    "execution, review, CI, or merge evidence, and it does not change the "
+    "route. A main_model confidence is self-reported; an answerer_declared "
+    "confidence was not observed by OMH."
+)
+
+_RECORD_NAME = re.compile(r"(?:[A-Za-z0-9_-]{1,48}-)?[0-9a-f]{16}\.json")
+_TEMPORARY_NAME = re.compile(r"\..*\.tmp")
+_LOCK_NAME = re.compile(r"\..*\.json\.lock")
+_LOCK_TIMEOUT_SECONDS = 2.0
+
+
+class RouteAnswerStoreError(RuntimeError):
+    """The destination could not be written."""
+
+
+class RouteAnswerValidationError(ValueError):
+    """The caller's answer is not one this store can record."""
+
+
+class RouteAnswerContendedError(RuntimeError):
+    """Another writer held this record; nothing was written."""
+
+
+def confidence_source_for(answered_by: str) -> str:
+    """Who is making the confidence claim, derived from the answerer.
+
+    Derived rather than taken as an argument: a caller that could name its own
+    confidence source could name `calibrated`, and the whole point of the
+    field is that OMH says who spoke, not how good the number is.
+    """
+    return (
+        CONFIDENCE_ANSWERER_DECLARED
+        if answered_by == ANSWERED_BY_JEV_PLUGIN
+        else CONFIDENCE_SELF_REPORTED
+    )
+
+
+def resolve_action(
+    fits: Mapping[str, float],
+    route_choice: str,
+    *,
+    fits_dispatch: float = FITS_DISPATCH_THRESHOLD,
+    fits_clarify: float = FITS_CLARIFY_THRESHOLD,
+) -> str:
+    """dispatch / clarify / none, the way the corpus scorer resolves it.
+
+    The yes/no answers decide WHETHER: the strongest fit against the two flat
+    thresholds picks the band. The Choice decides WHICH and is taken as given,
+    so an answer set that fits nothing and still names a workflow is a
+    dispatch on the Choice alone -- the same reading
+    `score_routing_question_answers` applies, kept identical so a record
+    scored offline and a record read here cannot disagree.
+    """
+    if fits:
+        strongest = max(fits.values())
+        if strongest >= fits_dispatch:
+            return DISPATCH_ACTION
+        if strongest >= fits_clarify:
+            return CLARIFY_ACTION
+        return NONE_ACTION
+    if route_choice != NO_WORKFLOW_OPTION:
+        return DISPATCH_ACTION
+    return NONE_ACTION
+
+
+def build_route_answer_record(
+    *,
+    question_digest: object,
+    answered_by: object,
+    route_choice: object,
+    fits: object = None,
+    choice_probabilities: object = None,
+    note: object = "",
+    session_ref: object = "",
+    digest_verified: bool = False,
+    recorded_at: str = "",
+) -> dict[str, Any]:
+    """Validate one answer and return the record to write.
+
+    Every field is validated before anything is written, and an invalid field
+    raises rather than being dropped: a record with a silently missing fit is
+    a record that scores as a weaker answer than the caller gave.
+    """
+    digest = _validated_digest(question_digest)
+    answerer = str(answered_by or "").strip()
+    if answerer not in ANSWERED_BY_VALUES:
+        raise RouteAnswerValidationError(
+            "answered_by must be one of " + ", ".join(ANSWERED_BY_VALUES)
+        )
+    choice = _validated_skill(route_choice, field="route_choice")
+    fit_values = _validated_fits(fits)
+    probabilities = _validated_probabilities(choice_probabilities)
+    record: dict[str, Any] = {
+        "schema_version": ROUTE_ANSWER_SCHEMA_VERSION,
+        "action": resolve_action(fit_values, choice),
+        "answer": _answer_row(
+            digest=digest,
+            arm=answerer,
+            choice=choice,
+            probabilities=probabilities,
+            fits=fit_values,
+        ),
+        "answered_by": answerer,
+        "claim_boundary": CLAIM_BOUNDARY,
+        "confidence_source": confidence_source_for(answerer),
+        "digest_verified": bool(digest_verified),
+        "question_digest": digest,
+        "recorded_at": recorded_at or _utc_now(),
+        "route_choice": choice,
+        "session_ref": _validated_session_ref(session_ref),
+    }
+    validated_note = _validated_note(note)
+    if validated_note:
+        record["note"] = validated_note
+    encoded = json.dumps(record, sort_keys=True)
+    if len(encoded.encode("utf-8")) > MAX_ROUTE_ANSWER_RECORD_BYTES:
+        raise RouteAnswerValidationError(
+            f"route answer record is capped at {MAX_ROUTE_ANSWER_RECORD_BYTES} bytes"
+        )
+    return record
+
+
+def _answer_row(
+    *,
+    digest: str,
+    arm: str,
+    choice: str,
+    probabilities: dict[str, float],
+    fits: dict[str, float],
+) -> dict[str, Any]:
+    """The embedded `routing_question_answers/v1` row.
+
+    Embedded rather than referenced so the scorer reads this record with the
+    reader it already has: the row names its own arm and digest, and the
+    record around it carries what the row has no field for.
+    """
+    answers: dict[str, Any] = {ROUTE_CHOICE_KEY: {"choice": choice}}
+    if probabilities:
+        answers[ROUTE_CHOICE_KEY]["probabilities"] = probabilities
+    for skill in sorted(fits):
+        answers[f"{FIT_QUESTION_PREFIX}{skill}"] = {"noul": fits[skill]}
+    return {
+        "schema_version": ANSWER_ROW_SCHEMA_VERSION,
+        "answers": answers,
+        "arm": arm,
+        "case_id": "",
+        "question_digest": digest,
+    }
+
+
+def route_answer_record_key(session_ref: object, question_digest: object) -> str:
+    """The filename stem one answer lives under.
+
+    Keyed on the session AND the question, not on the session alone: a session
+    that reaches two undecidable routes answers two different questions, and a
+    per-session filename would have the second overwrite the first. The slug
+    is for a human reading the directory; the digest is what makes the name
+    unique.
+    """
+    reference = strip_control_characters(session_ref)[:MAX_SESSION_REF_CHARS]
+    digest = strip_control_characters(question_digest)[:MAX_DIGEST_CHARS]
+    identity = hashlib.sha256(f"{reference}\x1f{digest}".encode("utf-8")).hexdigest()[:16]
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", reference).strip("_-")[:48]
+    return f"{slug}-{identity}" if slug else identity
+
+
+def route_answer_dir(omh_home: Path) -> Path:
+    return Path(omh_home) / "runtime" / ROUTE_ANSWER_DIRNAME
+
+
+def route_answer_path(omh_home: Path, record: Mapping[str, Any]) -> Path:
+    key = route_answer_record_key(record.get("session_ref", ""), record.get("question_digest", ""))
+    return route_answer_dir(omh_home) / f"{key}.json"
+
+
+def write_route_answer(omh_home: Path, record: dict[str, Any]) -> Path:
+    """Write one validated record, under its own lock, and prune stale ones."""
+    home = Path(omh_home)
+    destination = route_answer_path(home, record)
+    _reject_symlink_ancestry(destination, root=home)
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise RouteAnswerStoreError(f"route answer destination is not writable: {error}") from error
+    # Post-mkdir recheck of the whole ancestry: the walk above ran before the
+    # directory existed, so a link planted in between would otherwise be
+    # followed by the write.
+    _reject_symlink_ancestry(destination, root=home)
+    with _record_lock(destination, root=home):
+        _replace_record(destination, record)
+    _prune_stale_records(home, keep=destination)
+    return destination
+
+
+def _replace_record(destination: Path, record: dict[str, Any]) -> None:
+    temporary = destination.with_name(
+        f".{destination.name}.{os.getpid()}-{secrets.token_hex(8)}.tmp"
+    )
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+        os.replace(temporary, destination)
+    except OSError as error:
+        raise RouteAnswerStoreError(f"route answer destination is not writable: {error}") from error
+    finally:
+        if temporary.exists() and not temporary.is_symlink():
+            temporary.unlink()
+
+
+@contextlib.contextmanager
+def _record_lock(destination: Path, *, root: Path) -> Iterator[None]:
+    """Serialize writes to one record, with a deadline and its own vocabulary.
+
+    The lock is `awareness_delivery`'s, the bundle's only one: a second copy
+    here is what `tests/test_journal_lock_portability.py` refuses. `held`
+    keeps the two handlers honest -- they sit outside the `with`, so a
+    `TimeoutError` (which is an `OSError`) raised by the caller's body is not
+    relabelled as this module deciding what someone else's failure was.
+    """
+    _reject_symlink_ancestry(destination.with_name(f".{destination.name}.lock"), root=root)
+    held = False
+    try:
+        with _awareness_delivery_lock(destination, timeout_seconds=_LOCK_TIMEOUT_SECONDS):
+            held = True
+            yield
+    except TimeoutError as error:
+        if held:
+            raise
+        raise RouteAnswerContendedError(
+            f"route answer record is held by another writer after "
+            f"{_LOCK_TIMEOUT_SECONDS:g}s and was not written: {destination}. "
+            "Nothing changed; send the same call again."
+        ) from error
+    except OSError as error:
+        if held:
+            raise
+        raise RouteAnswerStoreError(f"route answer destination is not writable: {error}") from error
+
+
+def _reject_symlink_ancestry(path: Path, *, root: Path) -> None:
+    current = path
+    while True:
+        if current.is_symlink():
+            raise RouteAnswerStoreError(f"refusing symlinked route answer path: {current}")
+        if current == root or current == current.parent:
+            return
+        current = current.parent
+
+
+def _prune_stale_records(omh_home: Path, *, keep: Path) -> None:
+    """Drop records older than the stale bound; best effort, never fatal.
+
+    Only regular files this module names -- records, its own temporary files,
+    and the lock files beside them -- directly inside the directory are
+    considered, and the record just written is always kept. A lock file goes
+    only once the record it guards is gone: past the stale bound with no
+    record beside it nothing can be mid-write on it, since a writer creating
+    a record holds a lock that is seconds old.
+    """
+    directory = route_answer_dir(omh_home)
+    now = datetime.now(timezone.utc).timestamp()
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return
+    for entry in entries:
+        if entry.name == keep.name:
+            continue
+        if _LOCK_NAME.fullmatch(entry.name):
+            if (directory / entry.name[1:-len(".lock")]).exists():
+                continue
+        elif not (_RECORD_NAME.fullmatch(entry.name) or _TEMPORARY_NAME.fullmatch(entry.name)):
+            continue
+        try:
+            if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
+                continue
+            if now - entry.stat(follow_symlinks=False).st_mtime <= ROUTE_ANSWER_STALE_SECONDS:
+                continue
+            os.unlink(entry.path)
+        except OSError:
+            continue
+
+
+def _validated_digest(value: object) -> str:
+    digest = strip_control_characters(value)
+    if not digest:
+        raise RouteAnswerValidationError("question_digest is required")
+    if len(digest) > MAX_DIGEST_CHARS or not re.fullmatch(r"[0-9a-f]+", digest):
+        raise RouteAnswerValidationError(
+            "question_digest must be the hex digest carried by the route question"
+        )
+    return digest
+
+
+def _validated_skill(value: object, *, field: str) -> str:
+    name = strip_control_characters(value)
+    if not name:
+        raise RouteAnswerValidationError(f"{field} is required")
+    if len(name) > MAX_SKILL_NAME_CHARS:
+        raise RouteAnswerValidationError(
+            f"{field} is capped at {MAX_SKILL_NAME_CHARS} characters"
+        )
+    return name
+
+
+def _validated_fits(value: object) -> dict[str, float]:
+    if value is None or value == {}:
+        return {}
+    if not isinstance(value, Mapping):
+        raise RouteAnswerValidationError("fits must be an object of skill -> probability")
+    if len(value) > MAX_FIT_ANSWERS:
+        raise RouteAnswerValidationError(f"fits is capped at {MAX_FIT_ANSWERS} entries")
+    fits: dict[str, float] = {}
+    for skill, raw in value.items():
+        name = _validated_skill(skill, field="fits key")
+        fits[name] = _validated_probability(raw, field=f"fits[{name}]")
+    return fits
+
+
+def _validated_probabilities(value: object) -> dict[str, float]:
+    if value is None or value == {}:
+        return {}
+    if not isinstance(value, Mapping):
+        raise RouteAnswerValidationError(
+            "choice_probabilities must be an object of option -> probability"
+        )
+    if len(value) > MAX_CHOICE_OPTIONS:
+        raise RouteAnswerValidationError(
+            f"choice_probabilities is capped at {MAX_CHOICE_OPTIONS} entries"
+        )
+    probabilities: dict[str, float] = {}
+    for option, raw in value.items():
+        name = _validated_skill(option, field="choice_probabilities key")
+        probabilities[name] = _validated_probability(raw, field=f"choice_probabilities[{name}]")
+    return probabilities
+
+
+def _validated_probability(value: object, *, field: str) -> float:
+    # `bool` is an `int`, and `True` would read as a probability of 1.0 that
+    # nobody declared: a caller sending a yes/no where a number belongs is
+    # answering a different question.
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RouteAnswerValidationError(f"{field} must be a number between 0 and 1")
+    number = float(value)
+    if not 0.0 <= number <= 1.0:
+        raise RouteAnswerValidationError(f"{field} must be between 0 and 1")
+    return number
+
+
+def _validated_note(value: object) -> str:
+    note = strip_control_characters(value)
+    if len(note) > MAX_NOTE_CHARS:
+        raise RouteAnswerValidationError(f"note is capped at {MAX_NOTE_CHARS} characters")
+    return note
+
+
+def _validated_session_ref(value: object) -> str:
+    return strip_control_characters(value)[:MAX_SESSION_REF_CHARS]
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+__all__ = [
+    "ANSWERED_BY_JEV_PLUGIN",
+    "ANSWERED_BY_MAIN_MODEL",
+    "ANSWERED_BY_VALUES",
+    "ANSWER_ROW_SCHEMA_VERSION",
+    "CLAIM_BOUNDARY",
+    "CLARIFY_ACTION",
+    "CONFIDENCE_ANSWERER_DECLARED",
+    "CONFIDENCE_SELF_REPORTED",
+    "DISPATCH_ACTION",
+    "FITS_CLARIFY_THRESHOLD",
+    "FITS_DISPATCH_THRESHOLD",
+    "MAX_NOTE_CHARS",
+    "NONE_ACTION",
+    "ROUTE_ANSWER_SCHEMA_VERSION",
+    "RouteAnswerContendedError",
+    "RouteAnswerStoreError",
+    "RouteAnswerValidationError",
+    "build_route_answer_record",
+    "confidence_source_for",
+    "resolve_action",
+    "route_answer_dir",
+    "route_answer_path",
+    "route_answer_record_key",
+    "write_route_answer",
+]

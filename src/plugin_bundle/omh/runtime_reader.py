@@ -1453,13 +1453,9 @@ def _plugin_capabilities(
             for stem in sorted(set(TOOL_FILE_STEMS.values()))
         }
     )
-    yaml_text = _read_hud_text(plugin_dir / "plugin.yaml", root=root) or ""
-    advertised_tools = set(
-        _yaml_list_values(yaml_text, "provides_tools")[:HUD_ADVERTISED_ITEM_LIMIT]
-    )
-    advertised_hooks = set(
-        _yaml_list_values(yaml_text, "provides_hooks")[:HUD_ADVERTISED_ITEM_LIMIT]
-    )
+    advertised = plugin_advertised_items(plugin_dir, root=root)
+    advertised_tools = set(advertised["tools"])
+    advertised_hooks = set(advertised["hooks"])
     registered_tools = set(
         _string_list(last_distribution.get("registered_tools", []))[
             :HUD_ADVERTISED_ITEM_LIMIT
@@ -1479,6 +1475,55 @@ def _plugin_capabilities(
         "advertised_tools": sorted(advertised_tools),
         "advertised_hooks": sorted(advertised_hooks),
     }
+
+
+def plugin_advertised_items(plugin_dir: Path, *, root: Path) -> dict[str, list[str]]:
+    """What one plugin's manifest DECLARES it provides, read under the sandbox.
+
+    Split out of `_plugin_capabilities` so a caller that only wants the
+    declaration can have it for a plugin directory other than OMH's own,
+    without the tool-file and hook projection that is specific to this
+    bundle. Declaration only: a name here says the manifest lists it, never
+    that the host registered it or that it ran.
+
+    An unreadable, oversized, or absent manifest reads as two empty lists,
+    which is what `_read_hud_text` already returned for OMH's own directory.
+    """
+    yaml_text = _read_hud_text(plugin_dir / "plugin.yaml", root=root) or ""
+    return {
+        "tools": _yaml_list_values(yaml_text, "provides_tools")[:HUD_ADVERTISED_ITEM_LIMIT],
+        "hooks": _yaml_list_values(yaml_text, "provides_hooks")[:HUD_ADVERTISED_ITEM_LIMIT],
+    }
+
+
+def installed_plugin_advertised_tools(hermes_home: Path) -> dict[str, list[str]]:
+    """Every installed plugin directory's declared tools, keyed by directory name.
+
+    The sweep is the same sandboxed read the HUD uses for OMH's own bundle,
+    pointed at each sibling directory instead. A directory reached through a
+    symlink is skipped rather than read, because the sandbox is the whole of
+    the protection here and following a link leaves it.
+
+    Absent `plugins/` is an empty mapping: a machine with no plugin directory
+    has nothing to declare, which is not the same claim as "no plugin
+    declares a tool" and is reported by the caller as absence either way.
+    """
+    root = Path(hermes_home)
+    plugins_dir = root / "plugins"
+    try:
+        entries = sorted(entry for entry in plugins_dir.iterdir() if entry.is_dir())
+    except (FileNotFoundError, NotADirectoryError):
+        # Never created is the routine case and really is empty. Any other
+        # OSError is a real fault and reaches the caller, which reports the
+        # absence of a reading rather than the absence of a plugin --
+        # `_child_files` above records why the tolerant spelling is wrong.
+        return {}
+    declarations: dict[str, list[str]] = {}
+    for entry in entries[:HUD_ADVERTISED_ITEM_LIMIT]:
+        if _contains_symlink(entry, root=root):
+            continue
+        declarations[entry.name] = plugin_advertised_items(entry, root=root)["tools"]
+    return declarations
 
 
 def _hud_regular_file(path: Path, *, root: Path) -> bool:

@@ -170,6 +170,14 @@ The policy:
 - Non-English intent resolution belongs to model selection. Hermes already
   understands every language OMH would target; OMH supplies candidates,
   reasons, and evidence boundaries and lets the model choose.
+- The candidates are supplied as a typed question, and an answer to it is
+  recorded rather than acted on. An undecidable route carries `route_question`:
+  one relative Choice over the shortlist plus `none`, and one absolute yes/no
+  per candidate. `omh_route_answer` records an answer as
+  `route_question_answer/v1` so it can be scored against OMH's own routing
+  corpora. An unanswered question changes nothing and an answered one does not
+  re-route anything: the deterministic route stays in force either way, and
+  OMH names who answered rather than how good the answer was.
 
 This keeps the "not an LLM router" boundary above intact: the selection happens
 in Hermes, and core `omh` still makes no LLM, API, or network call.

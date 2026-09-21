@@ -7,6 +7,7 @@ from ..plugin_bundle.omh.awareness import (
     awareness_route_hint_context_from_payload,
 )
 from ..plugin_bundle.omh.degradation import degradation_chat_note
+from ..plugin_bundle.omh.route_answerers import answerer_ladder
 from ..routing.catalog_questions import is_skill_catalog_question
 from ..routing.action_copy import next_action_label
 from ..routing.chat import route_chat_message
@@ -35,14 +36,32 @@ def build_chat_route_hint_payload(
     max_hints: int = 2,
     source_metadata: dict[str, str] | None = None,
     include_prompt_context: bool = False,
+    paths: object = None,
 ) -> dict[str, object]:
-    """Return a wrapper-facing route hint without storing or echoing raw prompt text."""
+    """Return a wrapper-facing route hint without storing or echoing raw prompt text.
+
+    `route_question` and `route_question_answerers` are additive top-level
+    keys; the schema id is unchanged because nothing that reads the existing
+    keys reads differently. They are threaded explicitly rather than arriving
+    with the rest of the route: this payload is built from the awareness hint
+    plus the compact route contract, and neither carries the core router's
+    own block, so a key added in `_enriched_route` reaches this surface only
+    by being named here.
+
+    `paths` is optional and is the only thing that can produce the answerer
+    ladder, which reads the machine's plugin directory and OMH home. Without
+    it the ladder is empty -- a caller with no homes has not been told there
+    is no answerer, only that nothing was read.
+    """
     if source not in CHAT_SOURCES:
         raise ValueError(f"unsupported chat route hint source: {source}")
     metadata = dict(source_metadata or {})
     route_hint = awareness_route_hint(message, max_hints=max_hints)
     route_hint = _route_hint_with_catalog_picker(route_hint, message)
-    route_decision = route_chat_message(message, source=source, limit=max_hints)["route_decision"]
+    route = route_chat_message(message, source=source, limit=max_hints)
+    route_decision = route["route_decision"]
+    route_question = route.get("route_question")
+    route_question = route_question if isinstance(route_question, dict) else None
     generic_tool_checkpoint = _generic_tool_checkpoint()
     hints = [hint for hint in route_hint.get("hints", []) if isinstance(hint, dict)]
     primary_hint = hints[0] if hints else {}
@@ -62,6 +81,8 @@ def build_chat_route_hint_payload(
         "source_metadata": metadata,
         "route_hint": route_hint,
         "route_decision": route_decision,
+        "route_question": route_question,
+        "route_question_answerers": _answerer_ladder(route_question, paths),
         "generic_tool_checkpoint": generic_tool_checkpoint,
         "chat_response": response,
         "wrapper_contract": {
@@ -88,6 +109,21 @@ def build_chat_route_hint_payload(
             "Prompt context is for Hermes routing guidance only; it is not workflow execution or observed evidence."
         )
     return payload
+
+
+def _answerer_ladder(route_question: dict[str, object] | None, paths: object) -> list[dict[str, object]]:
+    """Who could answer this question on this machine, or an empty list.
+
+    Built only when there IS a question: naming the answerers for a route the
+    router decided would report a machine fact nobody asked about, and the
+    ladder costs a plugin-directory sweep to produce.
+    """
+    if not route_question or paths is None:
+        return []
+    return answerer_ladder(
+        getattr(paths, "hermes_home", ""),
+        getattr(paths, "omh_home", ""),
+    )
 
 
 def _generic_tool_checkpoint() -> dict[str, object]:

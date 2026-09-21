@@ -189,6 +189,13 @@ REVIEWED_OVERLAP_DECISIONS: dict[str, str] = {
         "fires were cut, which is the doctrine's own 'schema and refusal already carry it' "
         "line applied to this description."
     ),
+    "omh_route_answer.answered_by:OVERLAP_ENUM_RESTATED": (
+        "keep — the two members are the enum, and the sentence carries what neither the "
+        "member names nor the schema can: which one makes the recorded confidence "
+        "self-reported, that naming the plugin records a number OMH did not observe, and "
+        "that OMH never calls it. A caller reading only the member list would read "
+        "jev_plugin as an instruction to reach for one."
+    ),
     "omh_role.action:OVERLAP_ENUM_RESTATED": (
         "prune candidate — 'List available roles or read one role context.' restates list/read "
         "with only the object each acts on. Left in place pending `git blame`: it predates the "

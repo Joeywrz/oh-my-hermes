@@ -207,10 +207,13 @@ OMH directly when Hermes taps are available.
 `omh_interact` chat/session interaction, `omh_recommend` route hints,
 metadata-only `omh_probe` capability status/roadmap, compact metadata-only
 `omh_hud`, detailed metadata-only `omh_status`, `omh_todo` plan-todo
-declaration for the HUD checklist panel, `omh_role` role context, a
-bounded `omh_gather_evidence` local verification probe, and passive lifecycle
-hooks for bounded status context, role marker validation, and metadata-only
-session-end checkpointing. The
+declaration for the HUD checklist panel, `omh_role` role context,
+`omh_route_answer` metadata-only recording of an answer to the `route_question`
+an undecidable route carries, a bounded `omh_gather_evidence` local
+verification probe, and passive lifecycle hooks for bounded status context,
+role marker validation, and metadata-only session-end checkpointing. A recorded
+route answer changes no route; it is written so the answerer can be scored
+against OMH's own routing corpora with `omh chat route-questions score`. The
 `pre_llm_call` hook can also add
 `omh_context_brief/v1` plus `omh_route_hint/v1` for messages that look like
 planning, research, ops, materials, visual summary, automation,

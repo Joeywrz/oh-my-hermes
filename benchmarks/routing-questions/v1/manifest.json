@@ -1,0 +1,46 @@
+{
+  "schema_version": "omh_routing_question_benchmark/v1",
+  "title": "OMH routing questions: the shipped corpora as typed questions",
+  "claim_boundary": "Measures how an arm answers typed routing questions built from the two shipped OMH routing corpora. It does not establish universal model or router superiority, and an answer is a routing judgment, not execution, review, CI, or merge evidence.",
+  "corpus": {
+    "schema_version": "routing_question_corpus/v1",
+    "produced_by": "omh chat route-questions export",
+    "source": "discord",
+    "candidate_limit": 3,
+    "cases_are_added_here": false
+  },
+  "question_contract": {
+    "schema_version": "route_question/v1",
+    "choice_key": "route_choice",
+    "fit_prefix": "fits::",
+    "none_option": "none",
+    "thresholds": {"fits_dispatch": 0.8, "fits_clarify": 0.5}
+  },
+  "arms": {
+    "deterministic": {
+      "kind": "omh_router",
+      "live": false,
+      "verdicts_from": "src/quality/routing_precision.py"
+    },
+    "model": {
+      "kind": "omh_hermes_child",
+      "live": true,
+      "dispatch_is_explicit": true,
+      "answer_file": ".omh-route-answers.json"
+    },
+    "external": {
+      "kind": "operator_supplied",
+      "live": false,
+      "answers_from": "a routing_question_answers/v1 file the operator produced with any tool"
+    }
+  },
+  "execution_policy": {
+    "offline_by_default": true,
+    "live_requires_explicit_flag": true,
+    "live_requires_confirmation": true,
+    "concurrency": 1,
+    "prompt_on_stdin": true,
+    "prompts_persisted": false
+  },
+  "integrity": {"algorithm": "sha256", "canonical_json": "sorted-keys-compact-ascii"}
+}

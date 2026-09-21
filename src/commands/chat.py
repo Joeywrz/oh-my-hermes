@@ -17,10 +17,19 @@ from ..ingress import CHAT_SOURCES, extract_message_text
 from ..installer import OmhError
 from ..mission_control import build_mission_control
 from ..memory import read_handoff_context_pack_file
+from ..quality.routing_question_corpus import (
+    RoutingQuestionCorpusError,
+    build_routing_question_corpus,
+    format_routing_question_corpus,
+    format_routing_question_score,
+    read_answer_source,
+    score_routing_question_answers,
+)
 from ..routing.action_copy import next_action_label
 from ..routing.route_plan import public_workflow_identifier
 from ..routing.chat import CONFIDENCE_LEVELS, public_route_payload, route_chat_event, routing_record_payload
 from ..runtime.artifacts import create_run, summarize_delegated_coding_status, write_routing_decision
+from ..system.local_store import atomic_write_json
 from ..targets import TARGET_METADATA_KEYS, build_target_change_notice, inspect_target_observation, record_target_observation
 from ..wrapper.contract import INTERACTION_MODES, RENDER_PROFILES, build_chat_interaction_payload, build_chat_status_interaction
 from ..wrapper.executor_sessions import (
@@ -149,6 +158,56 @@ def cmd_chat_route_hint(args: argparse.Namespace) -> int:
         _print_json(payload)
     else:
         _print_chat_route_hint_summary(payload)
+    return 0
+
+
+def cmd_chat_route_questions_export(args: argparse.Namespace) -> int:
+    """Export both shipped routing corpora as typed route questions.
+
+    The payload is large, so stdout carries a summary unless `--json` asks for
+    the whole thing; `--output` always writes the full corpus.
+    """
+    try:
+        payload = build_routing_question_corpus(source=args.source, limit=args.limit)
+        if args.output:
+            atomic_write_json(Path(args.output).expanduser(), payload)
+    except (OSError, RoutingQuestionCorpusError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        print(format_routing_question_corpus(payload))
+    return 0
+
+
+def cmd_chat_route_questions_score(args: argparse.Namespace) -> int:
+    """Score an answer set against an exported corpus.
+
+    The deterministic arm is always in the report, so an answering arm is read
+    next to the router it would replace. `--answers` is optional: without it
+    the report is the deterministic arm alone, which is the offline baseline.
+
+    The exit status is 0 whenever a report was produced. A poor score is a
+    result, not a command failure; only input that cannot be read as a corpus
+    or as answers fails the command.
+    """
+    overrides: dict[str, float] = {}
+    if args.fits_dispatch is not None:
+        overrides["fits_dispatch"] = args.fits_dispatch
+    if args.fits_clarify is not None:
+        overrides["fits_clarify"] = args.fits_clarify
+    try:
+        corpus = json.loads(Path(args.corpus).expanduser().read_text(encoding="utf-8"))
+        records = read_answer_source(Path(args.answers).expanduser()) if args.answers else []
+        payload = score_routing_question_answers(corpus, records, thresholds=overrides or None)
+        if args.output:
+            atomic_write_json(Path(args.output).expanduser(), payload)
+    except (OSError, json.JSONDecodeError, RoutingQuestionCorpusError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        print(format_routing_question_score(payload))
     return 0
 
 
@@ -1243,6 +1302,66 @@ def _add_chat_commands(sub) -> None:
     codex_followup.add_argument("--evidence-ref", action="append", help="Evidence reference for the observed session/log/source.")
     _add_codex_review_options(codex_followup)
     codex_followup.set_defaults(func=cmd_chat_codex_followup)
+
+    route_questions = chat_sub.add_parser(
+        "route-questions",
+        help="Export the shipped routing corpora as typed route questions, and score answers against them.",
+    )
+    route_questions_sub = route_questions.add_subparsers(dest="route_questions_command", required=True)
+
+    route_questions_export = route_questions_sub.add_parser(
+        "export",
+        help="Write both shipped routing corpora as route_question/v1 items with their expected answers.",
+    )
+    route_questions_export.add_argument(
+        "--source",
+        choices=CHAT_SOURCES,
+        default="discord",
+        help="Source surface the corpora are routed as; the shipped corpora are measured on discord.",
+    )
+    route_questions_export.add_argument(
+        "--limit",
+        type=int,
+        default=3,
+        help="Maximum candidate workflows carried into each question as Choice options.",
+    )
+    route_questions_export.add_argument("--output", default=None, help="Write the full corpus JSON to this path.")
+    route_questions_export.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the full corpus to stdout instead of a summary.",
+    )
+    route_questions_export.set_defaults(func=cmd_chat_route_questions_export)
+
+    route_questions_score = route_questions_sub.add_parser(
+        "score",
+        help="Score answer rows against an exported corpus; the deterministic arm is always included.",
+    )
+    route_questions_score.add_argument("--corpus", required=True, help="Path to an exported routing_question_corpus/v1 file.")
+    route_questions_score.add_argument(
+        "--answers",
+        default=None,
+        help="JSONL file of routing_question_answers/v1 rows, or a directory of route_question_answer/v1 records.",
+    )
+    route_questions_score.add_argument(
+        "--fits-dispatch",
+        type=float,
+        default=None,
+        help="Override the fit level at which an answer set counts as a dispatch.",
+    )
+    route_questions_score.add_argument(
+        "--fits-clarify",
+        type=float,
+        default=None,
+        help="Override the fit level at which an answer set counts as a clarification.",
+    )
+    route_questions_score.add_argument("--output", default=None, help="Write the full score report JSON to this path.")
+    route_questions_score.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the full score report to stdout instead of a summary.",
+    )
+    route_questions_score.set_defaults(func=cmd_chat_route_questions_score)
 
     session = chat_sub.add_parser("session")
     session_sub = session.add_subparsers(dest="session_command", required=True)

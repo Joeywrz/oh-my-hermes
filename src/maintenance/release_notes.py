@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from ..system.local_store import atomic_write_text
 from .changelog import (
     ChangelogError, MAX_CHANGELOG_BYTES, MAX_NOTES_BYTES,
-    extract_notes, release_version, stamp_changelog,
+    bound_release_body, extract_notes, release_version, stamp_changelog,
 )
 
 
@@ -83,6 +83,12 @@ def prepare_notes(repo_root: Path, version: str, notes_file: Path, *, stamp: boo
         updated, notes = stamp_changelog(original, version, datetime.now(timezone.utc).date())
     else:
         updated, notes = original, extract_notes(original, version)
+    # The file written here IS the published body -- the workflow passes it to
+    # `gh release create --notes-file` and then requires the remote body to
+    # equal it byte for byte. So the bound belongs on the artifact, before its
+    # digest is taken, not on the API call: a body shortened anywhere else
+    # would fail its own verification.
+    notes = bound_release_body(notes, version)
     metadata = _metadata(destination, version, notes)
     if updated != original:
         atomic_write_text(changelog, updated.decode('utf-8'))

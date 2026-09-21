@@ -51,7 +51,7 @@ from omh.quality.routing_question_corpus import (  # noqa: E402
     resolve_answer_action,
     score_routing_question_answers,
 )
-from omh.routing.chat import route_chat_message  # noqa: E402
+from omh.routing.chat import route_chat_message, routing_record_payload  # noqa: E402
 from omh.routing.route_question import (  # noqa: E402
     FITS_CLARIFY_THRESHOLD as CORE_FITS_CLARIFY,
     FITS_DISPATCH_THRESHOLD as CORE_FITS_DISPATCH,
@@ -682,6 +682,48 @@ class TheScorerReadsTheRecordsTests(unittest.TestCase):
         self.assertEqual(score["arms"]["jev_plugin"]["malformed"], 0)
         self.assertEqual(score["arms"]["jev_plugin"]["wrong_workflow"], 0)
         self.assertEqual(score["unmatched"], [])
+
+    def test_a_record_written_from_a_live_route_joins_to_its_corpus_item(self) -> None:
+        """The case above feeds the corpus its own digest, which proves the
+        reader reads and cannot prove the producer's output is readable. This
+        one takes the digest off a LIVE route, the only digest anything in
+        production hands out, and scores it. It used to come back
+        `answered: 0` with the record under `unmatched`, because the live
+        digest was the handoff's while the corpus carried the question
+        block's."""
+        corpus = build_routing_question_corpus(source="discord", limit=3)
+        for item in corpus["items"]:
+            live = route_chat_message(item["message"], source="discord", limit=3)
+            question = live.get("route_question")
+            if (
+                isinstance(question, dict)
+                and question["question_digest"] == item["question"]["question_digest"]
+            ):
+                break
+        else:  # pragma: no cover - the corpus always contains such an item
+            self.fail("no corpus item whose live route reproduces its question digest")
+
+        choice = item["expected"]["choice"]
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve()
+            write_route_answer(
+                home,
+                build_route_answer_record(
+                    question_digest=question["question_digest"],
+                    answered_by="main_model",
+                    route_choice=choice,
+                    fits={choice: 0.95} if choice != "none" else {},
+                    session_ref="session-live",
+                    message_sha256=routing_record_payload(live, item["message"])["message_sha256"],
+                ),
+            )
+            score = score_routing_question_answers(
+                corpus, read_answer_source(route_answer_dir(home))
+            )
+
+        self.assertEqual(score["unmatched"], [])
+        self.assertEqual(score["arms"]["main_model"]["answered"], 1)
+        self.assertEqual(score["arms"]["main_model"]["malformed"], 0)
 
 
 if __name__ == "__main__":

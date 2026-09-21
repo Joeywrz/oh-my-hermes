@@ -1650,10 +1650,19 @@ def _enriched_route(
         # shortlist, and a second assembler here would give two lists that can
         # disagree. Decidable routes carry no question at all, which is what
         # keeps this key readable as "OMH could not decide this one".
+        #
+        # No `digest=` override. The builder's own digest covers the request
+        # hash as well as the shortlist, and the handoff's digest covers only
+        # the shortlist -- which unrelated requests share constantly, so
+        # passing it named a group of requests rather than a request and no
+        # recorded answer could join back to the question it answered. The
+        # RAW message is hashed, not `matching_message`: this value has to
+        # agree with what every wrapper surface reports, and
+        # `routing_record_payload` reports the raw message's hash.
         route["route_question"] = build_route_question_from_candidates(
             [row for row in candidate_handoff.get("candidates", []) if isinstance(row, dict)],
+            message_sha256=hashlib.sha256(message.encode("utf-8")).hexdigest(),
             reasons=[str(reason) for reason in candidate_handoff.get("reasons", [])],
-            digest=str(candidate_handoff.get("digest") or ""),
         )
     if (
         candidate_handoff

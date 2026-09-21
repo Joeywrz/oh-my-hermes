@@ -537,15 +537,15 @@ Excerpted below: the payload also carries `route_hint`, `route_decision`,
 `generic_tool_checkpoint`, and the rest of `chat_route_hint/v1`, and the
 question carries one `fits::<workflow>` entry per candidate plus its own
 `claim_boundary`, as does each answerer rung. The digest below is one observed
-run; it moves whenever the shortlist does, so read it as a shape and never as a
-constant.
+run; it covers the request and the shortlist together, so it moves whenever
+either does. Read it as a shape and never as a constant.
 
 ```json
 {
   "schema_version": "chat_route_hint/v1",
   "route_question": {
     "schema_version": "route_question/v1",
-    "question_digest": "9e23a682652e09e7901697c4cccdfa328c251cde5bbb40b9ccdeb16f72e9b29f",
+    "question_digest": "75a002019335e0417d029a244c21975a12f031c7a9abd7c7d11f2c003d1a7808",
     "reasons": ["no_trigger_coverage", "narrow_score_gap", "low_confidence"],
     "questions": {
       "route_choice": {

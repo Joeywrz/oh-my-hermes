@@ -36,7 +36,11 @@ from omh.plugin_bundle.omh.route_answerers import (  # noqa: E402
 )
 from omh.plugin_bundle.omh.tool_bursts import jev_tool_observed_at, record_tool_call  # noqa: E402
 from omh.plugin_bundle.omh.tools.chat_tool import omh_interact_handler  # noqa: E402
-from omh.routing.chat import public_chat_route_payload, route_chat_message  # noqa: E402
+from omh.routing.chat import (  # noqa: E402
+    public_chat_route_payload,
+    route_chat_message,
+    routing_record_payload,
+)
 from omh.routing.route_question import (  # noqa: E402
     NO_WORKFLOW_OPTION,
     ROUTE_CHOICE_KEY,
@@ -74,11 +78,43 @@ class RouteQuestionOnTheRouteTests(unittest.TestCase):
         handoff = route["candidate_handoff"]
         options = route["route_question"]["questions"][ROUTE_CHOICE_KEY]["options"]
 
-        self.assertEqual(route["route_question"]["question_digest"], handoff["digest"])
         self.assertEqual(
             [skill for skill in options if skill != NO_WORKFLOW_OPTION],
             [candidate["skill"] for candidate in handoff["candidates"]],
         )
+
+    def test_two_requests_on_one_shortlist_get_two_digests(self) -> None:
+        """The digest used to be the handoff's, which covers the shortlist
+        alone. A shortlist is the router's top few skills and unrelated
+        requests share one constantly, so every message below produced the
+        same digest: a recorded answer joined to a group of requests rather
+        than to the request it answered, and two of them in one session
+        overwrote each other's record."""
+        messages = (UNDECIDABLE_MESSAGE, "расскажи про наш проект", "объясни это")
+        digests = {}
+        shortlists = {}
+        for message in messages:
+            route = route_chat_message(message, source="generic", limit=3)
+            digests[message] = route["route_question"]["question_digest"]
+            shortlists[message] = tuple(
+                candidate["skill"] for candidate in route["candidate_handoff"]["candidates"]
+            )
+
+        self.assertEqual(len(set(shortlists.values())), 1, "the premise: one shared shortlist")
+        self.assertEqual(len(set(digests.values())), len(messages))
+
+    def test_the_digest_is_over_the_request_and_the_shortlist(self) -> None:
+        """Re-derived from the producer rather than restated, so the two
+        cannot drift into disagreeing about what identifies a question."""
+        from omh.routing.route_question import route_question_digest
+
+        route = route_chat_message(UNDECIDABLE_MESSAGE, source="generic", limit=3)
+        expected = route_question_digest(
+            message_sha256=routing_record_payload(route, UNDECIDABLE_MESSAGE)["message_sha256"],
+            candidates=route["candidate_handoff"]["candidates"],
+        )
+
+        self.assertEqual(route["route_question"]["question_digest"], expected)
 
     def test_every_candidate_gets_its_own_fit_question(self) -> None:
         route = route_chat_message(UNDECIDABLE_MESSAGE, source="generic", limit=3)

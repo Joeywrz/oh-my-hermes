@@ -4768,6 +4768,7 @@ _DEFINITIONS = [
             "Tie every completion claim to the smallest check that proves it, then broaden for shared surfaces.",
             "When a diff touches a declared generated path, name its source of truth and regeneration command before the edit rather than after a byte gate rejects it; a diff touching a generator and its output together is the correct shape, not a violation — load `references/generated-artifact-provenance.md` for the declaration and reporting rules.",
             "Record command/source, freshness, exit status, and scope for each observed result.",
+            "For native `omh_todo` checkpoints, load the todo-checklist closing recipe; `record` then `recall` this verification declaration. Stored declarations are not proof.",
             "When the change answers to a written spec, plan, or issue, load `references/requirement-coverage-map.md` and map requirement to task to evidence under stable ids before claiming coverage.",
             "Return PASS only when required checks pass and stale or missing evidence is resolved.",
             "Keep fixes, reruns, review, CI, and merge as separate observed states.",
@@ -5852,6 +5853,7 @@ _DEFINITIONS = [
             ENGINE_CLOSING_BRIEF_RULE,
             "Generate hostile scenarios from changed behavior and known risk areas.",
             "Report pass/fail evidence separately from proposed fixes.",
+            "For native `omh_todo` checkpoints, load the todo-checklist closing recipe; `record` then `recall` this qa declaration. Stored declarations are not proof.",
             "Delegate code mutations discovered by QA to the selected coding executor.",
             "A check no automation can hold gets a manual test guide, never a done claim: load `references/manual-test-guide.md` for the step shape (setup, do, expect, broken), the four reasons a step may stay manual, and why it stays `prepared_not_observed` until a run records a fresh `observed_check_results/v1`. `code-story` phase `VI. Manual test guide`; rendered surfaces go to `visual-qa`.",
             "For probes that must run in Hermes-owned isolation or outlive this session, load `references/board-fanin.md`: one probe row per scenario in its own worktree, one fixer row whose `parents` is every probe, re-verification through the review lane, and findings only through bounded readback.",
@@ -6147,6 +6149,7 @@ _DEFINITIONS = [
             "Review on two axes and report them side by side, never re-ranked against each other: the correctness/risk axis judges the code as it is, and the spec axis judges the diff against the dispatch's Claim and Requirements pointer. A clean diff that does not do what was asked is a spec-axis finding; when no Claim or spec pointer was supplied, report the spec axis as `not_assessed` with that reason instead of staying silent.",
             "Judge maintainability findings against the named baseline in `omh-code-review/references/smell-baseline.md`: a baseline smell is a judgement call to argue from evidence, never an automatic finding, and the reviewed repository's own standards override the baseline wherever they conflict.",
             "Close with two lists beside the verdict: what was checked and found clean, and what could not be assessed with the reason. An absent finding is evidence only when the closing says the surface was actually checked.",
+            "For native `omh_todo` checkpoints, load the todo-checklist closing recipe; `record` then `recall` this review declaration. Stored declarations are not proof.",
         ),
         why_this_exists="`code-review` exists to make review bug-first and evidence-grounded: findings must cite concrete files, diffs, commands, or artifacts before any summary or fix proposal.",
         do_not_use_when=(
@@ -7124,7 +7127,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "todo-checklist",
-        "Hermes adaptation for declaring and advancing the metadata-only plan todo checklist the OMH HUD renders above the prompt input, in an ordinary session with no delivery engine running.",
+        "Continue or finish the accepted work from conversation context, preserve rejected ideas, and report evidence-bounded completion. Also declare and advance the metadata-only plan checklist without starting a delivery engine.",
         (
             "todo-checklist",
             # The bare `todo` token is held in `_WHOLE_PHRASE_ONLY_TRIGGER_TOKENS`
@@ -7145,8 +7148,8 @@ _DEFINITIONS = [
             # No trigger for closing a story, deliberately. The skill owns the
             # close (see the quality bar below and
             # `references/closing-a-story.md`), and the phase template is how
-            # a run reaches it; asking for it in plain words is an open gap,
-            # not an oversight. Every wording tried was built from `close`,
+            # a run reaches it. The metadata above now exposes the model-selected
+            # continuation path, not a deterministic trigger. Every wording tried was built from `close`,
             # `story` and a finishing word, which as a token set dispatched
             # nine sentences about bedtime stories, closing ceremonies and
             # Jira tickets, and as a phrase list still matched inside "close
@@ -7155,7 +7158,7 @@ _DEFINITIONS = [
         ),
         (
             "Use when the user wants a declared, HUD-visible plan checklist for the work at hand, or wants to read, "
-            "advance, or clear one, without starting a delivery engine."
+            "advance, or clear one, without starting a delivery engine. Also use when the person asks in ordinary language to finish or resume the previously accepted work; infer intent from conversation, not isolated keywords."
         ),
         category="operator",
         phase="observability",
@@ -7165,17 +7168,19 @@ _DEFINITIONS = [
         expected_outputs=("a declared checklist with exactly one active item", "explicit states as work completes"),
         artifact_expectations=("metadata-only `omh_todo/v1` plan todo owned by the declaring session",),
         safety_rules=(
-            "Do not present checklist states as execution, verification, review, CI, or merge evidence; an item marked done records a declaration, not an observed result.",
-            "Do not declare a checklist for work that is one step, already finished, or answerable directly; the checklist costs a tool call and a panel, and buys nothing on work that does not span turns.",
+            "Checklist states never prove execution, verification, review, CI or merge.",
+            "Do not declare a checklist for one-step, finished or directly answerable work.",
         ),
         quality_bar=(
-            "Items are plan declarations and never execution evidence: marking one done records that you say it is done, which is not an observed result and never substitutes for one.",
-            "Keep exactly one item active. Two active items make the HUD unable to say where the run is, which is the only thing the panel exists to answer.",
-            "Change one item's state with `action=advance`: the item number, the start of its text as a guard, and the new state. `action=set` replaces the whole list, so a write that reaches for it to tick one item must send every item back or the omitted ones are silently dropped.",
-            "The checklist belongs to the session that declared it -- another TUI, Slack, or Discord session neither sees nor overwrites it -- so do not tell a user their checklist is visible somewhere it is not.",
-            "Two different things stop a plan advancing and they are not interchangeable: an item that cannot proceed carries `blocked_reason`, and a person steering the session elsewhere is `deferred_reason` on the write. Load `references/checklist-discipline.md` before using either.",
-            "To review whether requirements are fit to build from rather than to track work, load `references/requirements-quality-checklist.md`; its items interrogate the spec, and the party that generates them may not tick them.",
-            "Closing a story is reading this record, not ticking it: every `done` is a declaration, a phase marked `done` with a `blocked_reason` was skipped, and landing the change is observed evidence OMH never sees. Load `references/closing-a-story.md` before writing the close report.",
+            "A `done` item is a declaration, never observed evidence.",
+            "For accepted multi-turn work, load `references/closing-a-story.md` before checkpoint, recall, explicit resume or recording verification/review/QA declarations. Preserve rejected ideas separately; templates remain optional.",
+            "Current intent overrides old plans. Stop, analysis-only and topic changes take precedence; ask only when scope is ambiguous. Missing, stale or malformed evidence is not clean; waiting for a child remains open.",
+            "Keep exactly one item active so the HUD names the current step.",
+            "Use `action=advance` with item number, text-prefix guard and new state. `action=set` replaces the whole list: send every item or omitted ones are lost.",
+            "The live checklist is session-owned; another TUI, Slack or Discord session cannot see or overwrite it.",
+            "Load `references/checklist-discipline.md`: `blocked_reason` is an item unable to proceed; `deferred_reason` on the write is human redirection. Do not interchange them.",
+            "For spec fitness, load `references/requirements-quality-checklist.md`; its generator may not tick its items.",
+            "Before closing, read `references/closing-a-story.md`, not just ticks: `done` with `blocked_reason` means skipped; OMH never observes landing.",
         ),
         why_this_exists=(
             "`todo-checklist` exists because `omh_todo` is registered on every session while nothing in the skill "
@@ -7201,12 +7206,12 @@ _DEFINITIONS = [
         ),
         final_checklist=(
             "Exactly one item is active, or the list is complete and every item is done.",
-            "Every state change went through `action=advance`, or an `action=set` write sent the whole list back, so no item was dropped by omission.",
+            "Use `action=advance` or a complete `action=set` list; never drop an item by omission.",
             "Item states are described as declarations; observed results are cited separately or named as missing.",
-            "A stopped plan names which of the two reasons applies -- an item that cannot proceed, or a person steering elsewhere.",
+            "Name whether work is blocked or human-deferred.",
         ),
         recovery_notes=(
-            "If items disappeared after a write, the write sent a partial list to `action=set`, which replaces rather than merges; re-send every item, and use `action=advance` for a state change.",
+            "After a partial `action=set`, resend every item; use `action=advance` for state changes.",
             "If the panel shows nothing, read the current projection with `action=show` before re-declaring, so an existing checklist is not overwritten.",
             "If the user redirects the session away from the plan, record that on the write rather than deleting the checklist or marking its items done.",
         ),

@@ -22,7 +22,7 @@ from omh.skills.render import (
     HANDOVER_QUIZ_BASIS,
     HANDOVER_QUIZ_ENTRIES,
     HANDOVER_RECORD_SOURCES,
-    HANDOVER_SESSION_TRANSCRIPT,
+    HANDOVER_NATIVE_DECLARATION,
     wiki_reference_templates,
     wiki_skill,
 )
@@ -124,9 +124,9 @@ class HandoverRecordSourceTest(unittest.TestCase):
     def test_only_the_plan_record_is_claimed_to_outlive_the_session(self) -> None:
         """The scoping claim the whole page rests on, checked against the code.
 
-        Only the plan record has a store (`todo_path`). The other three are
-        declared outputs that nothing writes and nothing reads back, so a row
-        that starts claiming durability is a page that argues against itself.
+        The live plan is separate from optional durable native declarations.
+        Every optional source must name the callable reader and must not
+        present its stored declaration as an observed result.
         """
 
         durable = {s.label for s in HANDOVER_RECORD_SOURCES if s.held_in == HANDOVER_DURABLE_RECORD}
@@ -136,11 +136,8 @@ class HandoverRecordSourceTest(unittest.TestCase):
                 if source.held_in == HANDOVER_DURABLE_RECORD:
                     self.assertTrue(source.read_with, "a durable source must name how to read it")
                 else:
-                    self.assertEqual(source.held_in, HANDOVER_SESSION_TRANSCRIPT)
-                    self.assertFalse(
-                        source.read_with,
-                        "a transcript-resident source must not offer a command that reads it",
-                    )
+                    self.assertEqual(source.held_in, HANDOVER_NATIVE_DECLARATION)
+                    self.assertEqual(source.read_with, "omh_todo action=recall")
 
     def test_the_page_is_right_that_phase_gives_no_order(self) -> None:
         """The deep guide says to use plan order because `phase` has none.

@@ -201,10 +201,9 @@ class ClosingReferenceContentTest(unittest.TestCase):
     def test_the_page_rests_the_close_on_the_one_durable_record(self) -> None:
         """The hard constraint: a verification verdict is not a close criterion.
 
-        Nothing persists `observed_check_results/v1` or `claim_verdict/v1`, so
-        a page defining a close as "the gate passed" would define it against
-        something the next reader cannot read. The plan record is the only
-        source the page may rest on, and the page has to say so.
+        Native result declarations now persist, but storage never promotes a
+        declared verdict into a close criterion or evidence of observed work.
+        The live plan and the optional dossier remain distinct sources.
         """
 
         durable = [s for s in HANDOVER_RECORD_SOURCES if s.held_in == HANDOVER_DURABLE_RECORD]
@@ -212,7 +211,7 @@ class ClosingReferenceContentTest(unittest.TestCase):
         content = _closing_reference_content()
         self.assertIn(f"read with `{durable[0].read_with}`", content)
         self.assertIn(
-            "a close judgement that reads records reads the plan record and nothing\nelse today",
+            "bounded declarations written with `omh_todo action=record`",
             content,
         )
         self.assertIn("belong to `verification-gate`, which runs\n  before this phase", content)

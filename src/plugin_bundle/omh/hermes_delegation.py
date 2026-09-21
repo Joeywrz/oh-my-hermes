@@ -1885,6 +1885,49 @@ def served_model_attestation(
     return attestation
 
 
+def _attach_opening_goals(connection: sqlite3.Connection, children: list[dict[str, Any]]) -> None:
+    """The dispatch prompt each child was opened with, as its own row's label.
+
+    The HUD already renders a goal sentence -- `action` is the manifest task's
+    `goal`, which IS the text the dispatcher wrote -- so this adds no new class
+    of content to the screen. What it adds is OWNERSHIP. A manifest names no
+    session, so in session scope it cannot be attributed and is dropped, and
+    the row loses its label; a child's own first user message is in that
+    child's session row, so the attribution is a primary key rather than a
+    timestamp guess. That is why this is read here and the manifest is not.
+
+    Rendered and never written anywhere: the reader persists nothing, and the
+    awareness ledger's rule about never recording what was said is untouched
+    by a label the HUD draws and forgets.
+
+    The limit here bounds what the READER holds, not what renders -- the row
+    applies `_ACTION_LIMIT` again on its way to `action`, so a first message
+    that is a 100 KB paste never becomes 32 of those in memory. One number,
+    two jobs; only the render one is observable from a row, so only that one
+    is pinned by a test.
+
+    Best-effort like every other enrichment here. A missing table, an older
+    schema, or a child whose first row is not a user message leaves the label
+    empty, which is what the row showed before.
+    """
+    pending = [child for child in children if not child.get("opening_goal")]
+    if not pending:
+        return
+    placeholders = ",".join("?" for _ in pending)
+    try:
+        cursor = connection.execute(
+            "SELECT session_id, content FROM messages WHERE rowid IN ("
+            f"SELECT MIN(rowid) FROM messages WHERE session_id IN ({placeholders}) "
+            "AND role = 'user' GROUP BY session_id)",
+            tuple(child["session_id"] for child in pending),
+        )
+        opened = {str(row[0]): _text(row[1], limit=_ACTION_LIMIT) for row in cursor.fetchall()}
+    except sqlite3.Error:
+        return
+    for child in pending:
+        child["opening_goal"] = opened.get(child["session_id"], "")
+
+
 def _query_state_db(state_db: Path, *, now: float, session_ref: str | None = None) -> dict[str, Any]:
     """Read child sessions, usage tallies, and delegation states, read-only.
 
@@ -2025,6 +2068,7 @@ def _query_state_db(state_db: Path, *, now: float, session_ref: str | None = Non
                 }
             for child in children:
                 child["usage"] = usage.get(child["session_id"], {})
+            _attach_opening_goals(connection, children)
 
         cursor = connection.execute(
             "SELECT delegation_id, state FROM async_delegations WHERE dispatched_at >= ?",
@@ -2298,7 +2342,12 @@ def read_hermes_native_subagents(
             "state": row_state,
             "task_id": session_tail,
             "role": "hermes-native",
-            "action": _text(task.get("goal", ""), limit=_ACTION_LIMIT),
+            # The manifest task's goal when one could be attributed, else the
+            # prompt the child itself was opened with. Same sentence, and the
+            # fallback is the one with provable ownership -- see
+            # `_attach_opening_goals`.
+            "action": _text(task.get("goal", ""), limit=_ACTION_LIMIT)
+            or _text(child.get("opening_goal", ""), limit=_ACTION_LIMIT),
             "alias": route_alias,
             "provider": route_provider,
             "model": wire_model,

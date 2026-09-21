@@ -19,6 +19,7 @@ from omh.coding.model_contracts import MODEL_CONTRACTS
 from omh.plugin_bundle.omh import hermes_delegation as hermes_delegation_module
 from omh.plugin_bundle.omh.hermes_delegation import (
     ATTESTATION_COVERAGE_CLAIM,
+    _ACTION_LIMIT,
     COMPLETED_LINGER_SECONDS,
     DELEGATION_ROUTE_PROVENANCE_SCHEMA_VERSION,
     DECLARED_MODEL_ALIAS_PROJECTIONS,
@@ -71,6 +72,9 @@ def _build_state_db(
             delegation_id TEXT PRIMARY KEY, state TEXT NOT NULL,
             dispatched_at REAL NOT NULL
         );
+        CREATE TABLE messages (
+            session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT
+        );
         """
     )
     if not include_cost_provenance:
@@ -89,6 +93,13 @@ def _build_state_db(
             "INSERT INTO sessions VALUES (?, ?, ?, ?)",
             (child["id"], child["model"], json.dumps(config), child["started_at"]),
         )
+        # The dispatch prompt lands as the child's first user row; a child
+        # declaring none exercises the reader's empty-label degradation.
+        for role, content in child.get("messages", []):
+            connection.execute(
+                "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)",
+                (child["id"], role, content),
+            )
         usages = child.get("usages")
         if usages is None:
             single = child.get("usage")
@@ -605,6 +616,88 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
         self.assertEqual(payload["status"], "idle")
         self.assertEqual(payload["rows"], [])
         self.assertEqual(payload["active"], 0)
+
+    def test_a_child_labels_its_own_row_from_the_prompt_it_was_opened_with(self):
+        """The label the manifest cannot supply, from a source that proves ownership.
+
+        A manifest names no session, so in session scope it is dropped and the
+        row loses its label. A child's first user row is IN that child's
+        session, so attributing it is a primary key rather than a timestamp
+        guess — and the sentence is the same sentence, since the manifest's
+        `goal` is also the dispatch prompt.
+        """
+        _build_state_db(
+            self.home,
+            [
+                {
+                    "id": "20260818_100100_opened",
+                    "model": "deepseek/deepseek-flash",
+                    "started_at": NOW - 30,
+                    "messages": [("user", "Implement the cost engine for jeval"), ("assistant", "working")],
+                },
+                {
+                    "id": "20260818_100100_silent",
+                    "model": "deepseek/deepseek-flash",
+                    "started_at": NOW - 30,
+                },
+            ],
+        )
+
+        rows = {
+            row["task_id"]: row
+            for row in read_hermes_native_subagents(
+                self.home, now=NOW, omh_home=self.home / ".omh", session_ref=PARENT_ID
+            )["rows"]
+        }
+
+        self.assertEqual(rows["opened"]["action"], "Implement the cost engine for jeval")
+        # No first user row is the honest empty label, not a fabricated one.
+        self.assertEqual(rows["silent"]["action"], "")
+
+    def test_the_opening_prompt_never_outranks_an_attributed_manifest_goal(self):
+        """Mutation guard: the fallback is a fallback, not a replacement."""
+        _build_state_db(
+            self.home,
+            [
+                {
+                    "id": "20260818_100100_opened",
+                    "model": "deepseek/deepseek-flash",
+                    "started_at": NOW - 30,
+                    "messages": [("user", "the prompt this child was opened with")],
+                },
+            ],
+        )
+        _write_manifest(self.home, "deleg_owned", ["the goal the manifest attributed"], started=NOW - 32, log_mtime=NOW)
+
+        rows = read_hermes_native_subagents(self.home, now=NOW, omh_home=self.home / ".omh")["rows"]
+
+        self.assertEqual(rows[0]["action"], "the goal the manifest attributed")
+
+    def test_a_long_opening_prompt_is_cut_to_the_same_limit_a_goal_is(self):
+        """Pins the RENDER limit only.
+
+        The reader truncates again when it reads, to bound what it holds, and
+        that inner cut is invisible from a row because the row applies the
+        same limit. Removing it does not fail this test and is disclosed
+        rather than covered by an assertion that cannot see it.
+        """
+        _build_state_db(
+            self.home,
+            [
+                {
+                    "id": "20260818_100100_opened",
+                    "model": "deepseek/deepseek-flash",
+                    "started_at": NOW - 30,
+                    "messages": [("user", "x" * 400)],
+                },
+            ],
+        )
+
+        rows = read_hermes_native_subagents(
+            self.home, now=NOW, omh_home=self.home / ".omh", session_ref=PARENT_ID
+        )["rows"]
+
+        self.assertLessEqual(len(rows[0]["action"]), _ACTION_LIMIT)
 
     def test_provider_wire_child_uses_configured_alias_and_provider(self):
         route_path = self.home / "routing" / "model-providers.json"

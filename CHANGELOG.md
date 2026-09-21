@@ -17,6 +17,16 @@ All notable changes will be documented here.
   `inherit(deepseek-flash:high)`, twenty seconds after the record that said
   otherwise.
 
+  The row's LABEL came back the same way, from the one source that can prove
+  it. The title column renders a dispatch goal, and it had been reading the
+  host manifest — which names no session, so session scope drops it and the
+  row went out blank beside its id. A child's first user row is inside that
+  child's own session, so attributing it is a primary key rather than a
+  timestamp guess, and the sentence is the same sentence: the manifest's
+  `goal` IS the dispatch prompt, so nothing new in kind reaches the screen.
+  The manifest stays unattributable and stays dropped; the fallback never
+  outranks a goal that was attributed.
+
   The fix is the owner the record was missing, not a scope exemption. The
   tool handler already reads the dispatching session from the host keyword
   (`host_session_id(kwargs)`, the durable id `state.db` names) to scope the

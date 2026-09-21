@@ -255,6 +255,28 @@ class AutoReleaseWorkflowTests(unittest.TestCase):
             self.workflow,
         )
 
+    def test_the_cut_dispatches_the_site_rebuild_it_cannot_trigger(self) -> None:
+        """A cut's own push cannot start Pages, so the cut has to ask for it.
+
+        GitHub does not create workflow runs from events caused by
+        GITHUB_TOKEN, which is what the atomic push uses. Pages listens for a
+        push to main touching `site/**`, and the bump always rewrites
+        `site/index.html` and `site/i18n.js` -- so the one push that changes
+        the advertised version is the one push Pages never sees. Observed on
+        the v2.0.4 cut: `Distribution Release` was the only run on that
+        commit, no Pages run and no CI push run.
+        """
+        self.assertIn("gh workflow run pages.yml --ref main", self.workflow)
+        # The dispatch is load-bearing only while the bump keeps rewriting a
+        # path Pages watches, so both halves of that overlap are pinned here
+        # rather than described in the comment above.
+        bump = (PROJECT_ROOT / "tools" / "package_manager" / "bump_version.py").read_text(encoding="utf-8")
+        pages = (PROJECT_ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
+        self.assertIn('"site"', bump)
+        self.assertIn('"index.html"', bump)
+        self.assertIn('"i18n.js"', bump)
+        self.assertIn('- "site/**"', pages)
+
 
 if __name__ == "__main__":
     unittest.main()

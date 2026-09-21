@@ -24,6 +24,37 @@ from ..todo_store import (
     write_todo,
 )
 from ..todo_templates import CODE_STORY_TEMPLATE
+from ..completion_store import completion_action
+
+_COMPLETION_FIELDS = {
+    "checkpoint_id": {"type": "string", "description": "ID returned by checkpoint; recall without it lists this profile/project's dossiers."},
+    "accepted": {"type": "boolean", "description": "For checkpoint only: declare that the person accepted exactly the current todo scope. Not a host approval or permission grant."},
+    "rejected": {"type": "array", "items": {"type": "string"}, "maxItems": 20,
+                 "description": "For checkpoint: short summaries of rejected ideas, kept outside accepted scope; no transcript."},
+    "revision": {"type": "string", "maxLength": 128,
+                 "description": "Required for checkpoint, record and keyed recall: exact revision/worktree fingerprint being claimed or checked. Caller-declared, not host-attested."},
+    "environment": {"type": "string", "maxLength": 128,
+                    "description": "Required alongside revision: bounded environment/toolchain fingerprint. Changes make old results stale; never put environment values or secrets here."},
+    "result": {
+        "type": "object", "additionalProperties": False,
+        "description": "For record: append a bounded verification verdict, review finding set or QA result for one frozen item. All fields required. No logs, prompts, transcripts or raw command output. All provenance is claimed, never independently attested by storage.",
+        "properties": {
+            "kind": {"type": "string", "enum": ["verification", "review", "qa"]},
+            "item": {"type": "integer", "minimum": 1},
+            "verdict": {"type": "string", "enum": ["PASS", "HOLD", "BLOCK"]},
+            "summary": {"type": "string", "maxLength": 200},
+            "findings": {"type": "array", "items": {"type": "string", "maxLength": 200}, "maxItems": 20},
+            "claimed_source": {"type": "string", "enum": ["model", "host_exit", "independent_review", "ci"]},
+            "claimed_evidence_state": {"type": "string", "enum": ["prepared_not_observed", "observed"]},
+            "references": {"type": "array", "maxItems": 8, "items": {
+                "type": "object", "additionalProperties": False,
+                "properties": {"type": {"type": "string", "enum": ["verification_receipt/v1", "artifact", "ci_run"]},
+                               "id": {"type": "string", "maxLength": 128}},
+                "required": ["type", "id"]}},
+        },
+        "required": ["kind", "item", "verdict", "summary", "findings", "claimed_source", "claimed_evidence_state", "references"],
+    },
+}
 
 OMH_TODO_SCHEMA = {
     "name": "omh_todo",
@@ -38,18 +69,26 @@ OMH_TODO_SCHEMA = {
         "with one task per observable outcome, so the run walks a bounded checklist instead "
         "of an open-ended reasoning loop. Keep exactly one item active and update states as "
         "work completes with action=advance; action=set replaces the whole list. "
-        "Todo items are plan declarations, never execution evidence."
+        "Todo items are plan declarations, never execution evidence. "
+        "For a natural-language request to finish or resume accepted work, read the plan and "
+        "recall its checkpoint; do exactly the accepted items, never rejected ideas. "
+        "Use checkpoint to preserve accepted scope, record for durable verification/review/QA "
+        "declarations, and recall before reporting completion. These actions do not execute "
+        "work, grant approval or force a template; tiny tasks do not need ten phases."
     ),
     "parameters": {
         "type": "object",
         "properties": {
+            **_COMPLETION_FIELDS,
             "action": {
                 "type": "string",
-                "enum": ["set", "advance", "clear", "show"],
+                "enum": ["set", "advance", "clear", "show", "checkpoint", "record", "recall"],
                 "description": (
                     "set writes a new todo list, advance changes one item's state on it, "
                     "clear removes it, show reads the current projection. Change a state "
-                    "with advance, not set: set replaces the whole list."
+                    "with advance, not set: set replaces the whole list. "
+                    "checkpoint freezes the current accepted scope; record appends a result declaration; "
+                    "recall reads durable scope and evidence declarations across sessions without resuming work."
                 ),
             },
             "title": {
@@ -190,6 +229,9 @@ def omh_todo_handler(args: dict[str, Any], **kwargs) -> str:
     session_ref = host_session_id(kwargs)
     home_arg = str(args.get("omh_home", "") or "")
     action = str(args.get("action", ""))
+    if action in {"checkpoint", "record", "recall"}:
+        return json.dumps(attach_public_observation(
+            completion_action(args, session=session_ref), observation), sort_keys=True)
     payload: dict[str, Any] = {
         "schema_version": "omh_todo_result/v1",
         "action": action,
@@ -260,6 +302,6 @@ def omh_todo_handler(args: dict[str, Any], **kwargs) -> str:
         payload["status"] = "read"
     else:
         payload["status"] = "invalid_action"
-        payload["error"] = "action must be set, advance, clear, or show"
+        payload["error"] = 'action must be set, advance, clear, show, checkpoint, record, or recall'
     payload["todo"] = read_omh_todo(runtime_paths.plugin_home(home_arg), session_ref=session_ref)
     return json.dumps(attach_public_observation(payload, observation), sort_keys=True)

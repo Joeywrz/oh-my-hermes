@@ -709,7 +709,7 @@ class ToolSurfaceTest(_TodoHomeTest):
     def test_the_action_is_in_the_schema_next_to_the_ones_it_joins(self):
         action = OMH_TODO_SCHEMA["parameters"]["properties"]["action"]
 
-        self.assertEqual(action["enum"], ["set", "advance", "clear", "show"])
+        self.assertEqual(action["enum"], ["set", "advance", "clear", "show", "checkpoint", "record", "recall"])
         # The steering: a model reading this must reach for the cheap write.
         self.assertIn("Change a state with advance, not set", action["description"])
         for field in ("item", "item_text", "state"):
@@ -766,7 +766,7 @@ class ToolSurfaceTest(_TodoHomeTest):
         result = self.call({"action": "tick"})
 
         self.assertEqual(result["status"], "invalid_action")
-        self.assertEqual(result["error"], "action must be set, advance, clear, or show")
+        self.assertEqual(result["error"], "action must be set, advance, clear, show, checkpoint, record, or recall")
 
     def test_a_delegated_child_advances_its_own_record_and_not_its_parents(self):
         # The rule `set` follows and this inherits: the record is keyed by the

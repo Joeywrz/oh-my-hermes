@@ -1802,6 +1802,7 @@ class HandoverCitation:
 # session. This is the fact the rest of the page is scoped to.
 HANDOVER_DURABLE_RECORD = "durable_record"
 HANDOVER_SESSION_TRANSCRIPT = "session_transcript"
+HANDOVER_NATIVE_DECLARATION = "optional_native_declaration"
 
 
 @dataclass(frozen=True)
@@ -1812,13 +1813,9 @@ class HandoverRecordSource:
     citations, or ``""`` for the plan record, whose fields belong to the
     ``omh_todo/v1`` item contract rather than to any skill.
 
-    ``held_in`` is load-bearing and was wrong in the first version of this
-    page. Only the plan record is persisted. The verification, review, and QA
-    names below are declared outputs -- OMH instructs a model to produce them
-    and stores none of them -- so they live in the session's own transcript,
-    which is exactly the place this page tells the reader not to rely on. The
-    page has to say that per row rather than present four equal records, or it
-    argues against itself.
+    ``held_in`` distinguishes the live todo record from optional native result
+    declarations. Recording a compact declaration preserves its provenance, not
+    the original transcript or independent proof. Absence remains explicit.
     """
 
     label: str
@@ -1862,21 +1859,24 @@ HANDOVER_RECORD_SOURCES = (
             HandoverCitation("claim_verdict/v1", must_declare="PASS"),
         ),
         supplies="which command actually ran, its exit status, and which checks are missing or failed",
-        held_in=HANDOVER_SESSION_TRANSCRIPT,
+        held_in=HANDOVER_NATIVE_DECLARATION,
+        read_with="omh_todo action=recall",
     ),
     HandoverRecordSource(
         label="Review",
         declared_by="code-review",
         citations=(HandoverCitation("ranked findings per axis", must_declare="findings"),),
         supplies="what a reader misses unless someone tells them",
-        held_in=HANDOVER_SESSION_TRANSCRIPT,
+        held_in=HANDOVER_NATIVE_DECLARATION,
+        read_with="omh_todo action=recall",
     ),
     HandoverRecordSource(
         label="QA",
         declared_by="ultraqa",
         citations=(HandoverCitation("pass/fail evidence", must_declare="evidence"),),
         supplies="what nobody thought of the first time",
-        held_in=HANDOVER_SESSION_TRANSCRIPT,
+        held_in=HANDOVER_NATIVE_DECLARATION,
+        read_with="omh_todo action=recall",
     ),
 )
 
@@ -2076,6 +2076,8 @@ def _handover_record_source_rows() -> list[str]:
         citations = ", ".join(f"`{citation.token}`" for citation in source.citations)
         if source.held_in == HANDOVER_DURABLE_RECORD:
             held = f"durable record, read with `{source.read_with}`"
+        elif source.held_in == HANDOVER_NATIVE_DECLARATION:
+            held = f"optional durable model declaration, read with `{source.read_with}`; absent unless recorded"
         else:
             held = "this session only"
         rows.append(f"| {source.label} ({origin}) | {held} | {citations} | {source.supplies} |")
@@ -2089,7 +2091,7 @@ def _handover_quiz_rows() -> list[str]:
         origins = []
         for label in entry.source_labels:
             source = sources[label]
-            suffix = "" if source.held_in == HANDOVER_DURABLE_RECORD else " (this session only)"
+            suffix = "" if source.held_in == HANDOVER_DURABLE_RECORD else " (recorded declaration, if available)"
             origins.append(f"{label}{suffix}")
         rows.append(f"| {entry.label} | {', '.join(origins)} | {entry.proves} |")
     return rows
@@ -2099,7 +2101,7 @@ def _handover_artifacts_reference() -> str:
     source_table = "\n".join(_handover_record_source_rows())
     quiz_table = "\n".join(_handover_quiz_rows())
     durable = next(s for s in HANDOVER_RECORD_SOURCES if s.held_in == HANDOVER_DURABLE_RECORD)
-    session_only = [s.label for s in HANDOVER_RECORD_SOURCES if s.held_in == HANDOVER_SESSION_TRANSCRIPT]
+    session_only = [s.label for s in HANDOVER_RECORD_SOURCES if s.held_in == HANDOVER_NATIVE_DECLARATION]
     session_list = ", ".join(session_only[:-1]) + f" and {session_only[-1]}"
     basis_list = "\n".join(f"- `{state}`" for state in HANDOVER_QUIZ_BASIS)
     return f"""# Handover Artifacts
@@ -2128,18 +2130,17 @@ Some of the reasons were written down while they were still true.
 | --- | --- | --- | --- |
 {source_table}
 
-**Read the "held where" column before planning the work.** Exactly one of those
-is a record that outlives the session: the plan record, at
+**Read the "held where" column before planning the work.** The live plan is at
 `$OMH_HOME/runtime/todos/<session key>.json`, read with `{durable.read_with}`.
-The other three -- {session_list} -- are
-declared outputs: OMH asks a model to produce them and stores none of them, so
-they live in this session's context and nowhere else.
+The other three -- {session_list} -- can be recorded as bounded declarations
+with `omh_todo action=record` under a scope checkpoint, then read in a later
+session with `omh_todo action=recall`. Read the checkpoint index first if its ID
+is no longer in context. Only the active profile and logical project are visible.
 
-That means the three transcript-resident sources are subject to the same
-compaction as the reasoning above, and a guide written late in a long story may
-find nothing left in them. That is a property of the tooling today, not a
-failure of the person writing. Do not reconstruct what is gone; record which
-sources you could actually read, and write the guide from what is there.
+Recording preserves what a model claimed, not what actually happened. Original
+outputs remain separate; absent, stale or malformed records are not clean runs.
+Do not reconstruct missing findings from conversation memory. A declared empty
+finding set means only that the writer declared none found.
 
 Every sentence in all three artifacts either restates one of those fields or is
 marked as the writer's own inference. There is no third category. Quote the
@@ -2162,8 +2163,8 @@ of the middle - and it works exactly as far as there is a record to read.
 The next reader has the diff. What they do not have is why it looks like that,
 and that is all the deep guide carries.
 
-- Start from the plan record, because it is the only source you can still read
-  in full: `{durable.read_with}`. One section per done item, taken in plan
+- Start from the plan record or accepted scope checkpoint, in stored order.
+  Read the live checklist with: `{durable.read_with}`. One section per done item, taken in plan
   order and grouped by `phase` where items carry one. There is no phase
   order to sort by: `phase` is a free-text label with no canonical sequence,
   and it is absent entirely on an item that was given none. The list's own
@@ -2991,7 +2992,7 @@ def _todo_checklist_closing_reference() -> str:
 
     source_table = "\n".join(_handover_record_source_rows())
     durable = next(s for s in HANDOVER_RECORD_SOURCES if s.held_in == HANDOVER_DURABLE_RECORD)
-    session_only = [s.label for s in HANDOVER_RECORD_SOURCES if s.held_in == HANDOVER_SESSION_TRANSCRIPT]
+    session_only = [s.label for s in HANDOVER_RECORD_SOURCES if s.held_in == HANDOVER_NATIVE_DECLARATION]
     session_list = ", ".join(session_only[:-1]) + f" and {session_only[-1]}"
     basis_list = "\n".join(f"   - `{state}`" for state in HANDOVER_QUIZ_BASIS)
     close_phase = template_phase_labels(CODE_STORY_TEMPLATE)[-1]
@@ -3018,17 +3019,68 @@ lets a reader infer the first has claimed a merge nobody observed.
 | --- | --- | --- | --- |
 {source_table}
 
-One of those four outlives the session: the plan record, at
-`$OMH_HOME/runtime/todos/<session key>.json`, read with `{durable.read_with}`.
-The other three - {session_list} - are declared outputs: OMH asks a
-model to produce them and stores none of them, so they are in this
-conversation or they are gone. Whether that changes is a product question
-filed separately.
+Read the live plan with `{durable.read_with}`, and the accepted scope checkpoint
+with `omh_todo action=recall`. {session_list} can now survive the session as
+bounded declarations written with `omh_todo action=record`. No write promotes
+a claim to proof: even `claimed_evidence_state=observed` retains
+`standing=model_declaration` and `observed=false`.
 
-So a close judgement that reads records reads the plan record and nothing
-else today. If a verdict, a finding, or a QA result is still in context, cite
-it as a declared output of this session and say so, because the next reader
-cannot go back to it.
+## Natural continuation, without a second engine
+
+Resolve the person's intent from conversation context, in their language; do
+not require a workflow name or finishing keyword. For an accepted three-point
+plan, a request such as “Ja, mach alles Besprochene fertig” means those three
+accepted points, not every brainstormed idea. Stop or analysis-only instructions
+and intervening topic changes outrank an old plan. An unrelated story, modal or
+book is not a continuation request merely because the same words occur.
+
+For multi-turn work, declare just the accepted items with `omh_todo action=set`,
+then `action=checkpoint`, `accepted=true`, short `rejected` summaries and the
+exact revision/worktree and environment fingerprints. This freezes scope; it
+does not approve an edit or change `plan_stage`. Read `action=show` before
+replacing an existing plan. The code-story template remains optional.
+
+On resume, `action=recall` without an ID lists the current profile/project's
+checkpoints. Read the intended ID with current revision/environment. If more
+than one could be meant, ask rather than choosing the newest silently. A later
+session may explicitly declare that same scope using `action=set`; recall
+itself changes no checklist and starts no work. Keep blocked, skipped or
+waiting-child obligations open and report the actual reason. Never busy-poll
+merely to avoid returning the turn to Hermes.
+
+Before closing, use `omh_todo action=record` for each applicable verification
+verdict, review finding set and QA result. Supply `checkpoint_id`, current
+`revision` and `environment` fingerprints, and a `result` object containing the
+original `item` number, `kind` (`verification`, `review` or `qa`), `verdict`
+(`PASS`, `HOLD` or `BLOCK`), short `summary`, explicit `findings`, `claimed_source`,
+`claimed_evidence_state` and bounded `references`. Preserve `model`, `host_exit`,
+`independent_review` and `ci` provenance separately; none is authenticated by
+this declaration. An empty
+finding list declares none found, not a missing source. Keep raw outputs outside
+the dossier. Read back the exact checkpoint with `action=recall`: missing, stale
+and malformed differ from declared clean. The
+completion projection covers verification declarations for every accepted item;
+review and QA are applicable source records, not mandatory extra phases. A
+reported review/QA blocker also prevents declaration completeness. Even complete
+declarations remain `not_verified` until the agent checks original evidence.
+
+`verification_receipt/v1` references reuse the existing immutable receipt key,
+which binds revision, command, toolchain, environment and claim scope. A stored
+key is not a validated receipt: read the original through its existing owner
+and check every binding. Native declarations do not manufacture receipts, host
+exit observations, independent-review attestations or CI observations.
+
+The dossier is bounded to 32 checkpoints, 64 results per checkpoint and 512 KiB
+per OMH home. Full stores refuse writes without evicting history. Results older
+than 30 days or with different revision/environment are stale. Bindings are
+caller-declared revision/environment fingerprints, not host-attested Git state;
+never reuse a fingerprint after editing the worktree. Scope and identity are
+host-bound; no raw transcripts, logs or environment values belong here.
+
+Offline fixtures prove callable tools, ownership, storage, resume and claim
+boundaries. They do not prove that a live model selects this workflow or follows
+it for German, typos or a later conversational turn. That needs a separately
+authorized model evaluation, not more keyword rules.
 
 ## What `done` means here, and what it does not
 

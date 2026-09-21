@@ -4,6 +4,23 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **Accepted native work can be resumed from a bounded scope checkpoint, with
+  durable verification, review and QA declarations.** `omh_todo` adds
+  `checkpoint`, `record` and `recall`; no new engine or router state lookup is
+  introduced. A checkpoint freezes the owning session's accepted todo items
+  and separately records rejected ideas. Later sessions in the same profile
+  and logical project can read it without changing a checklist or resuming work.
+  Result rows preserve claimed source, revision/environment, findings and
+  existing `verification_receipt/v1` references without turning a model claim
+  into an observed result. Missing, stale, malformed and declared-empty sources
+  remain distinct. Storage is capped; full stores refuse rather than evict.
+  Existing close/verification/review/QA guidance now exposes this callable path
+  to Hermes model selection, without adding language-specific triggers or a
+  mandatory story template. Offline native fixtures cover registry, bridge,
+  lifecycle, storage and the composed #1794 approval boundary; live semantic
+  model adoption remains untested. No edit approval, receipt issuer, CI
+  observer, merge authority or new task execution runtime is added.
+
 ## 2.0.4 - 2026-09-21
 
 - **A prepared route now names the session that prepared it, so the HUD label

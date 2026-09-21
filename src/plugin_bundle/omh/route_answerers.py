@@ -36,6 +36,7 @@ from typing import Any
 
 from .jev_sidekick import JEV_TOOL_PREFIX, classify_plugin
 from .runtime_reader import _yaml_list_values, installed_plugin_advertised_tools
+from .todo_store import strip_control_characters
 from .tool_bursts import jev_tool_observed_at
 
 JEV_PLUGIN_ANSWERER = "jev_plugin"
@@ -52,6 +53,22 @@ STATUS_AVAILABLE = "available"
 # the rung is a hint surface rather than an inventory -- `omh doctor --json`
 # carries the full posture.
 MAX_LADDER_ITEMS = 8
+
+# Every string in this rung is written by whoever published the plugin, and the
+# rung is serialized into the host model's context on every undecidable route.
+# The manifest reader bounds a file at 256 KiB, which bounds nothing useful
+# here: eight names of that size is megabytes of someone else's text per call.
+# So each item is control-stripped and cut to a name-sized bound, matching what
+# the record store next door does to a skill name. This is not a claim that the
+# remaining text is safe to obey -- it is third-party data either way, and the
+# `claim_boundary` beside it says so -- only that a manifest cannot spend the
+# turn's context or smuggle an escape sequence through a field OMH echoes.
+MAX_LADDER_ITEM_CHARS = 80
+
+# The Hermes config is read once per ladder, not once per detected plugin, and
+# only this far in. It is a host file rather than a third-party one, but it is
+# still an unbounded read on a path OMH does not own.
+MAX_CONFIG_BYTES = 256 * 1024
 
 _JEV_CLAIM_BOUNDARY = (
     "A plugin name, an enabled name, or one observed tool call is what this "
@@ -97,24 +114,47 @@ def answerer_ladder(hermes_home: object = "", omh_home: object = "") -> list[dic
 
 
 def _jev_plugin_rung(hermes_home: object, omh_home: object) -> dict[str, Any] | None:
-    """The `jev_plugin` rung, or None when no Jev-class plugin was detected."""
+    """The `jev_plugin` rung, or None when no Jev-class plugin was detected.
+
+    The raw directory names decide the tier, because the host's config lists a
+    plugin under the name it is installed as; the bounded copies are what the
+    rung echoes. Keeping the two apart means a hostile name costs its publisher
+    the `enabled` tier rather than costing OMH a correct reading.
+    """
     detected = _detected_jev_plugins(hermes_home)
     if not detected:
         return None
     names = sorted(detected)
     tools = sorted({tool for name in names for tool in detected[name]})
     status = STATUS_INSTALLED
-    if any(_plugin_is_enabled(hermes_home, name) for name in names):
+    if set(names) & _enabled_plugin_names(hermes_home):
         status = STATUS_ENABLED
     if _jev_tool_observed(omh_home):
         status = STATUS_OBSERVED
     return {
         "answerer": JEV_PLUGIN_ANSWERER,
         "status": status,
-        "plugins": names[:MAX_LADDER_ITEMS],
-        "tools": tools[:MAX_LADDER_ITEMS],
+        "plugins": _bounded_items(names),
+        "tools": _bounded_items(tools),
         "claim_boundary": _JEV_CLAIM_BOUNDARY,
     }
+
+
+def _bounded_items(values: list[str]) -> list[str]:
+    """Third-party strings, control-stripped, cut to a name, and capped in count.
+
+    An item that is nothing but control characters strips to empty and is
+    dropped rather than echoed as `""`: it names no plugin and no tool, and a
+    blank row in the list would read as one that exists.
+    """
+    bounded: list[str] = []
+    for value in values:
+        item = strip_control_characters(value)[:MAX_LADDER_ITEM_CHARS]
+        if item:
+            bounded.append(item)
+        if len(bounded) >= MAX_LADDER_ITEMS:
+            break
+    return bounded
 
 
 def _detected_jev_plugins(hermes_home: object) -> dict[str, list[str]]:
@@ -143,32 +183,43 @@ def _detected_jev_plugins(hermes_home: object) -> dict[str, list[str]]:
     return detected
 
 
-def _plugin_is_enabled(hermes_home: object, name: str) -> bool:
-    """Whether Hermes' own config lists `name` under `plugins.enabled`.
+def _enabled_plugin_names(hermes_home: object) -> frozenset[str]:
+    """The plugin names Hermes' own config enables, or an empty set.
 
     The bundle cannot import core's `config_adapter`, so this reuses the list
     reader the HUD already has, applied to the `plugins:` block alone rather
     than to the whole file -- an `enabled:` key nested under some other
     plugin's settings is a different key with the same name.
 
+    Read once per ladder rather than once per detected plugin: the answer is a
+    property of the file, not of the name being asked about, and re-reading it
+    up to eight times made an unbounded read into eight of them.
+
+    Every way this can fail yields the empty set, which reports each plugin one
+    tier lower than it sits. That is the safe direction, and it has to be the
+    WIDE direction too: the read used to catch `OSError` alone, so a config
+    with one non-UTF-8 byte raised `UnicodeDecodeError` -- a `ValueError`, not
+    an `OSError` -- out through `build_chat_route_hint_payload` and failed
+    `omh chat route-hint` outright. The ladder is allowed to cost itself; it is
+    not allowed to cost the payload it rides on.
+
     A shape this reader cannot follow (an inline `plugins: {enabled: [omh]}`,
-    an anchor) yields False, which reports the plugin one tier lower than it
-    sits. That is the safe direction: a rung claiming `enabled` is a claim
-    about the host's config, and under-reading it costs only precision.
+    an anchor) reads as absent for the same reason.
     """
     home = _home_path(hermes_home)
-    if home is None or not name:
-        return False
+    if home is None:
+        return frozenset()
     try:
-        text = (home / "config.yaml").read_text(encoding="utf-8")
-    except OSError:
-        return False
+        with (home / "config.yaml").open("rb") as handle:
+            raw = handle.read(MAX_CONFIG_BYTES)
+        text = raw.decode("utf-8")
+    except (OSError, ValueError):
+        return frozenset()
     block = _plugins_block(text)
     if not block:
-        return False
-    enabled = _yaml_list_values(block, "enabled")
-    disabled = _yaml_list_values(block, "disabled")
-    return name in enabled and name not in disabled
+        return frozenset()
+    enabled = set(_yaml_list_values(block, "enabled"))
+    return frozenset(enabled - set(_yaml_list_values(block, "disabled")))
 
 
 def _plugins_block(config_text: str) -> str:
@@ -194,7 +245,17 @@ def _plugins_block(config_text: str) -> str:
 
 
 def _jev_tool_observed(omh_home: object) -> bool:
-    home = str(omh_home or "")
+    """Whether this install has ever dispatched a `jev_`-prefixed tool call.
+
+    The empty home is refused rather than passed down. `jev_tool_observed_at("")`
+    falls back to the ambient `default_omh_home()`, so a caller that named a
+    Hermes home and no OMH home would have been answered from the machine's
+    real ledger while being told nothing was read -- the docstring above
+    promised the absence costs its own tier, and it has to be true.
+    """
+    home = str(omh_home or "").strip()
+    if not home:
+        return False
     try:
         return jev_tool_observed_at(home) > 0
     except OSError:
@@ -212,6 +273,7 @@ __all__ = [
     "JEV_PLUGIN_ANSWERER",
     "MAIN_MODEL_ANSWERER",
     "MAX_LADDER_ITEMS",
+    "MAX_LADDER_ITEM_CHARS",
     "NO_ANSWERER",
     "STATUS_AVAILABLE",
     "STATUS_ENABLED",

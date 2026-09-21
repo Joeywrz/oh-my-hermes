@@ -11,6 +11,7 @@ scorer silently counts as malformed.
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import json
 import os
@@ -28,6 +29,7 @@ from omh.plugin_bundle.omh.route_answer_store import (  # noqa: E402
     FITS_CLARIFY_THRESHOLD,
     FITS_DISPATCH_THRESHOLD,
     MAX_NOTE_CHARS,
+    MAX_ROUTE_ANSWER_RECORDS,
     ROUTE_ANSWER_SCHEMA_VERSION,
     RouteAnswerStoreError,
     RouteAnswerValidationError,
@@ -271,6 +273,53 @@ class RouteAnswerWriteTests(unittest.TestCase):
 
         self.assertEqual(len(written), 2)
 
+    def test_a_full_directory_refuses_a_new_record_and_keeps_every_old_one(self) -> None:
+        """Age is the only thing that removes a record, which leaves no bound
+        inside the seven-day window: the digest is a caller-chosen field, so a
+        caller can add a file per call. Evicting for room would discard the
+        measurement the record exists for, so the write is refused instead."""
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve()
+            directory = route_answer_dir(home)
+            directory.mkdir(parents=True)
+            for index in range(MAX_ROUTE_ANSWER_RECORDS):
+                (directory / f"{index:016x}.json").write_text("{}\n", encoding="utf-8")
+
+            with self.assertRaises(RouteAnswerStoreError) as refusal:
+                write_route_answer(home, self._record(question_digest="beef"))
+            survivors = len(list(directory.glob("*.json")))
+
+        self.assertEqual(survivors, MAX_ROUTE_ANSWER_RECORDS)
+        self.assertIn("score the recorded answers", str(refusal.exception))
+
+    def test_a_full_directory_still_lets_an_answerer_revise_its_own_record(self) -> None:
+        """Replacing a record changes no count, and an answerer correcting
+        itself is ordinary; only a NEW file is refused."""
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve()
+            first = write_route_answer(home, self._record(route_choice="plan"))
+            directory = route_answer_dir(home)
+            for index in range(MAX_ROUTE_ANSWER_RECORDS):
+                (directory / f"{index:016x}.json").write_text("{}\n", encoding="utf-8")
+
+            write_route_answer(home, self._record(route_choice="deep-interview"))
+            latest = json.loads(first.read_text(encoding="utf-8"))
+
+        self.assertEqual(latest["route_choice"], "deep-interview")
+
+    def test_the_stored_action_records_the_thresholds_that_produced_it(self) -> None:
+        """The scorer resolves the action again from the corpus's thresholds,
+        so the stored value can differ from the one anyone uses. Recording the
+        thresholds beside it makes the stored number reproducible instead of
+        something a reader has to guess about."""
+        record = self._record(fits={"plan": 0.6})
+
+        self.assertEqual(record["action"], "clarify")
+        self.assertEqual(
+            record["action_thresholds"],
+            {"fits_clarify": FITS_CLARIFY_THRESHOLD, "fits_dispatch": FITS_DISPATCH_THRESHOLD},
+        )
+
     def test_the_file_is_written_with_sorted_keys(self) -> None:
         with TemporaryDirectory() as tmp:
             home = Path(tmp).resolve()
@@ -407,6 +456,60 @@ class RouteAnswerHandlerTests(unittest.TestCase):
 
         self.assertEqual(payload["status"], "invalid_request")
         self.assertEqual(written, [])
+
+    def test_the_message_never_reaches_the_observation_lane(self) -> None:
+        """The schema tells the model the request text is used once and never
+        stored, and that sentence is the argument for supplying it. The shared
+        observation metadata lifts `message` out of a tool's own arguments and
+        writes it verbatim once `observation.host` is supplied, so the promise
+        is kept by withholding the field rather than by softening the words."""
+        secret = UNDECIDABLE_MESSAGE + " PROMPTBODYMARKER"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            self._call(
+                root,
+                {
+                    "question_digest": _digest(),
+                    "answered_by": "main_model",
+                    "route_choice": "none",
+                    "message": secret,
+                    "observation": {"host": "hermes"},
+                },
+                session_id="session-1",
+            )
+            written = "".join(
+                path.read_text(encoding="utf-8", errors="replace")
+                for path in root.rglob("*")
+                if path.is_file()
+            )
+
+        self.assertNotIn("PROMPTBODYMARKER", written)
+
+    def test_a_missing_submodule_degrades_the_field_instead_of_raising(self) -> None:
+        """`exc.name` is the MISSING name, which is the bare package only when
+        the whole package is gone. A current bundle beside a lagging package
+        reports `omh.routing.route_question`, and an equality check on `omh`
+        re-raised that out of the handler on every call carrying a message."""
+        import omh.plugin_bundle.omh.tools.route_answer_tool as module
+
+        real_import = builtins.__import__
+
+        def missing_submodule(name, *rest):
+            if name == "omh.routing.chat":
+                raise ModuleNotFoundError(
+                    "No module named 'omh.routing.route_question'",
+                    name="omh.routing.route_question",
+                )
+            return real_import(name, *rest)
+
+        with patch.object(builtins, "__import__", missing_submodule):
+            verified, verification, mismatch = module._verify_digest(
+                {"message": UNDECIDABLE_MESSAGE, "question_digest": "ab" * 32}
+            )
+
+        self.assertFalse(verified)
+        self.assertFalse(mismatch)
+        self.assertEqual(verification, "unavailable_without_package_backend")
 
     def test_a_digest_from_the_route_hint_surface_verifies_too(self) -> None:
         """The surfaces hand out different questions for one message.

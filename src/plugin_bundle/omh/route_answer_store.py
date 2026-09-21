@@ -85,11 +85,16 @@ MAX_DIGEST_CHARS = 64
 SHA256_HEX_CHARS = 64
 MAX_ROUTE_ANSWER_RECORD_BYTES = 32_768
 # Records past this age are removed on the next write in the same directory.
-# The directory is otherwise unbounded on purpose: one session answers one
-# question once, a measurement run writes one record per question it answered,
-# and evicting a fresh record to make room for a fresher one would drop the
-# measurement the record exists for.
+# Age is the ONLY thing that removes one: a measurement run writes one record
+# per question it answered, and evicting a fresh record to make room for a
+# fresher one would drop the measurement the record exists for.
 ROUTE_ANSWER_STALE_SECONDS = 604_800
+# The ceiling the stale bound alone does not provide. A measurement run answers
+# one question per corpus item, so this is far above an honest run and far
+# below what an unbounded caller can spend: reaching it means something is
+# writing records nobody is scoring, and the next write is refused rather than
+# a recorded answer evicted to make room.
+MAX_ROUTE_ANSWER_RECORDS = 1024
 
 CLAIM_BOUNDARY = (
     "A recorded answer is a routing judgment declared by the caller, not "
@@ -197,7 +202,17 @@ def build_route_answer_record(
     message_hash = _validated_message_sha256(message_sha256)
     record: dict[str, Any] = {
         "schema_version": ROUTE_ANSWER_SCHEMA_VERSION,
+        # The bundle's reading of this answer at the moment it was recorded.
+        # The scorer resolves the action again from the corpus's own
+        # thresholds or a caller override, so this value and that one can
+        # differ whenever the thresholds do. It is recorded WITH the
+        # thresholds that produced it for exactly that reason: a stored number
+        # that cannot be reproduced is a number a reader has to guess about.
         "action": resolve_action(fit_values, choice),
+        "action_thresholds": {
+            "fits_clarify": FITS_CLARIFY_THRESHOLD,
+            "fits_dispatch": FITS_DISPATCH_THRESHOLD,
+        },
         "answer": _answer_row(
             digest=digest,
             arm=answerer,
@@ -300,10 +315,43 @@ def write_route_answer(omh_home: Path, record: dict[str, Any]) -> Path:
     # directory existed, so a link planted in between would otherwise be
     # followed by the write.
     _reject_symlink_ancestry(destination, root=home)
+    _prune_stale_records(home, keep=destination)
+    _refuse_a_full_directory(home, destination)
     with _record_lock(destination, root=home):
         _replace_record(destination, record)
-    _prune_stale_records(home, keep=destination)
     return destination
+
+
+def _refuse_a_full_directory(omh_home: Path, destination: Path) -> None:
+    """Refuse a NEW record once the directory is full; never evict for one.
+
+    Age is the only thing that removes a record here, and that leaves no bound
+    at all inside the seven-day window: the digest is a caller-chosen field, so
+    a caller answering the same question with a different digest each time adds
+    a file each time. A count-based eviction would solve it by discarding the
+    measurement the record exists for, which is the trade the stale bound above
+    already refuses. Refusing the write instead keeps every record that was
+    accepted and tells the caller why the next one was not.
+
+    Replacing a record that is already there is always allowed: it changes no
+    count, and an answerer revising its own answer is ordinary.
+    """
+    if destination.exists():
+        return
+    try:
+        existing = sum(1 for entry in os.scandir(route_answer_dir(omh_home))
+                       if _RECORD_NAME.fullmatch(entry.name))
+    except OSError:
+        # The directory the write is about to create reads as empty, which it
+        # is. A real read failure surfaces at the write, with its own error.
+        return
+    if existing >= MAX_ROUTE_ANSWER_RECORDS:
+        raise RouteAnswerStoreError(
+            f"route answer directory already holds {MAX_ROUTE_ANSWER_RECORDS} records "
+            f"and nothing was written; score the recorded answers with "
+            f"`omh chat route-questions score --answers <dir>` and clear them, or wait "
+            f"for records older than {ROUTE_ANSWER_STALE_SECONDS // 86400} days to age out"
+        )
 
 
 def _replace_record(destination: Path, record: dict[str, Any]) -> None:
@@ -317,8 +365,15 @@ def _replace_record(destination: Path, record: dict[str, Any]) -> None:
     except OSError as error:
         raise RouteAnswerStoreError(f"route answer destination is not writable: {error}") from error
     finally:
-        if temporary.exists() and not temporary.is_symlink():
-            temporary.unlink()
+        # Suppressed because this cleanup sits OUTSIDE the handler above, so a
+        # failing unlink left a bare OSError that was neither
+        # RouteAnswerStoreError nor RouteAnswerContendedError and raised
+        # straight out of the tool call. A leftover temp file is collected by
+        # the prune below on the next write; a raised cleanup error is a tool
+        # call that failed after the record was already in place.
+        with contextlib.suppress(OSError):
+            if temporary.exists() and not temporary.is_symlink():
+                temporary.unlink()
 
 
 @contextlib.contextmanager
@@ -508,6 +563,7 @@ __all__ = [
     "FITS_CLARIFY_THRESHOLD",
     "FITS_DISPATCH_THRESHOLD",
     "MAX_NOTE_CHARS",
+    "MAX_ROUTE_ANSWER_RECORDS",
     "NONE_ACTION",
     "ROUTE_ANSWER_SCHEMA_VERSION",
     "RouteAnswerContendedError",

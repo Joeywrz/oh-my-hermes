@@ -536,8 +536,9 @@ omh chat route-hint --source discord --json "почему сборка пада�
 Excerpted below: the payload also carries `route_hint`, `route_decision`,
 `generic_tool_checkpoint`, and the rest of `chat_route_hint/v1`, and the
 question carries one `fits::<workflow>` entry per candidate plus its own
-`claim_boundary`. The digest below is one observed run; it moves whenever the
-shortlist does, so read it as a shape and never as a constant.
+`claim_boundary`, as does each answerer rung. The digest below is one observed
+run; it moves whenever the shortlist does, so read it as a shape and never as a
+constant.
 
 ```json
 {

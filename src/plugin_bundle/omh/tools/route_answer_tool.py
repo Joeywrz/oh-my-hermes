@@ -132,7 +132,9 @@ _DEFAULT_SOURCE = "hermes"
 def omh_route_answer_handler(args: dict[str, Any], **kwargs) -> str:
     if error := runtime_paths.tool_home_error(args):
         return json.dumps(error, sort_keys=True)
-    observation = observe_plugin_tool_call("omh_route_answer", args, kwargs)
+    observation = observe_plugin_tool_call(
+        "omh_route_answer", _without_message(args), _without_message(kwargs)
+    )
     payload: dict[str, Any] = {
         "schema_version": _RESULT_SCHEMA_VERSION,
         "claim_boundary": CLAIM_BOUNDARY,
@@ -194,6 +196,23 @@ def omh_route_answer_handler(args: dict[str, Any], **kwargs) -> str:
     return _result(payload, observation, status="recorded", digest_verification=verification)
 
 
+def _without_message(values: dict[str, Any]) -> dict[str, Any]:
+    """The same mapping with `message` withheld from the observation lane.
+
+    `_observation_metadata` lifts `message` out of a tool's own arguments and
+    the observation writer puts it verbatim into
+    `runtime/plugin_host_observations.jsonl` and `runtime/state.json` whenever
+    the caller also supplies `observation.host`. That is right for
+    `omh_interact`, whose subject IS the message. Here the schema tells the
+    model the request text is used once to confirm the digest and never
+    stored, and that sentence is the argument for supplying it -- so the
+    promise is kept by withholding the field rather than by softening the
+    sentence. The request still reaches the record as a hash, which is what
+    the record needs and all it needs.
+    """
+    return {key: value for key, value in values.items() if key != "message"}
+
+
 def _resolved_message_sha256(args: dict[str, Any]) -> str:
     """The request hash this record is joined on, or "" when none was given.
 
@@ -243,11 +262,17 @@ def _verify_digest(args: dict[str, Any]) -> tuple[bool, str, bool]:
     try:
         from omh.routing.candidate_handoff import MAX_CANDIDATES
         from omh.routing.chat import route_chat_message
-    except ModuleNotFoundError as exc:
-        if exc.name != "omh":
-            raise
+    except (ImportError, ModuleNotFoundError):
+        # Deliberately not `exc.name != "omh"`: that name is the MISSING one,
+        # which is the bare package only when the whole package is gone. A
+        # missing SUBMODULE reports `omh.routing.route_question`, so the name
+        # check re-raised on the one case this repo documents twice -- a
+        # current bundle beside a lagging package, and the strict-editable
+        # `build/` tree where a new module inside an existing package is
+        # invisible to the install. `loop_bridge` catches the pair for the
+        # same reason.
         return False, "unavailable_without_package_backend", False
-    reachable: set[str] = set()
+    found = False
     for limit in range(1, MAX_CANDIDATES + 1):
         try:
             route = route_chat_message(message, source=source, limit=limit)
@@ -256,14 +281,19 @@ def _verify_digest(args: dict[str, Any]) -> tuple[bool, str, bool]:
             # caller's input, not a verdict about the digest.
             return False, "message_not_routable", False
         question = route.get("route_question")
-        if isinstance(question, dict):
-            reachable.add(str(question.get("question_digest") or ""))
-    reachable.discard("")
-    if not reachable:
+        if not isinstance(question, dict):
+            continue
+        current = str(question.get("question_digest") or "")
+        if not current:
+            continue
+        found = True
+        # A match settles it: the remaining passes can only reach the same
+        # digest again, so the common case is one router pass and not four.
+        if current == digest:
+            return True, "matched", False
+    if not found:
         return False, "no_route_question_for_message", False
-    if digest not in reachable:
-        return False, "mismatch", True
-    return True, "matched", False
+    return False, "mismatch", True
 
 
 def _result(

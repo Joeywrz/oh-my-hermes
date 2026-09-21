@@ -25,7 +25,7 @@ from unittest.mock import patch
 
 from _cli_harness import run_cli
 from _local_package import load_local_package
-from _platform_support import requires_symlinks
+from _platform_support import requires_posix, requires_symlinks
 
 load_local_package()
 
@@ -39,19 +39,28 @@ from omh.plugin_bundle.omh.jev_sidekick import (  # noqa: E402
     JEV_TOOL_PREFIX,
     KNOWN_JEV_PLUGINS,
     classify_plugin,
-    known_jev_plugin_names,
 )
 from omh.plugin_bundle.omh.metadata import PROVIDED_HOOKS  # noqa: E402
 from omh.plugin_bundle.omh.provider_detection import (  # noqa: E402
     HERMES_ENV_KEY_PROVIDERS,
     env_key_names,
 )
+from omh.maintenance import doctor as doctor_module  # noqa: E402
 from omh.workflows.jev_sidekick_posture import (  # noqa: E402
+    ENABLEMENT_ENABLED,
+    ENABLEMENT_NOT_ENABLED,
+    ENABLEMENT_UNKNOWN,
     JEV_SIDEKICK_POSTURE_SCHEMA_VERSION,
+    MAX_CONFIG_BYTES,
+    MAX_MANIFEST_BYTES,
+    MAX_PLUGIN_DIRECTORIES,
+    MAX_PLUGIN_NAME_CHARS,
     POSTURE_STATUSES,
+    UNREADABLE_DECLARATION_FIELDS,
     build_jev_sidekick_posture,
     posture_overlaps,
     posture_unestablished_hook_overlap,
+    posture_unknown_enablement,
 )
 
 # A value, not a name. Every assertion about it is that it never appears.
@@ -98,6 +107,26 @@ def _doctor_check(paths: OmhPaths):
 
 def _without_jev(checks):
     return [check for check in checks if check.name != "plugin_jev_sidekick"]
+
+
+class _ZeroSizeStat:
+    """A real stat result that reports `st_size == 0`.
+
+    What a `/proc`-style file does on its own, and what a file that grows
+    between a `stat` and the read after it does to a cap taken from the first.
+    Everything but the size is delegated, so `is_file` and `is_dir` still
+    answer from the real mode bits.
+    """
+
+    def __init__(self, real: object) -> None:
+        self._real = real
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._real, name)
+
+    @property
+    def st_size(self) -> int:
+        return 0
 
 
 def _installed_paths(root: Path) -> OmhPaths:
@@ -259,7 +288,7 @@ class CatalogTranscriptionTests(unittest.TestCase):
     }
 
     def test_the_table_matches_the_second_transcription(self) -> None:
-        self.assertEqual(set(known_jev_plugin_names()), set(self.MIRROR))
+        self.assertEqual({record.name for record in KNOWN_JEV_PLUGINS}, set(self.MIRROR))
         for record in KNOWN_JEV_PLUGINS:
             with self.subTest(plugin=record.name):
                 self.assertEqual(
@@ -310,7 +339,7 @@ class PostureTests(unittest.TestCase):
             self.assertEqual(entry["name"], "mystery")
             self.assertEqual(entry["directory"], "local-checkout")
             self.assertFalse(entry["known"])
-            self.assertFalse(entry["enabled"])
+            self.assertEqual(entry["enablement"], ENABLEMENT_NOT_ENABLED)
 
     def test_a_known_name_is_found_with_no_tools_declared(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -329,13 +358,17 @@ class PostureTests(unittest.TestCase):
             paths = _paths(Path(tmp))
             _install_plugin(paths, "jev", "name: jev\nprovides_tools:\n  - jev_evaluate\n")
 
-            self.assertEqual(build_jev_sidekick_posture(paths.hermes_home)["status"], "installed")
+            before = build_jev_sidekick_posture(paths.hermes_home)
+            self.assertEqual(before["status"], "installed")
+            self.assertEqual(before["plugins"][0]["enablement"], ENABLEMENT_NOT_ENABLED)
+            self.assertEqual(before["plugins"][0]["enablement_reason"], "")
 
             _enable(paths, "jev")
 
             posture = build_jev_sidekick_posture(paths.hermes_home)
             self.assertEqual(posture["status"], "enabled")
-            self.assertTrue(posture["plugins"][0]["enabled"])
+            self.assertEqual(posture["plugins"][0]["enablement"], ENABLEMENT_ENABLED)
+            self.assertEqual(posture_unknown_enablement(posture), [])
 
     def test_a_credential_name_is_read_and_its_value_is_not(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -443,6 +476,228 @@ class PostureTests(unittest.TestCase):
             self.assertEqual([entry["plugin"] for entry in posture["skipped"]], ["linked"])
             self.assertIn("symlinked", posture["skipped"][0]["reason"])
 
+    @requires_symlinks
+    def test_a_symlinked_plugin_manifest_is_reported_and_not_followed(self) -> None:
+        # The directory guard above states the reason a symlink is refused --
+        # resolving one reads a path outside the home OMH was asked about --
+        # and `is_file()` plus a read resolve one just as happily, so without
+        # this the same escape works one level down and `skipped` stays empty.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = _paths(root)
+            outside = root / "outside-the-home"
+            _write(outside / "plugin.yaml", "name: jev\nprovides_tools:\n  - jev_evaluate\n")
+            plugin_dir = paths.hermes_plugins_dir / "linked-manifest"
+            plugin_dir.mkdir(parents=True, exist_ok=True)
+            (plugin_dir / "plugin.yaml").symlink_to(outside / "plugin.yaml")
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+
+            self.assertEqual(posture["plugins"], [])
+            self.assertEqual([entry["plugin"] for entry in posture["skipped"]], ["linked-manifest"])
+            self.assertIn("symlinked plugin manifest", posture["skipped"][0]["reason"])
+
+    @requires_posix
+    def test_a_directory_name_cannot_forge_a_report_line(self) -> None:
+        # The manifest reader bans control characters in a declared `name:`;
+        # a directory name passes no reader at all. `\x1b[2K\r` repaints the
+        # line above it and a newline writes a whole new one, in the artifact
+        # an operator pastes into a bug report.
+        forged = "jev\x1b[2K\r-evil\nplugin_jev_sidekick: ok"
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, forged, "provides_tools:\n  - jev_evaluate\n")
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+            _checks, check = _doctor_check(paths)
+
+            entry = posture["plugins"][0]
+            self.assertEqual(entry["name"], "jev[2K-evilplugin_jev_sidekick: ok")
+            self.assertEqual(entry["directory"], "jev[2K-evilplugin_jev_sidekick: ok")
+            for text in (json.dumps(posture), check.message, check.next_action):
+                self.assertNotIn("\x1b", text)
+                self.assertNotIn("\r", text)
+            self.assertNotIn("\n", check.message)
+            self.assertNotIn("\n", check.next_action)
+
+    def test_a_directory_name_is_bounded(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "jev-" + "x" * 200, "provides_tools:\n  - jev_evaluate\n")
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+
+            entry = posture["plugins"][0]
+            self.assertEqual(len(str(entry["name"])), MAX_PLUGIN_NAME_CHARS)
+            # A name OMH truncated is no longer the name Hermes would match,
+            # so the enablement answer is not OMH's to give.
+            self.assertEqual(entry["enablement"], ENABLEMENT_UNKNOWN)
+
+    def test_an_unreadable_name_does_not_inherit_another_maintainers_record(self) -> None:
+        # `name: [weird]` is an inline flow value the bounded reader does not
+        # model, so this manifest's identity is unread and the directory name
+        # is a guess. Classifying against the guess would attach keeltrace's
+        # verbatim egress disclosure to this install.
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "hermes-jev", "name: [weird]\nprovides_tools:\n  - jev_evaluate\n")
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+            _checks, check = _doctor_check(paths)
+
+            entry = posture["plugins"][0]
+            self.assertFalse(entry["known"])
+            self.assertEqual(entry["declared_disclosure"], "")
+            self.assertEqual(entry["repo"], "")
+            self.assertEqual(entry["read_from"], "")
+            self.assertEqual(entry["name"], "hermes-jev")
+            self.assertEqual(entry["unreadable_declarations"], ["name"])
+            self.assertEqual(entry["enablement"], ENABLEMENT_UNKNOWN)
+            self.assertNotIn("discloses", check.message)
+
+    def test_an_unreadable_plugins_directory_is_reported_rather_than_read_as_empty(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            paths.hermes_plugins_dir.mkdir(parents=True, exist_ok=True)
+
+            with patch.object(Path, "iterdir", side_effect=PermissionError(13, "denied")):
+                posture = build_jev_sidekick_posture(paths.hermes_home)
+
+            self.assertEqual(posture["plugins"], [])
+            self.assertEqual([entry["plugin"] for entry in posture["skipped"]], ["plugins"])
+            self.assertIn("plugins directory is unreadable: PermissionError", posture["skipped"][0]["reason"])
+
+    def test_the_sweep_stops_at_the_directory_budget_and_names_an_unread_entry(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            paths.hermes_plugins_dir.mkdir(parents=True, exist_ok=True)
+            for index in range(MAX_PLUGIN_DIRECTORIES):
+                (paths.hermes_plugins_dir / f"plugin-{index:04d}").mkdir()
+            # Sorts after every filler directory, so it is only reachable if
+            # the budget did not stop the sweep.
+            _install_plugin(paths, "zzz-jev", "name: zzz-jev\nprovides_tools:\n  - jev_evaluate\n")
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+
+            self.assertEqual(posture["plugins"], [])
+            self.assertEqual([entry["plugin"] for entry in posture["skipped"]], ["zzz-jev"])
+            # The row names the entry the sweep did not reach, not the
+            # container: "plugins" in that field reads as a plugin name.
+            self.assertIn(f"stopped at {MAX_PLUGIN_DIRECTORIES} plugin directories", posture["skipped"][0]["reason"])
+            self.assertIn("this entry was not read", posture["skipped"][0]["reason"])
+
+    def test_loose_files_are_not_counted_against_the_directory_budget(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            paths.hermes_plugins_dir.mkdir(parents=True, exist_ok=True)
+            for index in range(MAX_PLUGIN_DIRECTORIES + 8):
+                _write(paths.hermes_plugins_dir / f"loose-{index:04d}.txt", "not a plugin\n")
+            _install_plugin(paths, "zzz-jev", "name: zzz-jev\nprovides_tools:\n  - jev_evaluate\n")
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+
+            self.assertEqual([entry["name"] for entry in posture["plugins"]], ["zzz-jev"])
+            self.assertEqual(posture["skipped"], [])
+
+    def test_an_oversized_manifest_is_named_rather_than_read(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            body = "name: jev\nprovides_tools:\n  - jev_evaluate\n"
+            _install_plugin(paths, "huge", body + "# " + "p" * MAX_MANIFEST_BYTES + "\n")
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+
+            self.assertEqual(posture["plugins"], [])
+            self.assertEqual([entry["plugin"] for entry in posture["skipped"]], ["huge"])
+            self.assertIn(f"manifest exceeds {MAX_MANIFEST_BYTES} bytes", posture["skipped"][0]["reason"])
+
+    def test_a_zero_length_stat_does_not_walk_past_the_byte_cap(self) -> None:
+        # The cap is taken at the read, not from a preceding `stat`: a file
+        # reporting `st_size == 0` and a file that grows between the two calls
+        # both walk past a size check and neither walks past a short read.
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "huge", "name: jev\n" + "# " + "p" * MAX_MANIFEST_BYTES + "\n")
+
+            real_stat = Path.stat
+
+            def zero_size(self: Path, *args: object, **kwargs: object) -> object:
+                result = real_stat(self, *args, **kwargs)  # type: ignore[arg-type]
+                return _ZeroSizeStat(result) if self.name == "plugin.yaml" else result
+
+            with patch.object(Path, "stat", zero_size):
+                posture = build_jev_sidekick_posture(paths.hermes_home)
+
+            self.assertEqual([entry["plugin"] for entry in posture["skipped"]], ["huge"])
+            self.assertIn("manifest exceeds", posture["skipped"][0]["reason"])
+
+    def test_a_plugins_node_the_reader_walks_past_leaves_enablement_unknown(self) -> None:
+        # Valid YAML Hermes loads, and a form the block reader's entry
+        # condition (`stripped == "plugins:"`) rejects, so it reports the same
+        # empty lists a config that enables nothing reports. "Nothing enables
+        # it" and "nobody read it" are different facts about a machine.
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "jev", "name: jev\nprovides_tools:\n  - jev_evaluate\nprovides_hooks:\n")
+            _write(paths.hermes_config_path, "plugins: {enabled: [jev]}\n")
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+            _checks, check = _doctor_check(paths)
+
+            entry = posture["plugins"][0]
+            self.assertEqual(entry["enablement"], ENABLEMENT_UNKNOWN)
+            self.assertIn("form OMH does not read", str(entry["enablement_reason"]))
+            self.assertEqual(posture_unknown_enablement(posture), ["jev"])
+            self.assertEqual(posture["status"], "installed")
+            self.assertNotIn("not enabled", check.message)
+            self.assertIn("enablement not established", check.message)
+
+    def test_a_config_that_cannot_be_read_whole_leaves_enablement_unknown(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "jev", "name: jev\nprovides_tools:\n  - jev_evaluate\nprovides_hooks:\n")
+            _write(
+                paths.hermes_config_path,
+                "plugins:\n  enabled:\n    - jev\n# " + "c" * MAX_CONFIG_BYTES + "\n",
+            )
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+
+            entry = posture["plugins"][0]
+            self.assertEqual(entry["enablement"], ENABLEMENT_UNKNOWN)
+            self.assertIn("could not be read whole", str(entry["enablement_reason"]))
+
+    def test_enablement_is_only_ever_one_of_the_three_spellings(self) -> None:
+        # Three states and no fourth spelling: `_jev_enablement_label` maps
+        # two of them by name and treats everything else as unread, so a new
+        # value would silently print "enablement not established".
+        states = {ENABLEMENT_ENABLED, ENABLEMENT_NOT_ENABLED, ENABLEMENT_UNKNOWN}
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "jev", "name: jev\nprovides_tools:\n  - jev_evaluate\n")
+            _install_plugin(paths, "hermes-jev", "name: [weird]\nprovides_tools:\n  - jev_ask\n")
+            _enable(paths, "jev")
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+
+            self.assertEqual({str(entry["enablement"]) for entry in posture["plugins"]}, {ENABLEMENT_ENABLED, ENABLEMENT_UNKNOWN})
+            for entry in posture["plugins"]:
+                self.assertIn(entry["enablement"], states)
+
+    def test_the_catalog_side_of_the_comparison_is_not_carried(self) -> None:
+        # The table's own tool and hook lists were carried for a
+        # catalog-versus-disk comparison nothing made. A field shipped for a
+        # comparison no code, message or test performs is a claim the change
+        # does not keep, so the table stays the place to read them.
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "jev", "name: jev\nprovides_tools:\n  - jev_evaluate\n")
+
+            entry = build_jev_sidekick_posture(paths.hermes_home)["plugins"][0]
+
+            self.assertNotIn("catalog_tools", entry)
+            self.assertNotIn("catalog_hooks", entry)
+
     def test_zero_writes_to_hermes_home(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = _paths(Path(tmp))
@@ -476,6 +731,12 @@ class EnvKeyNameSeamTests(unittest.TestCase):
             # result, because it was never enrolled.
             self.assertEqual(env_key_names(home), ["GLM_API_KEY"])
             self.assertEqual(env_key_names(home, allowed=None), ["GLM_API_KEY"])
+            # The same table decides the `environ` half of the scan, which the
+            # posture never passes but every other caller may.
+            self.assertEqual(
+                env_key_names(home, environ={"ANTHROPIC_API_KEY": SECRET_VALUE, "TYPESAFE_API_KEY": SECRET_VALUE}),
+                ["ANTHROPIC_API_KEY", "GLM_API_KEY"],
+            )
 
     def test_the_allowed_parameter_scopes_both_scans(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -561,7 +822,7 @@ class DoctorCheckTests(unittest.TestCase):
 
             self.assertEqual(check.severity, "warning")
             self.assertNotIn("no Jev-class plugin installed", check.message)
-            self.assertIn("1 plugin directory not fully read: broken", check.message)
+            self.assertIn("1 entry under plugins/ not fully read: broken", check.message)
 
     def test_no_message_on_any_branch_carries_a_credential_value(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -575,6 +836,116 @@ class DoctorCheckTests(unittest.TestCase):
             self.assertIn("OPENROUTER_API_KEY", check.message)
             self.assertNotIn(SECRET_VALUE, check.message)
             self.assertNotIn(SECRET_VALUE, json.dumps(check.detail))
+
+    def test_the_next_action_states_no_branch_that_did_not_fire(self) -> None:
+        # The three-sentence fixed string printed all three reasons on every
+        # warning branch, so an operator whose credential name was right read
+        # that it was missing and an operator whose sweep was complete read
+        # about a directory OMH could not clear.
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(
+                paths,
+                "typesafe-skill-router",
+                "name: typesafe-skill-router\nprovides_hooks:\n  - pre_llm_call\n",
+            )
+            _enable(paths, "typesafe-skill-router")
+            _write(paths.hermes_home / ".env", f"TYPESAFE_API_KEY={SECRET_VALUE}\n")
+
+            _checks, check = _doctor_check(paths)
+
+            self.assertIn("declares the same hook OMH registers: pre_llm_call", check.next_action)
+            self.assertNotIn("No name a Jev-class plugin declares as its route", check.next_action)
+            self.assertNotIn("complete sweep", check.next_action)
+            self.assertNotIn("did not read whether Hermes enables", check.next_action)
+            self.assertNotIn("neither established nor ruled out", check.next_action)
+
+    def test_the_next_action_describes_an_overlap_as_a_declaration(self) -> None:
+        # `post_tool_call` is one of the eight hooks the bridge registers and
+        # is not the nomination surface. The fixed string told the operator
+        # this plugin "sends the model two nominations for one message",
+        # which is a runtime claim OMH did not observe and is false for seven
+        # of the eight hooks it fired on.
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(
+                paths,
+                "weird",
+                "name: weird\nprovides_tools:\n  - jev_stats\nprovides_hooks:\n  - post_tool_call\n",
+            )
+            _enable(paths, "weird")
+            _write(paths.hermes_home / ".env", f"TYPESAFE_API_KEY={SECRET_VALUE}\n")
+
+            _checks, check = _doctor_check(paths)
+
+            self.assertIn("weird declares the same hook OMH registers: post_tool_call", check.next_action)
+            self.assertNotIn("two nominations", check.next_action)
+            self.assertNotIn("sends the model", check.next_action)
+            self.assertNotIn("cannot answer", check.next_action)
+
+    def test_the_next_action_names_the_env_file_omh_read(self) -> None:
+        # The hardcoded `~/.hermes/.env` named a file this verdict did not
+        # come from on every machine running under `--hermes-home`.
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "jev", "name: jev\nprovides_tools:\n  - jev_evaluate\nprovides_hooks:\n")
+            _enable(paths, "jev")
+
+            _checks, check = _doctor_check(paths)
+
+            self.assertIn(str(paths.hermes_home / ".env"), check.next_action)
+            self.assertNotIn("~/.hermes/.env", check.next_action)
+
+    def test_the_next_action_reports_an_unread_sweep_and_nothing_else(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "broken", "name: broken\nrequires_hermes: >=0.21\n")
+
+            _checks, check = _doctor_check(paths)
+
+            self.assertIn("not a complete sweep", check.next_action)
+            self.assertNotIn("No name a Jev-class plugin declares as its route", check.next_action)
+            self.assertNotIn("declares the same hook", check.next_action)
+
+    def test_the_next_action_names_the_enablement_read_that_did_not_happen(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "jev", "name: jev\nprovides_tools:\n  - jev_evaluate\nprovides_hooks:\n")
+            _write(paths.hermes_config_path, "plugins: {enabled: [jev]}\n")
+            _write(paths.hermes_home / ".env", f"TYPESAFE_API_KEY={SECRET_VALUE}\n")
+
+            _checks, check = _doctor_check(paths)
+
+            self.assertEqual(check.severity, "warning")
+            self.assertIn("OMH did not read whether Hermes enables jev", check.next_action)
+            self.assertIn("form OMH does not read", check.next_action)
+
+    def test_every_unread_declaration_field_carries_its_own_clause(self) -> None:
+        # The note table is keyed on a vocabulary another module owns. A
+        # fourth field added there must cost one generic clause, not a
+        # `KeyError` that takes the whole `omh doctor` command down -- and
+        # every field that vocabulary declares today has a specific clause,
+        # so the fallback stays unreached.
+        for field in UNREADABLE_DECLARATION_FIELDS:
+            with self.subTest(field=field):
+                self.assertIn(field, doctor_module._JEV_UNREAD_DECLARATION_NOTES)
+        entry = {"name": "made-up", "unreadable_declarations": ["a_field_the_notes_do_not_hold"]}
+
+        note = doctor_module._jev_plugin_note(entry)
+
+        self.assertIn("declares a_field_the_notes_do_not_hold in a form OMH does not read", note)
+
+    def test_the_message_says_a_quoted_disclosure_is_a_declaration(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "jev-approvals", "name: jev-approvals\nprovides_hooks:\n")
+            _enable(paths, "jev-approvals")
+            _write(paths.hermes_home / ".env", f"TYPESAFE_API_KEY={SECRET_VALUE}\n")
+
+            _checks, check = _doctor_check(paths)
+
+            self.assertIn("its catalog entry discloses", check.message)
+            self.assertIn("is not evidence that Jev is served", check.message)
 
     def test_the_check_joins_optional_surfaces_and_no_other_group(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -68,21 +68,25 @@ _HOOK_OBSERVATION_WINDOW = 20
 # How many unread plugin directories the Jev posture check names inline before
 # it reports the rest as a count. The `--json` payload always carries them all.
 _JEV_SKIPPED_NAMED_LIMIT = 3
-# What an operator does next about any of the four states that make the Jev
-# posture visible; one action covers them because the first step is the same
-# for each -- read the full posture and decide about the named plugin.
-_JEV_NEXT_ACTION = (
-    "Read the full posture with `omh doctor --json` and decide whether the named plugin should stay enabled; "
-    "a plugin sharing a hook with the OMH bridge sends the model two nominations for one message, a Jev plugin "
-    "with no credential name in ~/.hermes/.env cannot answer, and a plugin directory OMH could not read is one "
-    "it could not clear."
+# The one sentence every Jev next action opens with, because the first step is
+# the same whichever state made the check visible. Every sentence after it is
+# printed only when the read that produced it happened -- see
+# `_jev_next_action`.
+_JEV_NEXT_ACTION_OPENING = (
+    "Read the full posture with `omh doctor --json` and decide whether the named plugin should stay enabled."
 )
 # What a declaration OMH could not read costs, per field. Each says what is
 # NOT established rather than naming the field and leaving the consequence to
 # the reader: an unread `provides_hooks` is why a plugin can show an empty
 # hook overlap and still be sharing one.
+#
+# Looked up with a fallback, never by indexing. The keys are a vocabulary
+# another module owns, and a field added there must cost one generic clause in
+# one note -- not a `KeyError` that takes the whole `omh doctor` command down.
+# `tests/test_jev_sidekick_posture.py` pins that every field that vocabulary
+# declares has a specific clause here, so the fallback stays unreached.
 _JEV_UNREAD_DECLARATION_NOTES = {
-    "name": "declares a name in a form OMH does not read, so it was classified by its directory name",
+    "name": "declares a name in a form OMH does not read, so it was not classified by name at all",
     "provides_tools": "declares tools in a form OMH does not read, so its jev_ tools are not established",
     "provides_hooks": (
         "declares hooks in a form OMH does not read, so its hook overlap with the OMH bridge is not established"
@@ -854,14 +858,26 @@ def _jev_sidekick_check(paths: OmhPaths) -> Check:
         build_jev_sidekick_posture,
         posture_overlaps,
         posture_unestablished_hook_overlap,
+        posture_unknown_enablement,
     )
 
     posture = build_jev_sidekick_posture(paths.hermes_home)
+    env_path = paths.hermes_home / ".env"
     plugins = [entry for entry in posture["plugins"] if isinstance(entry, dict)]
     skipped = [entry for entry in posture["skipped"] if isinstance(entry, dict)]
     credential_names = [str(name) for name in posture["credential_names_present"]]
+    unestablished = posture_unestablished_hook_overlap(posture)
+    unknown_enablement = posture_unknown_enablement(posture)
     if not plugins and not skipped:
         return Check("plugin_jev_sidekick", True, "optional: no Jev-class plugin installed", detail=posture)
+    next_action = _jev_next_action(
+        env_path,
+        plugins=plugins,
+        skipped=skipped,
+        credential_names=credential_names,
+        unestablished=unestablished,
+        unknown_enablement=unknown_enablement,
+    )
     if not plugins:
         # Not "none installed": a directory OMH could not read is a directory
         # it cannot clear, and a check that reports absence over an
@@ -874,7 +890,7 @@ def _jev_sidekick_check(paths: OmhPaths) -> Check:
             + _jev_skipped_fragment(skipped),
             severity="warning",
             detail=posture,
-            next_action=_JEV_NEXT_ACTION,
+            next_action=next_action,
         )
     segments = [
         f"Jev-class plugin posture: {posture['status']}"
@@ -885,18 +901,23 @@ def _jev_sidekick_check(paths: OmhPaths) -> Check:
         segments.append(_jev_skipped_fragment(skipped))
     # Each note already joins its own fragments with "; ", so the notes are
     # separated by a separator no note uses -- the `provider_entitlements`
-    # shape.
-    message = " | ".join(segments)
-    # Four reasons to raise the message from silent to visible, and a check
+    # shape. The claim boundary closes the message because the notes quote a
+    # third party verbatim, and a quote an operator reads in a diagnostic
+    # should not have to be inferred to be a declaration. `identity_conflicts`
+    # closes its message the same way.
+    message = " | ".join(segments) + ". " + str(posture["claim_boundary"])
+    # Five reasons to raise the message from silent to visible, and a check
     # that is `ok` prints nothing in the text report, so each one has to be
-    # here or it is not surfaced at all. An overlap means one message can
-    # reach the model twice-nominated. An unestablished overlap means nobody
-    # looked, which is not the same finding as no overlap and must not be
-    # reported as one. No credential name means a plugin that cannot answer.
-    # A skipped directory means the sweep was not complete.
+    # here or it is not surfaced at all. A declared overlap means one hook is
+    # declared twice over. An unestablished overlap, an unread enablement and
+    # a skipped directory each mean nobody looked, which is a different
+    # finding from a clean read and must not be reported as one. No
+    # credential name means no name a Jev plugin declares as its route was
+    # found where OMH looked.
     quiet = (
         not posture_overlaps(posture)
-        and not posture_unestablished_hook_overlap(posture)
+        and not unestablished
+        and not unknown_enablement
         and not skipped
         and bool(credential_names)
     )
@@ -908,8 +929,67 @@ def _jev_sidekick_check(paths: OmhPaths) -> Check:
         message,
         severity="warning",
         detail=posture,
-        next_action=_JEV_NEXT_ACTION,
+        next_action=next_action,
     )
+
+
+def _jev_next_action(
+    env_path: Path,
+    *,
+    plugins: list[dict[str, object]],
+    skipped: list[dict[str, object]],
+    credential_names: list[str],
+    unestablished: list[str],
+    unknown_enablement: list[str],
+) -> str:
+    """What to do next, built from the reads that happened and nothing else.
+
+    Three rules, each of which a fixed string broke. A sentence is printed
+    only when its own branch fired, so an operator whose credential name is
+    right does not read that it is missing. A sentence says what a plugin
+    DECLARES, never what it does: OMH did not watch a hook fire, and "shares a
+    hook" is true of eight hooks while "nominates twice" is true of one, so
+    the overlap is reported as the declaration it is. And a path is the path
+    OMH read -- under `--hermes-home` or `HERMES_HOME` the default spelling
+    names a file this verdict did not come from.
+    """
+    sentences = [_JEV_NEXT_ACTION_OPENING]
+    for entry in plugins:
+        hooks = [str(hook) for hook in entry.get("hook_overlap", [])]
+        if hooks:
+            sentences.append(f"{entry.get('name', '')} declares the same hook OMH registers: {', '.join(hooks)}.")
+    if unestablished:
+        sentences.append(
+            f"{', '.join(unestablished)} declares hooks in a form OMH does not read, so an overlap with the "
+            "OMH bridge is neither established nor ruled out."
+        )
+    for reason, names in _jev_unknown_enablement_reasons(plugins, unknown_enablement):
+        sentences.append(f"OMH did not read whether Hermes enables {', '.join(names)}: {reason}.")
+    if plugins and not credential_names:
+        sentences.append(f"No name a Jev-class plugin declares as its route appears in {env_path}.")
+    if skipped:
+        sentences.append("OMH did not read every plugin directory under this home, so this posture is not a complete sweep.")
+    return " ".join(sentences)
+
+
+def _jev_unknown_enablement_reasons(
+    plugins: list[dict[str, object]], unknown_enablement: list[str]
+) -> list[tuple[str, list[str]]]:
+    """The plugins whose enablement went unread, grouped by why.
+
+    Grouped rather than one sentence each: a config OMH could not open leaves
+    every plugin unread for one reason, and repeating it per plugin would
+    print the same repair five times.
+    """
+    grouped: dict[str, list[str]] = {}
+    unknown = set(unknown_enablement)
+    for entry in plugins:
+        name = str(entry.get("name", ""))
+        if name not in unknown:
+            continue
+        reason = str(entry.get("enablement_reason", "")) or "the read did not happen"
+        grouped.setdefault(reason, []).append(name)
+    return sorted(grouped.items())
 
 
 def _jev_plugin_note(entry: dict[str, object]) -> str:
@@ -919,7 +999,7 @@ def _jev_plugin_note(entry: dict[str, object]) -> str:
     name this build has no catalog record for says exactly that instead of
     borrowing another record's disclosure.
     """
-    state = "enabled" if entry.get("enabled") else "installed, not enabled"
+    state = _jev_enablement_label(entry)
     tools = ", ".join(str(tool) for tool in entry.get("jev_tools", [])) or "no jev_ tool"
     parts = [f"{entry.get('name', '')} ({state}) declares {tools}"]
     hooks = [str(hook) for hook in entry.get("declares_hooks", [])]
@@ -938,8 +1018,29 @@ def _jev_plugin_note(entry: dict[str, object]) -> str:
         parts.append("no catalog entry for this name was read; classified by its jev_ tool prefix alone")
     unread = [str(field) for field in entry.get("unreadable_declarations", [])]
     for field in unread:
-        parts.append(_JEV_UNREAD_DECLARATION_NOTES[field])
+        parts.append(
+            _JEV_UNREAD_DECLARATION_NOTES.get(field, f"declares {field} in a form OMH does not read")
+        )
     return "; ".join(parts)
+
+
+def _jev_enablement_label(entry: dict[str, object]) -> str:
+    """How one plugin's enablement reads, including when it was not read.
+
+    Three states, not two. `installed, not enabled` is a claim about Hermes'
+    config, and OMH may state it only over a config it read: a `plugins:` node
+    written in a flow form the block reader walks past, or a plugin whose own
+    manifest name OMH could not establish, leaves the answer unread. The
+    reason travels with the state so the line says which read is missing
+    rather than leaving the operator to guess.
+    """
+    state = str(entry.get("enablement", ""))
+    if state == "enabled":
+        return "enabled"
+    if state == "not enabled":
+        return "installed, not enabled"
+    reason = str(entry.get("enablement_reason", ""))
+    return f"enablement not established: {reason}" if reason else "enablement not established"
 
 
 def _jev_skipped_fragment(skipped: list[dict[str, object]]) -> str:
@@ -953,8 +1054,12 @@ def _jev_skipped_fragment(skipped: list[dict[str, object]]) -> str:
     shown = ", ".join(names[:_JEV_SKIPPED_NAMED_LIMIT])
     if len(names) > _JEV_SKIPPED_NAMED_LIMIT:
         shown = f"{shown}, and {len(names) - _JEV_SKIPPED_NAMED_LIMIT} more"
-    noun = "directory" if len(names) == 1 else "directories"
-    return f"{len(names)} plugin {noun} not fully read: {shown}"
+    # "entry", not "plugin directory": a row can name the first entry a
+    # bounded sweep did not reach, which need not be a directory at all, and a
+    # line that calls it a plugin directory reports a plugin that may not
+    # exist.
+    noun = "entry" if len(names) == 1 else "entries"
+    return f"{len(names)} {noun} under plugins/ not fully read: {shown}"
 
 
 def _retired_skill_install_check(paths: OmhPaths) -> Check:

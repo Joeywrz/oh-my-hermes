@@ -229,11 +229,6 @@ KNOWN_JEV_PLUGINS: Final[tuple[JevPluginRecord, ...]] = (
 _BY_NAME: Final[dict[str, JevPluginRecord]] = {record.name: record for record in KNOWN_JEV_PLUGINS}
 
 
-def known_jev_plugin_names() -> tuple[str, ...]:
-    """Every plugin name this table recognizes, sorted."""
-    return tuple(sorted(_BY_NAME))
-
-
 def classify_plugin(
     name: str,
     provides_tools: Iterable[str] = (),
@@ -248,13 +243,20 @@ def classify_plugin(
     shape and has read nothing about that plugin.
 
     `provides_tools` and `provides_hooks` come from the manifest installed on
-    this machine; `catalog_tools`, `catalog_hooks`, `declared_disclosure` and
-    `overlap` come from the table above. Both are carried because they can
-    disagree, and a disagreement between the catalog and what is on disk is a
-    finding an operator has to be able to see.
+    this machine; `declared_disclosure`, `overlap` and the provenance come
+    from the table above. The catalog's own tool and hook lists are not
+    carried beside them: nothing compares the two, and a field carried for a
+    comparison no code, message or test makes is a capability the change does
+    not deliver. A caller that wants the disagreement computes it and says so
+    in a sentence; the table is where the catalog's side is read.
 
     `hook_overlap` is computed here rather than stored, against OMH's own
     declared hook list, so it cannot drift out of date with the bridge.
+
+    `name` is the identity OMH will report. A caller that could not read the
+    manifest's `name` passes the empty string rather than a directory name it
+    guessed, because a guess that lands on a table entry would attach that
+    maintainer's record to this install.
     """
     record = _BY_NAME.get(name)
     jev_tools = sorted({tool for tool in provides_tools if tool.startswith(JEV_TOOL_PREFIX)})
@@ -268,8 +270,6 @@ def classify_plugin(
         "jev_tools": jev_tools,
         "declares_hooks": hooks,
         "hook_overlap": sorted(set(hooks) & set(PROVIDED_HOOKS)),
-        "catalog_tools": list(record.declares_tools) if record is not None else [],
-        "catalog_hooks": list(record.declares_hooks) if record is not None else [],
         "declared_disclosure": record.declared_disclosure if record is not None else "",
         "overlap": record.overlap if record is not None else "",
         "read_from": record.read_from if record is not None else "",

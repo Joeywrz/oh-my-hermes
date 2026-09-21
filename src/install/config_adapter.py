@@ -216,6 +216,32 @@ def plugin_is_enabled(config_text: str, name: str) -> bool:
     return name in listed["enabled"] and name not in listed["disabled"]
 
 
+def plugin_enablement_is_readable(config_text: str) -> bool:
+    """Whether `plugin_enablement` read the `plugins:` node or walked past it.
+
+    That reader enters the node on one condition -- a top-level line whose
+    stripped text is exactly `plugins:` -- so `plugins: {enabled: [x]}` and
+    `plugins:  # third-party` are both valid YAML Hermes loads and both leave
+    the reader with empty lists. Empty lists are also what a config that
+    enables nothing produces, and the two are different facts: one is "nothing
+    is enabled", the other is "nobody read it". A caller that reports the
+    second as the first states a machine fact it does not hold.
+
+    This predicate is derived from the reader's own entry condition rather
+    than from a second opinion about YAML, so it cannot drift from what the
+    reader does. It is not a claim that every other form is modelled -- it
+    answers only for the node this key names, which is the one `plugins.enabled`
+    lives in.
+    """
+    for line in config_text.splitlines():
+        if line.startswith(" "):
+            continue
+        stripped = line.strip()
+        if stripped.startswith("plugins:") and stripped != "plugins:":
+            return False
+    return True
+
+
 def ensure_plugin_enabled(config_text: str, name: str) -> ConfigChange:
     """Add `name` to `plugins.enabled` so Hermes will actually load the bridge.
 

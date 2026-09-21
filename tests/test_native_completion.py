@@ -266,8 +266,10 @@ class NativeCompletionTest(unittest.TestCase):
                    'from omh.plugin_bundle.omh.tools.todo_tool import omh_todo_handler; '
                    f'print(omh_todo_handler({args!r}, session_id="new-process"))')
         result = subprocess.run([sys.executable, '-c', program], cwd=self.root,
-            env={**{name: os.environ[name] for name in ('PATH', 'HOME', 'OMH_HOME', 'HERMES_HOME')},
-                 **{name: os.environ[name] for name in ('TMPDIR', 'TMP', 'TEMP') if name in os.environ},
+            env={**{name: os.environ[name] for name in ('PATH', 'OMH_HOME', 'HERMES_HOME')},
+                 'HOME': str(self.root), 'USERPROFILE': str(self.root),
+                 **{name: os.environ[name] for name in
+                    ('TMPDIR', 'TMP', 'TEMP', 'SYSTEMROOT', 'WINDIR', 'COMSPEC') if name in os.environ},
                  'PYTHONPATH': str(Path(__file__).resolve().parent)},
             capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -276,6 +278,11 @@ class NativeCompletionTest(unittest.TestCase):
         self.assertEqual(read['sources']['review'], 'declared_findings')
         self.assertEqual(read['checkpoint']['results'][0]['findings'], ['Review found a missing guard'])
         self.assertEqual(read['completion']['status'], 'not_verified')
+
+    def test_new_process_without_home_environment(self):
+        with patch.dict(os.environ):
+            os.environ.pop('HOME', None)
+            self.test_new_process_can_read_prior_session_declarations()
 
     def test_concurrent_appends_preserve_every_attributed_result(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -346,8 +353,10 @@ class NativeCompletionTest(unittest.TestCase):
             '"environment":"offline-fixture"},session_id="parent"))'
         )
         result = subprocess.run([sys.executable, '-c', program], cwd=self.root,
-            env={**{k: os.environ[k] for k in ('PATH', 'HOME', 'OMH_HOME', 'HERMES_HOME')},
-                 **{k: os.environ[k] for k in ('TMPDIR', 'TMP', 'TEMP') if k in os.environ},
+            env={**{k: os.environ[k] for k in ('PATH', 'OMH_HOME', 'HERMES_HOME')},
+                 'HOME': str(self.root), 'USERPROFILE': str(self.root),
+                 **{k: os.environ[k] for k in
+                    ('TMPDIR', 'TMP', 'TEMP', 'SYSTEMROOT', 'WINDIR', 'COMSPEC') if k in os.environ},
                  'PYTHONPATH': str(Path(__file__).resolve().parent)},
             capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)

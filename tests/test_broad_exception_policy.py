@@ -68,6 +68,14 @@ class ClassifiedSite(NamedTuple):
 
 CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
     ClassifiedSite(
+        "src/plugin_bundle/omh/engagement_nudges.py",
+        "observe_engagement_outcome",
+        INTENTIONAL,
+        "A best-effort outcome observer must not abort the shared post-tool hook. "
+        "Failures increment the metadata-only observer_error:<type> diagnostic "
+        "and return no observation; they never fabricate a successful effect.",
+    ),
+    ClassifiedSite(
         "src/plugin_bundle/omh/memory_provider.py",
         "_say",
         INTENTIONAL,
@@ -400,8 +408,8 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
 # function. `_write_candidate_batch`, `_is_catalog_question`, `pre_llm_call`,
 # `_resume_unlocked`, and `_execute_cell` each hold two handlers, so the handler
 # count is five above the anchor count.
-EXPECTED_HANDLER_COUNT = 41
-EXPECTED_ANCHOR_COUNT = 36
+EXPECTED_HANDLER_COUNT = 42
+EXPECTED_ANCHOR_COUNT = 37
 
 
 class DerivedSite(NamedTuple):

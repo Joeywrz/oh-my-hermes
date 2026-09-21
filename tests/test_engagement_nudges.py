@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import unittest
+from itertools import count
+from uuid import uuid4
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -59,13 +61,14 @@ class EngagementNudgeTestCase(unittest.TestCase):
         self._tmp = TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.home = str(Path(self._tmp.name) / "omh")
+        self.calls = count()
 
     def fire(
         self,
         tool: str,
         session: str,
         times: int = 1,
-        result: str = "ok",
+        result: str | None = None,
         *,
         same_args: bool = False,
     ) -> list[str | None]:
@@ -76,8 +79,13 @@ class EngagementNudgeTestCase(unittest.TestCase):
         helper is asserting the loop case by accident. `same_args=True` is
         the loop, and it has its own cases.
         """
+        if result is None:
+            result = json.dumps({"bytes_written": 2}) if tool == "write_file" else (
+                json.dumps({"success": True}) if tool == "patch" else "ok"
+            )
         return [
             annotate_engagement_nudge(
+                tool_call_id=uuid4().hex, status="ok",
                 tool_name=tool,
                 result=result,
                 args={"path": "same.py" if same_args else f"file-{index}.py"},
@@ -85,7 +93,7 @@ class EngagementNudgeTestCase(unittest.TestCase):
                 omh_home=self.home,
                 hermes_home=self.home,
             )
-            for index in range(times)
+            for index in (next(self.calls) for _ in range(times))
         ]
 
     def nudged(
@@ -177,13 +185,12 @@ class DelegationNudgeTests(EngagementNudgeTestCase):
         fired = self.nudged("search_files", "s1", DELEGATION_NUDGE_DIRECT_READ_THRESHOLD - 1)
         self.assertEqual(fired, [False] * (DELEGATION_NUDGE_DIRECT_READ_THRESHOLD - 1))
 
-    def test_routing_a_lane_latches_it_off_for_the_rest_of_the_session(self) -> None:
-        for router in ("delegate_task", "omh_delegate_route"):
-            with self.subTest(router=router):
-                reset_nudge_budget()
-                self.assertEqual(self.fire(router, "s1")[0], None)
-                fired = self.nudged("read_file", "s1", DELEGATION_NUDGE_DIRECT_READ_THRESHOLD + 3)
-                self.assertNotIn(True, fired)
+    def test_only_a_child_lifecycle_event_latches_delegation(self) -> None:
+        self.assertIsNone(self.fire("omh_delegate_route", "s1")[0])
+        self.assertIsNone(self.fire("delegate_task", "s1")[0])
+        self.assertIn(True, self.nudged("read_file", "s1", DELEGATION_NUDGE_DIRECT_READ_THRESHOLD))
+        subagent_start(parent_session_id="s1", child_session_id="child", omh_home=self.home, hermes_home=self.home)
+        self.assertNotIn(True, self.nudged("read_file", "s1", 4))
 
     def test_the_budget_is_spent_and_then_it_stops(self) -> None:
         fired = self.nudged(
@@ -202,7 +209,7 @@ class DelegatedLaneIsNotNudgedTests(EngagementNudgeTestCase):
     """
 
     def test_a_child_session_the_host_reported_is_never_nudged(self) -> None:
-        subagent_start(parent_session_id="s1", child_session_id="child-1", child_role="explore")
+        subagent_start(omh_home=self.home, hermes_home=self.home, parent_session_id="s1", child_session_id="child-1", child_role="explore")
         fired = self.nudged("write_file", "child-1", PLAN_NUDGE_FILE_MUTATION_THRESHOLD + 3)
         self.assertNotIn(True, fired)
         self.assertGreater(
@@ -212,11 +219,11 @@ class DelegatedLaneIsNotNudgedTests(EngagementNudgeTestCase):
         )
 
     def test_the_parent_that_spawned_it_is_still_nudged(self) -> None:
-        subagent_start(parent_session_id="s1", child_session_id="child-1")
+        subagent_start(omh_home=self.home, hermes_home=self.home, parent_session_id="s1", child_session_id="child-1")
         self.assertIn(True, self.nudged("write_file", "s1", PLAN_NUDGE_FILE_MUTATION_THRESHOLD))
 
     def test_the_observer_records_the_child_and_returns_nothing(self) -> None:
-        self.assertIsNone(subagent_start(parent_session_id="s1", child_session_id="child-1"))
+        self.assertIsNone(subagent_start(omh_home=self.home, hermes_home=self.home, parent_session_id="s1", child_session_id="child-1"))
 
     def test_a_malformed_subagent_event_does_not_raise(self) -> None:
         # The host wraps this call in its own quiet block, so a raise here
@@ -234,7 +241,7 @@ class DelegatedLaneIsNotNudgedTests(EngagementNudgeTestCase):
         and nothing is left to read. The report is widened, not the `except`.
         """
         with patch.object(session_hooks, "note_delegated_session", side_effect=RuntimeError("boom")):
-            self.assertIsNone(subagent_start(parent_session_id="s1", child_session_id="child-1"))
+            self.assertIsNone(subagent_start(omh_home=self.home, hermes_home=self.home, parent_session_id="s1", child_session_id="child-1"))
 
         # The whole tally, not just the count. This guard fails two ways -- the
         # handler never recorded, or it recorded under a different key because
@@ -283,7 +290,7 @@ class NudgeRidesTheToolResultTests(EngagementNudgeTestCase):
     """In-band, and without breaking a host result that is JSON."""
 
     def test_a_json_object_result_keeps_parsing_and_gains_a_key(self) -> None:
-        payload = json.dumps({"ok": True, "path": "a.py"})
+        payload = json.dumps({"ok": True, "bytes_written": 2, "path": "a.py"})
         for _ in range(PLAN_NUDGE_FILE_MUTATION_THRESHOLD - 1):
             _ = self.fire("write_file", "s1", result=payload)
         carried = self.fire("write_file", "s1", result=payload)[0]
@@ -295,13 +302,12 @@ class NudgeRidesTheToolResultTests(EngagementNudgeTestCase):
         self.assertEqual(parsed["path"], "a.py")
         self.assertIn("[OMH plan todo]", parsed[ENGAGEMENT_NUDGE_KEY])
 
-    def test_a_plain_text_result_is_appended_to(self) -> None:
-        for _ in range(PLAN_NUDGE_FILE_MUTATION_THRESHOLD - 1):
-            _ = self.fire("write_file", "s1", result="wrote a.py")
-        carried = self.fire("write_file", "s1", result="wrote a.py")[0] or ""
-
-        self.assertTrue(carried.startswith("wrote a.py"))
-        self.assertIn("[OMH plan todo]", carried)
+    def test_a_plain_text_read_result_is_appended_to(self) -> None:
+        for _ in range(DELEGATION_NUDGE_DIRECT_READ_THRESHOLD - 1):
+            _ = self.fire("read_file", "s1", result="file content")
+        carried = self.fire("read_file", "s1", result="file content")[0] or ""
+        self.assertTrue(carried.startswith("file content"))
+        self.assertIn("[OMH delegation]", carried)
 
     def test_a_json_value_that_is_not_an_object_is_declined_not_guessed_at(self) -> None:
         fired = self.nudged("write_file", "s1", PLAN_NUDGE_FILE_MUTATION_THRESHOLD + 1)
@@ -311,6 +317,7 @@ class NudgeRidesTheToolResultTests(EngagementNudgeTestCase):
         reset_engagement_declines()
         carried = [
             annotate_engagement_nudge(
+                tool_call_id=uuid4().hex, status="ok",
                 tool_name="write_file",
                 result="[1, 2, 3]",
                 session_id="s2",
@@ -320,17 +327,20 @@ class NudgeRidesTheToolResultTests(EngagementNudgeTestCase):
             for _ in range(PLAN_NUDGE_FILE_MUTATION_THRESHOLD + 1)
         ]
         self.assertEqual(carried, [None] * len(carried))
-        self.assertGreater(engagement_nudge_declines().get("result_not_carryable", 0), 0)
+        # An unstructured mutation carries no effect evidence at all.
+        self.assertEqual(nudges.engagement_count("s2", nudges._MUTATIONS, omh_home=self.home), 0)
 
     def test_the_registered_transform_chains_the_nudge(self) -> None:
         """The seam the host actually calls, not the module in isolation."""
         for _ in range(PLAN_NUDGE_FILE_MUTATION_THRESHOLD - 1):
             _ = transform_tool_result(
-                tool_name="write_file", result="wrote a.py", session_id="s1",
+                tool_name="write_file", result='{"bytes_written": 2}', session_id="s1",
+                tool_call_id=uuid4().hex, status="ok",
                 omh_home=self.home, hermes_home=self.home,
             )
         carried = transform_tool_result(
-            tool_name="write_file", result="wrote a.py", session_id="s1",
+            tool_name="write_file", result='{"bytes_written": 2}', session_id="s1",
+                tool_call_id=uuid4().hex, status="ok",
             omh_home=self.home, hermes_home=self.home,
         )
         self.assertIsNotNone(carried)
@@ -451,6 +461,7 @@ class DistinctSearchTests(EngagementNudgeTestCase):
         # something of its own.
         for _ in range(DELEGATION_NUDGE_DIRECT_READ_THRESHOLD):
             _ = annotate_engagement_nudge(
+                tool_call_id=uuid4().hex, status="ok",
                 tool_name="search_files",
                 result="ok",
                 args={"pattern": "def x", "path": "src"},
@@ -459,6 +470,7 @@ class DistinctSearchTests(EngagementNudgeTestCase):
                 hermes_home=self.home,
             )
             _ = annotate_engagement_nudge(
+                tool_call_id=uuid4().hex, status="ok",
                 tool_name="search_files",
                 result="ok",
                 args={"path": "src", "pattern": "def x"},
@@ -483,6 +495,7 @@ class DistinctSearchTests(EngagementNudgeTestCase):
         for tool in sorted(nudges.DIRECT_READ_TOOLS):
             fired.append(
                 annotate_engagement_nudge(
+                    tool_call_id=uuid4().hex, status="ok",
                     tool_name=tool, result="ok", args={"path": "same.py"},
                     session_id="s1", omh_home=self.home, hermes_home=self.home,
                 )
@@ -492,6 +505,7 @@ class DistinctSearchTests(EngagementNudgeTestCase):
         self.assertEqual(len(nudges.DIRECT_READ_TOOLS), DELEGATION_NUDGE_DIRECT_READ_THRESHOLD - 1)
 
         last = annotate_engagement_nudge(
+            tool_call_id=uuid4().hex, status="ok",
             tool_name="read_file", result="ok", args={"path": "other.py"},
             session_id="s1", omh_home=self.home, hermes_home=self.home,
         )
@@ -523,6 +537,7 @@ class NudgeBudgetSurvivesARestartTests(EngagementNudgeTestCase):
     def _spend(self, session: str, start: int, count: int) -> list[bool]:
         return [
             annotate_engagement_nudge(
+                tool_call_id=uuid4().hex, status="ok",
                 tool_name="search_files",
                 result="ok",
                 args={"path": f"file-{index}.py"},
@@ -557,14 +572,14 @@ class NudgeBudgetSurvivesARestartTests(EngagementNudgeTestCase):
             True, self.nudged("write_file", "s1", PLAN_NUDGE_FILE_MUTATION_THRESHOLD + 4)
         )
 
-    def test_routing_a_lane_stays_latched_across_a_restart(self) -> None:
-        self.assertIsNone(self.fire("omh_delegate_route", "s1")[0])
+    def test_a_started_child_stays_latched_across_a_restart(self) -> None:
+        subagent_start(parent_session_id="s1", child_session_id="child", omh_home=self.home, hermes_home=self.home)
 
         reset_nudge_budget()
 
         fired = self.nudged("search_files", "s1", DELEGATION_NUDGE_DIRECT_READ_THRESHOLD + 3)
         self.assertNotIn(True, fired)
-        self.assertGreater(engagement_nudge_declines().get("lane_already_routed", 0), 0)
+        self.assertGreater(engagement_nudge_declines().get("lane_already_started", 0), 0)
 
     def test_another_session_in_the_same_home_keeps_its_own_budget(self) -> None:
         self.assertEqual(
@@ -603,6 +618,7 @@ class NudgeBudgetSurvivesARestartTests(EngagementNudgeTestCase):
         sentinel = "ZZNUDGEARGSENTINELZZ"
         for index in range(DELEGATION_NUDGE_DIRECT_READ_THRESHOLD + 2):
             _ = annotate_engagement_nudge(
+                tool_call_id=uuid4().hex, status="ok",
                 tool_name="search_files",
                 result=f"{sentinel}-result",
                 args={"pattern": sentinel, "path": f"src/{index}"},
@@ -619,7 +635,7 @@ class NudgeBudgetSurvivesARestartTests(EngagementNudgeTestCase):
         self.assertEqual(stored["privacy"], "metadata_only")
         self.assertEqual(
             set(stored["sessions"]["s1"]) - {"ts"},
-            {"plan_nudges", "delegation_nudges", "plan_declared", "lane_routed"},
+            {"plan_nudges", "delegation_nudges", "plan_declared", "lane_started"},
         )
         self.assertEqual(stored["sessions"]["s1"]["delegation_nudges"], MAX_ENGAGEMENT_NUDGES)
 

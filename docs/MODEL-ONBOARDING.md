@@ -149,6 +149,16 @@ What does apply, and what this step therefore produces:
   `covered` through the generic fallback, which for this class means the
   generic discipline is on record, not that the model was calibrated. §3
   above says why it cannot be.
+- The machine's plugin posture, because such a model reaches Hermes through
+  a community plugin rather than a provider route. `omh doctor` always carries
+  a `plugin_jev_sidekick` check: `absent` on a machine with no signal,
+  otherwise the tier it could read (installed, enabled, credential name
+  present) with one note per plugin quoting what that plugin's catalog entry
+  declares and where OMH read it, and a note naming any hook the plugin
+  declares that OMH also registers. It reads names only, never a credential
+  value, and it never says what a plugin does at runtime, because OMH did not
+  observe that. `omh doctor --json` carries the full `jev_sidekick_posture/v1`
+  payload under the check's `detail`.
 
 The next subsection's rule applies with one twist worth stating before you
 reach it. A model served through a Hermes plugin rather than a provider route

@@ -12,7 +12,6 @@ scorer silently counts as malformed.
 from __future__ import annotations
 
 import builtins
-import hashlib
 import json
 import os
 import unittest
@@ -55,6 +54,7 @@ from omh.routing.chat import route_chat_message, routing_record_payload  # noqa:
 from omh.routing.route_question import (  # noqa: E402
     FITS_CLARIFY_THRESHOLD as CORE_FITS_CLARIFY,
     FITS_DISPATCH_THRESHOLD as CORE_FITS_DISPATCH,
+    message_digest,
 )
 
 UNDECIDABLE_MESSAGE = "почему сборка падает на main"
@@ -93,6 +93,21 @@ class ParityWithTheScorerTests(unittest.TestCase):
     def test_the_thresholds_match_the_question_they_answer(self) -> None:
         self.assertEqual(FITS_DISPATCH_THRESHOLD, CORE_FITS_DISPATCH)
         self.assertEqual(FITS_CLARIFY_THRESHOLD, CORE_FITS_CLARIFY)
+
+    def test_the_bundle_hashes_a_request_the_way_the_one_producer_does(self) -> None:
+        """`message_digest` is core's single message-hash producer and the
+        bundle cannot import it: Hermes loads that directory with its own
+        interpreter, which has no reason to have `omh` on its path. So the
+        bundle keeps its own `hashlib` call, and this pins the two together
+        the way the schema strings and thresholds above are pinned. If they
+        ever disagree the join breaks silently."""
+        from omh.plugin_bundle.omh.tools.route_answer_tool import _resolved_message_sha256
+
+        for message in (UNDECIDABLE_MESSAGE, "why is the build failing on main?", "日本語"):
+            with self.subTest(message=message):
+                self.assertEqual(
+                    _resolved_message_sha256({"message": message}), message_digest(message)
+                )
 
     def test_the_action_is_resolved_the_way_the_scorer_resolves_it(self) -> None:
         cases = (
@@ -146,7 +161,7 @@ class RouteAnswerRecordTests(unittest.TestCase):
         request the router could not place, so the digest alone joins an answer
         to the wrong corpus item. The row repeats the hash because a row read
         out of a JSONL file arrives without the record around it."""
-        digest = hashlib.sha256(UNDECIDABLE_MESSAGE.encode("utf-8")).hexdigest()
+        digest = message_digest(UNDECIDABLE_MESSAGE)
         record = build_route_answer_record(
             question_digest="ab12",
             answered_by="main_model",
@@ -418,7 +433,7 @@ class RouteAnswerHandlerTests(unittest.TestCase):
         self.assertEqual(payload["record"]["message_sha256"], expected)
 
     def test_a_caller_with_the_hash_but_not_the_text_still_identifies_its_request(self) -> None:
-        supplied = hashlib.sha256(UNDECIDABLE_MESSAGE.encode("utf-8")).hexdigest()
+        supplied = message_digest(UNDECIDABLE_MESSAGE)
         with TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             payload = self._call(

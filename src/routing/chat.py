@@ -21,7 +21,7 @@ from .compound_intent import distinct_complete_domain_signals
 from .action_copy import next_action_label as _route_next_action_label
 from .candidate_handoff import build_candidate_handoff
 from .decision_contract import build_route_decision_contract
-from .route_question import build_route_question_from_candidates
+from .route_question import build_route_question_for_candidate_handoff
 from .domain_signals import (
     DomainRouteSignal,
     classify_clarification_relevance,
@@ -1651,18 +1651,18 @@ def _enriched_route(
         # disagree. Decidable routes carry no question at all, which is what
         # keeps this key readable as "OMH could not decide this one".
         #
-        # No `digest=` override. The builder's own digest covers the request
-        # hash as well as the shortlist, and the handoff's digest covers only
-        # the shortlist -- which unrelated requests share constantly, so
-        # passing it named a group of requests rather than a request and no
-        # recorded answer could join back to the question it answered. The
-        # RAW message is hashed, not `matching_message`: this value has to
-        # agree with what every wrapper surface reports, and
-        # `routing_record_payload` reports the raw message's hash.
-        route["route_question"] = build_route_question_from_candidates(
-            [row for row in candidate_handoff.get("candidates", []) if isinstance(row, dict)],
-            message_sha256=hashlib.sha256(message.encode("utf-8")).hexdigest(),
-            reasons=[str(reason) for reason in candidate_handoff.get("reasons", [])],
+        # Through the shared helper, not by assembling the arguments here. The
+        # offline corpus projects the same message, and an answer recorded on
+        # one side is scored against the other, so the two have to produce
+        # byte-identical inputs. Two call sites building them by hand is how
+        # they drift, and the drift is silent: the digests stop matching and
+        # every recorded answer lands as unmatched, which is the defect this
+        # replaced. The helper hashes the RAW message through `message_digest`
+        # rather than `matching_message`, because the value has to agree with
+        # what every wrapper surface reports and `routing_record_payload`
+        # reports the raw message's hash.
+        route["route_question"] = build_route_question_for_candidate_handoff(
+            candidate_handoff, message=message
         )
     if (
         candidate_handoff

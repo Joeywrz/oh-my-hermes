@@ -21,6 +21,7 @@ from omh.coding.model_contracts import (  # noqa: E402
 from omh.coding.model_routing import (  # noqa: E402
     EFFORT_CHANGE_KINDS,
     EXECUTOR_MODEL_OPTIONS,
+    MODEL_CLASSES,
     NON_GENERATIVE_MODEL_CLASS,
     REASONING_EFFORT_LADDER,
     model_class,
@@ -134,6 +135,15 @@ class ContractRecordTests(unittest.TestCase):
             self.assertEqual(value, "documented_not_observed")
         # No entitlement language anywhere in the record.
         self.assertNotIn("entitled", json.dumps(dict(contract)).casefold())
+
+    def test_a_declared_contract_class_is_canonical_vocabulary(self) -> None:
+        # The key is optional and hand-written per contract, and both the
+        # renderer and the ladder branch key on one exact spelling. A typo
+        # would silently render and route as generative, which is the one
+        # failure this class exists to prevent.
+        for model_id, contract in MODEL_CONTRACTS.items():
+            if "model_class" in contract:
+                self.assertIn(contract["model_class"], MODEL_CLASSES, model_id)
 
     def test_every_contract_ladder_is_canonical_vocabulary(self) -> None:
         for model_id, contract in MODEL_CONTRACTS.items():

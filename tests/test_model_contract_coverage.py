@@ -113,6 +113,31 @@ class CoverageMatrixTests(unittest.TestCase):
                 self.assertEqual(row["dimensions"]["family_recognition"]["family"], "jev")
         self.assertEqual(exact["dimensions"]["price"]["prices_usd_per_mtok"]["output"], 0.0)
 
+    def test_jev_data_handling_and_calibration_are_read_like_every_other_row(self) -> None:
+        """The two dimensions a reader of the Jev row will misread, pinned.
+
+        `data_handling` also reports `missing`, and the docs say so is not
+        about this model: it is compared here against a generative contracted
+        row so the claim stays true whichever way the dimension later moves.
+        `calibration` reports `covered` through the generic fallback, which
+        records that generic discipline applies -- not that a model taking no
+        prompt was calibrated. The provenance is the assertion that matters:
+        a `model_specific` reading here would mean somebody added the
+        per-family entry `MODEL_OPTI.md` says must not exist.
+        """
+        rows = {
+            row["requested_model"]: row
+            for row in build_model_contract_coverage(
+                _inventory(("jev-1.13.0", "gpt-6-astra"))
+            )["comparison"]["models"]
+        }
+        jev = rows["jev-1.13.0"]["dimensions"]
+        generative = rows["gpt-6-astra"]["dimensions"]
+        self.assertEqual(jev["data_handling"]["status"], generative["data_handling"]["status"])
+        self.assertEqual(jev["calibration"]["status"], "covered")
+        self.assertEqual(jev["calibration"]["high_effort"], "family_or_generic")
+        self.assertEqual(jev["calibration"]["composition"], "family_or_generic")
+
     def test_astra_catalog_reports_exact_declared_and_unknown_rows_by_dimension(self) -> None:
         inventory = _inventory(
             (

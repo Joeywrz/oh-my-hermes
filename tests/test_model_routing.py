@@ -130,6 +130,20 @@ class FamilyPrefixParityTests(unittest.TestCase):
         for prefix, family in _MODEL_FAMILY_PREFIXES:
             self.assertEqual(family, prefix.rstrip("-"), prefix)
 
+    def test_every_bare_alias_is_a_declared_family_label(self) -> None:
+        """A bare alias returns its own spelling as the family, so an entry
+        whose spelling is not a family label would invent one. `opus` is the
+        shape that must not land here -- a tier word for the `claude` family,
+        which `_CLAUDE_TIER_ALIASES` maps explicitly. This asserts the
+        invariant the set's comment states, so it is not only stated."""
+        from omh.coding.model_routing import _BARE_MODEL_ALIASES, _MODEL_FAMILY_PREFIXES
+
+        families = {family for _prefix, family in _MODEL_FAMILY_PREFIXES}
+        for alias in _BARE_MODEL_ALIASES:
+            with self.subTest(alias=alias):
+                self.assertIn(alias, families)
+                self.assertEqual(model_family(alias), alias)
+
     def test_grok_family_is_recognized(self) -> None:
         self.assertEqual(model_family("grok-code-fast-1"), "grok")
 
@@ -265,6 +279,45 @@ class NonGenerativeModelTests(unittest.TestCase):
                     # sentence to learn what was refused.
                     self.assertEqual(refusal["requested_model"], model)
                     self.assertEqual(route["attempted"][-1]["outcome"], "refused")
+                    # `model_family` reads off `selected_model`, and nothing
+                    # was selected, so it is empty here exactly as it is on a
+                    # `model_unrouted` route. The family that IS the basis of
+                    # this decision stays recoverable from the refusal record,
+                    # which is why the record carries the id.
+                    self.assertEqual(route["model_family"], "")
+                    self.assertEqual(model_family(refusal["requested_model"]), "jev")
+
+    def test_a_refused_route_reports_the_default_catalog_kind_not_an_adjudicator(self) -> None:
+        # The refusal is decided before any catalog is read, so `catalog_kind`
+        # on a refused route is the default constant and names no adjudicating
+        # basis. Pinned because the comment at the branch says so, and a later
+        # move of the refusal past the catalog-kind resolution would silently
+        # turn the field into a claim about a table nothing consulted.
+        from omh.coding.model_routing import MODEL_CATALOG_KIND
+
+        category_config = {
+            "schema_version": "category_maestro/v1",
+            "path": "/operator/category-maestro.json",
+            "profiles": {
+                "codex": {
+                    "quick": {
+                        "chain": [{"model_id": "gpt-5.6-sol", "reasoning_effort": "low"}],
+                        "source": "operator",
+                    }
+                }
+            },
+        }
+        routed = resolve_model_route("codex", requested_category="quick", category_config=category_config)
+        self.assertEqual(routed["catalog_kind"], "operator_category_config")
+        refused = resolve_model_route(
+            "codex",
+            requested_model="jev-1.13.0",
+            requested_category="quick",
+            category_config=category_config,
+        )
+        self.assertEqual(refused["status"], "model_refused")
+        self.assertEqual(refused["catalog_kind"], MODEL_CATALOG_KIND)
+        self.assertNotIn("catalog_fingerprint", refused)
 
     def test_the_hermes_recommendation_path_cannot_route_around_the_refusal(self) -> None:
         # `resolve_model_route` hands Hermes to a separate resolver whenever
@@ -276,6 +329,144 @@ class NonGenerativeModelTests(unittest.TestCase):
         self.assertEqual(route["status"], "model_refused")
         self.assertEqual(route["selected_model"], "")
         self.assertEqual(route["catalog_kind"], "editorial_recommendations")
+
+    def test_an_operator_recommendation_naming_one_at_the_head_is_skipped(self) -> None:
+        # The other half of the Hermes lane. With no requested model the
+        # refusal above never fires, and the chain is built from an operator
+        # recommendation document -- the hand-edited path `omh coding
+        # model-route --from-inventory --recommendations <file>` reads. The
+        # head must not be prepared, and the next generative entry takes it.
+        from omh.coding.model_recommendations import (
+            MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+        )
+
+        def active(alias: str, provider: str, family: str) -> dict[str, object]:
+            return {
+                "model_alias": alias,
+                "model_id": alias,
+                "provider": provider,
+                "provider_family": provider,
+                "model_family": family,
+                "compatible_owners": ["hermes"],
+                "status": "confirmed_active",
+            }
+
+        overrides = {
+            "schema_version": MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+            "categories": {
+                "quick": [
+                    {
+                        "model_alias": "jev-1.13.0",
+                        "model_family": "jev",
+                        "preferred_provider_families": ["typesafe"],
+                        "reasoning_effort": "low",
+                        "reasoning": "Operator-selected head.",
+                    },
+                    {
+                        "model_alias": "kimi-k3",
+                        "model_family": "kimi",
+                        "preferred_provider_families": ["apitopia"],
+                        "reasoning_effort": "low",
+                        "reasoning": "Operator-selected runner-up.",
+                    },
+                ]
+            },
+        }
+        route = resolve_model_route(
+            "hermes",
+            role="implementation",
+            requested_category="quick",
+            active_models=[
+                active("jev-1.13.0", "typesafe", "jev"),
+                active("kimi-k3", "apitopia", "kimi"),
+            ],
+            recommendation_overrides=overrides,
+        )
+        self.assertEqual(route["status"], "routed")
+        self.assertEqual(route["selected_model"], "apitopia/kimi-k3")
+        self.assertEqual([entry["model_id"] for entry in route["chain"]], ["apitopia/kimi-k3"])
+        skipped = [entry for entry in route["attempted"] if entry["stage"] == "chain_entry"]
+        self.assertEqual(len(skipped), 1)
+        self.assertEqual(skipped[0]["outcome"], "skipped")
+        # The provider-prefixed spelling the recommendation lane builds still
+        # classifies: the provider names where it runs, the family what it is.
+        self.assertIn("typesafe/jev-1.13.0", skipped[0]["reason"])
+        self.assertIn(NON_GENERATIVE_MODEL_CLASS, skipped[0]["reason"])
+
+    def test_an_operator_recommendation_of_only_non_generative_models_falls_to_the_owner_default(
+        self,
+    ) -> None:
+        # Filtering the whole chain away must not leave an empty head: the
+        # existing owner-default branch answers, which is the same shape the
+        # lane already gives when nothing is confirmed active.
+        from omh.coding.model_recommendations import (
+            MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+        )
+
+        overrides = {
+            "schema_version": MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+            "categories": {
+                "quick": [
+                    {
+                        "model_alias": "jev-1.13.0",
+                        "model_family": "jev",
+                        "preferred_provider_families": ["typesafe"],
+                        "reasoning_effort": "low",
+                        "reasoning": "Operator-selected head.",
+                    }
+                ]
+            },
+        }
+        route = resolve_model_route(
+            "hermes",
+            role="implementation",
+            requested_category="quick",
+            active_models=[
+                {
+                    "model_alias": "jev-1.13.0",
+                    "model_id": "jev-1.13.0",
+                    "provider": "typesafe",
+                    "provider_family": "typesafe",
+                    "model_family": "jev",
+                    "compatible_owners": ["hermes"],
+                    "status": "confirmed_active",
+                }
+            ],
+            recommendation_overrides=overrides,
+        )
+        self.assertEqual(route["status"], "model_unrouted")
+        self.assertEqual(route["selected_model"], "")
+        self.assertEqual(route["chain"], [])
+        stages = [entry["stage"] for entry in route["attempted"]]
+        self.assertIn("chain_entry", stages)
+        self.assertIn("executor_default", stages)
+        # The reason must name the condition that actually emptied the chain.
+        # A candidate WAS confirmed active here and was dropped for its class,
+        # so the pre-existing "none is confirmed active" wording would send a
+        # reader to their active set for a fault in their recommendation file.
+        owner_default = next(
+            entry for entry in route["attempted"] if entry["outcome"] == "owner_default"
+        )
+        self.assertIn(NON_GENERATIVE_MODEL_CLASS, owner_default["reason"])
+        self.assertNotIn("no editorial candidate is confirmed active", owner_default["reason"])
+        self.assertIn(NON_GENERATIVE_MODEL_CLASS, " ".join(route["reasons"]))
+        # The resolution itself did resolve; only the class filter emptied it.
+        self.assertEqual(route["recommendation"]["status"], "resolved")
+
+    def test_an_empty_active_set_keeps_the_original_owner_default_reason(self) -> None:
+        # The other branch of the same record, so the new wording cannot leak
+        # onto the case it does not describe: with nothing confirmed active
+        # there is no candidate to have been dropped, and the lane's existing
+        # sentence is the true one.
+        route = resolve_model_route("hermes", role="implementation", active_models=())
+        self.assertEqual(route["status"], "model_unrouted")
+        owner_default = next(
+            entry for entry in route["attempted"] if entry["outcome"] == "owner_default"
+        )
+        self.assertEqual(
+            owner_default["reason"], "no editorial candidate is confirmed active for Hermes"
+        )
+        self.assertNotIn(NON_GENERATIVE_MODEL_CLASS, owner_default["reason"])
 
     def test_a_generative_request_still_wins_over_the_catalog(self) -> None:
         # The invariant the refusal narrows and must not replace: an

@@ -447,13 +447,23 @@ if __name__ == "__main__":
 
 class JevTargetClassificationTests(unittest.TestCase):
     def test_jev_ids_classify_as_model_targets(self) -> None:
-        # The second classifier surface, kept in step with
-        # `_MODEL_FAMILY_PREFIXES`: a prefix that lands in one table and not
-        # the other makes the two surfaces name the same id differently.
+        # The second classifier surface. The rule that holds: every spelling
+        # this surface classifies must name the same thing model_routing
+        # names -- the `jev-` prefix through `_MODEL_TARGET_PREFIXES`, which
+        # `FamilyPrefixParityTests` gates for order, and the bare word
+        # through `_TARGET_TYPES`, which has no gate, so the bare row is
+        # asserted here instead. A provider-prefixed spelling such as
+        # `typesafe/jev` is outside this surface's vocabulary for every
+        # family (`anthropic/claude-opus-5` classifies as an agent target
+        # too), so it is not a Jev divergence and is not asserted here.
+        # Bare `jev` carries no cost tier, the same as bare `minimax` and
+        # bare `kimi`: only the prefixed ids reach `_cost_tier`.
         for target in ("jev-1.13.0", "jev-latest", "jev-preview"):
             with self.subTest(target=target):
                 self.assertEqual(parse_agent_spec(target).target_type, "model")
                 self.assertEqual(parse_agent_spec(target).cost_tier, "operator-selected")
+        self.assertEqual(parse_agent_spec("jev").target_type, "model")
+        self.assertEqual(parse_agent_spec("jev").cost_tier, "unknown")
 
     def test_jev_near_misses_keep_their_own_classification(self) -> None:
         # The prefix is `jev-`, so a word that merely starts with the letters

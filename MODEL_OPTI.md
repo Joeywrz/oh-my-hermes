@@ -99,9 +99,12 @@ write code:
 - `omh model-chains set <category> "jev:low"` exits 2 and writes nothing, and
   the operator category-maestro config rejects such an entry by name on
   read and on write.
-- A chain entry that reaches the resolver anyway (a hand-edited document) is
-  skipped with a `chain_entry` record naming the class, and the next
-  generative entry takes the head.
+- A chain entry that reaches the resolver anyway (a hand-edited chain
+  document, or an operator recommendation document read with
+  `omh coding model-route --recommendations`) is skipped with a `chain_entry`
+  record naming the class, and the next generative entry takes the head. Both
+  lanes filter, so neither the catalog chain nor the Hermes editorial chain
+  can carry one to the head.
 
 Calibration does not apply: there is no prompt to counter-guide and no effort
 ladder to place a floor on, so `HIGH_EFFORT_CALIBRATIONS` gains no entry and

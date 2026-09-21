@@ -539,6 +539,10 @@ _BARE_MODEL_ALIASES: Final[frozenset[str]] = frozenset({"jev"})
 # other, and refused wherever OMH would otherwise prepare it to write code.
 GENERATIVE_MODEL_CLASS: Final[str] = "generative"
 NON_GENERATIVE_MODEL_CLASS: Final[str] = "non_generative"
+# The vocabulary for the optional `model_class` key a contract record
+# declares. `model_class()` below is structurally confined to these two, but a
+# contract writes its own value by hand, and a misspelled one would render and
+# route as generative without a word.
 MODEL_CLASSES: Final[tuple[str, ...]] = (GENERATIVE_MODEL_CLASS, NON_GENERATIVE_MODEL_CLASS)
 NON_GENERATIVE_MODEL_FAMILIES: Final[frozenset[str]] = frozenset({"jev"})
 
@@ -681,12 +685,17 @@ def resolve_model_route(
         )
         # Decided from the requested id alone, before any catalog is read,
         # so every profile refuses the same way and the recommendation path
-        # below cannot route around it. `catalog_kind` still names the table
-        # that WOULD have adjudicated, exactly as it does on a route that
-        # resolved. No model and no effort are prepared, so neither is
-        # reported and no `effort_change` is emitted: there is nothing a
-        # requested effort could have changed into. The refusal record
-        # carries the id so a JSON consumer never parses the sentence.
+        # below cannot route around it. That is also why `catalog_kind` is a
+        # constant here rather than a reading: nothing adjudicated, so the
+        # field carries the default, and a route that resolved on the same
+        # arguments would report `operator_category_config` or
+        # `local_inventory` where this one reports the default. The Hermes
+        # value is the one exception, and it follows from the call having
+        # supplied a confirmed-active set, not from a table being read. No
+        # model and no effort are prepared, so neither is reported and no
+        # `effort_change` is emitted: there is nothing a requested effort
+        # could have changed into. The refusal record carries the id so a
+        # JSON consumer never parses the sentence.
         return _route_payload(
             profile,
             status="model_refused",
@@ -1175,19 +1184,40 @@ def _resolve_hermes_recommendation_route(
             active_models=active,
             recommendation_overrides=recommendation_overrides,
         )
+    # Last shaping step on this lane, mirroring the catalog lane: an operator
+    # recommendation document is the hand-edited path that reaches here, and a
+    # chain that filters to empty falls through to the owner-default branch
+    # below rather than preparing a model that answers with a Choice.
+    had_candidates = bool(chain)
+    chain = list(_generative_chain(tuple(chain), attempted))
     if not chain:
+        # Two different conditions land here and the record must not confuse
+        # them. Without candidates the reason is that none was confirmed
+        # active. With candidates that the class filter took, one WAS
+        # confirmed active and was dropped for what it is, and saying "none
+        # was confirmed active" would send a reader looking at their active
+        # set for a fault that is in their recommendation document.
         attempted.append(
             {
                 "stage": "recommendation_chain",
                 "outcome": "owner_default",
-                "reason": "no editorial candidate is confirmed active for Hermes",
+                "reason": (
+                    "every confirmed-active editorial candidate is a "
+                    f"{NON_GENERATIVE_MODEL_CLASS} model"
+                    if had_candidates
+                    else "no editorial candidate is confirmed active for Hermes"
+                ),
             }
         )
         attempted.append(
             {
                 "stage": "executor_default",
                 "outcome": "selected",
-                "reason": "no confirmed recommendation; Hermes default model applies",
+                "reason": (
+                    "no generative recommendation remains; Hermes default model applies"
+                    if had_candidates
+                    else "no confirmed recommendation; Hermes default model applies"
+                ),
             }
         )
         payload = _route_payload(
@@ -1205,8 +1235,14 @@ def _resolve_hermes_recommendation_route(
             candidates=[],
             reasons=role_reasons
             + [
-                "No confirmed-active Hermes recommendation could be resolved, "
-                "so the Hermes default model remains in effect."
+                (
+                    "Every confirmed-active Hermes recommendation is a "
+                    f"{NON_GENERATIVE_MODEL_CLASS} model and none can be prepared to "
+                    "write code, so the Hermes default model remains in effect."
+                    if had_candidates
+                    else "No confirmed-active Hermes recommendation could be resolved, "
+                    "so the Hermes default model remains in effect."
+                )
             ],
         )
         payload["recommendation"] = recommendation
@@ -1823,6 +1859,13 @@ def _generative_chain(
     category config rejects one on read. A hand-edited document is the path
     that still reaches here, and a chain head that answers with a Choice
     would otherwise be prepared exactly as if it could implement the unit.
+
+    Applied once per lane, as the last shaping step on each: the catalog
+    chain, and the Hermes editorial chain an operator recommendation document
+    can reorder. Both lanes need it because each builds its chain from its
+    own sources and neither passes through the other. A new chain source
+    belongs upstream of one of those two calls, never behind a third class
+    predicate at its own call site.
     """
     kept: list[Mapping[str, str]] = []
     for entry in role_chain:

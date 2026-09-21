@@ -56,6 +56,12 @@ _TARGET_TYPES: Final[dict[str, str]] = {
     "kimi": "model",
     "mistral": "model",
     "minimax": "model",
+    # `jev` is a served model id, not a vendor word: the bare spelling is what
+    # TypeSafe sends in the `model` field, and `_BARE_MODEL_ALIASES` in
+    # model_routing reads it as the family for the same reason. Without this
+    # row the two classifier surfaces would name the same id differently --
+    # a model there, an agent target here.
+    "jev": "model",
     "executor-runtime-pool": "runtime",
     "review-runtime-pool": "runtime",
     "codex": "runtime",

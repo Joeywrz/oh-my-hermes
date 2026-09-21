@@ -91,8 +91,8 @@ The vendor calls this a decision model. This repo does not, because
 future reader to the wrong surface. The class is `non_generative`; the family
 is `jev`.
 
-Five steps of this loop do not apply, each for its own version of the
-same reason — there is nothing generated to shape, compare, or place:
+The steps below do not apply, each for its own version of the same reason —
+there is nothing generated to shape, compare, or place:
 
 - **§1's effort probe.** There is no effort parameter, so there is no ladder,
   no floor to raise to, and no unsupported rung to record. The contract
@@ -108,7 +108,10 @@ same reason — there is nothing generated to shape, compare, or place:
   nothing, and the operator category-maestro config rejects the entry on read
   and on write. `omh coding model-route --model <id>` answers
   `status: model_refused` with a `refusal` record naming the id and the class,
-  and prepares no model, no effort, and no chain.
+  and prepares no model, no effort, and no chain. A chain that names one
+  anyway, because a document was hand-edited past both editors, is filtered
+  before a head is picked — on the catalog lane and on the Hermes
+  recommendation lane alike, each skipped entry recorded by name.
 - **§6 Machine placement.** Nothing to place: a model that is in no chain
   needs no provider entitlement row, and adding one would assert a serving
   family the shipped catalog has never described.
@@ -133,12 +136,19 @@ What does apply, and what this step therefore produces:
 - The price row (§5), including a zero side when the vendor publishes one. A
   zero is a price, not an absence, and omitting it makes every run on the
   model report no cost at all.
-- The coverage audit, read as it comes out. For a non-generative model it
-  reports `effort`, `category_projection`, and `provider_eligibility` as
-  `missing`, and all three are correct. Do not add a rung, a chain entry, or
-  an `intentional_exclusion` row to turn them green: the first two are
-  inventions and the third says OMH deliberately does not cover a model it
-  does cover.
+- The coverage audit, read as it comes out. The dimensions a non-generative
+  model reports `missing` for reasons of its own class are `effort`,
+  `category_projection`, and `provider_eligibility`, and all three are
+  correct. Do not add a rung, a chain entry, or an `intentional_exclusion`
+  row to turn them green: the first two are inventions and the third says OMH
+  deliberately does not cover a model it does cover. The row may report other
+  dimensions `missing` for reasons that have nothing to do with the class —
+  `data_handling` reads the same way for every contracted model in the
+  catalog — so compare against a generative row before reading one as a gap
+  in this onboarding. Read `calibration` the other way round: it reports
+  `covered` through the generic fallback, which for this class means the
+  generic discipline is on record, not that the model was calibrated. §3
+  above says why it cannot be.
 
 The next subsection's rule applies with one twist worth stating before you
 reach it. A model served through a Hermes plugin rather than a provider route

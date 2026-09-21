@@ -1631,12 +1631,17 @@ def cmd_coding_model_contract(args: argparse.Namespace) -> int:
         f"service tier `{projection['service_tier']}`."
     )
     print(f"Documented contract for `{contract['model_id']}` ({payload['family']} family):")
-    # A non-generative contract has no effort ladder to print, and the four
-    # things a caller needs instead -- the answer surface, the published rate
-    # limits, the price whose output side is zero, and the traits that say
-    # what the model will get wrong -- live on no generative contract. So the
-    # branch is class-gated in both directions and the generative output is
-    # byte-identical to what it was.
+    # A non-generative contract has no effort ladder to print, and what a
+    # caller needs instead -- the answer surface, the published rate limits,
+    # the price whose output side is zero, and the traits that say what the
+    # model will get wrong -- lives on no generative contract. So the branch
+    # is class-gated in both directions. The emptiness guard on
+    # `unsupported_parameters` further down is NOT class-gated, because an
+    # empty tuple should print nothing whatever the class; it is the one
+    # change here that every contract passes through. Every shipped
+    # generative contract declares a non-empty tuple, so none of them prints
+    # differently than it did, and a later one that declares none loses a
+    # line that would have been empty.
     if str(contract.get("model_class", "")) == NON_GENERATIVE_MODEL_CLASS:
         print(f"- model class: {contract['model_class']} — it cannot be routed a coding handoff")
         print(f"- question types: {', '.join(contract['question_types'])}")
@@ -2711,7 +2716,8 @@ def cmd_coding_run(args: argparse.Namespace) -> int:
         # overrides. That gives the documented precedence for free: this
         # flag > dispatch-models.json preference > the executor CLI's own
         # default -- passthrough, unvalidated, exactly like `model-route
-        # --model`.
+        # --model`, and refused on the same one condition: a `non_generative`
+        # model freezes as `status: model_refused` with no model prepared.
         "model": args.model or "",
         "reasoning_effort": args.effort or "",
         # A declared work category routes through the category-maestro merged
@@ -3356,9 +3362,9 @@ def _add_coding_commands(sub) -> None:
         "--model",
         default=None,
         help=(
-            "Explicit model id for this run; always passes through unvalidated. Precedence: this flag "
-            "beats a routed handoff model, which beats the dispatch-models.json preference, which beats "
-            "the executor CLI's own default."
+            "Explicit model id for this run; passes through unvalidated, except a `non_generative` "
+            "model, which is refused. Precedence: this flag beats a routed handoff model, which beats "
+            "the dispatch-models.json preference, which beats the executor CLI's own default."
         ),
     )
     run_cmd.add_argument("--effort", default=None, help="Reasoning effort for profiles that support one.")
@@ -3384,7 +3390,11 @@ def _add_coding_commands(sub) -> None:
         default=None,
         help="Executor profile, for example codex or claude-code. Required unless --explain is given.",
     )
-    model_route.add_argument("--model", default=None, help="Explicit model id; always passes through unvalidated.")
+    model_route.add_argument(
+        "--model",
+        default=None,
+        help="Explicit model id; passes through unvalidated, except a `non_generative` model, which is refused.",
+    )
     model_route.add_argument("--effort", default=None, help="Reasoning effort for profiles that support one.")
     model_route.add_argument("--role", default=None, help="Subagent role: brain, implementation, design_visual, review, docs, research.")
     model_route.add_argument(

@@ -11,6 +11,7 @@ scorer silently counts as malformed.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import unittest
@@ -137,6 +138,43 @@ class RouteAnswerRecordTests(unittest.TestCase):
 
         self.assertIn("not execution, review, CI, or merge evidence", record["claim_boundary"])
         self.assertIn("does not change the route", record["claim_boundary"])
+
+    def test_the_record_and_its_row_both_name_the_request(self) -> None:
+        """The digest covers the shortlist, and one shortlist serves every
+        request the router could not place, so the digest alone joins an answer
+        to the wrong corpus item. The row repeats the hash because a row read
+        out of a JSONL file arrives without the record around it."""
+        digest = hashlib.sha256(UNDECIDABLE_MESSAGE.encode("utf-8")).hexdigest()
+        record = build_route_answer_record(
+            question_digest="ab12",
+            answered_by="main_model",
+            route_choice="plan",
+            message_sha256=digest,
+        )
+
+        self.assertEqual(record["message_sha256"], digest)
+        self.assertEqual(record["answer"]["message_sha256"], digest)
+
+    def test_an_unidentified_request_is_an_empty_hash_and_not_a_hash_of_nothing(self) -> None:
+        record = build_route_answer_record(
+            question_digest="ab12", answered_by="main_model", route_choice="none"
+        )
+
+        self.assertEqual(record["message_sha256"], "")
+        self.assertEqual(record["answer"]["message_sha256"], "")
+
+    def test_a_hash_that_is_not_a_sha256_is_refused(self) -> None:
+        """Exactly 64 hex, not at most: a shorter hex string is some other
+        hash, and a record must not claim an identity nobody can reproduce."""
+        for value in ("abc123", "Z" * 64, "ab" * 33, "AB" * 32):
+            with self.subTest(value=value):
+                with self.assertRaises(RouteAnswerValidationError):
+                    build_route_answer_record(
+                        question_digest="ab12",
+                        answered_by="main_model",
+                        route_choice="none",
+                        message_sha256=value,
+                    )
 
     def test_the_embedded_row_carries_both_question_kinds(self) -> None:
         record = build_route_answer_record(
@@ -302,6 +340,73 @@ class RouteAnswerHandlerTests(unittest.TestCase):
         self.assertEqual(payload["digest_verification"], "not_requested")
         self.assertFalse(payload["record"]["digest_verified"])
         self.assertEqual(payload["record"]["action"], "none")
+
+    def test_the_derived_request_hash_is_the_one_every_other_surface_reports(self) -> None:
+        """The join is only a join if both sides hash the same thing. OMH's
+        wrapper surfaces hash the RAW message, not the routing text the
+        shortlist is matched on, so this pins the tool against one of them
+        rather than against a second copy of the rule."""
+        from omh.routing.chat import route_chat_message, routing_record_payload
+
+        expected = routing_record_payload(
+            route_chat_message(UNDECIDABLE_MESSAGE, source="discord"),
+            UNDECIDABLE_MESSAGE,
+        )["message_sha256"]
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            payload = self._call(
+                root,
+                {
+                    "question_digest": _digest("discord"),
+                    "answered_by": "main_model",
+                    "route_choice": "plan",
+                    "message": UNDECIDABLE_MESSAGE,
+                    "source": "discord",
+                },
+                session_id="session-1",
+            )
+
+        self.assertEqual(payload["record"]["message_sha256"], expected)
+
+    def test_a_caller_with_the_hash_but_not_the_text_still_identifies_its_request(self) -> None:
+        supplied = hashlib.sha256(UNDECIDABLE_MESSAGE.encode("utf-8")).hexdigest()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            payload = self._call(
+                root,
+                {
+                    "question_digest": _digest(),
+                    "answered_by": "jev_plugin",
+                    "route_choice": "none",
+                    "message_sha256": supplied,
+                },
+                session_id="session-1",
+            )
+
+        self.assertEqual(payload["status"], "recorded")
+        self.assertEqual(payload["record"]["message_sha256"], supplied)
+        self.assertEqual(payload["digest_verification"], "not_requested")
+
+    def test_a_message_and_a_hash_that_disagree_are_refused(self) -> None:
+        """They name two different requests. Picking one would record the
+        answer against a request the caller did not mean."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            payload = self._call(
+                root,
+                {
+                    "question_digest": _digest(),
+                    "answered_by": "main_model",
+                    "route_choice": "plan",
+                    "message": UNDECIDABLE_MESSAGE,
+                    "message_sha256": "0" * 64,
+                },
+                session_id="session-1",
+            )
+            written = list(route_answer_dir(root / ".omh").glob("*.json"))
+
+        self.assertEqual(payload["status"], "invalid_request")
+        self.assertEqual(written, [])
 
     def test_a_digest_from_the_route_hint_surface_verifies_too(self) -> None:
         """The surfaces hand out different questions for one message.

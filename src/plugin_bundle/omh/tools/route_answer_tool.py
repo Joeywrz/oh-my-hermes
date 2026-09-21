@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .. import runtime_paths
 
+import hashlib
 import json
 from typing import Any
 
@@ -86,9 +87,21 @@ OMH_ROUTE_ANSWER_SCHEMA = {
             "message": {
                 "type": "string",
                 "description": (
-                    "Optional: the request the question was built from. It is used once, to "
-                    "re-derive the question and confirm the digest, and is never stored. "
+                    "Optional: the request the question was built from. It is used twice, to "
+                    "re-derive the question and confirm the digest and to derive the request "
+                    "hash the record is joined on, and the text itself is never stored. "
                     "Without it the record says digest_verified is false."
+                ),
+            },
+            "message_sha256": {
+                "type": "string",
+                "description": (
+                    "Optional: the sha256 hex of the request, when the question block carries "
+                    "it and the request text is not at hand. Supply this or `message`, not "
+                    "both with different values; supplying `message` is preferred because OMH "
+                    "then derives the hash itself. Without either, the record identifies no "
+                    "request and can only be scored by digest, which several different "
+                    "requests can share."
                 ),
             },
             "source": {
@@ -138,6 +151,10 @@ def omh_route_answer_handler(args: dict[str, Any], **kwargs) -> str:
     # record together with the question digest, so two questions answered in
     # one session are two records rather than one overwriting the other.
     session_ref = host_session_id(kwargs)
+    try:
+        message_sha256 = _resolved_message_sha256(args)
+    except ValueError as error:
+        return _result(payload, observation, status="invalid_request", error=str(error))
     verified, verification, mismatch = _verify_digest(args)
     if mismatch:
         return _result(
@@ -159,6 +176,7 @@ def omh_route_answer_handler(args: dict[str, Any], **kwargs) -> str:
             choice_probabilities=args.get("choice_probabilities"),
             note=args.get("note", ""),
             session_ref=session_ref,
+            message_sha256=message_sha256,
             digest_verified=verified,
         )
     except RouteAnswerValidationError as error:
@@ -174,6 +192,27 @@ def omh_route_answer_handler(args: dict[str, Any], **kwargs) -> str:
         return _result(payload, observation, status="store_unavailable", error=str(error))
     payload["record"] = record
     return _result(payload, observation, status="recorded", digest_verification=verification)
+
+
+def _resolved_message_sha256(args: dict[str, Any]) -> str:
+    """The request hash this record is joined on, or "" when none was given.
+
+    Derived from `message` when the caller sent one, because a hash OMH
+    computed is worth more than one it was handed. A caller that has the hash
+    but not the text may send `message_sha256` instead. Sending both with
+    different values is refused rather than resolved in someone's favour: the
+    two name different requests, and picking one would record an answer
+    against a request the caller did not mean.
+    """
+    message = str(args.get("message") or "").strip()
+    supplied = str(args.get("message_sha256") or "").strip()
+    derived = hashlib.sha256(message.encode("utf-8")).hexdigest() if message else ""
+    if derived and supplied and derived != supplied:
+        raise ValueError(
+            "message and message_sha256 describe different requests; send one of them, "
+            "or send a message_sha256 that is the sha256 of the message"
+        )
+    return derived or supplied
 
 
 def _verify_digest(args: dict[str, Any]) -> tuple[bool, str, bool]:

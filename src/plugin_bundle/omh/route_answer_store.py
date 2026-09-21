@@ -80,6 +80,9 @@ MAX_SKILL_NAME_CHARS = 80
 MAX_NOTE_CHARS = 200
 MAX_SESSION_REF_CHARS = 160
 MAX_DIGEST_CHARS = 64
+# A sha256 hex digest is exactly this long. Separate from the digest bound
+# above, which is a cap on a field whose producer OMH does not own here.
+SHA256_HEX_CHARS = 64
 MAX_ROUTE_ANSWER_RECORD_BYTES = 32_768
 # Records past this age are removed on the next write in the same directory.
 # The directory is otherwise unbounded on purpose: one session answers one
@@ -164,6 +167,7 @@ def build_route_answer_record(
     choice_probabilities: object = None,
     note: object = "",
     session_ref: object = "",
+    message_sha256: object = "",
     digest_verified: bool = False,
     recorded_at: str = "",
 ) -> dict[str, Any]:
@@ -172,6 +176,14 @@ def build_route_answer_record(
     Every field is validated before anything is written, and an invalid field
     raises rather than being dropped: a record with a silently missing fit is
     a record that scores as a weaker answer than the caller gave.
+
+    `message_sha256` identifies the REQUEST the question was built for, which
+    the digest alone does not: the digest covers the shortlist, and one
+    shortlist serves every request the router could not place, so a scorer
+    joining on the digest alone joins answers to the wrong corpus item. It is
+    the only field here that may legitimately be empty -- a caller that
+    supplied neither the message nor its hash has not identified a request,
+    and an empty string says so instead of a hash of nothing.
     """
     digest = _validated_digest(question_digest)
     answerer = str(answered_by or "").strip()
@@ -182,6 +194,7 @@ def build_route_answer_record(
     choice = _validated_skill(route_choice, field="route_choice")
     fit_values = _validated_fits(fits)
     probabilities = _validated_probabilities(choice_probabilities)
+    message_hash = _validated_message_sha256(message_sha256)
     record: dict[str, Any] = {
         "schema_version": ROUTE_ANSWER_SCHEMA_VERSION,
         "action": resolve_action(fit_values, choice),
@@ -191,11 +204,13 @@ def build_route_answer_record(
             choice=choice,
             probabilities=probabilities,
             fits=fit_values,
+            message_sha256=message_hash,
         ),
         "answered_by": answerer,
         "claim_boundary": CLAIM_BOUNDARY,
         "confidence_source": confidence_source_for(answerer),
         "digest_verified": bool(digest_verified),
+        "message_sha256": message_hash,
         "question_digest": digest,
         "recorded_at": recorded_at or _utc_now(),
         "route_choice": choice,
@@ -219,12 +234,18 @@ def _answer_row(
     choice: str,
     probabilities: dict[str, float],
     fits: dict[str, float],
+    message_sha256: str,
 ) -> dict[str, Any]:
     """The embedded `routing_question_answers/v1` row.
 
     Embedded rather than referenced so the scorer reads this record with the
-    reader it already has: the row names its own arm and digest, and the
-    record around it carries what the row has no field for.
+    reader it already has: the row names its own arm, its digest, and the
+    request hash it answers for, and the record around it carries what the row
+    has no field for.
+
+    `message_sha256` is repeated on the row rather than left to the record
+    because the row is what a scorer reading a JSONL answer file gets, and a
+    row that travels out of its record has to identify its own request.
     """
     answers: dict[str, Any] = {ROUTE_CHOICE_KEY: {"choice": choice}}
     if probabilities:
@@ -236,6 +257,7 @@ def _answer_row(
         "answers": answers,
         "arm": arm,
         "case_id": "",
+        "message_sha256": message_sha256,
         "question_digest": digest,
     }
 
@@ -382,6 +404,25 @@ def _validated_digest(value: object) -> str:
             "question_digest must be the hex digest carried by the route question"
         )
     return digest
+
+
+def _validated_message_sha256(value: object) -> str:
+    """A sha256 hex digest of the request, or "" when none was supplied.
+
+    Exactly 64 hex characters, not "at most": a shorter hex string is some
+    other hash, and accepting it would let a record claim an identity that
+    cannot be reproduced from the message. Empty is the one legal alternative
+    and means the caller identified no request.
+    """
+    text = strip_control_characters(value)
+    if not text:
+        return ""
+    if len(text) != SHA256_HEX_CHARS or not re.fullmatch(r"[0-9a-f]+", text):
+        raise RouteAnswerValidationError(
+            f"message_sha256 must be {SHA256_HEX_CHARS} lowercase hex characters "
+            "or omitted entirely"
+        )
+    return text
 
 
 def _validated_skill(value: object, *, field: str) -> str:

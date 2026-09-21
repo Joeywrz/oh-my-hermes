@@ -595,6 +595,15 @@ or not. The record is written so the answerer can be measured: it embeds the
 when a plugin reported a number OMH did not observe. An answer whose digest
 names a question the message cannot produce is refused rather than recorded.
 
+The record also carries `message_sha256`, the sha256 of the raw request, and
+repeats it on the embedded row. That is what a scorer joins on, because the
+digest covers the shortlist and one shortlist serves every request the router
+could not place. Send `message` and OMH derives the hash itself; send
+`message_sha256` when the hash is at hand but the request text is not. Sending
+both with different values is refused, since the two name different requests.
+Send neither and the record identifies no request, recorded as an empty string
+rather than a hash of nothing.
+
 ## Missed OMH Route Capture
 
 If Hermes or the user says a response did not use the expected OMH workflow, the

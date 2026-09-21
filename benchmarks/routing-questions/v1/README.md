@@ -39,10 +39,19 @@ from disagreeing about the same router on the same cases.
   process, so importing it and calling `run_batch` cannot spend anything
   either.
 - The paid path is `omh coding hermes-child dispatch --confirm-dispatch`. The
-  prompt goes on stdin and is never persisted; a run record carries the exit
-  code and the reason an answer file is missing, never model text.
+  prompt goes on stdin there and is never persisted; a run record carries the
+  exit code, the reason an answer file is missing, and the answer rows narrowed
+  to the documented answer keys, never free model text.
 - `hermes_current_session` runs the caller's authenticated Hermes profile. It
-  is labelled in every record and is not the isolated child boundary.
+  is labelled in every record and is not the isolated child boundary. Its
+  prompt goes on argv, because `--oneshot` takes it positionally, so it is
+  visible to `ps` while the batch runs. Its process directory and its
+  `TERMINAL_CWD` are both pinned to the batch workspace, so the `file` toolset
+  resolves against the workspace and not the directory `bench.py` was launched
+  from.
+- Answer rows are written as each batch returns. A run that stops early leaves
+  the answers it already bought on disk, and they score as answers for those
+  cases and unanswered for the rest.
 - An arm that wrote no answer file answered nothing. It is scored as
   unanswered, never as correct, and every unanswered case is excluded from the
   denominator by name.
@@ -68,12 +77,18 @@ python benchmarks/routing-questions/v1/bench.py score \
 # Paid: answer the corpus with a model arm, in batches, through the child boundary.
 python benchmarks/routing-questions/v1/bench.py run \
   --arm my-model --model <alias> --provider <alias> --reasoning <alias> \
-  --batch-size 20 --allow-paid-live --max-paid-calls 36 --confirm
+  --batch-size 20 --allow-paid-live --max-paid-calls <batches> --confirm
 ```
+
+`<batches>` is the corpus size divided by `--batch-size`, rounded up. The cap
+is checked before the first dispatch, and the refusal names the batch count it
+measured, so an under-set cap costs nothing.
 
 `--answers` also accepts a directory of `route_question_answer/v1` records, the
 shape an answer recorded on a live route is written in; those join a corpus
-item by question digest.
+item by question digest. A digest covers the request and its candidate
+shortlist, so it names one case; a record whose digest still reaches more than
+one case is reported as ambiguous and scored against none of them.
 
 ## Producing an external arm
 
@@ -90,6 +105,10 @@ Any tool that can read the exported corpus and write
 
 `omh chat route-questions score` is the authority on what a row is worth. It
 names every malformed row by line, counts it, and never drops it silently.
+
+`deterministic` is not an arm name a row may claim. Every report computes that
+arm from the corpus itself, so a supplied row naming it is refused as malformed
+rather than merged into a tally the report then replaces.
 
 ## Latest measured status
 

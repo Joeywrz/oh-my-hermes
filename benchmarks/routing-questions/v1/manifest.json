@@ -26,6 +26,7 @@
       "kind": "omh_hermes_child",
       "live": true,
       "dispatch_is_explicit": true,
+      "prompt_on_stdin": true,
       "answer_file": ".omh-route-answers.json"
     },
     "external": {
@@ -39,7 +40,6 @@
     "live_requires_explicit_flag": true,
     "live_requires_confirmation": true,
     "concurrency": 1,
-    "prompt_on_stdin": true,
     "prompts_persisted": false
   },
   "integrity": {"algorithm": "sha256", "canonical_json": "sorted-keys-compact-ascii"}

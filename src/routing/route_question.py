@@ -105,15 +105,36 @@ def fit_question_skill(key: str) -> str:
     return text[len(FIT_QUESTION_PREFIX):]
 
 
-def route_question_digest(questions: Mapping[str, Any]) -> str:
-    """A content digest over the question block, used to join an answer to it."""
-    canonical = json.dumps(questions, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+def route_question_digest(*, message_sha256: str, candidates: Iterable[Mapping[str, Any]]) -> str:
+    """The digest that joins one recorded answer back to one question.
+
+    The message digest is in it, not only the shortlist. A shortlist is the
+    router's top few skills, and unrelated requests share one constantly: over
+    the two shipped routing corpora a digest built from the questions alone
+    names a group of hundreds of requests rather than a request. An answer
+    recorded against such a digest can only be joined to one of them, so a
+    reader that takes the first charges the answerer with whatever the others
+    expected. A digest without the message is that defect, which is why the
+    message is required rather than optional here.
+    """
+    rows = _candidate_rows(candidates)
+    canonical = json.dumps(
+        {
+            "message_sha256": str(message_sha256),
+            "candidates": [{"skill": skill, "description": description} for skill, description in rows],
+            "schema_version": ROUTE_QUESTION_SCHEMA_VERSION,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def build_route_question_from_candidates(
     candidates: Iterable[Mapping[str, Any]],
     *,
+    message_sha256: str,
     reasons: Iterable[str] = (),
     digest: str = "",
 ) -> dict[str, object]:
@@ -126,11 +147,18 @@ def build_route_question_from_candidates(
     router found nothing, and it still lets an answerer disagree by fitting
     nothing.
 
+    `message_sha256` identifies the request this question was built for. It has
+    no default: a question digest that does not carry it identifies a shortlist
+    instead of a question, and `route_question_digest` says what that costs a
+    reader joining answers back.
+
     `reasons` are the router's own words for why the route was undecidable and
     are carried through unchanged. `digest` joins an answer back to the exact
-    question it answered; when it is empty a content digest over the questions
-    is used instead, so every block has one.
+    question it answered; when it is empty the digest is derived from the
+    message and the candidates, so every block has one.
     """
+    if not str(message_sha256 or "").strip():
+        raise ValueError("a route question must name the message it was built for")
     rows = _candidate_rows(candidates)
     options: dict[str, str] = {skill: description for skill, description in rows}
     options[NO_WORKFLOW_OPTION] = NO_WORKFLOW_DESCRIPTION
@@ -152,7 +180,11 @@ def build_route_question_from_candidates(
         }
     return {
         "schema_version": ROUTE_QUESTION_SCHEMA_VERSION,
-        "question_digest": str(digest) or route_question_digest(questions),
+        "question_digest": str(digest)
+        or route_question_digest(
+            message_sha256=message_sha256,
+            candidates=[{"skill": skill, "description": description} for skill, description in rows],
+        ),
         "questions": questions,
         "thresholds": {
             "fits_dispatch": FITS_DISPATCH_THRESHOLD,

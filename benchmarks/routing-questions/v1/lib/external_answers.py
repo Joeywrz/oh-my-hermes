@@ -21,6 +21,15 @@ from typing import Any
 ANSWERS_SCHEMA_VERSION = "routing_question_answers/v1"
 ROUTE_CHOICE_KEY = "route_choice"
 
+# The scorer computes this arm from the corpus itself and refuses a supplied
+# row that claims the name, so the lane refuses it one step earlier.
+RESERVED_ARM = "deterministic"
+
+# An answer file is written by whoever ran the arm. It is bounded before it is
+# read whole, so a mistyped `--answers` path pointing at something large is a
+# named refusal rather than an out-of-memory kill.
+MAX_ANSWER_FILE_BYTES = 16 * 1024 * 1024
+
 
 def _row_problem(row: object) -> str:
     if not isinstance(row, dict):
@@ -29,6 +38,8 @@ def _row_problem(row: object) -> str:
         return f"schema_version is not {ANSWERS_SCHEMA_VERSION}"
     if not str(row.get("arm") or "").strip():
         return "row names no arm"
+    if str(row.get("arm")).strip() == RESERVED_ARM:
+        return f"arm name '{RESERVED_ARM}' is reserved for the router's own reading"
     if not str(row.get("case_id") or "").strip() and not str(row.get("question_digest") or "").strip():
         return "row names neither case_id nor question_digest"
     answers = row.get("answers")
@@ -73,8 +84,12 @@ def validate_answer_file(path: Path) -> dict[str, object]:
     target = Path(path)
     name = target.name
     try:
-        text = target.read_text(encoding="utf-8")
-    except OSError as exc:
+        with target.open("rb") as handle:
+            raw = handle.read(MAX_ANSWER_FILE_BYTES + 1)
+        if len(raw) > MAX_ANSWER_FILE_BYTES:
+            raise ValueError(f"file exceeds the {MAX_ANSWER_FILE_BYTES}-byte cap")
+        text = raw.decode("utf-8")
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
         return {
             "schema_version": "routing_question_answer_preflight/v1",
             "path": str(target),
@@ -101,11 +116,17 @@ def validate_answer_file(path: Path) -> dict[str, object]:
     }
 
 
-def write_jsonl(rows: list[dict[str, Any]], path: Path) -> int:
-    """Write answer rows as the JSONL the scorer reads, sorted keys per row."""
+def write_jsonl(rows: list[dict[str, Any]], path: Path, *, append: bool = False) -> int:
+    """Write answer rows as the JSONL the scorer reads, sorted keys per row.
+
+    `append` lets a run write each batch as it arrives. A run that truncates
+    once and then appends keeps every answer it has already paid for when a
+    later batch raises; one that accumulates in memory and writes at the end
+    loses all of them.
+    """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("w", encoding="utf-8", newline="") as handle:
+    with target.open("a" if append else "w", encoding="utf-8", newline="") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
     return len(rows)
@@ -113,6 +134,8 @@ def write_jsonl(rows: list[dict[str, Any]], path: Path) -> int:
 
 __all__ = [
     "ANSWERS_SCHEMA_VERSION",
+    "MAX_ANSWER_FILE_BYTES",
+    "RESERVED_ARM",
     "ROUTE_CHOICE_KEY",
     "validate_answer_file",
     "write_jsonl",

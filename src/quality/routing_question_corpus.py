@@ -21,7 +21,9 @@ a false number about OMH's own router:
   is the authority, and a test pins that the two agree. A re-derived
   over-route predicate is the specific way this goes wrong, because `clarify`
   with a named candidate is a pass in the negative corpus and the expected
-  intervention in the positive one.
+  intervention in the positive one. Every item also carries the producer's
+  pass verdict, and `routing_question_score_errors` fails on it, so a report
+  cannot read clean over a corpus the gate reads as red.
 
 Scoring is offline and deterministic. Nothing here calls a model, reads a
 credential, or reaches the network; answers arrive as rows somebody else
@@ -33,8 +35,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 from typing import Any, Iterable, Mapping, Sequence
 
+from ..coding.context_safety import compact_visible_text
 from ..ingress import CHAT_SOURCES
 from ..routing.route_question import (
     FITS_CLARIFY_THRESHOLD,
@@ -76,6 +80,30 @@ DISPATCH_ACTION = "dispatch"
 CLARIFY_ACTION = "clarify"
 NONE_ACTION = "none"
 
+# Bounds on every untrusted read. A corpus is a file an operator points at, an
+# answers file is written by a live model or by whoever ran an external arm,
+# and a record directory is both. None of them is read whole before its size is
+# known: a file over its cap is refused by name rather than loaded.
+MAX_CORPUS_BYTES = 64 * 1024 * 1024
+MAX_ANSWER_SOURCE_BYTES = 16 * 1024 * 1024
+MAX_ANSWER_RECORD_BYTES = 1024 * 1024
+
+# Bounds on every untrusted string that reaches a formatted report line.
+# `format_routing_question_score` prints an arm name, a row reference and a fit
+# question's skill suffix one per line, and all three come out of a file
+# somebody else wrote: an embedded newline forges a standalone line in a report
+# attached to a PR, and `\x1b[2K\r` repaints the line above it. The same
+# two-step the repo already uses for captured child output -- drop the control
+# characters, then bound the length -- is applied at the point each value is
+# read, so the stored payload carries what the report prints.
+MAX_REPORT_FIELD_CHARS = 120
+_UNSAFE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+# How many colliding case ids an ambiguous record names, and how many failed
+# cases the deterministic arm names. Both lists exist to make a report
+# actionable, not to reproduce the corpus.
+MAX_NAMED_CASES = 5
+
 _CORPUS_CLAIM_BOUNDARY = (
     "These items are prepared questions over the two shipped routing corpora. "
     "An exported corpus is not a measurement, and an answer recorded against "
@@ -87,8 +115,9 @@ _SCORE_CLAIM_BOUNDARY = (
     "Every count is over the cases this arm actually answered; unanswered and "
     "malformed rows are excluded and named, never counted as correct. The "
     "deterministic arm's over-route verdict is the routing-precision corpus's "
-    "own, so it reports what `omh chat routing-precision` reports. `agree` is "
-    "an exact match on both questions and is not a pass metric: the router "
+    "own, and `producer_failed` carries that corpus's pass verdict on every "
+    "case, so this report cannot read clean while the gate reads red. "
+    "`agree` is an exact match on both questions and is not a pass metric: the router "
     "answers `clarify` on negative controls where asking one question is the "
     "correct non-hijacking behaviour, and those count as disagreements here "
     "while staying passes there. An arm's score describes these corpora at "
@@ -110,6 +139,44 @@ class AnswerRecord:
     question_digest: str
     answers: dict[str, Any]
     error: str = ""
+
+
+def report_safe_text(value: object, *, max_chars: int = MAX_REPORT_FIELD_CHARS) -> str:
+    """Bound one untrusted string to something a single report line can carry."""
+    return compact_visible_text(_UNSAFE_CONTROL_RE.sub(" ", str(value or "")), max_chars=max_chars)
+
+
+def _read_bounded_text(path: Path, *, limit: int, label: str) -> str:
+    """Read a file only when it is small enough to be read whole.
+
+    The cap is applied to the bytes on disk rather than to a stat, so a file
+    that reports a zero size and then yields gigabytes is refused like any
+    other oversized file.
+    """
+    target = Path(path)
+    try:
+        with target.open("rb") as handle:
+            raw = handle.read(limit + 1)
+    except OSError as exc:
+        raise RoutingQuestionCorpusError(f"{label} is not readable: {report_safe_text(exc)}") from exc
+    if len(raw) > limit:
+        raise RoutingQuestionCorpusError(f"{label} exceeds the {limit}-byte cap: {target}")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RoutingQuestionCorpusError(f"{label} is not UTF-8 text: {target}") from exc
+
+
+def read_routing_question_corpus(path: Path) -> dict[str, Any]:
+    """Read an exported corpus from a path, bounded and named on refusal."""
+    text = _read_bounded_text(Path(path), limit=MAX_CORPUS_BYTES, label="corpus")
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RoutingQuestionCorpusError(f"corpus is not readable JSON: {report_safe_text(exc.msg)}") from exc
+    if not isinstance(document, dict):
+        raise RoutingQuestionCorpusError(f"corpus is not an object: {Path(path)}")
+    return document
 
 
 def _skill_descriptions() -> dict[str, str]:
@@ -168,6 +235,24 @@ def _expected_for_intervention(case: Any) -> dict[str, str]:
     return {"action": NONE_ACTION, "choice": NO_WORKFLOW_OPTION}
 
 
+def routing_question_contract() -> dict[str, object]:
+    """The question contract every exported corpus carries.
+
+    It is its own function so a consumer that cannot import this package --
+    the benchmark lane talks to the product as an executable -- has one
+    producer to pin its own copy of these literals against.
+    """
+    return {
+        "choice_key": ROUTE_CHOICE_KEY,
+        "fit_prefix": FIT_QUESTION_PREFIX,
+        "none_option": NO_WORKFLOW_OPTION,
+        "thresholds": {
+            "fits_dispatch": FITS_DISPATCH_THRESHOLD,
+            "fits_clarify": FITS_CLARIFY_THRESHOLD,
+        },
+    }
+
+
 def build_routing_question_corpus(*, source: str = "discord", limit: int = 3) -> dict[str, object]:
     """Project both shipped routing corpora into typed questions.
 
@@ -194,6 +279,7 @@ def build_routing_question_corpus(*, source: str = "discord", limit: int = 3) ->
                 case_id=case.id,
                 corpus=NEGATIVE_CONTROL_CORPUS,
                 message=case.message,
+                message_sha256=str(interaction.get("message_sha256") or ""),
                 route=route,
                 descriptions=descriptions,
                 limit=limit,
@@ -217,6 +303,7 @@ def build_routing_question_corpus(*, source: str = "discord", limit: int = 3) ->
                 case_id=case.id,
                 corpus=INTERVENTION_CORPUS,
                 message=case.message,
+                message_sha256=str(interaction.get("message_sha256") or ""),
                 route=route,
                 descriptions=descriptions,
                 limit=limit,
@@ -240,15 +327,7 @@ def build_routing_question_corpus(*, source: str = "discord", limit: int = 3) ->
             "case_count": len(ROUTING_PRECISION_CASES),
             "intervention_case_count": len(ROUTING_INTERVENTION_CASES),
         },
-        "question_contract": {
-            "choice_key": ROUTE_CHOICE_KEY,
-            "fit_prefix": FIT_QUESTION_PREFIX,
-            "none_option": NO_WORKFLOW_OPTION,
-            "thresholds": {
-                "fits_dispatch": FITS_DISPATCH_THRESHOLD,
-                "fits_clarify": FITS_CLARIFY_THRESHOLD,
-            },
-        },
+        "question_contract": routing_question_contract(),
         "items": items,
         "claim_boundary": _CORPUS_CLAIM_BOUNDARY,
     }
@@ -259,6 +338,7 @@ def _corpus_item(
     case_id: str,
     corpus: str,
     message: str,
+    message_sha256: str,
     route: Mapping[str, Any],
     descriptions: Mapping[str, str],
     limit: int,
@@ -267,14 +347,19 @@ def _corpus_item(
 ) -> dict[str, object]:
     candidates = _candidates_from_route(route, descriptions, limit=limit)
     reason = str(route.get("reason") or "")
+    # The message digest comes from the interaction payload this case was
+    # routed with, so the question digest identifies the case and not the
+    # shortlist it happens to share with several hundred others.
     question = build_route_question_from_candidates(
         candidates,
+        message_sha256=message_sha256,
         reasons=(reason,) if reason else (),
     )
     return {
         "case_id": case_id,
         "corpus": corpus,
         "message": message,
+        "message_sha256": message_sha256,
         "candidates": candidates,
         "question": question,
         "expected": dict(expected),
@@ -303,6 +388,16 @@ def corpus_shape_errors(corpus: object) -> tuple[str, ...]:
             errors.append(f"item {index} has no expected answer")
         if not isinstance(item.get("question"), Mapping):
             errors.append(f"item {index} has no question block")
+        # `case_passed` is the producer's own verdict on this case, and the
+        # score report fails on it. A corpus that does not carry it cannot be
+        # scored as a reading of the routing-precision gate, only as a
+        # re-derivation of one -- which is the failure this module exists to
+        # avoid -- so its absence is a shape error rather than a default.
+        deterministic = item.get("deterministic")
+        if not isinstance(deterministic, Mapping):
+            errors.append(f"item {index} has no deterministic reading")
+        elif not isinstance(deterministic.get("case_passed"), bool):
+            errors.append(f"item {index} carries no case_passed verdict")
     return tuple(errors)
 
 
@@ -316,16 +411,20 @@ def _fit_values(answers: Mapping[str, Any]) -> tuple[dict[str, float], list[str]
         skill = fit_question_skill(str(key))
         if not skill:
             continue
+        # The key after `fits::` is whatever the answers file put there, and a
+        # problem string built from it is printed as a report line, so it is
+        # bounded here rather than at the sink.
+        named = report_safe_text(skill)
         if not isinstance(value, Mapping):
-            problems.append(f"malformed_fit_answer:{skill}")
+            problems.append(f"malformed_fit_answer:{named}")
             continue
         raw = value.get("noul")
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-            problems.append(f"malformed_fit_answer:{skill}")
+            problems.append(f"malformed_fit_answer:{named}")
             continue
         number = float(raw)
         if not 0.0 <= number <= 1.0:
-            problems.append(f"fit_answer_out_of_range:{skill}")
+            problems.append(f"fit_answer_out_of_range:{named}")
             continue
         fits[skill] = number
     return fits, problems
@@ -343,7 +442,12 @@ def parse_answer_row(
     `arm_default` and `digest_default` are what a wrapping record already
     stated: a recorded answer names its answerer and the question digest on
     the record, so the row it embeds does not have to repeat either.
+
+    Every field a report line carries -- the arm, the case id, the digest -- is
+    bounded here, because the row was written by a model or by whoever ran an
+    external arm and the report is an artifact operators attach to a PR.
     """
+    ref = report_safe_text(ref)
     blank = AnswerRecord(ref=ref, arm=UNKNOWN_ARM, case_id="", question_digest="", answers={})
     if not isinstance(row, Mapping):
         return _failed(blank, "row is not an object")
@@ -353,12 +457,20 @@ def parse_answer_row(
         # than charged to an arm that may not have written it. It is still
         # counted and still named by its reference.
         return _failed(blank, "schema_version is not " + ROUTING_QUESTION_ANSWERS_SCHEMA_VERSION)
-    arm = str(row.get("arm") or arm_default or "").strip()
-    case_id = str(row.get("case_id") or "").strip()
-    digest = str(row.get("question_digest") or digest_default or "").strip()
+    arm = report_safe_text(row.get("arm") or arm_default or "")
+    case_id = report_safe_text(row.get("case_id") or "")
+    digest = report_safe_text(row.get("question_digest") or digest_default or "")
     record = AnswerRecord(ref=ref, arm=arm or UNKNOWN_ARM, case_id=case_id, question_digest=digest, answers={})
     if not arm:
         return _failed(record, "row names no arm")
+    if arm == DETERMINISTIC_ARM:
+        # The deterministic arm is computed from the corpus and assigned after
+        # every supplied row is tallied, so a row claiming that name would be
+        # counted into a tally the report then replaces: its answers would
+        # vanish while its malformed rows stayed visible, and the two halves of
+        # one report would disagree. The name is refused instead, by name.
+        reserved = AnswerRecord(ref=ref, arm=UNKNOWN_ARM, case_id=case_id, question_digest=digest, answers={})
+        return _failed(reserved, f"arm name '{DETERMINISTIC_ARM}' is reserved for the router's own reading")
     if not case_id and not digest:
         return _failed(record, "row names neither case_id nor question_digest")
     answers = row.get("answers")
@@ -393,12 +505,13 @@ def _failed(record: AnswerRecord, reason: str) -> AnswerRecord:
 def read_answer_rows_from_jsonl(path: Path) -> list[AnswerRecord]:
     """Read a JSONL answer file, naming every line that could not be read."""
     records: list[AnswerRecord] = []
-    text = Path(path).read_text(encoding="utf-8")
+    text = _read_bounded_text(Path(path), limit=MAX_ANSWER_SOURCE_BYTES, label="answer file")
+    name = report_safe_text(Path(path).name)
     for number, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         if not stripped:
             continue
-        ref = f"{Path(path).name}:{number}"
+        ref = f"{name}:{number}"
         try:
             row = json.loads(stripped)
         except json.JSONDecodeError as exc:
@@ -409,7 +522,7 @@ def read_answer_rows_from_jsonl(path: Path) -> list[AnswerRecord]:
                     case_id="",
                     question_digest="",
                     answers={},
-                    error=f"line is not JSON: {exc.msg}",
+                    error=f"line is not JSON: {report_safe_text(exc.msg)}",
                 )
             )
             continue
@@ -423,13 +536,22 @@ def read_answer_records_from_directory(path: Path) -> list[AnswerRecord]:
     Each record embeds one answer row under `answer` and carries the digest of
     the question it answered, which is how a recorded answer joins back to a
     corpus item that was exported separately.
+
+    Each record is bounded on its own, and the directory carries one budget
+    across all of them: a directory is as untrusted as the files in it, and a
+    per-file cap alone bounds nothing about reading a million files.
     """
     records: list[AnswerRecord] = []
+    budget = MAX_ANSWER_SOURCE_BYTES
     for entry in sorted(Path(path).glob("*.json")):
-        ref = entry.name
+        ref = report_safe_text(entry.name)
         try:
-            document = json.loads(entry.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            text = _read_bounded_text(
+                entry,
+                limit=max(0, min(MAX_ANSWER_RECORD_BYTES, budget)),
+                label=f"record {ref}",
+            )
+        except RoutingQuestionCorpusError as exc:
             records.append(
                 AnswerRecord(
                     ref=ref,
@@ -437,7 +559,22 @@ def read_answer_records_from_directory(path: Path) -> list[AnswerRecord]:
                     case_id="",
                     question_digest="",
                     answers={},
-                    error=f"record is not readable JSON: {exc}",
+                    error=report_safe_text(exc),
+                )
+            )
+            continue
+        budget -= len(text.encode("utf-8"))
+        try:
+            document = json.loads(text)
+        except json.JSONDecodeError as exc:
+            records.append(
+                AnswerRecord(
+                    ref=ref,
+                    arm=UNKNOWN_ARM,
+                    case_id="",
+                    question_digest="",
+                    answers={},
+                    error=f"record is not readable JSON: {report_safe_text(exc.msg)}",
                 )
             )
             continue
@@ -451,12 +588,12 @@ def _record_from_document(document: object, *, ref: str) -> AnswerRecord:
         return _failed(blank, "record is not an object")
     if document.get("schema_version") != ROUTE_QUESTION_ANSWER_SCHEMA_VERSION:
         return _failed(blank, "schema_version is not " + ROUTE_QUESTION_ANSWER_SCHEMA_VERSION)
-    answered_by = str(document.get("answered_by") or "").strip()
+    answered_by = report_safe_text(document.get("answered_by") or "")
     return parse_answer_row(
         document.get("answer"),
         ref=ref,
         arm_default=answered_by,
-        digest_default=str(document.get("question_digest") or "").strip(),
+        digest_default=report_safe_text(document.get("question_digest") or ""),
     )
 
 
@@ -563,6 +700,11 @@ def _tally_item(
 
 def _arm_payload(tally: _ArmTally, *, case_count: int) -> dict[str, object]:
     excluded = ("unanswered_cases", "malformed_answer_rows")
+    # `unanswered` counts cases and `malformed` counts rows, so a case whose
+    # only row was malformed is in both: it is one row this arm wrote that
+    # could not be read, and one case it therefore has no answer for. Neither
+    # rate double-counts it -- `excluded` names both classes -- and the two
+    # integers are not meant to sum to the case count.
     return {
         "answered": tally.answered,
         "unanswered": max(case_count - tally.answered, 0),
@@ -583,7 +725,11 @@ def _arm_payload(tally: _ArmTally, *, case_count: int) -> dict[str, object]:
             numerator=tally.missed,
             denominator=tally.intervention_denominator,
             numerator_of=("missed_intervention",),
-            denominator_of="answered intervention cases that expect a workflow",
+            # Every intervention case whose expected action is not `none`,
+            # including the two that expect a clarification without naming a
+            # workflow. `workflow_accuracy` below is the one over cases that
+            # name an expected workflow, and its denominator is smaller.
+            denominator_of="answered intervention cases that expect the router to act",
             excluded=excluded,
         ).to_payload(),
         "workflow_accuracy": reported_rate(
@@ -627,18 +773,21 @@ def score_routing_question_answers(
         raise RoutingQuestionCorpusError("fits_clarify cannot exceed fits_dispatch")
 
     items = [item for item in corpus["items"] if isinstance(item, Mapping)]
-    by_case = {str(item.get("case_id")): item for item in items}
-    by_digest: dict[str, Mapping[str, Any]] = {}
+    by_case: dict[str, Mapping[str, Any]] = {}
+    for item in items:
+        by_case.setdefault(str(item.get("case_id") or ""), item)
+    by_digest: dict[str, list[Mapping[str, Any]]] = {}
     for item in items:
         question = item.get("question")
         digest = str(question.get("question_digest") or "") if isinstance(question, Mapping) else ""
         if digest:
-            by_digest.setdefault(digest, item)
+            by_digest.setdefault(digest, []).append(item)
 
     tallies: dict[str, _ArmTally] = {}
     seen: dict[tuple[str, str], str] = {}
     malformed: list[dict[str, str]] = []
     unmatched: list[dict[str, str]] = []
+    ambiguous: list[dict[str, object]] = []
     for record in answer_records:
         tally = tallies.setdefault(record.arm or UNKNOWN_ARM, _ArmTally())
         if record.error:
@@ -647,7 +796,24 @@ def score_routing_question_answers(
             continue
         item = by_case.get(record.case_id) if record.case_id else None
         if item is None and record.question_digest:
-            item = by_digest.get(record.question_digest)
+            # A digest that reaches more than one item identifies no item. The
+            # record is reported rather than scored against the first match:
+            # scoring it would charge this arm with what some other case
+            # expected, and the report would say nothing about the join.
+            matches = by_digest.get(record.question_digest, [])
+            if len(matches) == 1:
+                item = matches[0]
+            elif len(matches) > 1:
+                ambiguous.append(
+                    {
+                        "ref": record.ref,
+                        "arm": record.arm,
+                        "question_digest": record.question_digest,
+                        "case_count": len(matches),
+                        "case_ids": [str(match.get("case_id") or "") for match in matches[:MAX_NAMED_CASES]],
+                    }
+                )
+                continue
         if item is None:
             unmatched.append(
                 {
@@ -681,9 +847,12 @@ def score_routing_question_answers(
         _tally_item(tally, item, action=action, choice=choice, overrouted=None)
 
     deterministic = _ArmTally()
+    producer_failed: list[str] = []
     for item in items:
         reading = item.get("deterministic")
         reading = reading if isinstance(reading, Mapping) else {}
+        if not bool(reading.get("case_passed")):
+            producer_failed.append(str(item.get("case_id") or ""))
         _tally_item(
             deterministic,
             item,
@@ -694,7 +863,17 @@ def score_routing_question_answers(
 
     case_count = len(items)
     arms = {name: _arm_payload(tally, case_count=case_count) for name, tally in sorted(tallies.items())}
-    arms[DETERMINISTIC_ARM] = _arm_payload(deterministic, case_count=case_count)
+    deterministic_payload = _arm_payload(deterministic, case_count=case_count)
+    # The producer's verdict, carried beside the counts this module derives
+    # from the same items. The two can disagree: a router that dispatches on
+    # the one intervention case whose correct answer is to open nothing still
+    # names a workflow, so it reads clean here while the gate records a
+    # failure. `routing_question_score_errors` fails on this field, which is
+    # what makes the deterministic arm a reading of the gate rather than a
+    # second opinion about it.
+    deterministic_payload["producer_failed"] = len(producer_failed)
+    deterministic_payload["producer_failed_cases"] = producer_failed[:MAX_NAMED_CASES]
+    arms[DETERMINISTIC_ARM] = deterministic_payload
     return {
         "schema_version": ROUTING_QUESTION_SCORE_SCHEMA_VERSION,
         "source": str(corpus.get("source") or ""),
@@ -703,6 +882,7 @@ def score_routing_question_answers(
         "arms": arms,
         "malformed": malformed,
         "unmatched": unmatched,
+        "ambiguous": ambiguous,
         "claim_boundary": _SCORE_CLAIM_BOUNDARY,
     }
 
@@ -767,12 +947,29 @@ def format_routing_question_score(score: Mapping[str, Any]) -> str:
     unmatched = score.get("unmatched")
     if isinstance(unmatched, list) and unmatched:
         lines.append(f"Unmatched answer records: {len(unmatched)}")
+    ambiguous = score.get("ambiguous")
+    if isinstance(ambiguous, list) and ambiguous:
+        lines.append(f"Ambiguous answer records (digest reaches more than one case): {len(ambiguous)}")
+        for entry in ambiguous[:10]:
+            if isinstance(entry, Mapping):
+                lines.append(f"- {entry.get('ref')}: {entry.get('case_count')} cases share this question digest")
+    arm = arms.get(DETERMINISTIC_ARM)
+    if isinstance(arm, Mapping) and int(arm.get("producer_failed", 0) or 0):
+        lines.append(
+            f"Producer verdict: {arm.get('producer_failed')} case(s) fail the routing-precision gate"
+        )
     lines.append(f"Boundary: {score.get('claim_boundary', '')}")
     return "\n".join(lines)
 
 
 def routing_question_score_errors(score: Mapping[str, Any]) -> list[str]:
-    """Return why a score report is not a clean deterministic-arm reading."""
+    """Return why a score report is not a clean deterministic-arm reading.
+
+    Two different readings have to agree for the report to be clean: the counts
+    this module derives from the items, and the producer's own verdict on each
+    case. A corpus can carry a failed verdict that the derived counts read as a
+    clean answer, so both are checked here.
+    """
     errors: list[str] = []
     if score.get("schema_version") != ROUTING_QUESTION_SCORE_SCHEMA_VERSION:
         errors.append("unexpected_schema")
@@ -788,6 +985,11 @@ def routing_question_score_errors(score: Mapping[str, Any]) -> list[str]:
         errors.append(f"deterministic_missed: {arm.get('missed')}")
     if int(arm.get("malformed", 0) or 0):
         errors.append(f"deterministic_malformed: {arm.get('malformed')}")
+    failed = int(arm.get("producer_failed", 0) or 0)
+    if failed:
+        named = arm.get("producer_failed_cases")
+        names = ", ".join(str(case) for case in named) if isinstance(named, list) and named else ""
+        errors.append(f"deterministic_producer_failed: {failed}" + (f" ({names})" if names else ""))
     return errors
 
 
@@ -801,6 +1003,10 @@ __all__ = [
     "DETERMINISTIC_ARM",
     "DISPATCH_ACTION",
     "INTERVENTION_CORPUS",
+    "MAX_ANSWER_RECORD_BYTES",
+    "MAX_ANSWER_SOURCE_BYTES",
+    "MAX_CORPUS_BYTES",
+    "MAX_REPORT_FIELD_CHARS",
     "NEGATIVE_CONTROL_CORPUS",
     "NONE_ACTION",
     "ROUTE_QUESTION_ANSWER_SCHEMA_VERSION",
@@ -818,7 +1024,10 @@ __all__ = [
     "read_answer_records_from_directory",
     "read_answer_rows_from_jsonl",
     "read_answer_source",
+    "read_routing_question_corpus",
+    "report_safe_text",
     "resolve_answer_action",
+    "routing_question_contract",
     "routing_question_score_errors",
     "score_routing_question_answers",
 ]

@@ -23,6 +23,7 @@ from ..quality.routing_question_corpus import (
     format_routing_question_corpus,
     format_routing_question_score,
     read_answer_source,
+    read_routing_question_corpus,
     score_routing_question_answers,
 )
 from ..routing.action_copy import next_action_label
@@ -197,7 +198,7 @@ def cmd_chat_route_questions_score(args: argparse.Namespace) -> int:
     if args.fits_clarify is not None:
         overrides["fits_clarify"] = args.fits_clarify
     try:
-        corpus = json.loads(Path(args.corpus).expanduser().read_text(encoding="utf-8"))
+        corpus = read_routing_question_corpus(Path(args.corpus).expanduser())
         records = read_answer_source(Path(args.answers).expanduser()) if args.answers else []
         payload = score_routing_question_answers(corpus, records, thresholds=overrides or None)
         if args.output:

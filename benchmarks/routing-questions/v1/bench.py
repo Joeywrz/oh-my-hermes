@@ -17,9 +17,14 @@ import sys
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE / "lib"))
 
-from external_answers import validate_answer_file, write_jsonl  # noqa: E402
+from external_answers import RESERVED_ARM, validate_answer_file, write_jsonl  # noqa: E402
 from harness import batch_run_id, export_argv, run_batch, score_argv  # noqa: E402
 from prompts import split_batches  # noqa: E402
+
+# A corpus is a file this command is pointed at. It is bounded before it is
+# read whole, so a mistyped `--corpus` path is a named refusal rather than an
+# out-of-memory kill.
+MAX_CORPUS_BYTES = 64 * 1024 * 1024
 
 
 def emit(value: object) -> None:
@@ -32,9 +37,20 @@ def _run(argv: list[str]) -> int:
 
 
 def _load_corpus(path: Path) -> dict:
-    document = json.loads(Path(path).read_text(encoding="utf-8"))
+    target = Path(path)
+    try:
+        with target.open("rb") as handle:
+            raw = handle.read(MAX_CORPUS_BYTES + 1)
+    except OSError as exc:
+        raise SystemExit(f"corpus is not readable: {exc}")
+    if len(raw) > MAX_CORPUS_BYTES:
+        raise SystemExit(f"corpus exceeds the {MAX_CORPUS_BYTES}-byte cap: {target}")
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"corpus is not readable JSON: {exc}")
     if not isinstance(document, dict) or not isinstance(document.get("items"), list):
-        raise SystemExit(f"not a routing question corpus: {path}")
+        raise SystemExit(f"not a routing question corpus: {target}")
     return document
 
 
@@ -111,6 +127,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("a live model arm requires --max-paid-calls")
     if not args.confirm:
         parser.error("a live model arm requires --confirm at the effect boundary")
+    if args.arm.strip() == RESERVED_ARM:
+        parser.error(
+            f"--arm {RESERVED_ARM} is reserved: every report computes that arm from the corpus itself"
+        )
 
     corpus = _load_corpus(args.corpus)
     batches = split_batches(corpus["items"], args.batch_size)
@@ -119,8 +139,14 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(batches)} batches exceed --max-paid-calls {args.max_paid_calls}; "
             "raise the cap or the batch size"
         )
-    rows: list[dict] = []
     receipts: list[dict] = []
+    # Truncate once, then append each batch as it arrives. A batch can raise --
+    # a prompt over the byte budget, a child that overran its wall, an
+    # interrupt -- and a run that held every row in memory until the end would
+    # discard every answer it had already paid for. Truncating up front is part
+    # of the same property: a partial run must not be scored together with the
+    # rows a previous run left behind.
+    written = write_jsonl([], args.output)
     for index, batch in enumerate(batches, start=1):
         run_id = batch_run_id(args.parent_run_id, index)
         receipt = run_batch(
@@ -138,9 +164,8 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout,
             confirmed=True,
         )
-        rows.extend(receipt.pop("answer_rows"))
+        written += write_jsonl(receipt.pop("answer_rows"), args.output, append=True)
         receipts.append(receipt)
-    written = write_jsonl(rows, args.output)
     failed = [receipt for receipt in receipts if receipt["exit_code"] or receipt["answer_error"]]
     emit({
         "schema_version": "routing_question_run/v1",
@@ -153,8 +178,10 @@ def main(argv: list[str] | None = None) -> int:
         "answers": str(args.output),
         "claim_boundary": (
             "Answer rows are what this arm wrote; a batch with no answer file answered nothing "
-            "and is scored as unanswered, never as correct. Score them with "
-            "`omh chat route-questions score` before reporting any number."
+            "and is scored as unanswered, never as correct. Rows are written as each batch "
+            "returns, so a run that stopped early leaves behind the answers it did buy and "
+            "those cases alone. Score them with `omh chat route-questions score` before "
+            "reporting any number."
         ),
     })
     return 1 if failed else 0

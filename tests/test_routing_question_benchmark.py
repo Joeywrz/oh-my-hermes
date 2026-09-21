@@ -1,17 +1,32 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from typing import Iterator
 import unittest
 
 from _local_package import load_local_package
 
 load_local_package()
+
+from omh.quality.routing_question_corpus import (  # noqa: E402
+    DETERMINISTIC_ARM,
+    ROUTING_QUESTION_ANSWERS_SCHEMA_VERSION,
+    ROUTING_QUESTION_CORPUS_SCHEMA_VERSION,
+    routing_question_contract,
+)
+from omh.routing.route_question import (  # noqa: E402
+    FIT_QUESTION_PREFIX,
+    NO_WORKFLOW_OPTION,
+    ROUTE_CHOICE_KEY,
+    ROUTE_QUESTION_SCHEMA_VERSION,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 LANE = ROOT / "benchmarks" / "routing-questions" / "v1"
@@ -210,13 +225,72 @@ class RoutingQuestionLaneRefusalTests(unittest.TestCase):
                 )
 
     def test_bench_run_refuses_without_every_live_flag(self) -> None:
-        with _lane_import_scope():
+        # argparse writes its refusal to stderr; it is captured so a shard log
+        # carries the test's own output and not three parser errors.
+        with _lane_import_scope(), redirect_stderr(io.StringIO()) as captured:
             bench = _load(LANE / "bench.py", "routing_questions_bench")
             base = ["run", "--arm", "a", "--model", "m", "--provider", "p", "--reasoning", "r"]
             for extra in ([], ["--allow-paid-live"], ["--allow-paid-live", "--max-paid-calls", "1"]):
                 with self.assertRaises(SystemExit) as raised:
                     bench.main(base + extra)
                 self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--allow-paid-live", captured.getvalue())
+
+    def test_bench_run_refuses_the_arm_name_every_report_computes_itself(self) -> None:
+        with _lane_import_scope(), redirect_stderr(io.StringIO()) as captured:
+            bench = _load(LANE / "bench.py", "routing_questions_bench")
+            argv = [
+                "run",
+                "--arm",
+                DETERMINISTIC_ARM,
+                "--model",
+                "m",
+                "--provider",
+                "p",
+                "--reasoning",
+                "r",
+                "--allow-paid-live",
+                "--max-paid-calls",
+                "1",
+                "--confirm",
+            ]
+            with self.assertRaises(SystemExit) as raised:
+                bench.main(argv)
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("reserved", captured.getvalue())
+
+    def test_the_current_session_arm_is_pinned_to_its_own_workspace(self) -> None:
+        # `--in` alone does not confine this arm: the `file` toolset resolves
+        # against the process directory and the inherited TERMINAL_CWD, which
+        # is whatever the operator's shell exported. Both are pinned, so a
+        # model answering a batch cannot read or write the checkout the lane
+        # was launched from.
+        calls: list[dict[str, object]] = []
+        with _lane_import_scope():
+            harness = _load(LANE_LIB / "harness.py", "harness")
+            harness.subprocess = SimpleNamespace(
+                run=lambda argv, **kwargs: calls.append(kwargs)
+                or SimpleNamespace(returncode=0, stdout="", stderr=""),
+            )
+            with TemporaryDirectory() as root:
+                workspace = Path(root) / "batch-0001"
+                receipt = harness.run_batch(
+                    [_item("a")],
+                    harness="hermes_current_session",
+                    omh_executable="omh",
+                    hermes_executable="hermes",
+                    workspace=workspace,
+                    arm="model",
+                    model="glm-5",
+                    provider="zai",
+                    reasoning="high",
+                    parent_run_id="parent",
+                    run_id="batch-0001",
+                    confirmed=True,
+                )
+                self.assertEqual(calls[0]["cwd"], str(workspace))
+                self.assertEqual(calls[0]["env"]["TERMINAL_CWD"], str(workspace))
+        self.assertEqual(receipt["execution_path"], "hermes_current_session")
 
     def test_an_offline_subcommand_never_reaches_the_dispatch_path(self) -> None:
         with _lane_import_scope():
@@ -347,6 +421,93 @@ class RoutingQuestionLaneContractTests(unittest.TestCase):
         with _lane_import_scope():
             prompts = _load(LANE_LIB / "prompts.py", "prompts")
             self.assertEqual(manifest["arms"]["model"]["answer_file"], prompts.ANSWER_FILENAME)
+
+    def test_the_lanes_copy_of_the_question_contract_matches_the_products(self) -> None:
+        # The lane may not import `omh`, so it re-declares the contract it
+        # reads and the manifest repeats it again. Nothing compared the copies
+        # until here: a changed fit prefix would leave `_question_block`
+        # matching no question key, every prompt would say the request produced
+        # no candidate, and the whole run would score as maximal dispatch with
+        # no test failing.
+        contract = routing_question_contract()
+        manifest = json.loads((LANE / "manifest.json").read_text(encoding="utf-8"))
+        with _lane_import_scope():
+            prompts = _load(LANE_LIB / "prompts.py", "prompts")
+            external = _load(LANE_LIB / "external_answers.py", "external_answers")
+            lane_prompt_literals = (
+                prompts.ROUTE_CHOICE_KEY,
+                prompts.FIT_QUESTION_PREFIX,
+                prompts.NO_WORKFLOW_OPTION,
+            )
+            lane_answer_literals = (
+                external.ANSWERS_SCHEMA_VERSION,
+                external.ROUTE_CHOICE_KEY,
+                external.RESERVED_ARM,
+            )
+        self.assertEqual(
+            lane_prompt_literals,
+            (ROUTE_CHOICE_KEY, FIT_QUESTION_PREFIX, NO_WORKFLOW_OPTION),
+        )
+        self.assertEqual(
+            lane_answer_literals,
+            (ROUTING_QUESTION_ANSWERS_SCHEMA_VERSION, ROUTE_CHOICE_KEY, DETERMINISTIC_ARM),
+        )
+        declared = dict(manifest["question_contract"])
+        self.assertEqual(declared.pop("schema_version"), ROUTE_QUESTION_SCHEMA_VERSION)
+        self.assertEqual(declared, contract)
+        self.assertEqual(manifest["corpus"]["schema_version"], ROUTING_QUESTION_CORPUS_SCHEMA_VERSION)
+        self.assertEqual(
+            manifest["arms"]["deterministic"]["kind"],
+            "omh_router",
+        )
+
+    def test_a_model_written_row_is_narrowed_to_the_documented_answer_keys(self) -> None:
+        # A model with the `file` toolset can read something in its workspace
+        # and echo it into an extra field; `answers.jsonl` is an artifact
+        # operators attach to a PR, so only the documented keys are kept.
+        row = {
+            "schema_version": ROUTING_QUESTION_ANSWERS_SCHEMA_VERSION,
+            "case_id": "case-a",
+            "arm": "model",
+            "answers": {ROUTE_CHOICE_KEY: {"choice": "plan"}},
+            "scratch": "whatever the model read in the workspace",
+        }
+        with _lane_import_scope():
+            harness = _load(LANE_LIB / "harness.py", "harness")
+            self.assertEqual(sorted(harness.answer_row_subset(row)), ["answers", "arm", "case_id", "schema_version"])
+            with TemporaryDirectory() as root:
+                workspace = Path(root)
+                (workspace / harness.ANSWER_FILENAME).write_text(json.dumps([row]), encoding="utf-8")
+                rows, reason = harness.read_answer_file(workspace)
+                oversized = workspace / "big"
+                oversized.mkdir()
+                (oversized / harness.ANSWER_FILENAME).write_bytes(
+                    b"x" * (harness.MAX_ANSWER_FILE_BYTES + 1)
+                )
+                capped_rows, capped_reason = harness.read_answer_file(oversized)
+        self.assertEqual(reason, "")
+        self.assertNotIn("scratch", rows[0])
+        self.assertEqual(rows[0]["answers"], row["answers"])
+        self.assertEqual(capped_rows, [])
+        self.assertIn("cap", capped_reason)
+
+    def test_answers_are_written_as_each_batch_returns(self) -> None:
+        # A run that accumulated rows until the end lost every answer it had
+        # already paid for when a later batch raised.
+        with _lane_import_scope():
+            external = _load(LANE_LIB / "external_answers.py", "external_answers")
+            with TemporaryDirectory() as root:
+                path = Path(root) / "answers.jsonl"
+                external.write_jsonl([], path)
+                external.write_jsonl([{"case_id": "a"}], path, append=True)
+                external.write_jsonl([{"case_id": "b"}], path, append=True)
+                after_append = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+                # And: a fresh run truncates, so a partial run is never scored
+                # beside the rows a previous run left behind.
+                external.write_jsonl([], path)
+                after_truncate = path.read_text(encoding="utf-8")
+        self.assertEqual([row["case_id"] for row in after_append], ["a", "b"])
+        self.assertEqual(after_truncate, "")
 
     def test_the_lane_never_imports_the_package_it_measures(self) -> None:
         # The lane measures the installed product through its executable. An

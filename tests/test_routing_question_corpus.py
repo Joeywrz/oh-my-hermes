@@ -19,6 +19,8 @@ from omh.quality.routing_precision import (  # noqa: E402
 from omh.quality.routing_question_corpus import (  # noqa: E402
     DETERMINISTIC_ARM,
     INTERVENTION_CORPUS,
+    MAX_ANSWER_SOURCE_BYTES,
+    MAX_CORPUS_BYTES,
     NEGATIVE_CONTROL_CORPUS,
     ROUTE_QUESTION_ANSWER_SCHEMA_VERSION,
     ROUTING_QUESTION_ANSWERS_SCHEMA_VERSION,
@@ -28,7 +30,9 @@ from omh.quality.routing_question_corpus import (  # noqa: E402
     answer_records_from_rows,
     build_routing_question_corpus,
     corpus_shape_errors,
+    format_routing_question_score,
     read_answer_source,
+    read_routing_question_corpus,
     resolve_answer_action,
     routing_question_score_errors,
     score_routing_question_answers,
@@ -37,7 +41,15 @@ from omh.routing.route_question import (  # noqa: E402
     NO_WORKFLOW_OPTION,
     ROUTE_CHOICE_KEY,
     fit_question_key,
+    route_question_digest,
 )
+
+
+def _digest_groups(items: list[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
+    groups: dict[str, list[dict[str, object]]] = {}
+    for item in items:
+        groups.setdefault(str(item["question"]["question_digest"]), []).append(item)
+    return groups
 
 
 def _answer_row(case_id: str, arm: str, choice: str, fits: dict[str, float]) -> dict[str, object]:
@@ -225,6 +237,124 @@ class RoutingQuestionCorpusTests(unittest.TestCase):
                 self.assertIn(fit_question_key(candidate["skill"]), item["question"]["questions"])
                 self.assertFalse(candidate["description"].startswith("[omh]"))
             self.assertLessEqual(len(item["candidates"]), 3)
+
+    def test_a_question_digest_names_one_question_and_never_two_different_ones(self) -> None:
+        # The pin this reader was missing. A digest built from the candidate
+        # shortlist alone is shared by hundreds of unrelated requests, and the
+        # directory reader joins a recorded answer by digest and nothing else,
+        # so a shared digest silently scores an answer against some other
+        # case's expected answer.
+        items = self.corpus["items"]
+        for item in items:
+            self.assertEqual(
+                item["question"]["question_digest"],
+                route_question_digest(
+                    message_sha256=item["message_sha256"],
+                    candidates=item["candidates"],
+                ),
+            )
+        shared = [group for group in _digest_groups(items).values() if len(group) > 1]
+        for group in shared:
+            # A digest may only be shared by items that ask the identical
+            # question: the same request, the same shortlist. The two corpora
+            # do record a handful of requests verbatim in both, and those are
+            # the only items allowed to collide.
+            self.assertEqual(len({item["message_sha256"] for item in group}), 1)
+            self.assertEqual(
+                len({tuple(candidate["skill"] for candidate in item["candidates"]) for item in group}),
+                1,
+            )
+        # And: those collisions are real, and they carry different expected
+        # answers, which is exactly why the scorer may not take the first.
+        self.assertTrue(shared, "no verbatim-shared request remains; the ambiguity pin below is dead")
+        self.assertTrue(
+            any(len({str(item["expected"]) for item in group}) > 1 for group in shared),
+            "no shared digest spans two different expected answers",
+        )
+
+    def test_an_answer_whose_digest_reaches_two_cases_is_reported_not_scored(self) -> None:
+        items = self.corpus["items"]
+        shared = [group for group in _digest_groups(items).values() if len(group) > 1]
+        group = next(g for g in shared if len({str(item["expected"]) for item in g}) > 1)
+        digest = str(group[0]["question"]["question_digest"])
+        skill = group[0]["candidates"][0]["skill"]
+        row = {
+            "schema_version": ROUTING_QUESTION_ANSWERS_SCHEMA_VERSION,
+            "arm": "recorded",
+            "question_digest": digest,
+            "answers": {ROUTE_CHOICE_KEY: {"choice": skill}, fit_question_key(skill): {"noul": 0.95}},
+        }
+        score = score_routing_question_answers(self.corpus, answer_records_from_rows([row]))
+        self.assertEqual(score["arms"]["recorded"]["answered"], 0)
+        self.assertEqual(score["arms"]["recorded"]["overroute"], 0)
+        self.assertEqual(score["unmatched"], [])
+        self.assertEqual(len(score["ambiguous"]), 1)
+        self.assertEqual(score["ambiguous"][0]["question_digest"], digest)
+        self.assertEqual(score["ambiguous"][0]["case_count"], len(group))
+        self.assertIn("Ambiguous answer records", format_routing_question_score(score))
+        # A digest that reaches exactly one item still scores, so the refusal
+        # above is about the ambiguity and not about digest joins in general.
+        lone = next(
+            item
+            for item in items
+            if len(_digest_groups(items)[str(item["question"]["question_digest"])]) == 1
+            and item["candidates"]
+        )
+        alone = dict(
+            row,
+            question_digest=str(lone["question"]["question_digest"]),
+            answers={
+                ROUTE_CHOICE_KEY: {"choice": lone["candidates"][0]["skill"]},
+                fit_question_key(lone["candidates"][0]["skill"]): {"noul": 0.95},
+            },
+        )
+        joined = score_routing_question_answers(self.corpus, answer_records_from_rows([alone]))
+        self.assertEqual(joined["arms"]["recorded"]["answered"], 1)
+        self.assertEqual(joined["ambiguous"], [])
+
+    def test_the_score_fails_when_the_producer_failed_a_case(self) -> None:
+        # `case_passed` is the producer's verdict. Without a reader it is
+        # written into every item and consulted by nothing, so a corpus
+        # carrying failed verdicts scores clean -- including a dispatch on the
+        # one intervention case whose correct answer is to open nothing.
+        self.assertEqual(routing_question_score_errors(score_routing_question_answers(self.corpus)), [])
+        regressed = json.loads(json.dumps(self.corpus))
+        mutated = 0
+        for item in regressed["items"]:
+            if item["corpus"] != INTERVENTION_CORPUS:
+                continue
+            if item["expected"]["action"] == "none" and mutated == 0:
+                item["deterministic"] = dict(
+                    item["deterministic"], action="dispatch", case_passed=False
+                )
+                mutated += 1
+            elif item["expected"]["action"] == "dispatch" and mutated == 1:
+                item["deterministic"] = dict(
+                    item["deterministic"], action="clarify", case_passed=False
+                )
+                mutated += 1
+        self.assertEqual(mutated, 2)
+        broken = score_routing_question_answers(regressed)
+        arm = broken["arms"][DETERMINISTIC_ARM]
+        self.assertEqual(arm["producer_failed"], 2)
+        self.assertEqual(len(arm["producer_failed_cases"]), 2)
+        errors = routing_question_score_errors(broken)
+        self.assertTrue(any(error.startswith("deterministic_producer_failed") for error in errors), errors)
+        self.assertIn("Producer verdict", format_routing_question_score(broken))
+        # And: neither mutation moves an over-route or a miss, so the derived
+        # counts alone would still have called this report clean.
+        self.assertEqual(arm["overroute"], 0)
+        self.assertEqual(arm["missed"], 0)
+
+    def test_a_corpus_without_the_producers_verdict_cannot_be_scored(self) -> None:
+        stripped = json.loads(json.dumps(self.corpus))
+        for item in stripped["items"]:
+            item["deterministic"].pop("case_passed")
+        errors = corpus_shape_errors(stripped)
+        self.assertTrue(errors)
+        self.assertIn("case_passed", errors[0])
+        with self.assertRaisesRegex(RoutingQuestionCorpusError, "case_passed"):
+            score_routing_question_answers(stripped)
 
     def test_an_unsupported_source_or_limit_is_refused(self) -> None:
         with self.assertRaisesRegex(RoutingQuestionCorpusError, "unsupported corpus source"):
@@ -430,6 +560,87 @@ class RoutingQuestionAnswerSourceTests(unittest.TestCase):
     def test_a_missing_answer_source_is_refused_by_name(self) -> None:
         with self.assertRaisesRegex(RoutingQuestionCorpusError, "answer source not found"):
             read_answer_source(Path("/nonexistent/answers.jsonl"))
+
+
+class RoutingQuestionUntrustedInputTests(unittest.TestCase):
+    """An answers file is written by somebody else, and the report is evidence."""
+
+    def setUp(self) -> None:
+        self.corpus = _synthetic_corpus(
+            [
+                _synthetic_item("neg-1", NEGATIVE_CONTROL_CORPUS, "none", NO_WORKFLOW_OPTION),
+                _synthetic_item("int-dispatch", INTERVENTION_CORPUS, "dispatch", "plan"),
+            ]
+        )
+
+    def test_a_row_claiming_the_deterministic_arm_is_refused_by_name(self) -> None:
+        # The deterministic tally is assigned after every supplied row is
+        # counted, so a row under that name would have its answers replaced
+        # while its malformed count stayed visible: one report, two numbers,
+        # disagreeing about the same arm.
+        hijack = _answer_row("neg-1", DETERMINISTIC_ARM, "plan", {"plan": 0.95})
+        score = score_routing_question_answers(self.corpus, answer_records_from_rows([hijack]))
+        arm = score["arms"][DETERMINISTIC_ARM]
+        self.assertEqual(arm["overroute"], 0)
+        self.assertEqual(arm["malformed"], 0)
+        self.assertEqual(score["arms"]["unknown"]["malformed"], 1)
+        self.assertIn("reserved", score["malformed"][0]["reason"])
+        self.assertEqual(score["malformed"][0]["arm"], "unknown")
+        self.assertEqual(routing_question_score_errors(score), [])
+        # And: the same answer under any other name is counted, so the refusal
+        # is about the reserved name and not about the row.
+        allowed = _answer_row("neg-1", "challenger", "plan", {"plan": 0.95})
+        counted = score_routing_question_answers(self.corpus, answer_records_from_rows([allowed]))
+        self.assertEqual(counted["arms"]["challenger"]["overroute"], 1)
+
+    def test_no_untrusted_string_can_forge_a_line_in_the_report(self) -> None:
+        forged = {
+            "schema_version": ROUTING_QUESTION_ANSWERS_SCHEMA_VERSION,
+            "case_id": "neg-1",
+            "arm": "\x1b[2K\rmodel\nfake arm: overroute 0",
+            "answers": {
+                ROUTE_CHOICE_KEY: {"choice": "plan"},
+                fit_question_key("\x1b[31mINJECTED\x1b[0m\nMalformed rows: 0"): "not an object",
+            },
+        }
+        score = score_routing_question_answers(self.corpus, answer_records_from_rows([forged]))
+        rendered = format_routing_question_score(score)
+        lines = rendered.splitlines()
+        for line in lines:
+            self.assertNotIn("\x1b", line)
+            self.assertNotIn("\r", line)
+        # The forged text survives as inert characters inside the line it was
+        # read on; what it must not do is become a line of its own, because a
+        # line is what a reader of this report counts.
+        self.assertEqual([line for line in lines if line.startswith("fake arm")], [])
+        self.assertEqual([line for line in lines if line.startswith("Malformed rows: 0")], [])
+        # The forged arm is still reported, bounded rather than dropped.
+        self.assertEqual(len(score["malformed"]), 1)
+        self.assertIn("malformed_fit_answer:", score["malformed"][0]["reason"])
+        reported_arm = score["malformed"][0]["arm"]
+        self.assertNotIn("\n", reported_arm)
+        self.assertLessEqual(len(reported_arm), 120)
+
+    def test_every_untrusted_read_is_bounded_and_refused_by_name(self) -> None:
+        with TemporaryDirectory() as root:
+            answers = Path(root) / "answers.jsonl"
+            answers.write_bytes(b"x" * (MAX_ANSWER_SOURCE_BYTES + 1))
+            with self.assertRaisesRegex(RoutingQuestionCorpusError, "exceeds"):
+                read_answer_source(answers)
+            corpus_path = Path(root) / "corpus.json"
+            corpus_path.write_bytes(b"x" * (MAX_CORPUS_BYTES + 1))
+            with self.assertRaisesRegex(RoutingQuestionCorpusError, "exceeds"):
+                read_routing_question_corpus(corpus_path)
+            records = Path(root) / "records"
+            records.mkdir()
+            (records / "huge.json").write_bytes(b"x" * (MAX_ANSWER_SOURCE_BYTES + 1))
+            reported = read_answer_source(records)
+            self.assertEqual(len(reported), 1)
+            self.assertIn("exceeds", reported[0].error)
+            # And: a file under the cap is still read, so the cap is a cap and
+            # not a refusal of the whole surface.
+            corpus_path.write_text(json.dumps(self.corpus, sort_keys=True), encoding="utf-8")
+            self.assertEqual(corpus_shape_errors(read_routing_question_corpus(corpus_path)), ())
 
 
 if __name__ == "__main__":

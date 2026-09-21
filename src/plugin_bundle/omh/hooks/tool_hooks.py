@@ -11,6 +11,7 @@ from ..degradation import runtime_binding_degradation
 from ..approval_bypass import record_approval_bypass
 from ..host_observation import observe_plugin_hook_call
 from ..omh_roles import extract_role_marker, resolve_role_name, role_aliases, role_names
+from ..plan_stage_gate import plan_stage_edit_directive
 from ..tool_bursts import (
     record_repeat_refusal,
     record_tool_call,
@@ -115,7 +116,11 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
     """Return only host-supported pre-tool directives or role warnings."""
     try:
         omh_home = str(runtime_paths.plugin_home(kwargs.get("omh_home")))
-        runtime_paths.plugin_home(kwargs.get("hermes_home"), hermes=True)
+        # Bound the same way as always; kept now because the plan-stage gate
+        # resolves the reading session against the Hermes home, and re-binding
+        # it there would be a second answer to a question this frame has
+        # already asked and already degraded on.
+        hermes_home = str(runtime_paths.plugin_home(kwargs.get("hermes_home"), hermes=True))
     except (runtime_paths.RuntimeBindingError, OSError, RuntimeError) as exc:
         # DEGRADE, for every binding fault, including the ones that named a
         # store. This narrows a recorded safety decision, so the trade-off it
@@ -251,6 +256,29 @@ def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
             omh_home=omh_home,
         )
         return dict(repeat_directive)
+    # The plan-stage gate sits here for the same reason the two guards above
+    # it do: it intervenes on a call, so nothing that observes a dispatch may
+    # run first. Ordered after them because they answer about THIS call --
+    # the person's own rules, then a call this session is repeating -- while
+    # this one answers about the run the call belongs to, and a call that is
+    # already being refused is not a call an unaccepted plan needs to ask
+    # about. It reads only `write_file` and `patch`; every other tool leaves
+    # on a set membership.
+    plan_stage_directive = plan_stage_edit_directive(
+        tool_name=kwargs.get("tool_name"),
+        session_id=session_id,
+        omh_home=omh_home,
+        hermes_home=hermes_home,
+        escalation_allowed=escalation_allowed,
+    )
+    if plan_stage_directive is not None:
+        # Nothing is recorded. Unlike the repeat guard, whose ledger IS what
+        # advances its stage ladder, this gate has no ladder: it asks the same
+        # question until the record says the plan was accepted, and the host's
+        # own allowlist is what remembers a person's answer. A counter here
+        # would be a second record of the same fact, and OMH cannot observe
+        # how the gate was answered anyway.
+        return dict(plan_stage_directive)
     # Only the normal host loop invokes native Kanban tools. Correlation runs
     # after OMH's user veto; it never dispatches or grants a native permission.
     bridge = _agent_board_bridge()

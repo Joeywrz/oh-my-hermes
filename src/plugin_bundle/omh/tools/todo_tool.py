@@ -15,6 +15,7 @@ from ..runtime_reader import default_omh_home, read_omh_todo
 from ..todo_store import (
     TODO_CLAIM_BOUNDARY,
     TODO_ITEM_STATES,
+    TODO_PLAN_STAGES,
     TodoContendedError,
     TodoStoreError,
     TodoValidationError,
@@ -67,6 +68,26 @@ OMH_TODO_SCHEMA = {
                     "you. Every later write must still cover all ten: a phase this change "
                     "does not need is kept and marked state=done with a blocked_reason, "
                     "never dropped. Omit this field for an ordinary plan."
+                ),
+            },
+            "plan_stage": {
+                "type": "string",
+                "enum": list(TODO_PLAN_STAGES),
+                "description": (
+                    "For action=set on a PLANNING run (ralplan, plan, deep-interview), "
+                    "where that run stands with the person. Send "
+                    "'awaiting_acceptance' when you declare the planning checklist: "
+                    "while it holds, a write_file or patch in this session is "
+                    "escalated to the human-approval gate, so the person is asked "
+                    "before the run implements rather than told afterwards. Send "
+                    "'accepted' once they have given an explicit go-ahead in this "
+                    "conversation, which ends the escalation. Omit the field for any "
+                    "plan that is not a planning run -- a delivery or execution "
+                    "checklist carries no stage and is never gated. It is carried "
+                    "forward by action=advance, so ticking a planning stage off keeps "
+                    "it; only action=set changes or drops it, and a set that declares "
+                    "a fresh list for delivery work drops it by omitting it, which is "
+                    "the default."
                 ),
             },
             "deferred_reason": {
@@ -212,6 +233,7 @@ def omh_todo_handler(args: dict[str, Any], **kwargs) -> str:
                 session_ref=session_ref,
                 deferred_reason=args.get("deferred_reason", ""),
                 template=args.get("template", ""),
+                plan_stage=args.get("plan_stage", ""),
             )
             write_todo(default_omh_home(), record)
             payload["status"] = "written"

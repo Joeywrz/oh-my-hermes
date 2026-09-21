@@ -46,12 +46,14 @@ from .todo_store import (
     MAX_TODO_DEPTH,
     MAX_TODO_ITEMS,
     MAX_TODO_PHASE_CHARS,
+    MAX_TODO_PLAN_STAGE_CHARS,
     MAX_TODO_SESSION_REF_CHARS,
     MAX_TODO_SOURCE_CHARS,
     MAX_TODO_TEMPLATE_CHARS,
     MAX_TODO_TEXT_CHARS,
     MAX_TODO_TITLE_CHARS,
     TODO_ITEM_STATES,
+    TODO_PLAN_STAGES,
     TODO_SCHEMA_VERSION,
     TODO_STALE_SECONDS,
     strip_control_characters,
@@ -2085,6 +2087,7 @@ def _todo_summary(
         "display_phase": "",
         "deferred_reason": "",
         "template": "",
+        "plan_stage": "",
         "more_count": 0,
         "stall": _todo_stall(None, None),
     }
@@ -2149,6 +2152,26 @@ def _todo_summary(
     summary["template"] = strip_control_characters(record.get("template", ""))[
         :MAX_TODO_TEMPLATE_CHARS
     ]
+    # Projected against the vocabulary rather than bounded like the stamp
+    # above it, and the difference is what the two are read FOR. A template
+    # name is projected so a writer can see the stamp it holds, and the
+    # writer already refused an unknown one. A plan stage is read by a gate
+    # that stops a person's turn, so this reader states the closed set
+    # itself: a value outside it projects as absence, which is the answer
+    # `plan_stage_gate` needs from a record it cannot classify, and it holds
+    # for a hand-edited record no writer in this build ever validated.
+    #
+    # The bound is deliberately one PAST the longest member. Slicing to the
+    # length of the longest one would turn every string that merely starts
+    # like it -- `awaiting_acceptance_later` in a hand-edited file -- into
+    # that member exactly, and arm the gate on a value nothing wrote. One
+    # more character cannot equal any member, so an over-long stamp is
+    # absence while the string a hostile record carries is still bounded
+    # before anything holds it.
+    plan_stage = strip_control_characters(record.get("plan_stage", ""))[
+        : MAX_TODO_PLAN_STAGE_CHARS + 1
+    ]
+    summary["plan_stage"] = plan_stage if plan_stage in TODO_PLAN_STAGES else ""
     # The deferral verdict is decided here, once, for the same reason `stall`
     # is: the TUI panel, the text HUD line, the per-turn reminder, the turn-end
     # directive and `omh runtime todo show` all read one projection, and a

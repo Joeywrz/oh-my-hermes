@@ -126,6 +126,34 @@ MAX_TODO_DEFERRED_REASON_CHARS = 200
 # above it -- a record written without one is byte-identical to what this
 # module wrote before the field existed.
 MAX_TODO_TEMPLATE_CHARS = 40
+# Optional stage of a PLANNING run: whether the person has accepted the plan
+# this checklist belongs to. A closed vocabulary, additive-optional on exactly
+# the terms above, and the whole of what `plan_stage_gate` reads -- the reason
+# an unaccepted plan can be told from an accepted one without reading a word
+# of anybody's prose.
+#
+# Absence is the third value and it means UNKNOWN, never "not accepted": a
+# delivery plan, a CLI write, a record predating the field, and a planning run
+# whose writer never stamped one are all the same absence here, and the gate
+# stays silent for every one of them. Only `PLAN_STAGE_AWAITING_ACCEPTANCE`
+# makes it speak.
+#
+# It is sticky across `advance` and declared per write on `set`, which is the
+# same split `template` and `deferred_reason` already draw and for the same
+# reason: marking a planning stage done is the plan ADVANCING, not the person
+# accepting it, so an advance must not drop the stamp; re-declaring the
+# checklist is a new declaration, so a `set` that omits the field has none.
+# That is what makes the common close free -- a run handing an accepted plan
+# to a delivery engine writes a new list and the gate lapses with it.
+PLAN_STAGE_AWAITING_ACCEPTANCE = "awaiting_acceptance"
+PLAN_STAGE_ACCEPTED = "accepted"
+TODO_PLAN_STAGES = (PLAN_STAGE_AWAITING_ACCEPTANCE, PLAN_STAGE_ACCEPTED)
+# Read only by the projection, and never as a truncation point on its own: a
+# value cut to this length is the longest member whenever it merely STARTS
+# like one, so the reader slices one past it and the writer tests membership
+# before bounding anything. The writer needs no bound at all, because the
+# only value it ever returns is a member.
+MAX_TODO_PLAN_STAGE_CHARS = max(len(stage) for stage in TODO_PLAN_STAGES)
 # The digest is only ever compared for equality, never inverted, so the bound
 # is about how much record a deferral costs, not about collision resistance;
 # 128 bits is far past what "is this the same item list" needs.
@@ -252,6 +280,7 @@ def build_todo_record(
     session_ref: object = "",
     deferred_reason: object = "",
     template: object = "",
+    plan_stage: object = "",
 ) -> dict[str, Any]:
     """Build the on-disk todo record.
 
@@ -282,6 +311,15 @@ def build_todo_record(
     record and the HUD will carry. Checking the raw input would judge a phase
     the record never stores: ``'  I. Story  '`` would be refused as an unknown
     label for a phase the validator writes as ``'I. Story'``.
+
+    ``plan_stage`` names where a PLANNING run stands with the person, and is
+    additive-optional on the same terms once more. It is the only field here
+    another surface REFUSES work on: `plan_stage_gate` escalates a file edit
+    to the host's human-approval gate while a record says
+    ``awaiting_acceptance``. So it is a closed vocabulary rather than free
+    text, and an unrecognised value raises instead of being stored -- a stamp
+    a reader cannot classify would make that gate silent on a plan that
+    believes it is guarded, which is the worst of the three states.
     """
     safe_title = strip_control_characters(title)
     if len(safe_title) > MAX_TODO_TITLE_CHARS:
@@ -290,6 +328,7 @@ def build_todo_record(
     safe_session_ref = strip_control_characters(session_ref)[:MAX_TODO_SESSION_REF_CHARS]
     safe_deferred_reason = _validated_deferred_reason(deferred_reason)
     safe_template = _validated_template(template)
+    safe_plan_stage = _validated_plan_stage(plan_stage)
     if safe_template and items in (None, []):
         items = template_items(safe_template)
     # The cap refusal, answered here rather than in `validate_todo_items`,
@@ -316,6 +355,8 @@ def build_todo_record(
         record["deferred_items_digest"] = todo_items_digest(validated_items)
     if safe_template:
         record["template"] = safe_template
+    if safe_plan_stage:
+        record["plan_stage"] = safe_plan_stage
     return record
 
 
@@ -342,6 +383,42 @@ def _template_cap_error(template: str, declared_items: int) -> str:
         f"{holds} of them, leaving {max(0, MAX_TODO_ITEMS - holds)} for items of your "
         f"own, and this plan has {declared_items}. Nothing was written."
     )
+
+
+def _validated_plan_stage(plan_stage: object) -> str:
+    """The planning stage as it will be stored, or ``""``.
+
+    The same shape as ``_validated_template`` below, for the same reason and
+    with one difference worth naming. Same reason: a closed vocabulary, so a
+    value no reader can classify raises here rather than being stored, and
+    absence is spelled by omitting the argument.
+
+    The difference is which way the silence falls. An unknown template name
+    hides a coverage rule that WOULD have refused; an unknown plan stage hides
+    a gate that would have asked a person. Both are silent failures, but this
+    one is silent on the surface that stops work, so a writer that sends
+    ``"unaccepted"`` or ``"pending"`` -- near misses a model reaches for --
+    must be told rather than quietly left unguarded.
+
+    Membership is tested BEFORE any length bound, and that ordering is the
+    whole of the difference between a refusal and a silent arming. Bounding
+    first -- the shape every other field here uses, because every other field
+    STORES what the caller sent -- truncates ``"awaiting_acceptance_later"``
+    to exactly the longest vocabulary member and then finds it in the set, so
+    the refusal above would be a promise this function did not keep for any
+    string that merely starts the right way. Nothing needs the bound: only a
+    vocabulary member is ever returned, so what is stored is bounded by the
+    vocabulary itself.
+    """
+    if plan_stage is None or plan_stage == "":
+        return ""
+    if not isinstance(plan_stage, str):
+        raise TodoValidationError("todo plan_stage must be a string")
+    safe = strip_control_characters(plan_stage)
+    if safe not in TODO_PLAN_STAGES:
+        known = ", ".join(repr(stage) for stage in TODO_PLAN_STAGES)
+        raise TodoValidationError(f"todo plan_stage must be one of: {known}")
+    return safe
 
 
 def _validated_template(template: object) -> str:
@@ -651,6 +728,25 @@ def advance_todo_item(
         items = list(stored)
         items[position] = updated
         stored_template = record.get("template", "")
+        # Read off the record and sent back through, exactly like the template
+        # name above it and for a reason of its own: ticking a planning stage
+        # off is the plan advancing, and a stamp that a completed stage
+        # cleared would retire the gate on the very call that proves the run
+        # is still planning. Only `set` -- a re-declaration of the whole
+        # checklist -- changes or drops it.
+        #
+        # Carried forward only when the stored value is one this build knows,
+        # where the template handling instead relabels a refusal. The two
+        # differ because an unknown value costs different things: an unknown
+        # template hides a coverage rule that would have refused, so the write
+        # must stop and say so, while an unknown plan stage is ALREADY
+        # unguarded -- `plan_stage_gate` reads two literals and nothing else --
+        # so raising here would refuse an advance over a field the caller
+        # never sent, to protect a gate that was silent either way. Dropping
+        # it makes the record say what was already true.
+        stored_plan_stage = record.get("plan_stage", "")
+        if stored_plan_stage not in TODO_PLAN_STAGES:
+            stored_plan_stage = ""
         try:
             advanced = build_todo_record(
                 record.get("title", ""),
@@ -659,6 +755,7 @@ def advance_todo_item(
                 session_ref=session_ref,
                 deferred_reason=deferred_reason,
                 template=stored_template,
+                plan_stage=stored_plan_stage,
             )
         except TodoValidationError as error:
             raise _advance_template_error(stored_template, error) from error

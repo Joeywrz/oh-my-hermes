@@ -13,10 +13,12 @@ This module is that pass.
 
 Two jobs, both fail-open:
 
-* **Bound.** Long text fields are cut to ``READBACK_FIELD_CEILING`` and the
-  whole payload to ``READBACK_PAYLOAD_CEILING``, dropping the oldest comments
-  first, then the oldest runs, always keeping the latest run. Every cut is
-  recorded on the record it touched and totalled under ``omh_readback``.
+* **Bound.** Long text fields are cut to ``READBACK_FIELD_CEILING`` and old
+  rows are dropped first, always keeping the latest run. The entire serialized
+  output, including its label and metadata, must fit ``READBACK_PAYLOAD_CEILING``
+  characters. Otherwise an explicitly disclosed core-field projection preserves
+  native task/latest-run identities and states without chopping serialized JSON.
+  This is a character ceiling, not a byte, token, or peak-memory guarantee.
 * **Label.** A run outcome of ``completed`` is the executor's own report about
   itself; OMH observed the claim, never the result. The label line names that
   with the evidence vocabulary (``reported done``), and a task with no runs is
@@ -41,9 +43,9 @@ KANBAN_READBACK_TOOLS: Final[frozenset[str]] = frozenset(
 READBACK_FIELD_CEILING: Final = 2_000
 READBACK_PAYLOAD_CEILING: Final = 24_000
 READBACK_LIST_ROW_CEILING: Final = 50
-# The ceiling is measured on the payload before the label line and the
-# `omh_readback` block are added; this reserve keeps the returned string under
-# `READBACK_PAYLOAD_CEILING` once they are.
+# A heuristic reserve for ordinary row dropping, NOT the final-size guarantee.
+# The fully serialized label + payload + metadata is measured before return;
+# an oversized result falls back to an explicitly disclosed core projection.
 _PAYLOAD_RESERVE: Final = 512
 
 _TRUNCATION_MARKER: Final = "...[truncated by omh]"
@@ -112,8 +114,9 @@ def transform_kanban_readback(tool_name: object, result: object) -> str | None:
     """Return the bounded, labelled readback, or ``None`` to leave it alone.
 
     Fail-open by seam contract: a tool outside ``KANBAN_READBACK_TOOLS``, a
-    result that is not a JSON object, or one already carrying
-    ``KANBAN_READBACK_KEY`` passes through untouched. The returned string is
+    result that is not a JSON object, or a within-budget object already carrying
+    ``KANBAN_READBACK_KEY`` passes through untouched. Oversized annotated JSON
+    is reprocessed; an annotation cannot exempt it from the ceiling. The returned string is
     one label line followed by the JSON payload; it is not itself JSON, so a
     second pass over it declines, which keeps the transform idempotent.
     """
@@ -126,18 +129,27 @@ def transform_kanban_readback(tool_name: object, result: object) -> str | None:
         parsed = json.loads(result)
     except (ValueError, TypeError):
         return None
-    if not isinstance(parsed, dict) or KANBAN_READBACK_KEY in parsed:
+    if not isinstance(parsed, dict):
         return None
+    if KANBAN_READBACK_KEY in parsed:
+        if len(result) <= READBACK_PAYLOAD_CEILING:
+            return None
+        # A pre-existing annotation is not permission for oversized raw JSON.
+        # Recompute its claims from the actual task/runs rather than trusting it.
+        parsed.pop(KANBAN_READBACK_KEY)
     if name == "kanban_show":
         readback = _bound_show(parsed)
     elif name == "kanban_list":
         readback = _bound_list(parsed)
     else:
         readback = _bound_attachments(parsed)
-    label = f"{_LABEL_PREFIX} {readback['label']}"
     parsed[KANBAN_READBACK_KEY] = readback
     try:
-        return f"{label}\n{json.dumps(parsed, ensure_ascii=False, default=str)}"
+        rendered = _render_readback(parsed, readback)
+        if len(rendered) <= READBACK_PAYLOAD_CEILING:
+            return rendered
+        projected = _core_projection(name, parsed, readback)
+        return _render_readback(projected, readback)
     except (TypeError, ValueError):
         return None
 
@@ -169,15 +181,7 @@ def _bound_show(parsed: dict[str, Any]) -> dict[str, Any]:
     size, dropped_events = _drop_oldest(size, _dict_rows(parsed, "events"))
 
     confidence = _run_confidence(runs)
-    task_id = _short(task.get("id")) if isinstance(task, dict) else ""
-    status = _short(task.get("status")) if isinstance(task, dict) else ""
-    head = f"task {task_id or '?'} status={status or '?'}; "
-    if runs:
-        outcome = _short(runs[-1].get("outcome"))
-        head += f"latest run outcome={outcome or '?'} -> {confidence}"
-    else:
-        head += f"no runs -> {confidence}"
-    label = f"{head} ({_CONFIDENCE_PROSE[confidence]})"
+    label = _show_label(task, runs, confidence)
     truncated = bool(truncated_fields or dropped_comments or dropped_runs or dropped_events)
     if truncated:
         label += "; bounded: " + _bound_summary(
@@ -196,6 +200,17 @@ def _bound_show(parsed: dict[str, Any]) -> dict[str, Any]:
         "dropped_events": dropped_events,
         "truncated_fields": truncated_fields,
     }
+
+
+def _show_label(task: object, runs: list[dict[str, Any]], confidence: str) -> str:
+    task_id = _short(task.get("id")) if isinstance(task, dict) else ""
+    status = _short(task.get("status")) if isinstance(task, dict) else ""
+    head = f"task {task_id or '?'} status={status or '?'}; "
+    if runs:
+        head += f"latest run outcome={_short(runs[-1].get('outcome')) or '?'} -> {confidence}"
+    else:
+        head += f"no runs -> {confidence}"
+    return f"{head} ({_CONFIDENCE_PROSE[confidence]})"
 
 
 def _run_confidence(runs: list[dict[str, Any]]) -> str:
@@ -263,6 +278,111 @@ def _bound_attachments(parsed: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# --- last-resort final-size projection -------------------------------------
+
+# Fixed field sets and at most 256 serialized characters per scalar keep show
+# projections below the ceiling even with worst-case escaping. List rows share
+# a 12k serialized-character budget, leaving space for labels/metadata/root.
+_CORE_TASK_FIELDS: Final = ("id", "title", "status", "assignee", "body", "result")
+_CORE_RUN_FIELDS: Final = (
+    "id", "task_id", "profile", "status", "outcome", "session_id",
+    "started_at", "ended_at", "exit_code", "summary", "error",
+)
+_CORE_ATTACHMENT_FIELDS: Final = ("id", "task_id", "filename", "content_type", "size", "path")
+_CORE_ROOT_FIELDS: Final = ("ok", "error", "task_id", "board", "count", "total", "limit", "truncated", "has_more")
+_PREVIEW_FIELDS: Final = frozenset({"title", "body", "result", "summary", "error"})
+
+
+def _render_readback(parsed: dict[str, Any], readback: dict[str, Any]) -> str:
+    return f"{_LABEL_PREFIX} {readback['label']}\n{json.dumps(parsed, ensure_ascii=False, default=str)}"
+
+
+def _core_record(record: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    projected: dict[str, Any] = {}
+    omitted: list[str] = []
+    shortened: list[str] = []
+    for key in fields:
+        if key not in record:
+            continue
+        value = record[key]
+        scalar = value is None or isinstance(value, (str, bool, int, float))
+        small = scalar and (not isinstance(value, str) or len(value) <= 256)
+        if small and len(json.dumps(value, ensure_ascii=False)) <= 256:
+            projected[key] = value
+        elif key in _PREVIEW_FIELDS and isinstance(value, str):
+            projected[key] = value[:32] + _TRUNCATION_MARKER
+            shortened.append(key)
+        else:
+            # Do not manufacture another identity by clipping an ID/path/status.
+            omitted.append(key)
+    if omitted:
+        projected["omitted_fields"] = omitted
+    if shortened:
+        projected["truncated_fields"] = shortened
+    omitted_extra = sum(key not in fields for key in record)
+    if omitted_extra:
+        projected["omitted_extra_fields"] = omitted_extra
+    return projected
+
+
+def _core_projection(name: str, parsed: dict[str, Any], readback: dict[str, Any]) -> dict[str, Any]:
+    """A disclosed bounded view, not an arbitrarily chopped JSON document."""
+    projected = _core_record(parsed, _CORE_ROOT_FIELDS)
+    readback.update(truncated=True, projection="core_fields_only")
+    if name == "kanban_show":
+        task = parsed.get("task")
+        if isinstance(task, dict):
+            projected["task"] = _core_record(task, _CORE_TASK_FIELDS)
+        runs = _dict_rows(parsed, "runs")
+        projected["runs"] = [_core_record(runs[-1], _CORE_RUN_FIELDS)] if runs else []
+        readback["dropped_runs"] += max(0, len(runs) - 1)
+        readback["dropped_comments"] += len(_dict_rows(parsed, "comments"))
+        readback["dropped_events"] += len(_dict_rows(parsed, "events"))
+        projected["comments"] = []
+        projected["events"] = []
+        # Rebuild counters in the label; the original confidence/identity prose
+        # stays tied to the latest observed row, not to shortened preview text.
+        readback["label"] = _show_label(task, runs, readback["confidence"])
+        readback["label"] += "; bounded: " + _bound_summary(
+            readback["truncated_fields"],
+            ("comments", readback["dropped_comments"]),
+            ("runs", readback["dropped_runs"]),
+            ("events", readback["dropped_events"]),
+        )
+    else:
+        key = "tasks" if name == "kanban_list" else "attachments"
+        counter = f"dropped_{key}"
+        rows = _dict_rows(parsed, key)
+        listed = len(rows) + readback[counter]
+        fields = _CORE_TASK_FIELDS if key == "tasks" else _CORE_ATTACHMENT_FIELDS
+        budget = 12_000
+        kept = []
+        for row in rows:
+            core = _core_record(row, fields)
+            size = _payload_size(core) + 2
+            if size > budget:
+                break
+            kept.append(core)
+            budget -= size
+        readback[counter] += len(rows) - len(kept)
+        projected[key] = kept
+        if key == "tasks":
+            readback["label"] = (
+                f"{len(kept)} of {listed} tasks shown ({readback[counter]} dropped)"
+                "; statuses are the board's own records: done means reported done, not verified"
+            )
+        else:
+            readback["label"] = (
+                f"{len(kept)} of {listed} attachments listed ({readback[counter]} dropped)"
+                "; a listing is not evidence any file was read"
+            )
+    readback["label"] += "; core fields only; other content omitted"
+    projected[KANBAN_READBACK_KEY] = readback
+    projected.pop("omitted_extra_fields", None)
+    projected["omitted_extra_fields"] = sum(key not in projected for key in parsed)
+    return projected
+
+
 # --- helpers ---------------------------------------------------------------
 
 
@@ -328,13 +448,22 @@ def _drop_oldest(
     """
     limit = READBACK_PAYLOAD_CEILING - _PAYLOAD_RESERVE
     dropped = 0
-    while size > limit and len(rows) > keep:
-        row = rows.pop() if newest_first else rows.pop(0)
+    candidates = reversed(rows) if newest_first else iter(rows)
+    for row in candidates:
+        remaining = len(rows) - dropped
+        if size <= limit or remaining <= keep:
+            break
         try:
-            size -= len(json.dumps(row, ensure_ascii=False, default=str)) + 2
+            size -= len(json.dumps(row, ensure_ascii=False, default=str)) + (2 if remaining > 1 else 0)
         except (TypeError, ValueError):
             pass
         dropped += 1
+    # Delete once: repeated pop(0) would shift the remaining rows quadratically.
+    if dropped:
+        if newest_first:
+            del rows[-dropped:]
+        else:
+            del rows[:dropped]
     return size, dropped
 
 

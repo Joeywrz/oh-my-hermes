@@ -24,7 +24,9 @@ result transforms in a fixed order:
    the human approval gate, gets a per-turn directive naming the two honest
    exits (``remote_wait_nudge.py``).
 6. Full-width diff band padding — tool-result diffs get their painted lines
-   padded to a uniform band (``diff_presentation.py``).
+   padded to a uniform band (``diff_presentation.py``), except Kanban readback
+   tools: their serialized records must retain the bound and valid JSON even
+   when a string contains Unicode line separators and diff-looking text.
 
 Every transform is fail-open: anything one declines passes through to the
 next, and ``None`` from all of them leaves the host result untouched. Order
@@ -74,7 +76,7 @@ from typing import Any
 
 from ..code_mode_guidance import annotate_execute_code_result
 from ..engagement_nudges import annotate_engagement_nudge
-from ..kanban_readback import transform_kanban_readback
+from ..kanban_readback import KANBAN_READBACK_TOOLS, transform_kanban_readback
 from ..remote_wait_nudge import annotate_remote_wait
 from ..truncated_read_recovery import annotate_truncated_read_recovery
 from .diff_presentation import transform_tool_result as _pad_diff_result
@@ -145,6 +147,12 @@ def transform_tool_result(**kwargs: Any) -> str | None:
     if waited is not None:
         annotated = waited
         kwargs = {**kwargs, "result": waited}
+    # Board readbacks are serialized records, not presentation diffs. Python's
+    # splitlines() also splits Unicode separators inside JSON strings; padding
+    # that text could corrupt JSON and invalidate the final readback ceiling.
+    # Apply the same exclusion on a second pass over an already-labelled result.
+    if str(kwargs.get("tool_name") or "") in KANBAN_READBACK_TOOLS:
+        return annotated
     padded = _pad_diff_result(**kwargs)
     if padded is not None:
         return padded

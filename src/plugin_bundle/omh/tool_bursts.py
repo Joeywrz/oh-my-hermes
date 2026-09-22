@@ -228,22 +228,18 @@ MAX_INTERCEPTED_COUNT = 10**9
 # stages were first described and how the shipped tests name them: the
 # 9th identical call blocks, the 13th escalates.
 REPEAT_CALL_APPROVAL_THRESHOLD = REPEAT_CALL_BLOCK_THRESHOLD + REPEAT_CALL_ESCALATION_ATTEMPTS
-# Arguments are canonicalized and capped before hashing so a single huge
-# call (a whole-file write body) cannot make the digest step expensive.
-# Two calls whose arguments differ only past the cap share a digest and so
-# read as a repeat; acceptable here, because they still agree on their
-# first 8 KiB and any call outside the cycle clears the guard.
-MAX_DIGEST_INPUT_BYTES = 8192
-# The same bound for a tool RESULT, with one addition: the result's full
-# length is hashed alongside its first 8 KiB. The asymmetry is deliberate
-# and the directions differ. Two different huge arguments colliding on
-# their prefix reads as a repeat, which the next call outside the cycle
-# clears.
-# Two different huge RESULTS colliding on their prefix reads as "nothing
-# changed", which is how a legitimate poll gets blocked -- so the length
-# goes into the hash, because the growing log and the lengthening job
-# summary that make up most long-running polls change length on every
-# read even when their first 8 KiB does not.
+# A digest identifies the COMPLETE canonical arguments, never a prefix.
+# Inputs outside any work bound are unknown (empty digest), not equal.
+# The snapshot also prevents later serialization from invoking user-defined
+# conversions or traversing an unbounded container after validation.
+MAX_DIGEST_INPUT_BYTES = 1024 * 1024
+MAX_DIGEST_NODES = 4096
+MAX_DIGEST_DEPTH = 64
+MAX_DIGEST_INTEGER_BITS = 4096
+ARGUMENT_DIGEST_PREFIX = "v2:"
+# Results deliberately retain their existing prefix-plus-length contract.
+# This is weaker than complete argument identity: a growing log changes
+# length even when its first 8 KiB does not.
 #
 # The limit that remains, stated because it cannot be closed from here: a
 # result that differs ONLY past 8 KiB and at exactly the same length reads
@@ -323,8 +319,8 @@ REPEAT_CALL_CLAIM_BOUNDARY = (
 )
 _MAX_TOOL_NAME_CHARS = 48
 _MAX_ID_CHARS = 128
-# 16 hex characters is what `tool_args_digest` produces. The cap only
-# bounds what a foreign or hand-edited file can put in the field.
+# The versioned argument fingerprint fits inside this existing field bound.
+# Old unversioned fingerprints cannot match new arguments or approval keys.
 _MAX_DIGEST_CHARS = 64
 # History entries are serialized under one-letter keys, and only there:
 # every reader turns them back into the named fields the rest of this
@@ -427,22 +423,71 @@ def _normalized_id(value: object) -> str:
     return str(value or "").strip()[:_MAX_ID_CHARS]
 
 
-def tool_args_digest(tool_input: object) -> str:
-    """A short one-way digest of this call's arguments, or "" for none.
+def _argument_snapshot(value: Any, budget: list[int], depth: int = 0) -> object:
+    """Bound expansion BEFORE encoding; copy only plain JSON-shaped values.
 
-    "" is the degrade-to-allow signal, and the only one: arguments that
-    cannot be canonicalized (a self-referential structure) produce no
-    digest, no streak row, and therefore no refusal. The guard would rather
-    miss a loop than block a call it could not identify.
+    Strings are immutable and shared, not copied. Count repeated references
+    each time they would expand in JSON; depth also bounds circular inputs.
+    JSON escaping can expand the admitted character budget at most twelvefold.
+    """
+    budget[1] -= 1
+    if budget[1] < 0 or depth > MAX_DIGEST_DEPTH:
+        raise ValueError("argument identity work limit")
+    kind = type(value)
+    if kind is str:
+        budget[0] -= len(value)
+        if budget[0] < 0:
+            raise ValueError("argument identity character limit")
+        # Escaping a Python surrogate pair would alias a real Unicode scalar
+        # even though the original strings have different encoding behavior.
+        # Validate only AFTER the size bound; never replace invalid code points.
+        if not value.isascii():
+            value.encode("utf-8", "strict")
+    elif kind is int:
+        if value.bit_length() > MAX_DIGEST_INTEGER_BITS:
+            raise ValueError("argument identity integer limit")
+        budget[0] -= value.bit_length() + 1
+    elif kind is float or kind is bool or value is None:
+        budget[0] -= 32
+    elif kind is dict:
+        if len(value) * 2 > budget[1]:
+            raise ValueError("argument identity node limit")
+        copied = {}
+        for key, item in value.items():
+            if type(key) is not str:
+                raise TypeError("argument identity requires string keys")
+            _argument_snapshot(key, budget, depth + 1)
+            copied[key] = _argument_snapshot(item, budget, depth + 1)
+        return copied
+    elif kind is list or kind is tuple:
+        if len(value) > budget[1]:
+            raise ValueError("argument identity node limit")
+        return [_argument_snapshot(item, budget, depth + 1) for item in value]
+    else:
+        raise TypeError("argument identity requires plain JSON values")
+    if budget[0] < 0:
+        raise ValueError("argument identity character limit")
+    return value
+
+
+def tool_args_digest(tool_input: object) -> str:
+    """Versioned full-argument fingerprint, or empty for unknown identity.
+
+    Unknown means no identity-based refusal or approval reuse. Never publish
+    a digest of a prefix. Reject non-JSON conversions, nonfinite numbers,
+    cycles and inputs exceeding work limits. Only the fingerprint leaves this
+    function; the bounded snapshot is not persisted.
     """
     try:
-        canonical = json.dumps(tool_input, sort_keys=True, default=str)
-    except (TypeError, ValueError, RecursionError):
+        snapshot = _argument_snapshot(tool_input, [MAX_DIGEST_INPUT_BYTES, MAX_DIGEST_NODES])
+        canonical = json.dumps(snapshot, sort_keys=True, ensure_ascii=True, allow_nan=False)
+        # ensure_ascii makes character count equal encoded byte count. Check
+        # before allocating encoded bytes, including escaped Unicode overhead.
+        if len(canonical) > MAX_DIGEST_INPUT_BYTES:
+            return ""
+        return ARGUMENT_DIGEST_PREFIX + hashlib.blake2b(canonical.encode("ascii"), digest_size=16).hexdigest()
+    except (TypeError, ValueError, RecursionError, RuntimeError):
         return ""
-    return hashlib.blake2b(
-        canonical.encode("utf-8", "replace")[:MAX_DIGEST_INPUT_BYTES],
-        digest_size=8,
-    ).hexdigest()
 
 
 def tool_result_digest(result: object) -> str:
@@ -467,9 +512,9 @@ def tool_result_digest(result: object) -> str:
     answer, and the one that degrades to the argument comparison rather
     than to a guess.
 
-    Privacy is the same contract as `tool_args_digest`: the length and a
-    truncated BLAKE2b of the first `MAX_RESULT_DIGEST_INPUT_BYTES`, never
-    the text. Equal digests mean the two returns matched inside that
+    Like arguments, only metadata is persisted, never raw text. Unlike
+    arguments, this remains a truncated BLAKE2b of the result length and
+    first `MAX_RESULT_DIGEST_INPUT_BYTES`. Equal digests mean the two returns matched inside that
     bound, unequal digests mean they did not, and that is the whole of
     what the field says.
     """
@@ -1657,11 +1702,14 @@ def _advance_repeat_streak(
     CONTINUES the cycle keeps the count, which is what lets four ignored
     blocks still add up to an escalation after the person allowed one.
 
-    Nothing recorded when the host named no session or the arguments
-    produced no digest -- the gate needs both to identify a repeat, and
-    an entry it cannot key or compare would only ever be dead weight.
+    Unknown arguments break continuity: omitting that call while retaining
+    the old cycle would falsely claim the known calls remained consecutive.
+    No argument text or substitute identity is persisted for this gap.
     """
-    if not session or not args_digest:
+    if not session:
+        return streaks
+    if not args_digest:
+        streaks.pop(session, None)
         return streaks
     # The one row a writer rebuilds is the session it is recording; every
     # other row in `streaks` is carried through as the file held it. The

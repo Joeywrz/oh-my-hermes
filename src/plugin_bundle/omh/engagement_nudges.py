@@ -292,7 +292,11 @@ def _annotate(
         # and any later surface can read for "how much searching happened".
         # It is simply no longer what the threshold reads.
         _ = bump_engagement_count(session, _DIRECT_READS, omh_home=omh_home)
-        distinct = record_distinct_direct_read(session, f"{name}:{tool_args_digest(args)}")
+        digest = tool_args_digest(args)
+        if not digest:
+            _declines["unknown_read_identity"] += 1
+            return None
+        distinct = record_distinct_direct_read(session, f"{name}:{digest}")
         return _delegation_nudge(
             session=session, count=distinct, result=result, omh_home=omh_home
         )

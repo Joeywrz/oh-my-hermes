@@ -1550,18 +1550,21 @@ class LedgerPrivacyTest(unittest.TestCase):
         # in fingerprint form rather than a file that recorded nothing.
         self.assertIn(tool_args_digest(args).encode(), written)
 
-    def test_the_digest_is_short_one_way_and_capped_before_hashing(self):
+    def test_the_digest_is_versioned_full_identity_or_explicitly_unknown(self):
         digest = tool_args_digest(BURN_ARGS)
-        self.assertEqual(len(digest), 16)
+        self.assertRegex(digest, r"^v2:[0-9a-f]{32}$")
         self.assertNotIn(BURN_PATTERN, digest)
         self.assertEqual(digest, tool_args_digest(dict(reversed(list(BURN_ARGS.items())))))
         self.assertNotEqual(digest, tool_args_digest({**BURN_ARGS, "path": "tests"}))
-        # Past the cap the digest stops changing, which is the documented
-        # cost of bounding the hash input.
-        body = "x" * MAX_DIGEST_INPUT_BYTES
-        self.assertEqual(tool_args_digest(body + "a"), tool_args_digest(body + "b"))
-        # An object json cannot serialize still digests, via default=str.
-        self.assertTrue(tool_args_digest({"path": Path("src")}))
+        # The old deliberate prefix collision was unsafe for both refusals
+        # and persistent approval scope. Long suffixes now matter in full.
+        body = "x" * 9000
+        self.assertNotEqual(tool_args_digest(body + "a"), tool_args_digest(body + "b"))
+        # At the encoded byte limit identity is complete; beyond it unknown.
+        self.assertTrue(tool_args_digest("x" * (MAX_DIGEST_INPUT_BYTES - 2)))
+        self.assertEqual(tool_args_digest("x" * (MAX_DIGEST_INPUT_BYTES - 1)), "")
+        # No arbitrary default=str conversion can stand in for JSON identity.
+        self.assertEqual(tool_args_digest({"path": Path("src")}), "")
 
 
 class RepeatRowProjectionTest(CycleAndResultHarness):

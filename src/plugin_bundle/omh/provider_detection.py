@@ -55,7 +55,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
-from typing import Any, Iterable, Mapping
+from typing import Any, Collection, Iterable, Mapping
 
 from . import runtime_paths
 
@@ -304,15 +304,31 @@ def configured_provider_ids(config_text: str) -> list[str]:
     return ids
 
 
-def env_key_names(hermes_home: Path, environ: Mapping[str, str] | None = None) -> list[str]:
+def env_key_names(
+    hermes_home: Path,
+    environ: Mapping[str, str] | None = None,
+    *,
+    allowed: Collection[str] | None = None,
+) -> list[str]:
     """Variable NAMES present in `<hermes_home>/.env`, plus ``environ`` when given.
 
-    Sorted, values never read. Only names the registry table knows are
-    returned, so the result can be printed beside a row. Detection passes no
+    Sorted, values never read. Only names in ``allowed`` are returned, and
+    ``allowed`` defaults to the registry table, so a caller that passes
+    nothing gets exactly the result this function always gave and the name
+    can still be printed beside a provider row. Detection passes no
     ``environ`` (see the module docstring); the setup interview passes the
     process environment because a person confirms every row it offers.
+
+    The parameter exists so a caller asking about credential names OUTSIDE
+    the provider registry -- the Jev sidekick posture reader is the first --
+    gets the same names-only scan without its names joining
+    ``HERMES_ENV_KEY_PROVIDERS``. That table feeds
+    ``effective_provider_entitlements``, so a name added to it reorders every
+    mixture chain naming an affected alias. A parameter is the seam; enrolment
+    is not.
     """
-    names = {name for name in (environ or {}) if name in HERMES_ENV_KEY_PROVIDERS}
+    permitted = HERMES_ENV_KEY_PROVIDERS if allowed is None else allowed
+    names = {name for name in (environ or {}) if name in permitted}
     for line in _read_text(hermes_home / ".env").splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -320,7 +336,7 @@ def env_key_names(hermes_home: Path, environ: Mapping[str, str] | None = None) -
         if stripped.startswith("export "):
             stripped = stripped[len("export "):].lstrip()
         name, separator, _value = stripped.partition("=")
-        if separator and name.strip() in HERMES_ENV_KEY_PROVIDERS:
+        if separator and name.strip() in permitted:
             names.add(name.strip())
     return sorted(names)
 

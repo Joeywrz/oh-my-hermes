@@ -4,6 +4,72 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **`omh doctor` now says which Jev-class plugins a machine holds, and what
+  each one's catalog entry declares.** Jev (TypeSafe System One) is a
+  non-generative decision model: it answers typed questions and cannot write
+  code, so OMH never routes it and never calls it. Community Hermes plugins do
+  call it, and several ask for hooks the OMH bridge also registers — most
+  sharply `pre_llm_call`, where OMH injects its route hint while a Jev skill
+  router nominates a skill, so one message can reach the model carrying two
+  nominations. Nothing in the CLI said that was happening.
+
+  The new `plugin_jev_sidekick` check is appended on every run, in both
+  branches: a machine with no signal reports `optional: no Jev-class plugin
+  installed`, and a machine with one reports the tier reached — installed,
+  enabled, or credential name present — plus one note per plugin naming the
+  tools and hooks its manifest declares, the hooks it shares with the OMH
+  bridge, and, verbatim, whatever its catalog entry discloses about what
+  leaves the machine. Every note says "declares" and carries the artifact and
+  date OMH read it from, because a catalog description is its author's
+  statement and a `plugin.yaml` is whoever installed it: neither is evidence
+  that the plugin ran or that any request left the machine. `omh doctor
+  --json` carries the full `jev_sidekick_posture/v1` payload.
+
+  Three local reads and nothing else: the plugin directories under
+  `$HERMES_HOME/plugins`, Hermes' `plugins.enabled` list, and the variable
+  NAMES in `$HERMES_HOME/.env`. Manifests go through the existing bounded
+  subset reader, so a construct it does not model is reported as unread
+  rather than guessed at — an unread `provides_hooks` leaves the hook overlap
+  unestablished, which the check says instead of reporting no overlap, and an
+  unread plugin directory stops the check from reporting absence at all. The
+  credential scan reaches its names through a new `allowed` parameter on
+  `env_key_names` rather than by enrolling them in `HERMES_ENV_KEY_PROVIDERS`,
+  which feeds provider entitlements and would reorder mixture chains around a
+  model that can never be a chain member. No value is read, anywhere.
+
+  A read that did not happen is reported as itself everywhere, not only for
+  hooks. Enablement is `enabled`, `not enabled`, or `unknown` with the reason
+  attached: Hermes' `plugins` node written as a flow mapping is valid YAML
+  Hermes loads and a form the shared block reader walks past, and it produces
+  the same empty list a config that enables nothing produces, so the check
+  says which of the two it read rather than asserting the commoner one. A
+  manifest that declares a name OMH could not read is classified on its
+  `jev_` tools alone, because the directory name is then a guess and a guess
+  that lands on a catalog entry would attach that maintainer's verbatim
+  egress disclosure to this install.
+
+  Everything the sweep reads is bounded and untrusted. A symlinked
+  `plugin.yaml` is refused and named for the reason the symlinked-directory
+  guard already states, the manifest cap is taken at the read rather than
+  from a preceding `stat` that a zero-length file walks past, Hermes' config
+  is bounded like the manifests beside it, and a directory name — which
+  passes no reader and is chosen by whoever created the directory — is
+  stripped of control characters and length-capped before it reaches a
+  payload field or a report line an operator pastes elsewhere.
+
+  `ok` stays `True` in every branch, including the warning one: a third-party
+  plugin an operator installed deliberately is not an OMH install failure and
+  must not flip the doctor exit code. The next action is built from the
+  branches that fired and names the `.env` path OMH read rather than a
+  default spelling of it, and it describes an overlap as the declaration it
+  is: the bridge registers eight hooks, only one of which is the nomination
+  surface, so what a shared hook supports is "declares the same hook OMH
+  registers" and not a sentence about what the plugin does. The check groups
+  into `optional_surfaces` by its `plugin_` prefix. `Check` gains an optional
+  `detail` payload, `None` for every check that carries no structured
+  finding, so `observed` keeps its one meaning as a boolean.
+
+
 - **OMH now recognizes a model class it cannot route coding work to, and
   refuses that work by name instead of preparing it.** TypeSafe's Jev answers
   a typed Choice, Score, or Noul over options the caller supplies and its own

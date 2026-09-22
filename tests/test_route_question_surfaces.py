@@ -33,6 +33,7 @@ from omh.plugin_bundle.omh.route_answerers import (  # noqa: E402
     MAX_LADDER_ITEM_CHARS,
     MAX_LADDER_ITEMS,
     answerer_ladder,
+    _bounded_items,
 )
 from omh.plugin_bundle.omh.tool_bursts import jev_tool_observed_at, record_tool_call  # noqa: E402
 from omh.plugin_bundle.omh.tools.chat_tool import omh_interact_handler  # noqa: E402
@@ -513,12 +514,14 @@ class AnswererLadderTests(unittest.TestCase):
         the rung goes into the host model's context on every undecidable
         route. The manifest reader bounds a FILE at 256 KiB, which bounds
         nothing useful here. Both lists are control-stripped and cut to a
-        name, and the directory name gets the same treatment because it is the
-        one string no other OMH surface echoes."""
+        name. The directory name gets the same treatment because it is the
+        one string no other OMH surface echoes; that half is exercised
+        through the filesystem below only where the filesystem admits such a
+        name, and through the sanitizer directly everywhere."""
         with TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             hermes, omh = self._homes(root)
-            hostile = hermes / "plugins" / "jev\x1b[31m-dir"
+            hostile = hermes / "plugins" / "jev-helper-dir"
             hostile.mkdir()
             (hostile / "plugin.yaml").write_text(
                 "name: jev-helper\nprovides_tools:\n"
@@ -535,6 +538,31 @@ class AnswererLadderTests(unittest.TestCase):
         self.assertTrue(all(len(item) <= MAX_LADDER_ITEM_CHARS for item in rung["plugins"]))
         self.assertNotIn("\x1b", blob)
         self.assertLess(len(blob), 2000)
+        # The directory-name half, without the filesystem: the same bounding
+        # the rung applies to a plugin directory name.
+        self.assertEqual(_bounded_items(["jev\x1b[31m-dir"]), ["jev[31m-dir"])
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "Windows refuses control characters in file names (WinError 123), so this "
+        "directory cannot exist there; the sanitizer is covered without the "
+        "filesystem in the test above",
+    )
+    def test_a_hostile_directory_name_cannot_smuggle_an_escape_through_the_rung(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            hermes, omh = self._homes(root)
+            hostile = hermes / "plugins" / "jev\x1b[31m-dir"
+            hostile.mkdir()
+            (hostile / "plugin.yaml").write_text(
+                "name: jev-helper\nprovides_tools:\n  - jev_evaluate\n",
+                encoding="utf-8",
+            )
+            ladder = answerer_ladder(hermes, omh)
+
+        blob = json.dumps(ladder[0], ensure_ascii=False)
+        self.assertNotIn("\x1b", blob)
+        self.assertIn("jev[31m-dir", ladder[0]["plugins"])
 
     def test_a_name_that_is_only_control_characters_is_dropped_not_echoed_blank(self) -> None:
         with TemporaryDirectory() as tmp:

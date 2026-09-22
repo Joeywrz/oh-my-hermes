@@ -121,6 +121,37 @@ class CategoryMaestroLoaderTests(unittest.TestCase):
             self.assertIn("'quick'", rejected_text)
             self.assertIn("'deep'", rejected_text)
 
+    def test_a_non_generative_model_is_rejected_by_name_on_both_paths(self) -> None:
+        # The entry is well formed and names a real model, so only the class
+        # catches it: a model that answers typed questions will never write
+        # the unit a category chain hands it. Rejected on read so
+        # `category-maestro show` reports it, and refused on write so it
+        # never reaches the document in the first place.
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            _write_config(
+                home,
+                {
+                    "codex": {
+                        "ultrabrain": [{"model_id": "gpt-5.6-sol"}],
+                        "quick": [{"model_id": "jev-1.13.0"}],
+                    }
+                },
+            )
+            config = read_category_maestro_config(home)
+            self.assertIsNotNone(config)
+            assert config is not None
+            self.assertEqual(list(config["profiles"]["codex"]), ["ultrabrain"])
+            rejected_text = "\n".join(config["rejected"])
+            self.assertIn("non_generative", rejected_text)
+            self.assertIn("jev-1.13.0", rejected_text)
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with self.assertRaises(ValueError) as caught:
+                set_category_maestro_chain(home, "codex", "quick", [{"model_id": "jev"}])
+            self.assertIn("non_generative", str(caught.exception))
+            self.assertFalse(category_maestro_path(home).exists())
+
     def test_config_that_validates_to_nothing_reads_as_absent(self) -> None:
         with TemporaryDirectory() as tmp:
             home = Path(tmp)

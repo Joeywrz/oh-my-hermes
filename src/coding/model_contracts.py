@@ -276,9 +276,144 @@ _DEEPSEEK_V41_FLASH: Final[dict[str, object]] = {
     "claim_boundary": MODEL_CONTRACT_CLAIM_BOUNDARY,
 }
 
+# TypeSafe Jev 1.13, the first `non_generative` contract: a model whose
+# documented output is a typed answer over options the caller supplies, not
+# text. Four keys exist only on this class and carry their reason here rather
+# than in a schema bump, on the same terms `served_ids` and `limits_note`
+# joined `model_contract/v1` — an optional key a reader that predates it
+# ignores. `model_class` is the class itself (the route resolver refuses a
+# `non_generative` model by name); `question_types` and `max_choice_options`
+# are the answer surface that replaces an effort ladder; `rate_limits` is
+# published per-model here and nowhere else in the record.
+_JEV_1_13: Final[dict[str, object]] = {
+    "schema_version": MODEL_CONTRACT_SCHEMA_VERSION,
+    "model_id": "jev-1.13.0",
+    # No reasoning ladder is documented for this model and none is inferred:
+    # a question is answered at one setting, so there is no mode to name.
+    "reasoning_mode": "none",
+    "service_tier": "standard",
+    "family": "jev",
+    "generation": "jev-1.13",
+    # The vendor's model page publishes no release date for 1.13. `GET
+    # /v1/models` returns a `release_date` per alias and OMH never calls it,
+    # so the field stays empty rather than carrying a press figure the cited
+    # pages do not support.
+    "released": "",
+    "rollout": (
+        "generally available on `POST /v1/systemone`; `jev-latest` and `jev-preview` both resolve "
+        "to `jev-1.13.0` today and both move on the next release; a served alias is not "
+        "account-level readiness evidence"
+    ),
+    "served_ids": {
+        "first_party": "jev-1.13.0",
+        "first_party_latest_alias": "jev-latest",
+        "first_party_preview_alias": "jev-preview",
+    },
+    "knowledge_cutoff": "",
+    # The 64k budget covers `state` plus every question in the request; the
+    # 32k figure is `state` plus the single longest question, which is what a
+    # caller actually has to fit, so it is the max-input side.
+    "context_window_tokens": 64_000,
+    "max_input_tokens": 32_000,
+    # An int, not an absence: the model returns typed answers, they are
+    # billed at zero, and the record has to say that rather than leave the
+    # field blank and let a reader guess whether it was never read.
+    "max_output_tokens": 0,
+    "limits_note": (
+        "64k covers `state` plus all questions combined and 32k covers `state` plus the single "
+        "longest question; output is typed answers billed at zero, not generated text, so the "
+        "output limit is 0 rather than unread"
+    ),
+    "rate_limits": {
+        "tokens_per_second": 250_000,
+        "requests_per_minute": 1_200,
+        "note": (
+            "the vendor warns these are adjusting dynamically and can change without notice; a "
+            "request over either limit returns 429 and 529 means overloaded, both retried with "
+            "backoff by the vendor's own SDKs"
+        ),
+    },
+    # No effort ladder exists to be raised to or stepped down from. Empty is
+    # the documented reading, not an unread one: the request carries a
+    # `state` and typed questions and no effort parameter at all.
+    "reasoning_efforts": (),
+    "effort_floor": "",
+    "effort_default": "",
+    "unsupported_efforts": {},
+    "model_class": "non_generative",
+    "question_types": ("choice", "score", "noul"),
+    "max_choice_options": 255,
+    "tool_calling": {
+        "api": "systemone",
+        "note": (
+            "none: the endpoint takes a `state` plus a map of typed questions and returns their "
+            "answers, so there is no tool-call surface to serve"
+        ),
+    },
+    "unsupported_parameters": (),
+    "runtime_mechanisms": {
+        "parallel_question_fan_out": "documented_not_observed",
+    },
+    "documented_traits": (
+        "is not trained to generate text; when the answer space is bounded the vendor's guidance "
+        "is to turn extraction into a Choice over the options rather than asking for the value",
+        "answers the question as written rather than as meant: scoping words, negations, and "
+        "implied conditions are read at face value",
+        "does not count, convert numeric representations, or compare dates reliably; the vendor "
+        "directs every arithmetic and ordering step into code",
+        "loses accuracy with each hop of indirection and with state that carries detail the "
+        "question does not need",
+        "treats state as data rather than as hostile, so adversarial content in state can move "
+        "the answer",
+        "degrades when the instructions and the criteria of one question ask for different things",
+        "guarantees no structural invariant across separate questions: a Choice over options is "
+        "relative and settles which option, while each Noul is absolute and can be low for all "
+        "of them, so a threshold tuned on one does not carry to the other",
+        "is trained primarily on English; the vendor states other languages including CJK "
+        "scripts are handled but not equally well",
+        "accepts natural-language text only, as a string, JSON object, or array of text values; "
+        "images, audio, video, and binaries must be turned into text or structured fields before "
+        "they can be sent as `state`",
+    ),
+    # TypeSafe list price (docs.typesafe.ai/models, 2026-09): $0.042 per Mtok
+    # of input, charged per input token, with output tokens free. Zero is the
+    # published price, not a missing one.
+    "pricing_usd_per_mtok": {
+        "input": 0.042,
+        "output": 0.0,
+    },
+    # Read from the vendor's own data-handling section and legal index. The
+    # training answer is published in words ("Jev is not trained on customer
+    # requests or responses"); no retention window is, and zero data
+    # retention is named as an enterprise offer, which makes it explicitly
+    # not the default. So the retention rung stays `not_recorded`.
+    "data_handling": {
+        "training_use": TRAINING_USE_EXCLUDED,
+        "retention": RETENTION_NOT_RECORDED,
+        "note": (
+            "the models page states Jev is not trained on customer requests or responses and that "
+            "it is not fine-tuned or LoRA-adapted with customer data; the legal index points at a "
+            "DPA and privacy policy for retention and offers zero data retention to enterprise "
+            "customers, so no default retention window was published and none is invented here"
+        ),
+        "account_scope": DATA_HANDLING_ACCOUNT_SCOPE,
+    },
+    "sources": (
+        "https://docs.typesafe.ai/models",
+        "https://docs.typesafe.ai/api",
+        "https://docs.typesafe.ai/model-jaggedness/jev-1.13",
+        "https://docs.typesafe.ai/confidence",
+        "https://docs.typesafe.ai/primitives/choice",
+        "https://docs.typesafe.ai/legal",
+    ),
+    "sources_read": "2026-09-21",
+    "claim_boundary": MODEL_CONTRACT_CLAIM_BOUNDARY,
+}
+
 MODEL_CONTRACTS: Final[dict[str, Mapping[str, object]]] = {
     "gpt-6-astra": _GPT_6_ASTRA,
     "deepseek-v4.1-flash": _DEEPSEEK_V41_FLASH,
+    "jev-1.13.0": _JEV_1_13,
 }
 
 # Catalog aliases whose relationship to an exact contract is explicitly
@@ -317,6 +452,23 @@ DECLARED_MODEL_CONTRACT_PROJECTIONS: Final[dict[str, Mapping[str, str]]] = {
     "deepseek-flash": {
         "contract_model_id": "deepseek-v4.1-flash",
         "reasoning_mode": "thinking",
+        "service_tier": "standard",
+    },
+    # TypeSafe's two published aliases (docs.typesafe.ai/models, read
+    # 2026-09-21). Both resolve to `jev-1.13.0` today and both MOVE on the
+    # next release -- `jev-preview` first, whenever a preview build exists --
+    # which is why each is a declared row with a read date rather than a
+    # second contract. The bare word `jev` is deliberately absent: a gateway
+    # spells it `typesafe/jev` but no vendor page describes it, so family
+    # recognition covers it and no contract is inherited on a guess.
+    "jev-latest": {
+        "contract_model_id": "jev-1.13.0",
+        "reasoning_mode": "none",
+        "service_tier": "standard",
+    },
+    "jev-preview": {
+        "contract_model_id": "jev-1.13.0",
+        "reasoning_mode": "none",
         "service_tier": "standard",
     },
 }

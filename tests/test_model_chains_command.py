@@ -108,6 +108,29 @@ class ModelChainsSetTests(unittest.TestCase):
             self.assertIn("not a plain model identifier", stderr)
             self.assertFalse(_chains_path(root).exists())
 
+    def test_set_refuses_a_non_generative_model_and_writes_nothing(self) -> None:
+        # Shape validation cannot catch this one: `jev` is a well-formed
+        # token naming a real model, and it answers typed questions instead
+        # of writing the unit a chain entry is handed.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for chain in ("jev:low", "kimi-k3:low, jev-1.13.0:high", "typesafe/jev"):
+                status, _stdout, stderr = run_cli(
+                    _base(root) + ["model-chains", "set", "quick", chain], output_json=False
+                )
+                with self.subTest(chain=chain):
+                    self.assertEqual(status, 2)
+                    self.assertIn("non_generative", stderr)
+                    self.assertIn("cannot join a model chain", stderr)
+                    self.assertFalse(_chains_path(root).exists())
+            # The refusal is the class, not the word: a generative chain
+            # through the same code path still writes.
+            status, _stdout, stderr = run_cli(
+                _base(root) + ["model-chains", "set", "quick", "kimi-k3:low"], output_json=False
+            )
+            self.assertEqual((status, stderr), (0, ""))
+            self.assertTrue(_chains_path(root).exists())
+
     def test_set_preserves_other_override_categories(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -75,6 +75,87 @@ A bare name that classifies `unknown` gets generic discipline; add it to
 Claude tier words are bare aliases — so probe the versioned ids and the
 vendor's pointer id (`deepseek-flash`), not the vendor name.
 
+### Non-generative models
+
+Some models cannot be onboarded by this loop at all, and the honest move is to
+say which steps do not apply rather than to fill them in. `model_class()` in
+`src/coding/model_routing.py` answers `generative` or `non_generative` for one
+id. A `non_generative` model's documented output is a typed answer over
+options the caller supplies, not text. TypeSafe's Jev is the first one OMH
+recognizes: it returns a Choice, a Score, or a Noul, and the vendor's
+jaggedness page states it "is not trained to generate text".
+
+The vendor calls this a decision model. This repo does not, because
+"decision" here already means a gate where a human answers (`decision_gate`,
+`action_gate`), and a model class that borrowed the word would send every
+future reader to the wrong surface. The class is `non_generative`; the family
+is `jev`.
+
+The steps below do not apply, each for its own version of the same reason —
+there is nothing generated to shape, compare, or place:
+
+- **§1's effort probe.** There is no effort parameter, so there is no ladder,
+  no floor to raise to, and no unsupported rung to record. The contract
+  declares `reasoning_efforts: ()` with an empty floor and default, and
+  `tests/test_model_contracts.py` carries an explicit branch for that shape
+  rather than a loosened assertion.
+- **§3 Calibrate.** Counter-guidance is a paragraph appended to a prompt. A
+  model that answers a typed question receives no such prompt, so
+  `HIGH_EFFORT_CALIBRATIONS` and `MAIN_AGENT_COMPOSITION_CALIBRATIONS` gain
+  no entry and `MODEL_OPTI.md` gets no per-family section.
+- **§4 Place routing.** The model joins no chain, in either lane. Both chain
+  editors refuse it by name: `omh model-chains set` exits 2 and writes
+  nothing, and the operator category-maestro config rejects the entry on read
+  and on write. `omh coding model-route --model <id>` answers
+  `status: model_refused` with a `refusal` record naming the id and the class,
+  and prepares no model, no effort, and no chain. A chain that names one
+  anyway, because a document was hand-edited past both editors, is filtered
+  before a head is picked — on the catalog lane and on the Hermes
+  recommendation lane alike, each skipped entry recorded by name.
+- **§6 Machine placement.** Nothing to place: a model that is in no chain
+  needs no provider entitlement row, and adding one would assert a serving
+  family the shipped catalog has never described.
+- **§8 Close with measurement.** The family-vs-model prompt pair needs two
+  generated answers to compare and there is only one generator. The
+  measurement that replaces it scores typed answers against a corpus the
+  deterministic router already answers, and it is a separate goal from
+  recognition.
+
+What does apply, and what this step therefore produces:
+
+- The contract, read from the vendor's own pages, carrying the answer surface
+  in place of the ladder: the question types it accepts, the option ceiling of
+  a Choice, the request limits, the published rate limits, and the documented
+  traits. `omh coding model-contract --model <id>` prints it.
+- `model_class` on the contract record, so a reader of the record learns the
+  class without inferring it. The resolver reads the class off the family
+  instead (`model_class()`), because it must answer for an id the catalog
+  documents no contract for. Both are optional additions: the contract key
+  does not move `model_contract/v1`, on the same terms `served_ids` and
+  `limits_note` joined it.
+- The price row (§5), including a zero side when the vendor publishes one. A
+  zero is a price, not an absence, and omitting it makes every run on the
+  model report no cost at all.
+- The coverage audit, read as it comes out. The dimensions a non-generative
+  model reports `missing` for reasons of its own class are `effort`,
+  `category_projection`, and `provider_eligibility`, and all three are
+  correct. Do not add a rung, a chain entry, or an `intentional_exclusion`
+  row to turn them green: the first two are inventions and the third says OMH
+  deliberately does not cover a model it does cover. The row may report other
+  dimensions `missing` for reasons that have nothing to do with the class —
+  `data_handling` reads the same way for every contracted model in the
+  catalog — so compare against a generative row before reading one as a gap
+  in this onboarding. Read `calibration` the other way round: it reports
+  `covered` through the generic fallback, which for this class means the
+  generic discipline is on record, not that the model was calibrated. §3
+  above says why it cannot be.
+
+The next subsection's rule applies with one twist worth stating before you
+reach it. A model served through a Hermes plugin rather than a provider route
+is proved served by one of that plugin's tool calls observed inside a Hermes
+session, not by a `hermes --oneshot` probe: the plugin tool is not on that
+path at all, so the probe can only ever fail for the wrong reason.
+
 ### Served, not released
 
 A released id, a catalog row, and a routed model are three different things,

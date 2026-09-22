@@ -21,7 +21,10 @@ from omh.coding.model_contracts import (  # noqa: E402
 from omh.coding.model_routing import (  # noqa: E402
     EFFORT_CHANGE_KINDS,
     EXECUTOR_MODEL_OPTIONS,
+    MODEL_CLASSES,
+    NON_GENERATIVE_MODEL_CLASS,
     REASONING_EFFORT_LADDER,
+    model_class,
     model_family,
     resolve_model_route,
 )
@@ -133,14 +136,50 @@ class ContractRecordTests(unittest.TestCase):
         # No entitlement language anywhere in the record.
         self.assertNotIn("entitled", json.dumps(dict(contract)).casefold())
 
+    def test_a_declared_contract_class_is_canonical_vocabulary(self) -> None:
+        # The key is optional and hand-written per contract, and both the
+        # renderer and the ladder branch key on one exact spelling. A typo
+        # would silently render and route as generative, which is the one
+        # failure this class exists to prevent.
+        for model_id, contract in MODEL_CONTRACTS.items():
+            if "model_class" in contract:
+                self.assertIn(contract["model_class"], MODEL_CLASSES, model_id)
+
     def test_every_contract_ladder_is_canonical_vocabulary(self) -> None:
         for model_id, contract in MODEL_CONTRACTS.items():
             for effort in contract["reasoning_efforts"]:
                 self.assertIn(effort, REASONING_EFFORT_LADDER, model_id)
+            if contract.get("model_class") == NON_GENERATIVE_MODEL_CLASS:
+                # A model that answers typed questions carries no effort
+                # parameter at all: the request is a `state` plus a question
+                # map. Empty is therefore the DOCUMENTED reading, not an
+                # unread one, and it has to be empty on every rung at once --
+                # no ladder, no floor, no default, and nothing declared
+                # unsupported, because "unsupported" is a claim about a
+                # ladder that does not exist. The generative assertion below
+                # is not loosened to let this through.
+                self.assertEqual(contract["reasoning_efforts"], (), model_id)
+                self.assertEqual(contract["effort_floor"], "", model_id)
+                self.assertEqual(contract["effort_default"], "", model_id)
+                self.assertEqual(contract["unsupported_efforts"], {}, model_id)
+                continue
             self.assertIn(contract["effort_floor"], contract["reasoning_efforts"], model_id)
             for effort in contract["unsupported_efforts"]:
                 self.assertIn(effort, REASONING_EFFORT_LADDER, model_id)
                 self.assertNotIn(effort, contract["reasoning_efforts"], model_id)
+
+    def test_only_a_non_generative_contract_may_declare_an_empty_ladder(self) -> None:
+        # The other half of the branch above, so neither direction drifts: a
+        # generative contract that lost its ladder must fail rather than be
+        # read as a typed-answer model, and the class the branch keys on is
+        # the one the router refuses on.
+        for model_id, contract in MODEL_CONTRACTS.items():
+            with self.subTest(model=model_id):
+                empty_ladder = contract["reasoning_efforts"] == ()
+                non_generative = contract.get("model_class") == NON_GENERATIVE_MODEL_CLASS
+                self.assertEqual(empty_ladder, non_generative)
+                if non_generative:
+                    self.assertEqual(model_class(model_id), NON_GENERATIVE_MODEL_CLASS)
 
     def test_price_row_mirrors_the_contract_and_cites_its_source(self) -> None:
         contract = model_contract("gpt-6-astra")
@@ -600,6 +639,123 @@ class ModelContractCliTests(unittest.TestCase):
         status, stdout, _stderr = run_cli(["coding", "composition-guide", "--json"])
         self.assertEqual(status, 0)
         self.assertEqual(json.loads(stdout)["model_calibrations"], MODEL_COMPOSITION_CALIBRATIONS)
+
+
+class JevContractTests(unittest.TestCase):
+    """The third exact contract (2026-09-21) and the first of a class that
+    cannot be routed coding work: a model whose documented output is a typed
+    answer, priced with a free output side and carrying no effort ladder."""
+
+    def test_the_exact_id_resolves_and_both_aliases_are_declared_rows(self) -> None:
+        for form in ("jev-1.13.0", "typesafe/jev-1.13.0", "JEV-1.13.0"):
+            with self.subTest(form=form):
+                projection = model_contract_projection(form)
+                assert projection is not None
+                self.assertEqual(projection["provenance"], "exact")
+                self.assertEqual(contract_model_id(form), "jev-1.13.0")
+                self.assertEqual(projection["reasoning_mode"], "none")
+        # Both aliases move on the next release, which is why each is a
+        # declared row with a read date rather than a second contract.
+        for form in ("jev-latest", "jev-preview"):
+            with self.subTest(form=form):
+                projection = model_contract_projection(form)
+                assert projection is not None
+                self.assertEqual(projection["contract_model_id"], "jev-1.13.0")
+                self.assertEqual(projection["provenance"], "declared_inheritance")
+        for form in ("jev-latest", "jev-preview"):
+            self.assertNotIn(form, MODEL_CONTRACTS)
+        # The bare word is recognized as a family but no vendor page
+        # describes it, so it inherits no contract on a guess.
+        self.assertEqual(model_family("jev"), "jev")
+        self.assertIsNone(model_contract_projection("jev"))
+        # A dated snapshot of the exact id projects onto its base, one way.
+        snapshot = model_contract_projection("jev-1.13.0-2026-09-15")
+        assert snapshot is not None
+        self.assertEqual(snapshot["provenance"], "dated_snapshot")
+        self.assertEqual(snapshot["contract_model_id"], "jev-1.13.0")
+        self.assertIsNone(model_contract_projection("jev-2.0.0"))
+
+    def test_the_record_documents_a_typed_answer_surface_instead_of_a_ladder(self) -> None:
+        contract = model_contract("jev-latest")
+        assert contract is not None
+        self.assertEqual(contract["model_class"], NON_GENERATIVE_MODEL_CLASS)
+        self.assertEqual(contract["question_types"], ("choice", "score", "noul"))
+        self.assertEqual(contract["max_choice_options"], 255)
+        self.assertEqual(contract["reasoning_efforts"], ())
+        self.assertEqual(contract["effort_floor"], "")
+        self.assertEqual(contract["effort_default"], "")
+        self.assertEqual(contract["unsupported_efforts"], {})
+        # The ladderless record must stay safe at the one call site that
+        # reads a floor: nothing to raise to means nothing is raised.
+        for effort in ("off", "minimal", "low", "high", "max", ""):
+            self.assertIsNone(contract_effort_floor("jev-1.13.0", effort), effort)
+        self.assertIsNone(dynamic_effort_guidance("jev-1.13.0", "hermes"))
+
+    def test_limits_carry_the_zero_output_as_a_documented_int(self) -> None:
+        contract = model_contract("jev-1.13.0")
+        assert contract is not None
+        self.assertEqual(contract["context_window_tokens"], 64_000)
+        self.assertEqual(contract["max_input_tokens"], 32_000)
+        # An int, not a string: `omh coding model-contract` formats this
+        # field with a thousands separator, and a string breaks the one
+        # command this contract exists to serve.
+        self.assertIsInstance(contract["max_output_tokens"], int)
+        self.assertEqual(contract["max_output_tokens"], 0)
+        self.assertTrue(contract["limits_note"])
+        self.assertEqual(contract["rate_limits"]["tokens_per_second"], 250_000)
+        self.assertEqual(contract["rate_limits"]["requests_per_minute"], 1_200)
+        self.assertTrue(all(source.startswith("https://docs.typesafe.ai/") for source in contract["sources"]))
+        self.assertEqual(contract["sources_read"], "2026-09-21")
+        # The vendor's model page publishes no release date for 1.13, so the
+        # field is empty rather than carrying a figure the sources do not
+        # support.
+        self.assertEqual(contract["released"], "")
+        self.assertNotIn("entitled", json.dumps(dict(contract)).casefold())
+
+    def test_price_row_mirrors_the_contract_and_zero_output_is_the_published_rate(self) -> None:
+        contract = model_contract("jev-1.13.0")
+        assert contract is not None
+        pricing = contract["pricing_usd_per_mtok"]
+        self.assertEqual(APPROX_PRICE_PER_MTOK["jev-1.13.0"], (pricing["input"], pricing["output"]))
+        self.assertEqual(pricing["output"], 0.0)
+        # The table keys model ids, not aliases: an alias row would go stale
+        # the moment the vendor moves it.
+        for alias in ("jev", "jev-latest", "jev-preview"):
+            self.assertNotIn(alias, APPROX_PRICE_PER_MTOK)
+
+    def test_the_documented_traits_name_the_generation_limit_first(self) -> None:
+        contract = model_contract("jev-1.13.0")
+        assert contract is not None
+        traits = contract["documented_traits"]
+        self.assertTrue(traits)
+        # The trait the whole refusal rests on is the one a reader must not
+        # have to hunt for.
+        self.assertIn("not trained to generate text", traits[0])
+
+    def test_the_cli_prints_the_answer_surface_for_every_spelling(self) -> None:
+        for model in ("jev-1.13.0", "jev-latest", "jev-preview"):
+            status, stdout, stderr = run_cli(["coding", "model-contract", "--model", model], output_json=False)
+            with self.subTest(model=model):
+                self.assertEqual((status, stderr), (0, ""))
+                self.assertIn("question types: choice, score, noul", stdout)
+                self.assertIn("255 options", stdout)
+                self.assertIn("250,000 tokens/s", stdout)
+                self.assertIn("input $0.042; output $0.0", stdout)
+                self.assertIn("not trained to generate text", stdout)
+                self.assertIn("https://docs.typesafe.ai/models", stdout)
+                # The ladder line belongs to the generative branch only.
+                self.assertNotIn("reasoning efforts:", stdout)
+
+    def test_a_generative_contract_renders_exactly_as_before(self) -> None:
+        # The other half of the branch: the class gate must not have leaked
+        # the new lines onto a model that has an effort ladder.
+        status, stdout, _stderr = run_cli(
+            ["coding", "model-contract", "--model", "gpt-6-astra"], output_json=False
+        )
+        self.assertEqual(status, 0)
+        self.assertIn("reasoning efforts: low, medium, high, xhigh, max (floor `low`)", stdout)
+        for absent in ("question types:", "rate limits:", "list price per Mtok:", "documented trait:"):
+            self.assertNotIn(absent, stdout)
 
 
 if __name__ == "__main__":

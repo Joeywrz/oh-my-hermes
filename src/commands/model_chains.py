@@ -36,6 +36,7 @@ from ..coding.data_handling_policy import (
     SENSITIVE_WORK_CHAIN_CLAIM_BOUNDARY,
     data_handling_filtered_chain,
 )
+from ..coding.model_routing import NON_GENERATIVE_MODEL_CLASS, model_class
 from ..local_store import atomic_write_text
 from ..plugin_bundle.omh.hermes_delegation import (
     APPROX_PRICE_PER_MTOK,
@@ -368,6 +369,21 @@ def cmd_model_chains_set(args: argparse.Namespace) -> int:
             entries = _parsechain_text(" ".join(args.chain))
         except ValueError as exc:
             print(f"omh: {exc}", file=sys.stderr)
+            return 2
+        # Shape is not enough here. A chain entry is a model that will be
+        # handed a coding unit, and a non-generative model answers typed
+        # questions instead of writing code, so it can never be one. Refused
+        # before the document is written, like every other refusal above.
+        refused = next(
+            (model for model, _effort in entries if model_class(model) == NON_GENERATIVE_MODEL_CLASS),
+            "",
+        )
+        if refused:
+            print(
+                f"omh: {refused!r} is a {NON_GENERATIVE_MODEL_CLASS} model "
+                "(it answers typed questions and cannot write code) and cannot join a model chain",
+                file=sys.stderr,
+            )
             return 2
         categories[category] = [
             {"model": model, "reasoning_effort": effort} for model, effort in entries

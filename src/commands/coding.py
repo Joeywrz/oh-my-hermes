@@ -1322,7 +1322,11 @@ def cmd_coding_model_route(args: argparse.Namespace) -> int:
     provenance, _vocabulary = route_provenance(route)
     selected = str(route.get("selected_model", "") or "")
     effort = str(route.get("selected_reasoning_effort", "") or "")
-    selected_label = " ".join(part for part in (selected, effort) if part) or "executor default"
+    # A refused route prepared nothing, so the empty-selection label must not
+    # read "executor default" -- on every other status that phrase is true
+    # and here it would say a model runs when none was prepared.
+    empty_label = "nothing prepared" if str(route.get("status", "")) == "model_refused" else "executor default"
+    selected_label = " ".join(part for part in (selected, effort) if part) or empty_label
     lines = [
         f"Model route for {route['executor_profile']}: {selected_label} ({route['status']}, {provenance})",
     ]
@@ -1597,7 +1601,7 @@ def cmd_coding_model_contract(args: argparse.Namespace) -> int:
         model_contract,
         model_contract_projection,
     )
-    from ..coding.model_routing import model_family
+    from ..coding.model_routing import NON_GENERATIVE_MODEL_CLASS, model_family
 
     model = str(args.model or "").strip()
     contract = model_contract(model)
@@ -1627,17 +1631,50 @@ def cmd_coding_model_contract(args: argparse.Namespace) -> int:
         f"service tier `{projection['service_tier']}`."
     )
     print(f"Documented contract for `{contract['model_id']}` ({payload['family']} family):")
-    print(f"- reasoning efforts: {', '.join(contract['reasoning_efforts'])} (floor `{contract['effort_floor']}`)")
+    # A non-generative contract has no effort ladder to print, and what a
+    # caller needs instead -- the answer surface, the published rate limits,
+    # the price whose output side is zero, and the traits that say what the
+    # model will get wrong -- lives on no generative contract. So the branch
+    # is class-gated in both directions. The emptiness guard on
+    # `unsupported_parameters` further down is NOT class-gated, because an
+    # empty tuple should print nothing whatever the class; it is the one
+    # change here that every contract passes through. Every shipped
+    # generative contract declares a non-empty tuple, so none of them prints
+    # differently than it did, and a later one that declares none loses a
+    # line that would have been empty.
+    if str(contract.get("model_class", "")) == NON_GENERATIVE_MODEL_CLASS:
+        print(f"- model class: {contract['model_class']} — it cannot be routed a coding handoff")
+        print(f"- question types: {', '.join(contract['question_types'])}")
+        print(f"- a Choice accepts up to {contract['max_choice_options']:,} options")
+        limits = contract["rate_limits"]
+        assert isinstance(limits, dict)
+        print(
+            f"- rate limits: {limits['tokens_per_second']:,} tokens/s, "
+            f"{limits['requests_per_minute']:,} requests/min — {limits['note']}"
+        )
+        pricing = contract["pricing_usd_per_mtok"]
+        assert isinstance(pricing, dict)
+        print(f"- list price per Mtok: input ${pricing['input']}; output ${pricing['output']}")
+    else:
+        print(
+            f"- reasoning efforts: {', '.join(contract['reasoning_efforts'])} "
+            f"(floor `{contract['effort_floor']}`)"
+        )
     for effort, detail in dict(contract.get("unsupported_efforts", {})).items():
         print(f"- `{effort}`: {detail}")
     print(f"- tool calling: {contract['tool_calling']['api']} API — {contract['tool_calling']['note']}")
-    print(f"- unsupported parameters: {', '.join(contract['unsupported_parameters'])}")
+    if contract["unsupported_parameters"]:
+        print(f"- unsupported parameters: {', '.join(contract['unsupported_parameters'])}")
     cutoff = str(contract.get("knowledge_cutoff", "") or "")
     print(
         f"- context {contract['context_window_tokens']:,} tokens; input {contract['max_input_tokens']:,}; "
         f"output {contract['max_output_tokens']:,}"
         + (f"; knowledge cutoff {cutoff}" if cutoff else "; knowledge cutoff not stated")
     )
+    if str(contract.get("model_class", "")) == NON_GENERATIVE_MODEL_CLASS:
+        print(f"  {contract['limits_note']}")
+        for trait in contract["documented_traits"]:
+            print(f"- documented trait: {trait}")
     policy = payload["effort_policy"]
     if isinstance(policy, dict):
         print(f"- effort policy ({policy['mode']}): {policy['mechanism']}")
@@ -2679,7 +2716,8 @@ def cmd_coding_run(args: argparse.Namespace) -> int:
         # overrides. That gives the documented precedence for free: this
         # flag > dispatch-models.json preference > the executor CLI's own
         # default -- passthrough, unvalidated, exactly like `model-route
-        # --model`.
+        # --model`, and refused on the same one condition: a `non_generative`
+        # model freezes as `status: model_refused` with no model prepared.
         "model": args.model or "",
         "reasoning_effort": args.effort or "",
         # A declared work category routes through the category-maestro merged
@@ -3324,9 +3362,9 @@ def _add_coding_commands(sub) -> None:
         "--model",
         default=None,
         help=(
-            "Explicit model id for this run; always passes through unvalidated. Precedence: this flag "
-            "beats a routed handoff model, which beats the dispatch-models.json preference, which beats "
-            "the executor CLI's own default."
+            "Explicit model id for this run; passes through unvalidated, except a `non_generative` "
+            "model, which is refused. Precedence: this flag beats a routed handoff model, which beats "
+            "the dispatch-models.json preference, which beats the executor CLI's own default."
         ),
     )
     run_cmd.add_argument("--effort", default=None, help="Reasoning effort for profiles that support one.")
@@ -3352,7 +3390,11 @@ def _add_coding_commands(sub) -> None:
         default=None,
         help="Executor profile, for example codex or claude-code. Required unless --explain is given.",
     )
-    model_route.add_argument("--model", default=None, help="Explicit model id; always passes through unvalidated.")
+    model_route.add_argument(
+        "--model",
+        default=None,
+        help="Explicit model id; passes through unvalidated, except a `non_generative` model, which is refused.",
+    )
     model_route.add_argument("--effort", default=None, help="Reasoning effort for profiles that support one.")
     model_route.add_argument("--role", default=None, help="Subagent role: brain, implementation, design_visual, review, docs, research.")
     model_route.add_argument(

@@ -334,8 +334,15 @@ class MixtureCategoryProjectionTest(unittest.TestCase):
             "gpt-6-astra": ("openai", "xhigh", "ultrabrain", "openai", "anthropic"),
             "deepseek-v4.1-flash": ("deepseek", "high", "deep", "deepseek", "anthropic"),
         }
+        # A contract in no shipped chain, named by no provider-family row,
+        # has nothing for its aliases to inherit. Jev is that case by
+        # decision -- a non-generative model is never a chain member -- so it
+        # is listed here rather than given invented chain metadata.
+        unchained = {"jev-1.13.0"}
         for model_id in (*contracts, *expected):
             contract_id = expected.get(model_id, (model_id,))[0]
+            if contract_id in unchained:
+                continue
             vendor, effort, category, serving, non_serving = contracts[contract_id]
             requested = f"{vendor}/{model_id}"
             with self.subTest(model_id=model_id):
@@ -345,6 +352,15 @@ class MixtureCategoryProjectionTest(unittest.TestCase):
                 )
                 self.assertIs(provider_serves_alias(requested, serving), True)
                 self.assertIs(provider_serves_alias(requested, non_serving), False)
+
+        # The unchained case, asserted rather than skipped: no category, and
+        # an UNKNOWN provider verdict. Never False -- refusing a provider on
+        # a guess is the failure `provider_serves_alias` exists to avoid, and
+        # TypeSafe is not a family the shipped catalog has ever described.
+        for spelling in ("jev-1.13.0", "jev-latest", "jev-preview", "typesafe/jev-1.13.0"):
+            with self.subTest(model_id=spelling):
+                self.assertEqual(mixture_category_for(spelling, "high", parent_model="kimi-k3"), "")
+                self.assertIsNone(provider_serves_alias(spelling, "openai"))
 
         unknown = "openai/gpt-6-astra-pro-turbo"
         self.assertEqual(mixture_category_for(unknown, "xhigh", parent_model="kimi-k3"), "")

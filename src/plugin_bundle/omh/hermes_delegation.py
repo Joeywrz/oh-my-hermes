@@ -363,7 +363,9 @@ HERMES_MIXTURE_ALIAS_PROVIDER_FAMILIES: dict[str, tuple[str, ...]] = {
 # Standalone mirror of coding.model_contracts' exact keys. Keep this separate
 # from declared aliases so a newly documented child contract stops inheriting
 # stale provider/category metadata until its own rows are added here.
-EXACT_MODEL_CONTRACT_ALIASES: frozenset[str] = frozenset({"gpt-6-astra", "deepseek-v4.1-flash"})
+EXACT_MODEL_CONTRACT_ALIASES: frozenset[str] = frozenset(
+    {"gpt-6-astra", "deepseek-v4.1-flash", "jev-1.13.0"}
+)
 
 # Standalone mirror of coding.model_contracts' bounded declared projections.
 # This plugin is copied into Hermes and cannot import the source package; the
@@ -380,6 +382,11 @@ DECLARED_MODEL_ALIAS_PROJECTIONS: dict[str, tuple[str, str, str]] = {
     # DeepSeek-V4.1-Flash. The pointer moves with the next Flash release, so
     # it is a declared projection with a read date, not an exact contract.
     "deepseek-flash": ("deepseek-v4.1-flash", "thinking", "standard"),
+    # TypeSafe publishes two aliases for Jev (docs.typesafe.ai/models,
+    # 2026-09-21); both point at `jev-1.13.0` today and both move on the next
+    # release, so each is a declared projection with a read date.
+    "jev-latest": ("jev-1.13.0", "none", "standard"),
+    "jev-preview": ("jev-1.13.0", "none", "standard"),
 }
 
 # Standalone mirror of coding.model_contracts.EXACT_CONTRACT_POINTER_ALIASES:
@@ -1254,6 +1261,11 @@ APPROX_PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
     # this model with a provider family and no rate, so every run on it
     # reported no cost at all.
     "grok-code-fast": (0.2, 1.5),
+    # TypeSafe list price (docs.typesafe.ai/models, 2026-09): input $0.042
+    # per Mtok, output free. The zero is the published rate, not a missing
+    # one -- this model is never a chain member, but a machine-level override
+    # can still name it and a run on it must not report no cost at all.
+    "jev-1.13.0": (0.042, 0.0),
 }
 
 

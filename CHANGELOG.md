@@ -4,6 +4,67 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **OMH now recognizes a model class it cannot route coding work to, and
+  refuses that work by name instead of preparing it.** TypeSafe's Jev answers
+  a typed Choice, Score, or Noul over options the caller supplies and its own
+  jaggedness page states it "is not trained to generate text". Until now
+  `jev-1.13.0` fell to family `unknown`, inherited generic prompt discipline,
+  and would have been routed an implementation unit like any other id, with
+  the failure arriving from the provider rather than from OMH.
+
+  The class is `model_class()`, read off the family, with `generative` as the
+  default so every model the catalog has never met routes exactly as it did
+  before. `non_generative` is refused at each surface that would hand a model
+  work to write: `omh coding model-route --model jev…` answers
+  `status: model_refused` and prepares no model, no effort, and no chain;
+  `omh model-chains set` exits 2 and writes nothing; the operator
+  category-maestro config rejects such an entry by name on read and on write;
+  and a chain entry that reaches the resolver anyway, from a hand-edited chain
+  document or an operator recommendation document, is skipped with a record
+  naming the class while the next generative entry takes the head — on the
+  catalog lane and on the Hermes editorial lane alike. The refusal of a
+  requested id is decided before any catalog is consulted, so neither lane
+  can route around it.
+
+  This narrows one stated invariant and the docstring that carried it moved
+  in the same commit: an explicitly requested model still wins over every
+  catalog and is still never adjudicated on quality, but it is now refused
+  when its class cannot do the work at all. The refusal payload carries a
+  `refusal` record with the id and the kind, so a JSON consumer never parses
+  a sentence to learn what happened, and the key is present only on a refused
+  route, leaving every payload that routes today byte-identical.
+
+  Recognition is the rest of the onboarding, done honestly rather than
+  skipped. `jev-1.13.0` is an exact contract read from docs.typesafe.ai on
+  2026-09-21, with `jev-latest` and `jev-preview` as declared alias rows
+  because both move on the next release. It carries no effort ladder, and
+  `model_class`, `question_types`, `max_choice_options`, and `rate_limits`
+  are optional keys that do not move `model_contract/v1`, on the same terms
+  `served_ids` and `limits_note` joined it. `max_output_tokens` is `0` rather
+  than absent: output is typed answers billed at zero, which is also why the
+  price row is `(0.042, 0.0)` — a zero is a published rate, and a missing row
+  would make every run on the model report no cost at all. The bare word
+  `jev` is recognized as a family, because TypeSafe sends it in the `model`
+  field and a gateway spells it `typesafe/jev`, but it inherits no contract:
+  no vendor page describes that spelling. Both classifier surfaces read the
+  bare word the same way, so a dynamic workflow spec that names `jev`
+  describes a model target rather than an agent.
+
+  The coverage dimensions that stay `missing` for reasons of this class are
+  `effort`, `category_projection`, and `provider_eligibility`, and a test pins
+  that reading. `effort` is missing because there is no effort parameter;
+  `category_projection` and `provider_eligibility` are missing because the
+  model is in no shipped chain, which is the decision rather than an
+  oversight. The only levers that would turn them green are an invented rung,
+  an invented chain entry, or an `intentional_exclusion` row that would claim
+  OMH deliberately does not cover a model it does cover. The same row also
+  reports `data_handling` as `missing`, which is not about this model —
+  every contracted model in the catalog reads the same way — and reports
+  `calibration` as `covered` through the generic fallback, which records that
+  the generic discipline applies rather than claiming a model that takes no
+  prompt was calibrated.
+
+
 - **The HUD route label drops its parent-equality token.** A lane the tool
   routed to the model the parent session itself runs rendered as
   `category:deep(deepseek-flash:high =parent)`. The token said the dispatch

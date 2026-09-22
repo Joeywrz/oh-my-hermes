@@ -56,6 +56,7 @@ identical prompt. Nothing else about the pipeline changes per model.
 | `codestral` | `codestral-` | Codestral coding ids |
 | `solar` | `solar-` | Upstage Solar Pro ids |
 | `minimax` | `minimax-` | `MiniMax-M3`, `MiniMax-M2.7` (recognized, uncalibrated — see the coverage matrix) |
+| `jev` | `jev-`; bare `jev` | `jev-1.13.0`, `jev-latest`, `jev-preview`, `typesafe/jev` (non-generative — see below) |
 | `unknown` | anything else | emerging families before a prefix lands |
 
 The design-qualified aliases are concrete serving-catalog ids, not new model
@@ -68,6 +69,50 @@ models.dev catalog used by OpenCode lists, for example,
 `anthropic/claude-opus-5`. After the serving provider segment is stripped,
 those aliases therefore select the existing `gpt` and `claude` calibrations;
 they do not create vendor-wide calibration families.
+
+`jev` is the exception to the bare-name rule above, and it is a deliberate
+one: `deepseek` and `minimax` are vendor words naming a catalog, while `jev`
+is an id TypeSafe's own documentation sends in the `model` field and a gateway
+spells `typesafe/jev`. It is carried in `_BARE_MODEL_ALIASES` rather than by
+widening the Claude tier set. The near misses stay `unknown`, including
+`jev_evaluate`, which is a Hermes plugin TOOL name and not a model at all.
+
+### Non-generative models
+
+`model_class()` in `src/coding/model_routing.py` answers `generative` or
+`non_generative` for one id, family-level, with `generative` as the default so
+every model the catalog has never met routes exactly as it does today. A
+`non_generative` model's documented output is a typed answer over options the
+caller supplies, not text: Jev returns a Choice, a Score, or a Noul, and the
+vendor's own jaggedness page states it "is not trained to generate text".
+
+Nothing about that makes it a lesser model — it makes it a model that cannot
+be handed a coding unit. So OMH recognizes it, contracts it, and prices it
+like any other, and refuses it at every surface that would prepare it to
+write code:
+
+- `omh coding model-route --model jev…` answers `status: model_refused` with a
+  `refusal` record naming the id and the class. No model, no effort, no chain
+  is prepared. This is the one narrowing of "an explicitly requested model
+  always wins": the request is still never adjudicated on quality, only on
+  whether the class can do the work at all.
+- `omh model-chains set <category> "jev:low"` exits 2 and writes nothing, and
+  the operator category-maestro config rejects such an entry by name on
+  read and on write.
+- A chain entry that reaches the resolver anyway (a hand-edited chain
+  document, or an operator recommendation document read with
+  `omh coding model-route --recommendations`) is skipped with a `chain_entry`
+  record naming the class, and the next generative entry takes the head. Both
+  lanes filter, so neither the catalog chain nor the Hermes editorial chain
+  can carry one to the head.
+
+Calibration does not apply: there is no prompt to counter-guide and no effort
+ladder to place a floor on, so `HIGH_EFFORT_CALIBRATIONS` gains no entry and
+this family gets no per-family section. The measurement that would normally
+close an onboarding does not apply either, because a family-vs-model prompt
+pair needs two generated answers to compare; what replaces it is described in
+`docs/MODEL-ONBOARDING.md` and is a named follow-up, not part of the
+recognition work.
 
 ### Exact-model contracts and overrides
 
@@ -1059,6 +1104,7 @@ not, and how to reproduce it: `benchmarks/product-ab/v1/README.md`.
 | `deepseek-flash` (declared pointer alias) | yes → `deepseek` | yes, inherited from canonical `deepseek-v4.1-flash` | the vendor's moving "current Flash" id, declared with a read date; `deepseek-v4-flash`, `deepseek-v4-pro`, and every other DeepSeek id keep the family block |
 | `openai-gpt-`, `anthropic-claude-` (design-qualified aliases) | yes → `gpt` / `claude` | yes, through the design family | concrete models.dev/OpenCode serving ids carry these sub-prefixes; their catalog `base_model` fields establish the underlying design family |
 | other `openai-`, `anthropic-` vendor-qualified ids | recognized as model targets, family `unknown` | no → `generic` | vendor qualification alone does not establish a design; O-series, image, and emerging ids remain uncalibrated |
+| `jev` (non-generative) | yes | no, and none applies → no calibration pair | recognized, contracted (`jev-1.13.0`, with `jev-latest` and `jev-preview` as declared aliases), priced with a free output side, and in no chain by decision; the route answers `model_refused` and both chain editors refuse it. The coverage audit reports `effort`, `category_projection`, and `provider_eligibility` as `missing`, which is the honest reading for a model with no effort parameter and no chain membership — greening any of them would need an invented rung or an invented chain entry |
 | `minimax` | yes | no → `generic` | prefix landed in #1304 (`MiniMax-M3`, released 2026-05-31, and `MiniMax-M2.7`, 2026-03-18, per minimax.io release notes and the platform.minimax.io model list); the calibration pair waits on an observed failure mode or a provider-stated characteristic worth countering |
 | emerging families | no → `unknown` | no → `generic` | add a prefix and a calibration pair when one lands (the #1051/#1052 pattern) |
 

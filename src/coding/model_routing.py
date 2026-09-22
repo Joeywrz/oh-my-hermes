@@ -56,6 +56,11 @@ MODEL_ROUTE_STATUSES: Final[tuple[str, ...]] = (
     "choice_required",
     "model_unrouted",
     "no_model_catalog",
+    # The request named a model whose documented output is a typed answer,
+    # not text (`model_class(...) == "non_generative"`). Nothing is prepared:
+    # no model, no effort, no chain. Distinct from `model_unrouted`, which
+    # leaves the executor CLI default in place and still runs.
+    "model_refused",
 )
 
 MODEL_ROUTE_PROVENANCES: Final[tuple[str, ...]] = (
@@ -504,6 +509,10 @@ _MODEL_FAMILY_PREFIXES: Final[tuple[tuple[str, str], ...]] = (
     ("deepseek-", "deepseek"),
     ("codestral-", "codestral"),
     ("solar-", "solar"),
+    # TypeSafe's Jev (docs.typesafe.ai/models, read 2026-09-21): recognized
+    # like any other family so its ids get a contract, a price, and a named
+    # refusal instead of falling to `unknown` and being prepared as generic.
+    ("jev-", "jev"),
 )
 _MODEL_FAMILY_ALIASES: Final[tuple[tuple[str, str], ...]] = (
     ("openai-gpt-", "gpt"),
@@ -513,6 +522,29 @@ _MODEL_FAMILY_ALIASES: Final[tuple[tuple[str, str], ...]] = (
 )
 _MODEL_FAMILY_ALIAS_EXCLUSIONS: Final[tuple[str, ...]] = ("openai-gpt-image-",)
 _CLAUDE_TIER_ALIASES: Final[frozenset[str]] = frozenset({"opus", "sonnet", "haiku", "fable", "mythos"})
+# Bare ids whose spelling IS the family label. `jev` is a served id, not a
+# vendor word: TypeSafe's own docs send it in the `model` field and a gateway
+# spells it `typesafe/jev`, which strips to the same token. That is why it
+# classifies where the bare vendor words (`deepseek`, `minimax`) deliberately
+# stay `unknown` — those name a catalog, this names a model.
+_BARE_MODEL_ALIASES: Final[frozenset[str]] = frozenset({"jev"})
+
+# A model class says what a model can be ASKED to do, never how well it does
+# it. `generative` is the default and the only class OMH prepares coding work
+# for. `non_generative` names a model whose documented output is a typed
+# answer over options the caller supplies: TypeSafe's Jev returns a Choice, a
+# Score, or a Noul, and its own jaggedness page states it "is not trained to
+# generate text" (docs.typesafe.ai/model-jaggedness/jev-1.13, read
+# 2026-09-21). Such a model is recognized, contracted, and priced like any
+# other, and refused wherever OMH would otherwise prepare it to write code.
+GENERATIVE_MODEL_CLASS: Final[str] = "generative"
+NON_GENERATIVE_MODEL_CLASS: Final[str] = "non_generative"
+# The vocabulary for the optional `model_class` key a contract record
+# declares. `model_class()` below is structurally confined to these two, but a
+# contract writes its own value by hand, and a misspelled one would render and
+# route as generative without a word.
+MODEL_CLASSES: Final[tuple[str, ...]] = (GENERATIVE_MODEL_CLASS, NON_GENERATIVE_MODEL_CLASS)
+NON_GENERATIVE_MODEL_FAMILIES: Final[frozenset[str]] = frozenset({"jev"})
 
 
 def model_family(model_id: str) -> str:
@@ -526,6 +558,8 @@ def model_family(model_id: str) -> str:
         normalized = normalized.rsplit("/", 1)[1]
     if normalized in _CLAUDE_TIER_ALIASES:
         return "claude"
+    if normalized in _BARE_MODEL_ALIASES:
+        return normalized
     if normalized.startswith(_MODEL_FAMILY_ALIAS_EXCLUSIONS):
         return "unknown"
     for prefix, family in _MODEL_FAMILY_ALIASES:
@@ -535,6 +569,21 @@ def model_family(model_id: str) -> str:
         if normalized.startswith(prefix):
             return family
     return "unknown"
+
+
+def model_class(model_id: str) -> str:
+    """Return `generative` or `non_generative` for one model id.
+
+    The class is a property of what the vendor trained, not of one version,
+    so it is read off the family: every Jev id answers the same way. An id
+    OMH does not recognize is `generative` — the default keeps every model
+    the catalog has never met routing exactly as it routes today.
+    """
+    return (
+        NON_GENERATIVE_MODEL_CLASS
+        if model_family(model_id) in NON_GENERATIVE_MODEL_FAMILIES
+        else GENERATIVE_MODEL_CLASS
+    )
 
 
 def resolve_model_route(
@@ -556,9 +605,13 @@ def resolve_model_route(
     """Return the deterministic prepared model route for one executor profile.
 
     Four stages, each recorded in `attempted[]`: an explicitly requested model
-    always wins (passthrough, never rejected); otherwise a declared role routes
-    to its chain head; a role whose chain is missing is an explicit choice;
-    no data leaves the executor CLI default in place as a named outcome.
+    wins over every catalog (passthrough, never adjudicated on quality) and is
+    refused only when its class cannot do the work at all — a
+    `non_generative` model returns a typed answer and cannot write code, so it
+    is refused by name with `status: "model_refused"` rather than prepared;
+    otherwise a declared role routes to its chain head; a role whose chain is
+    missing is an explicit choice; no data leaves the executor CLI default in
+    place as a named outcome.
 
     Injection precedence — the injected sources never apply to the same
     profile: `chains` (tests only) overrides role chains for profiles WITH a
@@ -618,6 +671,73 @@ def resolve_model_route(
     if raw_category and not category:
         raise ValueError(
             f"unsupported model category {raw_category!r}; expected one of {', '.join(MODEL_CATEGORIES)}"
+        )
+    if model and model_class(model) == NON_GENERATIVE_MODEL_CLASS:
+        # Named only when a contract actually resolves: a recognized
+        # spelling the catalog documents no contract for (the bare `jev` a
+        # gateway serves) would otherwise be sent to a command that errors.
+        refused_projection = model_contract_projection(model)
+        contract_hint = (
+            f" `omh coding model-contract --model {refused_projection['contract_model_id']}` "
+            "describes what it can answer."
+            if refused_projection is not None
+            else ""
+        )
+        # Decided from the requested id alone, before any catalog is read,
+        # so every profile refuses the same way and the recommendation path
+        # below cannot route around it. That is also why `catalog_kind` is a
+        # constant here rather than a reading: nothing adjudicated, so the
+        # field carries the default, and a route that resolved on the same
+        # arguments would report `operator_category_config` or
+        # `local_inventory` where this one reports the default. The Hermes
+        # value is the one exception, and it follows from the call having
+        # supplied a confirmed-active set, not from a table being read. No
+        # model and no effort are prepared, so neither is reported and no
+        # `effort_change` is emitted: there is nothing a requested effort
+        # could have changed into. The refusal record carries the id so a
+        # JSON consumer never parses the sentence.
+        return _route_payload(
+            profile,
+            status="model_refused",
+            provenance="request_named_model",
+            role=normalized_role,
+            selected_model="",
+            selected_reasoning_effort="",
+            catalog_kind=(
+                "editorial_recommendations"
+                if profile == "hermes" and active_models is not None
+                else MODEL_CATALOG_KIND
+            ),
+            domain=domain,
+            depth=depth,
+            category=category,
+            chain=[],
+            attempted=[
+                {
+                    "stage": "requested_model",
+                    "outcome": "refused",
+                    "reason": (
+                        f"request names `{model}`, a {NON_GENERATIVE_MODEL_CLASS} model "
+                        "that cannot write code"
+                    ),
+                }
+            ],
+            candidates=[],
+            refusal={
+                "kind": "non_generative_model",
+                "requested_model": model,
+                "reason": (
+                    f"`{model}` answers with a typed Choice, Score, or Noul over options the "
+                    "caller supplies and is not trained to generate text, so no coding handoff "
+                    "can be prepared for it"
+                ),
+            },
+            reasons=role_reasons
+            + [
+                f"The request names `{model}`, a {NON_GENERATIVE_MODEL_CLASS} model; OMH prepares "
+                "no model and no effort for it. Name a model that writes code."
+                + contract_hint,
+            ],
         )
     if profile == "hermes" and active_models is not None:
         return _resolve_hermes_recommendation_route(
@@ -747,6 +867,7 @@ def resolve_model_route(
             local_catalog if catalog_kind == "local_inventory" else None,
             attempted,
         )
+    role_chain = _generative_chain(role_chain, attempted)
 
     if model:
         attempted.append(
@@ -1063,19 +1184,40 @@ def _resolve_hermes_recommendation_route(
             active_models=active,
             recommendation_overrides=recommendation_overrides,
         )
+    # Last shaping step on this lane, mirroring the catalog lane: an operator
+    # recommendation document is the hand-edited path that reaches here, and a
+    # chain that filters to empty falls through to the owner-default branch
+    # below rather than preparing a model that answers with a Choice.
+    had_candidates = bool(chain)
+    chain = list(_generative_chain(tuple(chain), attempted))
     if not chain:
+        # Two different conditions land here and the record must not confuse
+        # them. Without candidates the reason is that none was confirmed
+        # active. With candidates that the class filter took, one WAS
+        # confirmed active and was dropped for what it is, and saying "none
+        # was confirmed active" would send a reader looking at their active
+        # set for a fault that is in their recommendation document.
         attempted.append(
             {
                 "stage": "recommendation_chain",
                 "outcome": "owner_default",
-                "reason": "no editorial candidate is confirmed active for Hermes",
+                "reason": (
+                    "every confirmed-active editorial candidate is a "
+                    f"{NON_GENERATIVE_MODEL_CLASS} model"
+                    if had_candidates
+                    else "no editorial candidate is confirmed active for Hermes"
+                ),
             }
         )
         attempted.append(
             {
                 "stage": "executor_default",
                 "outcome": "selected",
-                "reason": "no confirmed recommendation; Hermes default model applies",
+                "reason": (
+                    "no generative recommendation remains; Hermes default model applies"
+                    if had_candidates
+                    else "no confirmed recommendation; Hermes default model applies"
+                ),
             }
         )
         payload = _route_payload(
@@ -1093,8 +1235,14 @@ def _resolve_hermes_recommendation_route(
             candidates=[],
             reasons=role_reasons
             + [
-                "No confirmed-active Hermes recommendation could be resolved, "
-                "so the Hermes default model remains in effect."
+                (
+                    "Every confirmed-active Hermes recommendation is a "
+                    f"{NON_GENERATIVE_MODEL_CLASS} model and none can be prepared to "
+                    "write code, so the Hermes default model remains in effect."
+                    if had_candidates
+                    else "No confirmed-active Hermes recommendation could be resolved, "
+                    "so the Hermes default model remains in effect."
+                )
             ],
         )
         payload["recommendation"] = recommendation
@@ -1700,6 +1848,44 @@ def _effort_change(requested: str, selected: str, kind: str, reason: str) -> dic
     return {"requested": requested, "selected": selected, "kind": kind, "reason": reason}
 
 
+def _generative_chain(
+    role_chain: tuple[Mapping[str, str], ...],
+    attempted: list[dict[str, str]],
+) -> tuple[Mapping[str, str], ...]:
+    """Drop chain entries that cannot write code, naming each one on record.
+
+    Defensive by construction: no shipped chain names a `non_generative`
+    model, `omh model-chains set` refuses to write one, and the operator
+    category config rejects one on read. A hand-edited document is the path
+    that still reaches here, and a chain head that answers with a Choice
+    would otherwise be prepared exactly as if it could implement the unit.
+
+    Applied once per lane, as the last shaping step on each: the catalog
+    chain, and the Hermes editorial chain an operator recommendation document
+    can reorder. Both lanes need it because each builds its chain from its
+    own sources and neither passes through the other. A new chain source
+    belongs upstream of one of those two calls, never behind a third class
+    predicate at its own call site.
+    """
+    kept: list[Mapping[str, str]] = []
+    for entry in role_chain:
+        alias = str(entry.get("model_id", ""))
+        if model_class(alias) == NON_GENERATIVE_MODEL_CLASS:
+            attempted.append(
+                {
+                    "stage": "chain_entry",
+                    "outcome": "skipped",
+                    "reason": (
+                        f"chain entry `{alias}` is a {NON_GENERATIVE_MODEL_CLASS} model "
+                        "and cannot own a coding handoff"
+                    ),
+                }
+            )
+            continue
+        kept.append(entry)
+    return tuple(kept)
+
+
 def _chain_payload(
     options: tuple[Mapping[str, object], ...],
     role_chain: tuple[Mapping[str, str], ...],
@@ -1744,6 +1930,7 @@ def _route_payload(
     domain: str = "",
     depth: str = "",
     category: str = "",
+    refusal: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema_version": CODING_MODEL_ROUTE_SCHEMA_VERSION,
@@ -1782,6 +1969,10 @@ def _route_payload(
         payload["catalog_fingerprint"] = catalog_fingerprint
     if effort_change is not None:
         payload["effort_change"] = effort_change
+    if refusal is not None:
+        # Present only on a refused route, so every payload that routes today
+        # stays byte-identical.
+        payload["refusal"] = dict(refusal)
     contract_projection = model_contract_projection(selected_model)
     if contract_projection is not None:
         payload["model_contract"] = contract_projection

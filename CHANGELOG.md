@@ -18,7 +18,12 @@ All notable changes will be documented here.
   release as the last surface still naming the one before it. The cut now
   dispatches `pages.yml` next to the distribution dispatch it already makes
   for the same reason. No new permission — the job already holds
-  `actions: write`.
+  `actions: write`. That step carries `continue-on-error: true`: by the time
+  it runs the tag, the release and the distribution dispatch have all
+  happened, and a site rebuild that fails for a reason of its own must not
+  repaint a finished cut as a failed one. It still goes red on its own row.
+  The distribution dispatch above is deliberately not treated this way —
+  if that one fails nothing publishes, and red is true.
 
 - **A release body is now bounded by what the surface it is published to
   accepts.** The 2.0.4 cut tagged and pushed, ran its gates green, and then

@@ -276,6 +276,14 @@ class AutoReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('"index.html"', bump)
         self.assertIn('"i18n.js"', bump)
         self.assertIn('- "site/**"', pages)
+        # The dispatch reaches nothing unless Pages still accepts one, and
+        # that trigger lives in the other file, so removing it there would
+        # otherwise break this repair silently.
+        self.assertIn("workflow_dispatch:", pages)
+        # A failed site rebuild must not report a finished release as failed:
+        # every earlier step has already done its work by then.
+        step = self.workflow.split("Dispatch the public site rebuild", 1)[1]
+        self.assertIn("continue-on-error: true", step.split("run: |", 1)[0])
 
 
 if __name__ == "__main__":

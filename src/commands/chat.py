@@ -150,6 +150,9 @@ def cmd_chat_route_hint(args: argparse.Namespace) -> int:
             max_hints=args.max_hints,
             source_metadata=source_metadata,
             include_prompt_context=args.prompt_context,
+            # The homes are what the answerer ladder is read from; without
+            # them the payload still carries the question, with no ladder.
+            paths=_paths(args),
         )
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise OmhError(str(exc)) from exc

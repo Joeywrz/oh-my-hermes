@@ -517,6 +517,94 @@ asking Hermes to do the work now rather than record a learning case. The card
 still stays metadata-only and hint-only until the user or wrapper records the
 missed-route review bundle.
 
+## Undecidable Routes Carry A Typed Question
+
+The deterministic router cannot always decide. A script the shipped trigger
+packs do not cover, a near-tie between two candidates, or a low-confidence score
+each hand the shortlist to model selection, and the same shortlist is also typed
+as a question. `omh chat route`, `omh chat interact`, and the `omh_interact`
+plugin tool carry it as `route.route_question`; `omh chat route-hint` carries it
+as a top-level `route_question` key of `chat_route_hint/v1`. A route the router
+did decide carries no question at all, so the key's presence is readable as "OMH
+could not decide this one". `omh_recommend` and `omh_context` do not carry it:
+they build their payload from the awareness hint and never see the core route.
+
+```sh
+omh chat route-hint --source discord --json "почему сборка падает на main"
+```
+
+Excerpted below: the payload also carries `route_hint`, `route_decision`,
+`generic_tool_checkpoint`, and the rest of `chat_route_hint/v1`, and the
+question carries one `fits::<workflow>` entry per candidate plus its own
+`claim_boundary`, as does each answerer rung. The digest below is one observed
+run; it covers the request and the shortlist together, so it moves whenever
+either does. Read it as a shape and never as a constant.
+
+```json
+{
+  "schema_version": "chat_route_hint/v1",
+  "route_question": {
+    "schema_version": "route_question/v1",
+    "question_digest": "75a002019335e0417d029a244c21975a12f031c7a9abd7c7d11f2c003d1a7808",
+    "reasons": ["no_trigger_coverage", "narrow_score_gap", "low_confidence"],
+    "questions": {
+      "route_choice": {
+        "type": "choice",
+        "instructions": "Which OMH workflow is the best fit for this request? This is a relative choice among the listed options: pick the closest fit, or `none` when the request asks for none of them.",
+        "options": {
+          "none": "No OMH workflow applies; answer the request directly.",
+          "oh-my-hermes": "Router guidance for using oh-my-hermes workflow skills inside Hermes Agent.",
+          "plan": "Hermes Plan workflow: structured planning before execution."
+        }
+      },
+      "fits::plan": {
+        "type": "noul",
+        "instructions": "Does this request ask for the work `plan` does? `plan`: Hermes Plan workflow: structured planning before execution. Answer for this workflow alone, independently of the others."
+      }
+    },
+    "thresholds": {"fits_dispatch": 0.8, "fits_clarify": 0.5}
+  },
+  "route_question_answerers": [
+    {"answerer": "main_model", "status": "available"},
+    {"answerer": "none", "status": "available"}
+  ]
+}
+```
+
+The two question kinds answer different things and carry no invariant between
+them. The Choice is relative and picks WHICH option is closest; each yes/no fit
+question is absolute and judges one workflow on its own, so an answer may fit
+nothing and still name a Choice. The shortlist is cut to the caller's candidate
+limit, which is why `--max-hints 2` and the router's default of three produce
+different digests for one message.
+
+`route_question_answerers` reports what could answer the question on this
+machine and is a report, never a recommendation. `main_model` and `none` are
+always present. A `jev_plugin` rung appears only when a Jev-class plugin was
+detected, at the strongest tier OMH can prove: `installed` when a manifest
+declares a `jev_` tool, `enabled` when Hermes' config also lists the plugin, and
+`observed` when such a tool call has reached dispatch here at least once. OMH
+never calls it, and no text OMH injects into a turn names a third-party tool.
+
+An answer is recorded with the `omh_route_answer` plugin tool and changes
+nothing: the deterministic route stays in force whether the question is answered
+or not. The record is written so the answerer can be measured: it embeds the
+`routing_question_answers/v1` row that `omh chat route-questions score --answers
+<dir>` reads, so a second opinion is scored against OMH's own routing corpora.
+`confidence_source` names who spoke, never how good the number is:
+`self_reported` when the host model answered about itself, `answerer_declared`
+when a plugin reported a number OMH did not observe. An answer whose digest
+names a question the message cannot produce is refused rather than recorded.
+
+The record also carries `message_sha256`, the sha256 of the raw request, and
+repeats it on the embedded row. That is what a scorer joins on, because the
+digest covers the shortlist and one shortlist serves every request the router
+could not place. Send `message` and OMH derives the hash itself; send
+`message_sha256` when the hash is at hand but the request text is not. Sending
+both with different values is refused, since the two name different requests.
+Send neither and the record identifies no request, recorded as an empty string
+rather than a hash of nothing.
+
 ## Missed OMH Route Capture
 
 If Hermes or the user says a response did not use the expected OMH workflow, the

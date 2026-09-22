@@ -21,6 +21,7 @@ from .compound_intent import distinct_complete_domain_signals
 from .action_copy import next_action_label as _route_next_action_label
 from .candidate_handoff import build_candidate_handoff
 from .decision_contract import build_route_decision_contract
+from .route_question import build_route_question_for_candidate_handoff
 from .domain_signals import (
     DomainRouteSignal,
     classify_clarification_relevance,
@@ -1642,6 +1643,27 @@ def _enriched_route(
     candidate_handoff = build_candidate_handoff(route, matching_message, relevance=relevance)
     if candidate_handoff:
         route["candidate_handoff"] = candidate_handoff
+        # The same shortlist, typed as a question an answerer can answer
+        # without reading this repo: one relative Choice over the candidates
+        # plus one absolute yes/no per candidate. It is built from the handoff
+        # rather than from the recommendations because the handoff is the
+        # shortlist, and a second assembler here would give two lists that can
+        # disagree. Decidable routes carry no question at all, which is what
+        # keeps this key readable as "OMH could not decide this one".
+        #
+        # Through the shared helper, not by assembling the arguments here. The
+        # offline corpus projects the same message, and an answer recorded on
+        # one side is scored against the other, so the two have to produce
+        # byte-identical inputs. Two call sites building them by hand is how
+        # they drift, and the drift is silent: the digests stop matching and
+        # every recorded answer lands as unmatched, which is the defect this
+        # replaced. The helper hashes the RAW message through `message_digest`
+        # rather than `matching_message`, because the value has to agree with
+        # what every wrapper surface reports and `routing_record_payload`
+        # reports the raw message's hash.
+        route["route_question"] = build_route_question_for_candidate_handoff(
+            candidate_handoff, message=message
+        )
     if (
         candidate_handoff
         and relevance.applies
@@ -2420,6 +2442,9 @@ def _copy_public_route_payload(payload: dict[str, object]) -> dict[str, object]:
     candidate_handoff = route.get("candidate_handoff")
     if isinstance(candidate_handoff, dict):
         route["candidate_handoff"] = _clone_jsonish(candidate_handoff)
+    route_question = route.get("route_question")
+    if isinstance(route_question, dict):
+        route["route_question"] = _clone_jsonish(route_question)
     return route
 
 

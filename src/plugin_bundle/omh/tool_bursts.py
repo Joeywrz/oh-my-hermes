@@ -82,8 +82,20 @@ from typing import Any
 # Reuse the awareness ledger's portable lock and atomic-write primitives so
 # there is exactly one file-locking implementation in the plugin.
 from .awareness_delivery import _awareness_delivery_lock, _write_delivery_record
+from .jev_sidekick import JEV_TOOL_PREFIX
 
 TOOL_BURSTS_SCHEMA_VERSION = "omh_tool_bursts/v1"
+
+# A durable scalar, not a ledger scan: the entry ring is capped at
+# `MAX_TOOL_BURST_ENTRIES` and a scan for a `jev_` name would report
+# "observed" until 200 unrelated calls pushed it out, then silently report
+# "never" -- a reader cannot tell that from a plugin that stopped being used.
+# The scalar is the same shape `post_tool_call_observed_at` uses for the same
+# reason. A TIMESTAMP only: no tool name, no arguments, no session. That this
+# install has seen SOME `jev_`-prefixed tool run is the whole of the fact the
+# answerer ladder needs, and it is the most that can be recorded without
+# turning a burst ledger into a record of what a third-party plugin was asked.
+JEV_TOOL_OBSERVED_KEY = "jev_tool_observed_at"
 TOOL_ACTIVITY_SCHEMA_VERSION = "omh_tool_activity/v1"
 TOOL_BURSTS_FILE = "tool-bursts.json"
 # Raised from 40 (2026-08, HUD liveness fix): the ring ceiling used to be
@@ -1083,6 +1095,12 @@ def record_tool_call(
             entries = record["entries"]
             entries.append({"tool": name, "ts": tick, "id": call_id, "open_at_tick": open_at_tick})
             entries = entries[-MAX_TOOL_BURST_ENTRIES:]
+            # Stamped here because pre_tool_call is where the name is, and
+            # only for a call that reached dispatch -- a call the gate above
+            # refused never ran and must not be recorded as one that did.
+            jev_observed_at = record["jev_tool_observed_at"]
+            if name.startswith(JEV_TOOL_PREFIX):
+                jev_observed_at = max(tick, jev_observed_at)
             if call_id:
                 open_calls[call_id] = {
                     "tool": name,
@@ -1109,6 +1127,7 @@ def record_tool_call(
                     "open_calls": open_calls,
                     "repeat_streaks": repeat_streaks,
                     "post_tool_call_observed_at": record["post_tool_call_observed_at"],
+                    JEV_TOOL_OBSERVED_KEY: jev_observed_at,
                     "write_failures": _merged_write_failures(record["write_failures"]),
                 },
                 # The one ledger written on every tool call, and the only
@@ -1194,6 +1213,7 @@ def record_repeat_refusal(
                     "open_calls": _prune_expired_opens(record["open_calls"], now=tick),
                     "repeat_streaks": streaks,
                     "post_tool_call_observed_at": record["post_tool_call_observed_at"],
+                    JEV_TOOL_OBSERVED_KEY: record["jev_tool_observed_at"],
                     "write_failures": _merged_write_failures(record["write_failures"]),
                 },
                 # The one ledger written on every tool call, and the only
@@ -1270,6 +1290,7 @@ def record_tool_call_close(
                     "open_calls": open_calls,
                     "repeat_streaks": streaks,
                     "post_tool_call_observed_at": observed_at,
+                    JEV_TOOL_OBSERVED_KEY: record["jev_tool_observed_at"],
                     "write_failures": _merged_write_failures(record["write_failures"]),
                 },
                 # The one ledger written on every tool call, and the only
@@ -1362,6 +1383,7 @@ def _read_record(path: Path) -> dict[str, Any]:
         "open_calls": _sanitized_open_calls(raw),
         "repeat_streaks": _raw_repeat_streaks(raw),
         "post_tool_call_observed_at": _sanitized_observed_at(raw),
+        "jev_tool_observed_at": _sanitized_timestamp(raw, JEV_TOOL_OBSERVED_KEY),
         "write_failures": _sanitized_write_failures(raw),
     }
 
@@ -1384,7 +1406,11 @@ def _sanitized_write_failures(raw: dict[str, Any]) -> dict[str, int]:
 
 
 def _sanitized_observed_at(raw: dict[str, Any]) -> float:
-    value = raw.get("post_tool_call_observed_at")
+    return _sanitized_timestamp(raw, "post_tool_call_observed_at")
+
+
+def _sanitized_timestamp(raw: dict[str, Any], key: str) -> float:
+    value = raw.get(key)
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
 
 
@@ -1799,11 +1825,25 @@ def _read_snapshot(omh_home: str, *, now: float) -> dict[str, Any]:
         # read nothing beyond the dictionary lookup for that row.
         "repeat_streaks": _prune_stale_streaks(record["repeat_streaks"], now=now),
         "post_tool_call_observed_at": record["post_tool_call_observed_at"],
+        "jev_tool_observed_at": record["jev_tool_observed_at"],
         # Merged with this process's pending count so a reader in the same
         # process as the writer is not told zero while the writer is still
         # carrying failures it has not managed to record.
         "write_failures": _merged_write_failures(record["write_failures"]),
     }
+
+
+def jev_tool_observed_at(omh_home: str = "") -> float:
+    """When this install last dispatched a `jev_`-prefixed tool call, or 0.0.
+
+    Durable: the value survives the entry ring's 200-call window, so a reader
+    is told "this machine has seen one" rather than "one happened recently".
+    Zero means no such call has been recorded, which on a host that never
+    fires pre_tool_call is the same reading as on one where nothing ran --
+    the ladder reports the tier it can prove and never the absence of a
+    plugin from the absence of a tick.
+    """
+    return _read_record(tool_bursts_path(omh_home))["jev_tool_observed_at"]
 
 
 def _activity_from_snapshot(snapshot: dict[str, Any], shot: dict[str, Any], *, now: float) -> dict[str, Any]:

@@ -11,6 +11,7 @@ from ..awareness import awareness_route_hint
 from ..degradation import safe_error_type as _safe_error_type
 from ..host_context import active_main_agent_model
 from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, observe_plugin_tool_call
+from ..route_answerers import answerer_ladder
 
 OMH_INTERACT_SCHEMA = {
     "name": "omh_interact",
@@ -148,7 +149,36 @@ def omh_interact_handler(args: dict, **kwargs) -> str:
         payload = _fallback_interaction(args, message, error=str(exc))
     except Exception as exc:
         payload = _backend_error_interaction(args, message, error_type=type(exc).__name__)
+    _attach_answerer_ladder(payload, args)
     return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
+
+
+def _attach_answerer_ladder(payload: dict[str, Any], args: dict) -> None:
+    """Name who could answer this envelope's route question, when there is one.
+
+    The ladder sits beside the route rather than inside it: the routing
+    payload is a pure function of the message and says nothing about the
+    machine, and a per-machine list nested under it would travel into every
+    record built from a route. Attached only when the route carries a
+    question, because that is the only time the answer to "who could answer
+    it" means anything.
+
+    It is a report, never a recommendation. A rung naming an installed
+    third-party plugin is a fact about this machine; OMH does not call it and
+    does not ask the model to.
+    """
+    route = payload.get("route")
+    if not isinstance(route, dict) or not isinstance(route.get("route_question"), dict):
+        return
+    try:
+        omh_home = runtime_paths.plugin_home(args.get("omh_home"))
+        hermes_home = runtime_paths.plugin_home(args.get("hermes_home"), hermes=True)
+    except (runtime_paths.RuntimeBindingError, OSError, RuntimeError):
+        # A home that will not bind costs the ladder, not the envelope: the
+        # question is still there to answer, and the model is still one of
+        # the answerers whether or not OMH could read the plugin directory.
+        return
+    payload["route_question_answerers"] = answerer_ladder(hermes_home, omh_home)
 
 
 class _UnsupportedSourceError(ValueError):

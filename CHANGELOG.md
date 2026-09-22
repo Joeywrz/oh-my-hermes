@@ -4,6 +4,70 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A route OMH cannot decide now carries the question it could not answer,
+  and an answer to it can be recorded and measured.** When the deterministic
+  router reaches an undecidable route -- a script its trigger tables do not
+  cover, a near-tie between two candidates, or a low-confidence score -- it
+  already hands the shortlist to model selection. It now also types that
+  shortlist as a question: one relative Choice over the candidates plus `none`,
+  and one absolute yes/no per candidate, built by the same builder the routing
+  corpora are exported with, from the handoff's own candidates so the two
+  cannot name different shortlists. `omh chat route`, `omh chat interact`, `omh
+  chat route-hint` (as a new top-level key of `chat_route_hint/v1`) and the
+  `omh_interact` plugin tool carry it. `omh_recommend`, `omh_context` and the
+  awareness rail do not, and that is a statement about wiring rather than
+  policy: those three build their own payload from the awareness hint and never
+  see the core route.
+
+  Nothing about the route changes. A decidable route carries no question at
+  all, an unanswered question leaves the deterministic route in force, and a
+  recorded answer does not re-route anything either. What an answer is FOR is
+  measurement: `omh_route_answer` writes one `route_question_answer/v1` per
+  session and question under the OMH home, embedding the same
+  `routing_question_answers/v1` row that `omh chat route-questions score
+  --answers <dir>` already reads, so an answerer is scored against OMH's own
+  corpora instead of writing into a ledger nothing reads. An answer whose
+  digest names a different question is refused rather than recorded, because a
+  record joined to the wrong question measures the wrong thing.
+
+  The record names the request it answers for, not only the question. It
+  carries `message_sha256` over the raw request and repeats it on the embedded
+  row, so a row read out of a JSONL file still identifies its own request and a
+  scorer can join on it. A caller sends the request and OMH derives the hash,
+  or sends the hash when the text is not at hand; sending both with different
+  values is refused, because they name different requests and choosing one
+  would record the answer against a request nobody meant.
+
+  `confidence_source` is derived from who answered, never taken as an argument
+  and never called calibrated: `self_reported` when the host model answered
+  about itself, `answerer_declared` when a plugin reported a number OMH did not
+  observe. OMH sees only which answerer the caller named -- not the request,
+  not the response, not whether anything was called at all -- and a field
+  asserting a vendor's calibration would be a claim about a model written from
+  a tool argument.
+
+  The answerer ladder reports what could answer the question on this machine,
+  one provable tier at a time: a Jev-class plugin whose manifest declares a
+  `jev_` tool is `installed`, one Hermes' own config also enables is `enabled`,
+  and one whose tool has reached dispatch here at least once is `observed`.
+  That last tier is a durable timestamp in the burst ledger rather than a scan
+  of it, because the entry ring holds 200 calls and a scan would report a
+  plugin as never used after 200 unrelated ones. Every tier under-claims by
+  construction: a config shape the bundle's reader cannot follow reports
+  `installed` rather than `enabled`, and an unreadable plugins directory drops
+  the rung instead of inventing one.
+
+  The ladder is a report and never a recommendation. No text OMH injects into a
+  turn names a third-party tool, and no rail was added for this: OMH warning
+  about a plugin's egress in `omh doctor` while nominating it in the prompt
+  would be the same product saying two things. A test pins that the prompt
+  context is byte-identical to the awareness text it was always built from.
+
+  One rollout note: the HUD reads its required tool list from the bundle's own
+  `PROVIDED_TOOLS`, so an install that has not run `omh update` will report the
+  new tool as missing until it does.
+
+
 - **The cases that gate OMH's router are now questions anything can answer, so
   a second opinion can be measured on the same ground.** `omh chat
   route-questions export` projects both shipped routing corpora into typed

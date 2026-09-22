@@ -391,7 +391,10 @@ class RuntimeBindingReviewTests(unittest.TestCase):
                  'probe': ('omh_probe', {}), 'status': ('omh_status', {}), 'hud': ('omh_hud', {}),
                  'todo': ('omh_todo', {'action': 'show'}), 'chat': ('omh_interact', {'message': 'hello'}),
                  'run_summary': ('omh_run_summary', {}),
-                 'document_plan': ('omh_document_plan', {'action': 'show', 'plan_id': '0123456789ab'})}
+                 'document_plan': ('omh_document_plan', {'action': 'show', 'plan_id': '0123456789ab'}),
+                 'route_answer': ('omh_route_answer', {'question_digest': '0' * 64,
+                                                       'answered_by': 'main_model',
+                                                       'route_choice': 'none'})}
         with patch.dict(sys.modules, native_modules(self.home, self.store)):
             for file, (name, args) in tools.items():
                 module = importlib.import_module('omh.plugin_bundle.omh.tools.' + file + '_tool')

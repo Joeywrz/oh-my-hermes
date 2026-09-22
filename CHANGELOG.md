@@ -4,6 +4,21 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A board readback is now measured after it is serialized, and is no longer
+  run through diff padding.** The ceiling that keeps `kanban_show`,
+  `kanban_list` and `kanban_attachments` inside the context budget was applied
+  to the record before it became JSON, so a board whose text needed escaping
+  crossed the budget by whatever the escaping added. It is measured on the
+  bytes the host actually receives, and a readback that is cut says so, with
+  the fields it dropped named rather than silently absent.
+
+  The same records were also passing through the diff band-padding path, which
+  splits on line boundaries and writes literal newlines back. A board carrying
+  a Unicode line separator therefore split inside a JSON string and came back
+  as invalid JSON. Kanban records are excluded from that padding, which is what
+  the padding was always for: diffs, not structured results.
+
+
 - **An engagement nudge now counts what a tool call did, not that it was
   made.** The counters behind the plan and delegation nudges were incremented
   from the fact of a watched tool call, so a write that the host refused, a

@@ -16,22 +16,25 @@ from ..degradation import (
 from ..delegation_route_restore import restore_delegation_baseline
 from ..engagement_nudges import record_engagement_observer_failure
 from ..host_observation import host_session_id, observe_plugin_hook_call
-from .nudge_budget import note_delegated_session
+from .nudge_budget import (
+    DELEGATION_LATCH_FIELD,
+    ENGAGEMENT_LOCK,
+    latch_engagement,
+    note_delegated_session,
+)
 
 
 def subagent_start(**kwargs) -> None:
     """Record that ``child_session_id`` names a delegated lane, not an orchestrator.
 
-    The one thing OMH takes from this hook. A delegated child runs under its
-    own session id, and the tool-result seam the engagement nudges ride carries
-    no agent identity, so without this record those nudges cannot tell a
-    subagent from the session that spawned it -- and would ask a subagent to
-    declare the parent's checklist.
+    A child is suppressed in its own home/session; the parent gets a durable
+    lane_started latch. The host emits this after constructing/attaching the
+    child, before it runs: this is child-lifecycle evidence, never completion
+    or a model-call receipt. Batch children stay distinct; the parent latch is
+    idempotent. Missing lifecycle evidence cannot be replaced by a tool name.
 
-    Observation only: it writes no file, reads no runtime state, returns
-    nothing, and never blocks a spawn. A host that does not call it is a host
-    with no children to mistake for orchestrators, because the same
-    `tools/delegate_tool.py` that creates a child emits this.
+    Observation only: never blocks or starts a spawn. A host that omits the
+    callback leaves delegation unknown, not successful.
 
     Nothing here raises. The caller already wraps the invocation in its own
     quiet block, so a raise would be swallowed and this would simply stop
@@ -42,7 +45,16 @@ def subagent_start(**kwargs) -> None:
     """
     try:
         observe_plugin_hook_call("subagent_start", kwargs)
-        note_delegated_session(kwargs.get("child_session_id"))
+        home = str(runtime_paths.plugin_home(kwargs.get("omh_home")))
+        runtime_paths.plugin_home(kwargs.get("hermes_home"), hermes=True)
+        child = kwargs.get("child_session_id")
+        parent = kwargs.get("parent_session_id")
+        if not isinstance(child, str) or not child.strip():
+            return None
+        with ENGAGEMENT_LOCK:
+            note_delegated_session(child, omh_home=home)
+            if isinstance(parent, str) and parent.strip() and parent != child:
+                latch_engagement(parent, DELEGATION_LATCH_FIELD, omh_home=home)
     except Exception as exc:  # noqa: BLE001 - swallowed upstream either way;
         # failing to record one child must not interrupt that child's spawn.
         # Recorded rather than silent: see `record_engagement_observer_failure`.

@@ -4,6 +4,28 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **An engagement nudge now counts what a tool call did, not that it was
+  made.** The counters behind the plan and delegation nudges were incremented
+  from the fact of a watched tool call, so a write that the host refused, a
+  patch that applied nothing, and a write that landed all moved the same
+  threshold by the same amount. `_mutation_effect` now classifies a file
+  mutation as `landed`, `partial` or `unknown` from the same two facts Hermes'
+  own `file_mutation_result_landed` reads, and only `landed` advances the
+  threshold; the other two are counted under their own fields so the difference
+  stays readable rather than disappearing.
+
+  The read side gains the same distinction. A pre-dispatch refusal is not
+  search effort, so a `blocked` status no longer bumps the direct-read counter,
+  and a call whose arguments could not be fingerprinted is declined by name as
+  `unknown_read_identity` rather than counted as a new distinct read.
+
+  The classification runs at two seams because one is not enough on the real
+  host: the executor suppresses the inner post-tool hook for a delegated call
+  while `transform_tool_result` still fires inside it, so a design that watched
+  only the post hook would have seen nothing for exactly the calls a delegation
+  nudge is about.
+
+
 - **Accepted native work can be resumed from a bounded scope checkpoint, with
   durable verification, review and QA declarations.** `omh_todo` adds
   `checkpoint`, `record` and `recall`; no new engine or router state lookup is

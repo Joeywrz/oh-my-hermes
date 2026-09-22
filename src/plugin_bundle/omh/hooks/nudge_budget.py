@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any
 import json
 import time
+from threading import RLock
 
 from .. import runtime_paths
 # The one file-locking and atomic-write implementation in this bundle, reused
@@ -156,7 +157,9 @@ DIRECT_READS_FIELD = "direct_reads"
 PLAN_NUDGES_FIELD = "plan_nudges"
 DELEGATION_NUDGES_FIELD = "delegation_nudges"
 PLAN_LATCH_FIELD = "plan_declared"
-DELEGATION_LATCH_FIELD = "lane_routed"
+# Old lane_routed records included status queries and failed attempts. They
+# cannot be migrated as evidence of a child, so preserve budgets but ignore that latch.
+DELEGATION_LATCH_FIELD = "lane_started"
 
 # What survives the process, and why only these four. `MAX_ENGAGEMENT_NUDGES`
 # is two per kind per SESSION, and the map above is per PROCESS -- so a plugin
@@ -199,20 +202,40 @@ MAX_DISTINCT_DIRECT_READS = 64
 # fields above.
 _LOADED_MARKER = "loaded_from_store"
 
-_ENGAGEMENT_COUNTS: "OrderedDict[str, dict[str, int]]" = OrderedDict()
+_ENGAGEMENT_COUNTS: "OrderedDict[tuple[str, str], dict[str, int]]" = OrderedDict()
+ENGAGEMENT_LOCK = RLock()
+# Post and transform may run in either order. Retain only bounded metadata,
+# never arguments or results. Eviction/restart loses correlation, not budgets.
+MAX_ENGAGEMENT_CALLS = 4096
+_ENGAGEMENT_CALLS: OrderedDict[tuple[str, ...], dict[str, Any]] = OrderedDict()
+
+
+def engagement_call(session: str, call: str, turn: str, tool: str, *, omh_home: str) -> dict[str, Any]:
+    key = (*_engagement_key(session, omh_home), turn, call, tool)
+    row = _ENGAGEMENT_CALLS.pop(key, None)
+    if row is None:
+        row = {}
+    _ENGAGEMENT_CALLS[key] = row
+    while len(_ENGAGEMENT_CALLS) > MAX_ENGAGEMENT_CALLS:
+        _ENGAGEMENT_CALLS.popitem(last=False)
+    return row
+
+
+def _engagement_key(session: str, omh_home: str) -> tuple[str, str]:
+    return (str(engagement_nudge_store_path(omh_home).parent.resolve()), session)
 
 # Distinct direct reads per session, as an ordered set of digests. A loop
 # repeating one search adds one member and then nothing, which is the whole
 # point: five identical searches are one search, and must not spend a budget
 # meant for a search pass (#1701).
-_DISTINCT_DIRECT_READS: "OrderedDict[str, OrderedDict[str, bool]]" = OrderedDict()
+_DISTINCT_DIRECT_READS: "OrderedDict[tuple[str, str], OrderedDict[str, bool]]" = OrderedDict()
 
 # Session ids the host reported as delegated children (`subagent_start`'s
 # `child_session_id`). A child runs under its OWN session id, so per-session
 # keying alone does not separate it from the orchestrator, and the tool-result
 # seam the nudges ride carries no agent identity at all. This is the only
 # record-based way this bundle can tell the two apart.
-_DELEGATED_SESSIONS: "OrderedDict[str, bool]" = OrderedDict()
+_DELEGATED_SESSIONS: "OrderedDict[tuple[str, str], bool]" = OrderedDict()
 
 # The third thing, and the one whose eviction fails the OTHER way. The value
 # is `(plan stamp, turns already rendered against it)`: the reconciliation
@@ -236,9 +259,10 @@ def bump_engagement_count(session_id: object, field: str, *, omh_home: str = "")
     if not key:
         return 0
     row = _engagement_row(key, omh_home)
-    _ENGAGEMENT_COUNTS.pop(key, None)
+    memory_key = _engagement_key(key, omh_home)
+    _ENGAGEMENT_COUNTS.pop(memory_key, None)
     row[field] = int(row.get(field, 0)) + 1
-    _ENGAGEMENT_COUNTS[key] = row
+    _ENGAGEMENT_COUNTS[memory_key] = row
     while len(_ENGAGEMENT_COUNTS) > MAX_TRACKED_SESSIONS:
         _ = _ENGAGEMENT_COUNTS.popitem(last=False)
     if field in DURABLE_ENGAGEMENT_FIELDS:
@@ -259,7 +283,7 @@ def engagement_count(session_id: object, field: str, *, omh_home: str = "") -> i
         return 0
     if field in DURABLE_ENGAGEMENT_FIELDS:
         return int(_engagement_row(key, omh_home).get(field, 0))
-    return int((_ENGAGEMENT_COUNTS.get(key) or {}).get(field, 0))
+    return int((_ENGAGEMENT_COUNTS.get(_engagement_key(key, omh_home)) or {}).get(field, 0))
 
 
 def latch_engagement(session_id: object, field: str, *, omh_home: str = "") -> None:
@@ -268,11 +292,12 @@ def latch_engagement(session_id: object, field: str, *, omh_home: str = "") -> N
     A latch, not a decay: once a plan is declared or a lane is routed, the
     nudge that asked for it has no remaining question to ask.
     """
-    _ = bump_engagement_count(session_id, field, omh_home=omh_home)
+    if not engagement_count(session_id, field, omh_home=omh_home):
+        _ = bump_engagement_count(session_id, field, omh_home=omh_home)
 
 
-def record_distinct_direct_read(session_id: object, key: str) -> int:
-    """Admit one `(tool, argument digest)` pair and return the distinct count.
+def record_distinct_direct_read(session_id: object, key: str, *, omh_home: str = "") -> int:
+    """Admit a new `(tool, argument digest)` pair; return 0 for a repeat.
 
     The counter this replaced counted CALLS, so five different greps and one
     grep five times were the same event to it. Measured: session
@@ -288,15 +313,18 @@ def record_distinct_direct_read(session_id: object, key: str) -> int:
     session = _session_key(session_id)
     if not session or not key:
         return 0
-    seen = _DISTINCT_DIRECT_READS.pop(session, None) or OrderedDict()
+    memory_key = _engagement_key(session, omh_home)
+    seen = _DISTINCT_DIRECT_READS.pop(memory_key, None) or OrderedDict()
+    repeated = key in seen
     seen.pop(key, None)
     seen[key] = True
     while len(seen) > MAX_DISTINCT_DIRECT_READS:
         _ = seen.popitem(last=False)
-    _DISTINCT_DIRECT_READS[session] = seen
+    _DISTINCT_DIRECT_READS[memory_key] = seen
     while len(_DISTINCT_DIRECT_READS) > MAX_TRACKED_SESSIONS:
         _ = _DISTINCT_DIRECT_READS.popitem(last=False)
-    return len(seen)
+    # A repeated read must not spend a hint even AFTER reaching the threshold.
+    return 0 if repeated else len(seen)
 
 
 def engagement_nudge_store_path(omh_home: str = "") -> Path:
@@ -314,7 +342,8 @@ def _engagement_row(key: str, omh_home: str) -> dict[str, int]:
     pre-#1701 behaviour for that session -- a fresh budget -- rather than
     silencing a nudge on an unreadable file.
     """
-    row = _ENGAGEMENT_COUNTS.get(key)
+    memory_key = _engagement_key(key, omh_home)
+    row = _ENGAGEMENT_COUNTS.get(memory_key)
     if row is not None and row.get(_LOADED_MARKER):
         return row
     row = dict(row or {})
@@ -322,8 +351,8 @@ def _engagement_row(key: str, omh_home: str) -> dict[str, int]:
     for field, value in _read_engagement_store(omh_home).get(key, {}).items():
         if field in DURABLE_ENGAGEMENT_FIELDS:
             row[field] = max(int(row.get(field, 0)), value)
-    _ENGAGEMENT_COUNTS.pop(key, None)
-    _ENGAGEMENT_COUNTS[key] = row
+    _ENGAGEMENT_COUNTS.pop(memory_key, None)
+    _ENGAGEMENT_COUNTS[memory_key] = row
     while len(_ENGAGEMENT_COUNTS) > MAX_TRACKED_SESSIONS:
         _ = _ENGAGEMENT_COUNTS.popitem(last=False)
     return row
@@ -387,7 +416,7 @@ def _persist_engagement_row(key: str, row: dict[str, int], omh_home: str) -> Non
         return
 
 
-def note_delegated_session(child_session_id: object) -> None:
+def note_delegated_session(child_session_id: object, *, omh_home: str = "") -> None:
     """Remember a session id the host reported as a delegated child.
 
     Fed by `subagent_start`, whose `child_session_id` the host emits from the
@@ -397,16 +426,17 @@ def note_delegated_session(child_session_id: object) -> None:
     key = _session_key(child_session_id)
     if not key:
         return
-    _ = _DELEGATED_SESSIONS.pop(key, None)
-    _DELEGATED_SESSIONS[key] = True
+    memory_key = _engagement_key(key, omh_home)
+    _ = _DELEGATED_SESSIONS.pop(memory_key, None)
+    _DELEGATED_SESSIONS[memory_key] = True
     while len(_DELEGATED_SESSIONS) > MAX_TRACKED_SESSIONS:
         _ = _DELEGATED_SESSIONS.popitem(last=False)
 
 
-def session_is_delegated(session_id: object) -> bool:
+def session_is_delegated(session_id: object, *, omh_home: str = "") -> bool:
     """Whether this session is a delegated child the host told us about."""
     key = _session_key(session_id)
-    return bool(key) and key in _DELEGATED_SESSIONS
+    return bool(key) and _engagement_key(key, omh_home) in _DELEGATED_SESSIONS
 
 
 def plan_line_turns_on_record(session_id: object, stamp: object) -> int:
@@ -457,6 +487,7 @@ def reset_nudge_budget() -> None:
     """
     _LAST_NUDGE_STAMPS.clear()
     _ENGAGEMENT_COUNTS.clear()
+    _ENGAGEMENT_CALLS.clear()
     _DISTINCT_DIRECT_READS.clear()
     _DELEGATED_SESSIONS.clear()
     _PLAN_LINE_TURNS.clear()

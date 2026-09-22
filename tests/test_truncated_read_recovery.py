@@ -539,7 +539,9 @@ class ComposedSeamTests(TruncatedReadRecoveryTestCase):
         self.home = str(Path(self._tmp.name) / "omh")
 
     def seam(self, result: str, **args):
+        from uuid import uuid4
         return transform_tool_result(
+            tool_call_id=uuid4().hex, status="ok",
             tool_name="read_file",
             args={"path": PATH, **args},
             result=result,
@@ -572,7 +574,9 @@ class ComposedSeamTests(TruncatedReadRecoveryTestCase):
         for index in range(DELEGATION_NUDGE_DIRECT_READ_THRESHOLD - 1):
             _ = self.seam(WHOLE_FILE_READ, path=f"/src/other-{index}.py")
 
-        both = self.seam(BLOCKED_REFUSAL)
+        # Same starting region but a new bounded request. An IDENTICAL read
+        # must no longer spend another engagement budget after threshold.
+        both = self.seam(BLOCKED_REFUSAL, limit=2)
         self.assertIsNotNone(both)
         parsed = json.loads(str(both))
         self.assertIn(ENGAGEMENT_NUDGE_KEY, parsed)

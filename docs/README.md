@@ -59,6 +59,7 @@ references rather than normal user steps.
 | See which OMH workflow owns each plugin in the active host catalog | [Plugin Catalog Coverage](PLUGIN-CATALOG-COVERAGE.md) |
 | Tell whether a local plugin's declared hooks can block an action or only watch one | [Declared Plugin Hook Contract](PLUGIN-HOOK-CONTRACT.md) |
 | Check complete argument fingerprints, unknown identity and repeat-approval compatibility | [Complete Tool Argument Identity](TOOL-ARGUMENT-IDENTITY.md) |
+| Distinguish engagement outcomes, child starts, and undelivered hint candidates | [Engagement Observation](ENGAGEMENT-OBSERVATION.md) |
 | Tell whether a local plugin can replace its own installed code outside the host update path | [Plugin Self-Update and Code Replacement](PLUGIN-SELF-UPDATE-AUDIT.md) |
 | Choose a situation-level workflow | [Playbooks](PLAYBOOKS.md) |
 | Prepare or verify a release | [Release](RELEASE.md) |

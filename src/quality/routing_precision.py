@@ -6530,8 +6530,80 @@ def routing_precision_errors(payload: Mapping[str, object]) -> list[str]:
     return errors
 
 
-def _evaluate_precision_case(case: RoutingPrecisionCase, *, source: str) -> dict[str, object]:
-    interaction = build_chat_interaction_payload(case.message, source=source)
+def precision_case_interaction(case: RoutingPrecisionCase, *, source: str) -> dict[str, object]:
+    """Route one negative-control case the way its evaluator does.
+
+    The evaluator calls this too, so there is one call and not two that have to
+    be kept the same.
+    """
+    return build_chat_interaction_payload(case.message, source=source)
+
+
+def intervention_case_interaction(case: RoutingInterventionCase, *, source: str) -> dict[str, object]:
+    """Route one intervention case the way its evaluator does.
+
+    The design-direction context is part of the call, not a detail: a case that
+    pins an iteration routes differently without it, so a second reader that
+    built the payload itself would be measuring a different message. The
+    evaluator calls this too, so the two cannot drift apart.
+    """
+    return build_chat_interaction_payload(
+        case.message,
+        source=source,
+        design_direction_iteration_context=case.active_design_direction_iteration,
+    )
+
+
+def precision_case_verdict(
+    case: RoutingPrecisionCase,
+    interaction: dict[str, object],
+    *,
+    source: str,
+) -> dict[str, bool]:
+    """This corpus's own verdict on one negative-control case.
+
+    `overrouted` is the corpus's headline failure metric and `passed` is the
+    full case verdict. Both come straight from the evaluator that
+    `build_routing_precision_demo` counts, so a second reader reports the same
+    thing the gate reports. Re-deriving either from the route payload is how
+    two OMH surfaces end up disagreeing about OMH's own router: `clarify` with
+    a named candidate is a pass here -- the router asked one question instead
+    of opening a workflow, picker, or handoff -- so a predicate that counts it
+    as an intervention turns a large share of this corpus's passes into
+    reported failures, on a corpus the gate holds at zero.
+    """
+    row = _evaluate_precision_case(case, source=source, interaction=interaction)
+    observed = _nested(row, "observed")
+    return {"passed": bool(row.get("passed")), "overrouted": bool(observed.get("overrouted"))}
+
+
+def intervention_case_verdict(
+    case: RoutingInterventionCase,
+    interaction: dict[str, object],
+    *,
+    source: str,
+) -> dict[str, bool]:
+    """This corpus's own pass verdict on one intervention case.
+
+    A miss here is `passed == False`; there is no separate over-route reading,
+    because an intervention case is one the router is supposed to act on.
+    """
+    row = _evaluate_intervention_case(case, source=source, interaction=interaction)
+    return {"passed": bool(row.get("passed"))}
+
+
+def _evaluate_precision_case(
+    case: RoutingPrecisionCase,
+    *,
+    source: str,
+    interaction: dict[str, object] | None = None,
+) -> dict[str, object]:
+    # `interaction` lets a caller that already routed this message hand the
+    # payload in instead of routing it a second time. It changes no verdict --
+    # the evaluator below is unchanged -- and it is what keeps a second reader
+    # of these corpora from routing several hundred messages twice.
+    if interaction is None:
+        interaction = precision_case_interaction(case, source=source)
     response = _nested(interaction, "chat_response")
     route = _nested(interaction, "route")
     response_state = _nested(response, "state")
@@ -6639,12 +6711,15 @@ def _evaluate_precision_case(case: RoutingPrecisionCase, *, source: str) -> dict
     }
 
 
-def _evaluate_intervention_case(case: RoutingInterventionCase, *, source: str) -> dict[str, object]:
-    interaction = build_chat_interaction_payload(
-        case.message,
-        source=source,
-        design_direction_iteration_context=case.active_design_direction_iteration,
-    )
+def _evaluate_intervention_case(
+    case: RoutingInterventionCase,
+    *,
+    source: str,
+    interaction: dict[str, object] | None = None,
+) -> dict[str, object]:
+    # See `_evaluate_precision_case` for why `interaction` is accepted.
+    if interaction is None:
+        interaction = intervention_case_interaction(case, source=source)
     response = _nested(interaction, "chat_response")
     route = _nested(interaction, "route")
     response_state = _nested(response, "state")

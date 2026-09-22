@@ -119,7 +119,14 @@ there is nothing generated to shape, compare, or place:
   generated answers to compare and there is only one generator. The
   measurement that replaces it scores typed answers against a corpus the
   deterministic router already answers, and it is a separate goal from
-  recognition.
+  recognition. That lane is `benchmarks/routing-questions/v1`:
+  `omh chat route-questions export` projects the two shipped routing corpora
+  into typed questions (a Choice over the shortlist plus `none`, one yes/no
+  per candidate) with the router's own answer beside each, `score` reads any
+  answer set against them with every rate carrying its denominator, and the
+  deterministic arm is always the baseline. The external arm takes an
+  operator-supplied answers file, so a decision model is scored without OMH
+  calling it.
 
 What does apply, and what this step therefore produces:
 

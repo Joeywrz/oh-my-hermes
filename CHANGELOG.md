@@ -4,6 +4,112 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The cases that gate OMH's router are now questions anything can answer, so
+  a second opinion can be measured on the same ground.** `omh chat
+  route-questions export` projects both shipped routing corpora into typed
+  questions: one relative Choice over the router's own candidate shortlist plus
+  `none`, and one absolute yes/no per candidate. The two are deliberately
+  separate questions. The Choice picks WHICH workflow and always returns one of
+  its options, which is why `none` has to be one of them; each yes/no decides
+  WHETHER that one workflow is what the request asks for, answerable without
+  reference to the others. An answerer may pick a candidate and still say no to
+  every fit, and the scorer reports that as it stands rather than repairing it.
+
+  `omh chat route-questions score` reads answers and always includes the
+  deterministic arm, so no arm is ever reported alone. It takes a JSONL file of
+  `routing_question_answers/v1` rows or a directory of `route_question_answer/v1`
+  records, which join a corpus item by question digest. A malformed row is
+  counted and named by its line, never dropped: an arm that answered badly and
+  an arm that did not answer are different results, and only one of them may be
+  excluded from a denominator. Every rate is a `reported_rate` payload naming
+  what it divided, so an arm with nothing to score reports `percent: null`
+  rather than a confident zero.
+
+  The deterministic arm's verdicts are the routing-precision corpus's own, read
+  through two new accessors rather than re-derived. That is the whole load-
+  bearing decision here. `clarify` with a named candidate is a PASS in the
+  negative corpus -- the router asks one question instead of opening a workflow,
+  picker, or handoff -- and the EXPECTED intervention in the positive one, so a
+  single re-invented predicate cannot serve both. A measured draft that used one
+  reported the shipped router as over-routing on more than a third of the
+  negative controls, on a corpus this repository gates at zero, which would have
+  put two OMH surfaces on record disagreeing about OMH's own router with the
+  benchmark holding the wrong number. A test
+  now pins the projection against `build_routing_precision_demo` case by case,
+  and shows the pin failing when the verdict is replaced. That corpus's pass
+  verdict on each case is also read rather than only carried: a score report
+  fails by name when the corpus records a case the routing-precision gate
+  fails, so a report cannot read clean while the gate reads red.
+
+  A recorded answer joins back to its question by digest, and the digest names
+  the request rather than the shortlist it produced. A digest over the question
+  block alone is shared by every request the router shortlists the same way,
+  which on these corpora is most of them, so a reader joining by digest would
+  have scored an answer against whatever the first case behind it expected --
+  an arm that answered correctly recorded as having hijacked a negative
+  control. The digest covers the request and its candidates, and where a digest
+  still reaches more than one case, which is where the two corpora record the
+  same request verbatim, the record is reported as ambiguous and scored against
+  none of them.
+
+  The message is the join key, and the digest reports the shortlist. A question
+  digest covers the candidate list as well as the request, and the candidate
+  list is cut per surface -- a route hint asks about two candidates where a
+  full route asks about three -- so the same request asked on two surfaces
+  produces two digests and a digest-only join would drop the answer. A recorded
+  answer joins by message first; the digest then says whether the shortlist was
+  the same one, reported per answer as `digest_match` and counted per arm as
+  `digest_mismatch`. A mismatch is scored, because the answer is about that
+  request; it is reported, because an arm asked about a shorter list was not
+  asked quite the same question.
+
+  A corpus question is now built from the same place a live route builds one.
+  A live route attaches a question only where it could not decide, and it
+  builds it from the undecidable route's candidate handoff; the projection read
+  the route's public recommendations instead, which drop each candidate's
+  description and carry the route's prose reason rather than the handoff's
+  machine codes. The two questions therefore never shared a digest, and an
+  answer recorded on a live route scored as having answered nothing. Both sides
+  now call one builder with one set of inputs. The cases a live route never
+  questions -- the ones it decided -- still carry a question for the offline
+  arms, and an arm answering recorded live routes is denominated on the
+  undecidable cases alone, with the rest named `not_live_joinable` in each
+  rate's excluded list rather than counted as questions it failed to answer.
+
+  An answers file is written by a model or by whoever ran an external arm, so
+  it is read as untrusted input. Every file is bounded before it is read whole,
+  every string that reaches a report line is stripped of control characters and
+  capped, because a report is an artifact somebody attaches to a PR and an
+  embedded newline in an arm name forges a line in it. A row claiming the
+  reserved `deterministic` arm name is refused by name rather than merged into
+  a tally the report then replaces.
+
+  No routing case was added. The projection reads the two tuples and adds
+  nothing to either, because their lengths are pinned across several test files
+  and a benchmark is not a reason to move a gate. The expected answer for each case
+  comes from the case's own record, including the one intervention case whose
+  correct answer is to open nothing and the clarify cases that pin no candidate;
+  both map to `none`, which the corpora say and the projection does not decide.
+
+  `benchmarks/routing-questions/v1` is the lane. It answers batches through
+  `omh coding hermes-child dispatch --confirm-dispatch`, with the prompt on
+  stdin and the answers collected from a file the prompt names, because that
+  boundary reports usage metadata and never model text. It is offline by
+  default and refuses a live run without `--allow-paid-live`,
+  `--max-paid-calls` and `--confirm`, with a second refusal inside the library
+  so importing it and calling a harmless-sounding function cannot spend
+  anything. It never imports `omh`: the lane measures the product a person
+  installed, through its executable, not the checkout it happens to sit in. The
+  arm that runs the operator's own authenticated Hermes rather than the
+  isolated child has its process directory and its `TERMINAL_CWD` both pinned
+  to the batch workspace, so a model with the file toolset resolves relative
+  paths there and not in the checkout the lane was launched from. Answers are
+  written as each batch returns, so a run that stops partway keeps every answer
+  it has already paid for, and a model-written row is narrowed to the
+  documented answer keys before it is persisted. No live arm has been run, and
+  running one is an operator's call.
+
+
 - **`omh doctor` now says which Jev-class plugins a machine holds, and what
   each one's catalog entry declares.** Jev (TypeSafe System One) is a
   non-generative decision model: it answers typed questions and cannot write

@@ -87,3 +87,97 @@ class ReleaseChangelogTests(unittest.TestCase):
                 # When / Then
                 with self.assertRaises(ChangelogError):
                     extract_notes(b'## 2.0.4 - 2026-09-13\n\n- a\n', version)
+
+
+class ReleaseBodyBoundTests(unittest.TestCase):
+    """The published body cannot exceed what GitHub accepts.
+
+    The 2.0.4 cut tagged and pushed, then failed at publication on
+    `HTTP 422 ... body is too long (maximum is 125000 characters)` with a
+    228,212-byte section; nothing was released and npm and Homebrew were
+    skipped. `MAX_NOTES_BYTES` is 262,144, so the bound that existed was
+    twice the surface's and could not have caught it.
+    """
+
+    @staticmethod
+    def _entry(index, filler=''):
+        return f'- **Entry {index}.** body {index}{filler}\n\n'
+
+    def _section(self, count, filler=''):
+        return ''.join(self._entry(i, filler) for i in range(1, count + 1)).encode()
+
+    def test_a_section_inside_the_bound_is_returned_byte_for_byte(self):
+        from omh.maintenance.changelog import bound_release_body
+        # Given
+        section = self._section(20)
+        # When
+        result = bound_release_body(section, '2.0.4')
+        # Then the ordinary release keeps publishing exactly its authored notes.
+        self.assertIs(result, section)
+
+    def test_an_oversized_section_keeps_a_byte_exact_prefix_of_its_entries(self):
+        from omh.maintenance.changelog import (
+            MAX_RELEASE_BODY_UNITS, bound_release_body, release_body_units,
+        )
+        # Given a section past the bound by a wide margin.
+        section = self._section(400, filler=' ' + 'x' * 400)
+        self.assertGreater(release_body_units(section.decode()), MAX_RELEASE_BODY_UNITS)
+        # When
+        result = bound_release_body(section, '2.0.4').decode()
+        # Then: inside the bound, and what it kept is the original's own bytes
+        # rather than a reflow of them -- the trailer is the only new text.
+        self.assertLessEqual(release_body_units(result), MAX_RELEASE_BODY_UNITS)
+        head, trailer = result.split('\n_Bounded for publication:', 1)
+        self.assertTrue(section.decode().startswith(head), 'kept region is not a prefix')
+        self.assertEqual(trailer.count('_Bounded for publication:'), 0)
+
+    def test_the_trailer_counts_are_derived_from_the_split_not_fixed(self):
+        from omh.maintenance.changelog import bound_release_body
+        # Given two oversized sections whose entry counts differ.
+        results = {}
+        for count in (400, 600):
+            body = bound_release_body(self._section(count, filler=' ' + 'x' * 400), '2.0.4').decode()
+            kept = body.count('- **Entry ')
+            results[count] = (kept, body)
+        # Then each trailer states its own totals, and kept + remaining is the
+        # total it came from -- the arithmetic is the assertion, not a literal.
+        for total, (kept, body) in results.items():
+            self.assertIn(f'the first {kept} of {total} entries', body)
+            self.assertIn(f'The remaining {total - kept} are in', body)
+        self.assertNotEqual(results[400][0], 0)
+
+    def test_one_entry_larger_than_the_bound_refuses_instead_of_splitting_it(self):
+        from omh.maintenance.changelog import ChangelogError, bound_release_body
+        # Given a single entry that cannot fit however it is trimmed.
+        section = ('- **Huge.** ' + 'x' * 200_000 + '\n').encode()
+        # When / Then: truncating inside an entry would publish half a claim.
+        with self.assertRaises(ChangelogError) as caught:
+            bound_release_body(section, '2.0.4')
+        self.assertEqual(caught.exception.code, 'notes_entry_too_large')
+
+    def test_the_length_is_counted_in_utf16_units_not_code_points(self):
+        from omh.maintenance.changelog import release_body_units
+        # Given one astral character, which GitHub may count as two.
+        # Then the wider reading is the one the bound uses.
+        self.assertEqual(release_body_units('\U0001f600'), 2)
+        self.assertEqual(len('\U0001f600'), 1)
+
+    def test_the_cli_writes_a_publishable_body_and_leaves_the_changelog_whole(self):
+        # Given a stamped changelog whose section is past the bound.
+        section = ''.join(f'- **Entry {i}.** body {i} ' + 'x' * 400 + '\n\n' for i in range(1, 401))
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            changelog = root / 'CHANGELOG.md'
+            original = '# Changelog\n\n## Unreleased\n\n## 2.0.4 - 2026-09-21\n\n' + section
+            changelog.write_text(original, encoding='utf-8')
+            notes = root / 'notes.md'
+            # When
+            result = run_cli([sys.executable, '-P', '-m', 'omh.cli', 'release', 'notes',
+                              '--version', '2.0.4', '--repo-root', str(root),
+                              '--notes-file', str(notes), '--json'])
+            # Then the artifact is publishable and the record is untouched.
+            self.assertEqual(result.returncode, 0, result.stderr)
+            body = notes.read_text(encoding='utf-8')
+            self.assertLessEqual(len(body.encode('utf-16-le')) // 2, 125_000)
+            self.assertIn('_Bounded for publication:', body)
+            self.assertEqual(changelog.read_text(encoding='utf-8'), original)

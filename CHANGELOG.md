@@ -4,6 +4,27 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A release body is now bounded by what the surface it is published to
+  accepts.** The 2.0.4 cut tagged and pushed, ran its gates green, and then
+  failed at publication: `HTTP 422 Validation Failed / body is too long
+  (maximum is 125000 characters)` against a 228,212-byte section. Nothing was
+  released, and the npm and Homebrew steps after it were skipped, so the
+  version existed as a tag with no installable artifact. The bound that
+  existed, `MAX_NOTES_BYTES`, is 262,144 — twice the limit of the surface the
+  artifact is published to, which is not a bound at all, and it grew more
+  likely to fire with every release that shipped more work than the last.
+
+  `omh release notes` now trims an oversized section to whole entries plus one
+  trailer stating how many it kept, how many remain, and where they are; a
+  section already inside the bound is returned byte for byte, so an ordinary
+  release publishes exactly its authored notes as before. The CHANGELOG stays
+  the record and is never rewritten — the bounded body is a view of it. The
+  length is counted in UTF-16 code units rather than code points, because
+  GitHub says "characters" without saying which and the UTF-16 count is the
+  larger of the two readings. A single entry that cannot fit raises rather
+  than truncating inside it, since half a sentence published as a whole claim
+  is worse than a refusal a person can act on.
+
 - **A route OMH cannot decide now carries the question it could not answer,
   and an answer to it can be recorded and measured.** When the deterministic
   router reaches an undecidable route -- a script its trigger tables do not

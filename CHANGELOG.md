@@ -4,6 +4,8 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+## 2.0.5 - 2026-09-22
+
 - **The cut now asks for the site rebuild its own push cannot start.** A cut
   pushes with `GITHUB_TOKEN`, and GitHub does not create workflow runs from
   events that token caused. Pages listens for a push to main touching

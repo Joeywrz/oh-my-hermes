@@ -135,7 +135,19 @@ age-only behavior. A widget reference that names no live TUI row is first
 offered to the host's active-session lease registry, which pairs a created
 session's transport id with its durable key; an unpaired reference stays its
 own identity and reads no other session's record.
-_Avoid_: task list as evidence, TodoWrite (that is another product's tool name)
+
+One field on this record refuses work rather than describing it, which is why
+it is named here: a planning run stamps `plan_stage: awaiting_acceptance` when
+it declares the checklist, and while that holds, a `write_file` or `patch` in
+the owning session is escalated to the host's human-approval gate so the
+person is asked before the run implements. `accepted` is their recorded
+go-ahead and ends it; the field's ABSENCE is unknown rather than "not
+accepted", so every plan that is not a planning run — a delivery checklist, a
+CLI write, a record predating the field — is ungated. Still a declaration and
+still never evidence: the stamp says what the run claims about the person's
+answer, never that a plan was reviewed or that anything was implemented.
+_Avoid_: task list as evidence, TodoWrite (that is another product's tool
+name), reading an absent `plan_stage` as an unaccepted plan
 
 ### Coding delegation
 

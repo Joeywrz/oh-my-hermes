@@ -169,6 +169,16 @@ REVIEWED_OVERLAP_DECISIONS: dict[str, str] = {
         "keep — the numerals carry meaning the clamp cannot: 0 is a top-level task and 1-3 render "
         "indented beneath their parent. Cutting them leaves a range with no semantics."
     ),
+    "omh_todo.plan_stage:OVERLAP_ENUM_RESTATED": (
+        "keep — the two members are the enum, and everything a caller needs is in the text "
+        "around them. Which runs the field is for (a planning run, not a delivery checklist), "
+        "what stamping awaiting_acceptance DOES — escalate this session's next write_file or "
+        "patch to the human-approval gate — what ends it, and the lifecycle the members cannot "
+        "carry: advance keeps the stamp, only set changes or drops it, and omitting the field "
+        "is the default. A caller that read the member list alone would not know it was arming "
+        "a gate, which is the one description here whose omission costs a person an "
+        "unexplained approval prompt."
+    ),
     "omh_todo.template:OVERLAP_ENUM_RESTATED": (
         "keep — the one member is the enum, and the rest is the contract the schema cannot "
         "hold: when to reach for the template, that sending no items declares the ten "

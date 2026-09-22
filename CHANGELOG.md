@@ -4,6 +4,109 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A planning run that starts editing now asks the person first, instead of
+  being told not to.** Give `ralplan` a prompt with implementation intent
+  folded in — "ralplan implement the refactor now and open the PR" — and it
+  implements. Its skill has refused that in prose since it shipped: one line
+  routes a full delivery cycle to `ultrawork`, a worked example is built from
+  that exact sentence and answers "stop at the reviewed plan", and a third
+  says to start a follow-on engine "only on the user's explicit go-ahead".
+  Routing is not what failed either; measured on
+  `build_chat_interaction_payload`, the sentence dispatches to `ralplan` at
+  score 12 with `next_action: present_plan`. The message reaches the right
+  skill and the skill's own rule is then read past, so a fourth sentence was
+  not the fix.
+
+  `plan_stage_gate` is the enforcement that was missing. A planning run stamps
+  its checklist `plan_stage: awaiting_acceptance` when it declares it
+  (`omh_todo`, a new closed-vocabulary field on `omh_todo/v1`), and while that
+  holds, a `write_file` or `patch` in the owning session is escalated from
+  `pre_tool_call` to the host's human-approval gate. That gate is the only
+  directive the hook offers that a model cannot decline — `block` becomes a
+  tool result, and one measured session read 185 host refusals and repeated
+  the call anyway, while `approve` is resolved by
+  `tools/approval.py::request_tool_approval` and never returns to the model as
+  text at all. It is also, literally, somewhere to put the question, and the
+  question is the feature: *this session declared a plan and has not recorded
+  you accepting it, and this call edits a file. Approving implements now;
+  denying stops at the reviewed plan.*
+
+  Nothing reads anybody's prose. Two fields decide it — the stamp, and the
+  plan projection's own `established` verdict, reused rather than re-derived
+  so the gate cannot disagree with the HUD about whose plan a record is or
+  when it went stale. This repository has already paid for the alternative:
+  the plan's stop criterion used to be matched out of item text and read
+  "verify the retry is not blocked on the session limit" as blocked while
+  missing "waiting on the owner's review", wrong in both directions on
+  ordinary input. The guard against its return is a mutation table rather than
+  an assertion about today's wording: the same call is made twice over records
+  whose every word argues the opposite of what the field says, and the verdict
+  follows the field.
+
+  The approval gate is the strongest thing OMH can do to a person's turn, so
+  every state the records cannot settle is silence. No record, a record this
+  session does not own, a stale one, a finished plan, an unreadable home, a
+  stamp this build cannot classify, a call the host named no session for, and
+  every tool that is not one of the host's two file-mutating ones all return
+  nothing — the discipline #1738 landed for the unarmed-wait directive,
+  applied to a stronger action.
+
+  Ownership is asked separately from freshness, and the separation is a
+  correction rather than a flourish. The renderer's `established` verdict
+  does not answer "whose plan is this": its identity rule reads an
+  unattributable plan as BELONGING, deliberately, so a real checklist is
+  never hidden from its owner on missing evidence. A gate that stops a
+  person's turn needs the opposite default — and a home-wide stamped record,
+  which the chat writer produces whenever the host names no session on the
+  same call that carries the stamp, projects as `established` for every
+  session id that asks. Reusing the renderer's verdict as ownership armed
+  this gate for three unrelated sessions under review. The projection now
+  states the raw fact, `own_record`, decided after transport ids are
+  translated to durable keys so a comparison of raw ids cannot refuse a
+  record the session does own; the gate reads that first. A stamped record
+  with no owner is unattributable by construction, and refusing it loses
+  nothing. Absence of the field is unknown rather than "not accepted",
+  so a delivery checklist, a CLI write, and a record predating the field are
+  all ungated; reading absence the other way would put this in front of every
+  edit anyone makes with a todo list open.
+
+  **An unattended run is not gated at all, and that is a decision rather than
+  an oversight.** `request_tool_approval` fails CLOSED with no person present,
+  so escalating on `hermes chat -q`, a webhook, or a delegated child would not
+  ask anything — it would refuse the edit with the host's wording for a rule
+  nobody can answer, which is how a gate meant to protect a person becomes the
+  reason their automation stopped. The predicate is the one the repeat guard's
+  stage two already uses, and the fallback is deliberately not the repeat
+  guard's `block`: a loop that keeps running is worse than one that is
+  stopped, while a session doing ordinary work is not. Cron is the stated
+  exception and cannot be closed from a plugin — `HERMES_CRON_SESSION` is a
+  ContextVar, never a process variable — so a cron turn reads as attended; at
+  the `approvals.cron_mode` default of `deny` the edit is refused with the
+  host's wording, and only a cron job that both stamps the field and then
+  edits files reaches it at all.
+
+  The `[a]lways` allowlist grain is set explicitly to the constant
+  `omh_plan_stage_edit`, and the reason is not the one `request_tool_approval`
+  documents for itself. That function hashes the reason into a key when it is
+  given none, but a plugin directive never reaches that branch —
+  `_resolve_block_from_details` calls it as `rule_key or tool_name` — so an
+  omitted key is the TOOL name, and what a person's `[a]lways` would store is
+  `plugin_rule:write_file`. That grain is wrong twice: it re-asks at the next
+  `patch` what a `write_file` prompt already settled, and being named after
+  the tool rather than the rule it would permanently allowlist that tool for
+  every OMH rule that ever escalates it, including ones that do not exist yet.
+  A key carrying the session, the file, or a digest of the plan would instead
+  leave a dead entry in their own `command_allowlist` per session, or re-prompt
+  somebody who had already answered. One line in their config, visible and
+  removable, covering both file-mutating tools with one answer.
+
+  Two honest limits. The stamp is written by the run, at declaration time, so
+  a planning run that never stamps is not gated — the enforcement binds once
+  the record exists, and what makes that worth building is that stamping
+  happens at the compliant start of the run rather than at the tempted middle
+  of it. And a run can record `accepted` without being told to; that is a
+  deliberate, recorded declaration in a record a reviewer can read, which is
+  what the prose rule never produced.
 ## 2.0.4 - 2026-09-21
 
 - **A prepared route now names the session that prepared it, so the HUD label

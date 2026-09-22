@@ -122,3 +122,33 @@ jobs:
           gh workflow run release.yml --ref main --field tag="v$NEW_VERSION"
           echo "release.yml dispatched for v$NEW_VERSION;" \
             "publication still waits for the npm environment approval"
+
+      - name: Dispatch the public site rebuild
+        if: steps.decide.outputs.proceed == 'true'
+        # The tag, the release and the distribution dispatch have all already
+        # happened by the time this runs, and the site badge is not part of
+        # what a release IS. A dispatch that fails for a reason of its own --
+        # the API refusing, this workflow renamed, a token scope changed --
+        # must not repaint a cut that worked as a failed one. The step still
+        # goes red on its own row, so the failure is visible and actionable;
+        # the job does not, so a red cut keeps meaning the release did not
+        # happen. The distribution dispatch above is deliberately NOT treated
+        # this way: if that one fails nothing publishes, and red is true.
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The push above is made with GITHUB_TOKEN, and GitHub does not
+          # create workflow runs from events that token caused. Pages triggers
+          # on `push` to main under `site/**`, which the version bump always
+          # rewrites, so Pages has never fired for a cut: the public badge
+          # keeps the previous version until some later merge happens to touch
+          # a path Pages watches. The step above dispatches distribution
+          # explicitly for exactly this reason; the site needs the same, or
+          # the page advertising the release is the one surface still naming
+          # the release before it.
+          gh workflow run pages.yml --ref main
+          echo "pages.yml dispatched; the public badge follows v$NEW_VERSION"

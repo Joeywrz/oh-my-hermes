@@ -4,6 +4,27 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The cut now asks for the site rebuild its own push cannot start.** A cut
+  pushes with `GITHUB_TOKEN`, and GitHub does not create workflow runs from
+  events that token caused. Pages listens for a push to main touching
+  `site/**`, and the version bump always rewrites `site/index.html` and
+  `site/i18n.js` — so the one push that changes the advertised version was
+  the one push Pages never saw. Observed on the v2.0.4 cut: `Distribution
+  Release`, dispatched explicitly, was the only run on that commit, with no
+  Pages run and no CI push run beside it.
+
+  The public badge therefore kept the previous version until some later merge
+  happened to touch a path Pages watches, which left the page advertising a
+  release as the last surface still naming the one before it. The cut now
+  dispatches `pages.yml` next to the distribution dispatch it already makes
+  for the same reason. No new permission — the job already holds
+  `actions: write`. That step carries `continue-on-error: true`: by the time
+  it runs the tag, the release and the distribution dispatch have all
+  happened, and a site rebuild that fails for a reason of its own must not
+  repaint a finished cut as a failed one. It still goes red on its own row.
+  The distribution dispatch above is deliberately not treated this way —
+  if that one fails nothing publishes, and red is true.
+
 - **A release body is now bounded by what the surface it is published to
   accepts.** The 2.0.4 cut tagged and pushed, ran its gates green, and then
   failed at publication: `HTTP 422 Validation Failed / body is too long

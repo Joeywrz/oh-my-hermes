@@ -255,6 +255,36 @@ class AutoReleaseWorkflowTests(unittest.TestCase):
             self.workflow,
         )
 
+    def test_the_cut_dispatches_the_site_rebuild_it_cannot_trigger(self) -> None:
+        """A cut's own push cannot start Pages, so the cut has to ask for it.
+
+        GitHub does not create workflow runs from events caused by
+        GITHUB_TOKEN, which is what the atomic push uses. Pages listens for a
+        push to main touching `site/**`, and the bump always rewrites
+        `site/index.html` and `site/i18n.js` -- so the one push that changes
+        the advertised version is the one push Pages never sees. Observed on
+        the v2.0.4 cut: `Distribution Release` was the only run on that
+        commit, no Pages run and no CI push run.
+        """
+        self.assertIn("gh workflow run pages.yml --ref main", self.workflow)
+        # The dispatch is load-bearing only while the bump keeps rewriting a
+        # path Pages watches, so both halves of that overlap are pinned here
+        # rather than described in the comment above.
+        bump = (PROJECT_ROOT / "tools" / "package_manager" / "bump_version.py").read_text(encoding="utf-8")
+        pages = (PROJECT_ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
+        self.assertIn('"site"', bump)
+        self.assertIn('"index.html"', bump)
+        self.assertIn('"i18n.js"', bump)
+        self.assertIn('- "site/**"', pages)
+        # The dispatch reaches nothing unless Pages still accepts one, and
+        # that trigger lives in the other file, so removing it there would
+        # otherwise break this repair silently.
+        self.assertIn("workflow_dispatch:", pages)
+        # A failed site rebuild must not report a finished release as failed:
+        # every earlier step has already done its work by then.
+        step = self.workflow.split("Dispatch the public site rebuild", 1)[1]
+        self.assertIn("continue-on-error: true", step.split("run: |", 1)[0])
+
 
 if __name__ == "__main__":
     unittest.main()

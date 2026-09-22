@@ -366,21 +366,23 @@ export default function register(sdk) {
     // Prepared-route provenance from the reader, rendered as one shape:
     // `category(model tag)`. The category names the LANE and never changes;
     // only the parenthesized model (and its state token) moves — a fallback
-    // lane reads `category(model fallback)`, an exhausted chain running the
-    // parent's model reads `category(model inherit)`, and a lane the tool
-    // routed to the model the parent itself runs reads
-    // `category(model =parent)` — its category survives, and the token says
-    // the dispatch cost what the parent costs. A child with no route record
-    // at all on the parent's model is the one plain `inherit(model)`: inherit
-    // is not a category, so it never wears the `category:` prefix.
+    // lane reads `category(model fallback)` and an exhausted chain running
+    // the parent's model reads `category(model inherit)`. A lane the tool
+    // routed to the model the parent itself runs wears no token of its own
+    // (the owner's call): the row already names the model that ran, and the
+    // parent-equality token it used to carry compared that name against the
+    // parent's model, which this row never shows — a claim the reader cannot
+    // check against anything on screen. The state tokens that remain each
+    // name an EVENT in the route, not a comparison. The reader still reports
+    // the equality in the `read_omh_hud` payload, where a caller holding both
+    // models can use it. A child with no route record at all on the
+    // parent's model is the one plain `inherit(model)`: inherit is not a
+    // category, so it never wears the `category:` prefix.
     const routeOrigin = safeText(row.route_origin)
     const routeCategory = safeText(row.route_category)
-    // A fallback that landed on the parent's own model keeps both tokens:
-    // the fallback is what happened, `=parent` is what it cost.
-    const parentTag = row.same_as_parent === true ? '=parent' : ''
-    const routeTag = routeOrigin === 'fallback' ? ['fallback', parentTag].filter(Boolean).join(' ')
+    const routeTag = routeOrigin === 'fallback' ? 'fallback'
       : routeOrigin === 'exhausted_to_inherit' ? 'inherit'
-        : parentTag
+        : ''
     const routeDetail = [model, routeTag].filter(Boolean).join(' ')
     const displayCategory = routeOrigin === 'exhausted_to_inherit' && routeCategory ? routeCategory : category
     const route = displayCategory === 'inherit'

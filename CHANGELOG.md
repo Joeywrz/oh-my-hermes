@@ -4,6 +4,22 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The HUD route label drops its parent-equality token.** A lane the tool
+  routed to the model the parent session itself runs rendered as
+  `category:deep(deepseek-flash:high =parent)`. The token said the dispatch
+  cost what the parent costs, but it compared the model named on the row
+  against the parent's model, which no row on that screen shows — so the
+  reader could not check the claim against anything in front of them, and on
+  the owner's `deep` chain, whose head IS the session's model, it rode every
+  child row. The lane now reads `category:deep(deepseek-flash:high)`: the
+  category names the lane, the parentheses name the model that ran, and the
+  state tokens that remain (`fallback`, `inherit`) each name an EVENT in the
+  route rather than a comparison. Nothing about which model ran is lost —
+  that was always the model name itself. The `read_omh_hud` payload still
+  reports `same_as_parent` for a caller that holds both models; the widget no
+  longer reads it, and the widget-pack gate now pins that absence.
+
+
 - **A planning run that starts editing now asks the person first, instead of
   being told not to.** Give `ralplan` a prompt with implementation intent
   folded in — "ralplan implement the refactor now and open the PR" — and it

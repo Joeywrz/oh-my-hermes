@@ -544,9 +544,13 @@ Next to those two documents, `omh_delegate_route` maintains
 capped history of the routes it prepared (head, explicit, fallback, chain
 exhaustion, clear) that the HUD uses to label a fallback lane as a fallback,
 an exhausted chain as `category(model inherit)`, and a lane routed to the
-model the parent session itself runs as `category(model =parent)` — one
+model the parent session itself runs as that lane's own category — one
 `category(model tag)` shape for every lane, where the category names the
-lane and only the parenthesized model and state token move. A child on the
+lane and only the parenthesized model and state token move. The state token
+names an event in the route (`fallback`, `inherit`) and nothing else; a lane
+that landed on the parent's own model carries none, because the row already
+names the model that ran. The `read_omh_hud` payload still reports it as
+`same_as_parent` for a caller that holds both models. A child on the
 parent's model with no route record at all is the plain `inherit(model)`:
 inherit is not a category. Each record also names the Hermes session that
 prepared the route, so a HUD reading one conversation labels the lanes that

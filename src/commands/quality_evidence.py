@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 from typing import Any, Mapping
 
 from ..installer import OmhError
@@ -17,6 +18,8 @@ from ..quality.language_diagnostic_evidence import (
     build_language_diagnostic_evidence,
     language_diagnostic_claim_support,
 )
+from ..quality.reply_lint import build_reply_lint, format_reply_lint_summary, summarize_reply_lints
+from ..quality.reply_lint_source import HERMES_LATEST_SESSION, ReplySourceError, hermes_session_replies
 from .common import _paths, _print_json, _wants_json
 
 
@@ -116,6 +119,45 @@ def _print_language_diagnostic_summary(record: Mapping[str, Any], support: Mappi
     print(f"  {record['claim_boundary']}")
 
 
+def cmd_quality_evidence_reply_lint(args: argparse.Namespace) -> int:
+    """Lint replies a person read against OMH's reply rules; reads text only.
+
+    The rules ship as prompt text and nothing observed whether a reply
+    followed them. This reads a reply (a file, stdin, or the trailing replies
+    of a Hermes session, read-only) and reports leaked record terms, quoted
+    awareness lines, and closings that declare what will not be done or leave
+    a decision without a question. A finding exits 1 so a QA loop can gate on
+    it; the payload's claim boundary says what a clean result does not show.
+    """
+    try:
+        source, pairs = _reply_lint_input(args)
+    except (OSError, ReplySourceError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    records = [build_reply_lint(pair["reply"], user_text=pair["user_text"]) for pair in pairs]
+    payload = summarize_reply_lints(records, source=source)
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        print(format_reply_lint_summary(payload))
+    return 0 if payload["ok"] else 1
+
+
+def _reply_lint_input(args: argparse.Namespace) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if args.hermes_session:
+        paths = _paths(args)
+        read = hermes_session_replies(paths.hermes_home, args.hermes_session, last=int(args.last))
+        source = {"kind": "hermes_session", "session_id": read["session_id"], "last": int(args.last)}
+        return source, [
+            {"user_text": item["user_text"], "reply": item["reply"], "message_id": item["message_id"]}
+            for item in read["replies"]
+        ]
+    user_text = Path(args.user_text_file).read_text(encoding="utf-8") if args.user_text_file else ""
+    if args.stdin:
+        return {"kind": "stdin"}, [{"user_text": user_text, "reply": sys.stdin.read()}]
+    reply = Path(args.text_file).read_text(encoding="utf-8")
+    return {"kind": "text_file", "path": str(args.text_file)}, [{"user_text": user_text, "reply": reply}]
+
+
 def _add_quality_evidence_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Register the operator-only quality evidence control-plane commands."""
     quality = sub.add_parser(
@@ -178,6 +220,31 @@ def _add_quality_evidence_commands(sub: argparse._SubParsersAction[argparse.Argu
     language.add_argument("--evidence-refs-json", "--evidence-refs", dest="evidence_refs_json", help="Inline bounded evidence reference JSON array.")
     language.add_argument("--json", action="store_true", help="Print the machine-readable record and claim support.")
     language.set_defaults(func=cmd_quality_evidence_language_diagnostics)
+
+    reply_lint = commands.add_parser(
+        "reply-lint",
+        help="Lint a reply a person read for leaked OMH record terms and refusal closers.",
+        description=(
+            "Read one reply (a file, stdin, or the trailing replies of a Hermes session, read-only) "
+            "and report OMH record terms in the user's sentence, quoted awareness lines, and closings "
+            "that declare what will not be done or leave a decision without a question. Findings exit 1. "
+            "A clean result is not evidence that the reply was correct or in the host's voice."
+        ),
+    )
+    reply_source = reply_lint.add_mutually_exclusive_group(required=True)
+    reply_source.add_argument("--text-file", help="Path to the reply text.")
+    reply_source.add_argument("--stdin", action="store_true", help="Read the reply text from stdin.")
+    reply_source.add_argument(
+        "--hermes-session",
+        help=f"Hermes session id, or `{HERMES_LATEST_SESSION}` for the most recently active session.",
+    )
+    reply_lint.add_argument("--last", type=int, default=1, help="How many trailing replies of the session to lint.")
+    reply_lint.add_argument(
+        "--user-text-file",
+        help="Path to the user message the reply answers; a term it names is explained, not leaked.",
+    )
+    reply_lint.add_argument("--json", action="store_true", help="Print the machine-readable reply_lint/v1 payload.")
+    reply_lint.set_defaults(func=cmd_quality_evidence_reply_lint)
 
 
 def _add_json_input(parser: argparse.ArgumentParser, name: str, label: str) -> None:

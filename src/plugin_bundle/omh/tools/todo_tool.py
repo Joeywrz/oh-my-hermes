@@ -29,16 +29,16 @@ from ..completion_store import completion_action
 
 _COMPLETION_FIELDS = {
     "checkpoint_id": {"type": "string", "description": "ID returned by checkpoint; recall without it lists this profile/project's dossiers."},
-    "accepted": {"type": "boolean", "description": "For checkpoint only: declare that the person accepted exactly the current todo scope. Not a host approval or permission grant."},
+    "accepted": {"type": "boolean", "description": "checkpoint only: the person accepted exactly the current todo scope. Not a host approval or permission grant."},
     "rejected": {"type": "array", "items": {"type": "string"}, "maxItems": 20,
-                 "description": "For checkpoint: short summaries of rejected ideas, kept outside accepted scope; no transcript."},
+                 "description": "checkpoint: short summaries of rejected ideas, kept outside accepted scope; no transcript."},
     "revision": {"type": "string", "maxLength": 128,
-                 "description": "Required for checkpoint, record and keyed recall: exact revision/worktree fingerprint being claimed or checked. Caller-declared, not host-attested."},
+                 "description": "Required for checkpoint, record and keyed recall: exact revision/worktree fingerprint claimed or checked. Caller-declared, not host-attested."},
     "environment": {"type": "string", "maxLength": 128,
-                    "description": "Required alongside revision: bounded environment/toolchain fingerprint. Changes make old results stale; never put environment values or secrets here."},
+                    "description": "Required with revision: environment/toolchain fingerprint; a change makes old results stale. Never environment values or secrets."},
     "result": {
         "type": "object", "additionalProperties": False,
-        "description": "For record: append a bounded verification verdict, review finding set or QA result for one frozen item. All fields required. No logs, prompts, transcripts or raw command output. All provenance is claimed, never independently attested by storage.",
+        "description": "record: one verification verdict, review finding set or QA result for one frozen item. No logs, prompts, transcripts or raw command output; provenance is claimed, never attested by storage.",
         "properties": {
             "kind": {"type": "string", "enum": ["verification", "review", "qa"]},
             "item": {"type": "integer", "minimum": 1},
@@ -57,25 +57,24 @@ _COMPLETION_FIELDS = {
     },
 }
 
+# Longer guidance for this tool lives in the `todo-checklist` skill's
+# references: `checklist-discipline.md` (phases, outcomes, blocked_reason vs
+# deferred_reason, advance vs set) and `closing-a-story.md` (checkpoint,
+# record, recall). This schema is sent with every request that carries the
+# tool, so it keeps the rules a model needs to drive the list to its stop
+# without that skill loaded, and not the reasons behind them.
 OMH_TODO_SCHEMA = {
     "name": "omh_todo",
     "description": (
-        "Declare, advance, clear, or read the metadata-only plan todo list that OMH HUD surfaces render "
-        "above the Hermes prompt input. The list belongs to the session that declares it: "
-        "another TUI, Slack, or Discord session neither sees nor overwrites it. "
-        "Initialize it BEFORE starting engine work (todo init): "
-        "declare numbered phases in delivery order (e.g. 'I. Bootstrap' through 'VI. Evidence "
-        "and Cleanup') that cover the whole lifecycle — setup, one implement/verify/deliver "
-        "task per work unit, independent review lanes, and an evidence-and-cleanup close — "
-        "with one task per observable outcome, so the run walks a bounded checklist instead "
-        "of an open-ended reasoning loop. Keep exactly one item active and update states as "
-        "work completes with action=advance; action=set replaces the whole list. "
-        "Todo items are plan declarations, never execution evidence. "
-        "For a natural-language request to finish or resume accepted work, read the plan and "
-        "recall its checkpoint; do exactly the accepted items, never rejected ideas. "
-        "Use checkpoint to preserve accepted scope, record for durable verification/review/QA "
-        "declarations, and recall before reporting completion. These actions do not execute "
-        "work, grant approval or force a template; tiny tasks do not need ten phases."
+        "Declare, advance, clear, or read this session's metadata-only plan todo list, which the OMH HUD "
+        "renders above the prompt; other sessions neither see nor overwrite it. "
+        "Declare it BEFORE starting engine work (todo init): numbered phases in delivery order covering setup, "
+        "implement/verify/deliver per work unit, independent review, and an evidence-and-cleanup close, "
+        "one item per observable outcome. Keep exactly one item active and advance it as work completes. "
+        "Items are plan declarations, never execution evidence. "
+        "To finish or resume accepted work, read the plan and recall its checkpoint; do exactly the "
+        "accepted items, never rejected ideas. No action executes work or grants approval; templates are "
+        "optional and tiny tasks need fewer phases."
     ),
     "parameters": {
         "type": "object",
@@ -85,71 +84,52 @@ OMH_TODO_SCHEMA = {
                 "type": "string",
                 "enum": ["set", "advance", "clear", "show", "checkpoint", "record", "recall"],
                 "description": (
-                    "set writes a new todo list, advance changes one item's state on it, "
-                    "clear removes it, show reads the current projection. Change a state "
-                    "with advance, not set: set replaces the whole list. "
-                    "checkpoint freezes the current accepted scope; record appends a result declaration; "
-                    "recall reads durable scope and evidence declarations across sessions without resuming work."
+                    "set writes the whole list: items left out are dropped. advance changes one item; "
+                    "clear removes the list; show reads it. Change a state with advance, not set. "
+                    "checkpoint freezes the accepted scope; record appends a result declaration; "
+                    "recall reads scope and declarations across sessions without resuming work, "
+                    "and comes before reporting completion."
                 ),
             },
             "title": {
                 "type": "string",
-                "description": "Optional short plan title shown in the todo panel header.",
+                "description": "Optional plan title for the todo panel header.",
             },
             "template": {
                 "type": "string",
                 "enum": [CODE_STORY_TEMPLATE],
                 "description": (
-                    "For action=set: declare this plan from a named phase template instead of "
-                    "inventing phases. 'code-story' is the ten-phase code story, I. Story "
-                    "through X. Close; use it when the person asks for a change to be carried "
-                    "from story to close. Send no items and the ten phases are declared for "
-                    "you. Every later write must still cover all ten: a phase this change "
-                    "does not need is kept and marked state=done with a blocked_reason, "
-                    "never dropped. Omit this field for an ordinary plan."
+                    "For action=set: 'code-story' is the ten phases I. Story through X. Close, "
+                    "for a change the person asks to carry from story to close. With no items the "
+                    "ten are declared for you. Re-send it on a later set: every write must cover "
+                    "all ten, and an unneeded phase is kept as state=done with a blocked_reason, "
+                    "never dropped. "
+                    "Omit this field for an ordinary plan."
                 ),
             },
             "plan_stage": {
                 "type": "string",
                 "enum": list(TODO_PLAN_STAGES),
                 "description": (
-                    "For action=set on a PLANNING run (ralplan, plan, deep-interview), "
-                    "where that run stands with the person. Send "
-                    "'awaiting_acceptance' when you declare the planning checklist: "
-                    "while it holds, a write_file or patch in this session is "
-                    "escalated to the human-approval gate, so the person is asked "
-                    "before the run implements rather than told afterwards. Send "
-                    "'accepted' once they have given an explicit go-ahead in this "
-                    "conversation, which ends the escalation. Omit the field for any "
-                    "plan that is not a planning run -- a delivery or execution "
-                    "checklist carries no stage and is never gated. It is carried "
-                    "forward by action=advance, so ticking a planning stage off keeps "
-                    "it; only action=set changes or drops it, and a set that declares "
-                    "a fresh list for delivery work drops it by omitting it, which is "
-                    "the default."
+                    "For action=set on a PLANNING run (ralplan, plan, deep-interview) only. "
+                    "'awaiting_acceptance' when declaring the planning checklist: while it holds, "
+                    "write_file or patch in this session goes to the human-approval gate. "
+                    "'accepted' once the person gives an explicit go-ahead in this conversation, "
+                    "ending that. Omit it for a delivery or execution plan, which is never gated. "
+                    "advance carries it forward; a set without it drops it."
                 ),
             },
             "deferred_reason": {
                 "type": "string",
                 "description": (
-                    "Omit this field. Send it with action=set or action=advance "
-                    "only when the PERSON "
-                    "redirected this session away from the plan ('do Y first', "
-                    "'forget that for now'), naming what they asked for instead. "
-                    "While it holds, the plan stops asking you to advance the next "
-                    "item, so the session serves the person without the checklist "
-                    "arguing. It CLEARS ITSELF: it is stored with a digest of the "
-                    "item list you send it with, and a reader honours it only while "
-                    "that digest still matches. So resuming the plan costs no clearing "
-                    "step -- just omit this field on your next write, which is the "
-                    "default, and any item change that does not re-send it ends the "
-                    "deferral too. Sending it again alongside a CHANGED item list "
-                    "declares a new deferral for that list, so send it again only if "
-                    "the person is still steering. Do not reach for an item's "
-                    "blocked_reason instead: blocked means an item CANNOT PROCEED, is "
-                    "per-item, and has to be removed by hand. An item that genuinely "
-                    "cannot proceed still carries blocked_reason, and that reading "
-                    "wins over this one."
+                    "Omit this field unless the PERSON redirected this session away from the plan "
+                    "('do Y first', 'forget that for now'); name what they asked for instead. "
+                    "Sent with set or advance. While it holds, the plan stops asking you to advance "
+                    "the next item. It CLEARS ITSELF: it is bound to the item list sent with it, so "
+                    "the next write that omits it, or any item change that does not re-send it, ends "
+                    "it. Re-send it with a changed list only while the person is still steering. "
+                    "It is not blocked_reason, which is per item for work that CANNOT proceed and "
+                    "wins when both apply."
                 ),
             },
             "item": {
@@ -160,8 +140,8 @@ OMH_TODO_SCHEMA = {
             "item_text": {
                 "type": "string",
                 "description": (
-                    "For action=advance: the start of that item's current text, guarding "
-                    "against a stale index. A mismatch is refused."
+                    "For action=advance: the start of that item's current text; a mismatch "
+                    "(stale index) is refused."
                 ),
             },
             "state": {
@@ -172,8 +152,8 @@ OMH_TODO_SCHEMA = {
             "blocked_reason": {
                 "type": "string",
                 "description": (
-                    "For action=advance: items[].blocked_reason below, for the item being "
-                    "changed; omitting it clears one."
+                    "For action=advance: items[].blocked_reason for the changed item; omitting it "
+                    "clears one."
                 ),
             },
             "items": {
@@ -186,31 +166,23 @@ OMH_TODO_SCHEMA = {
                         "state": {
                             "type": "string",
                             "enum": ["pending", "active", "done"],
-                            "description": "Item state. Defaults to pending.",
+                            "description": "Defaults to pending.",
                         },
                         "phase": {
                             "type": "string",
                             "description": (
-                                "Optional phase label, numbered in delivery order (e.g. "
-                                "'I. Bootstrap', 'II. Wave One Delivery'). Items sharing a "
-                                "phase render as one section; the HUD shows the current "
-                                "phase's checklist."
+                                "Optional phase label numbered in delivery order, e.g. 'I. Bootstrap'. "
+                                "Items sharing a phase render as one section."
                             ),
                         },
                         "blocked_reason": {
                             "type": "string",
                             "description": (
-                                "Omit this field. Send it only for an item that CANNOT "
-                                "proceed, naming what it is waiting on (a review, an "
-                                "approval, a missing credential, another item). Any value "
-                                "here stops the plan advancing past this item, so an item "
-                                "that is merely unstarted, slow, or mid-work carries no "
-                                "blocked_reason -- and neither does one whose text happens to "
-                                "discuss blocking. Remove the field once the thing it names "
-                                "arrives. Set or clear it with action=advance, or through "
-                                "action=set like any other item edit, which replaces the "
-                                "whole list: send every item back, or the ones you leave "
-                                "out are dropped."
+                                "Omit this field unless the item CANNOT proceed; name what it waits on "
+                                "(a review, an approval, a missing credential, another item). Any value "
+                                "stops the plan advancing past this item, so an unstarted, slow or "
+                                "mid-work item carries none, nor one whose text merely discusses "
+                                "blocking. Remove it once the thing it names arrives."
                             ),
                         },
                         "depth": {
@@ -218,10 +190,8 @@ OMH_TODO_SCHEMA = {
                             "minimum": 0,
                             "maximum": 3,
                             "description": (
-                                "Optional subtask nesting level (0 = top-level task, 1-3 = "
-                                "subtasks rendered indented beneath the preceding shallower "
-                                "item). Subtasks may omit phase; they continue their parent's "
-                                "section."
+                                "Optional nesting: 0 = top-level; 1-3 render as subtasks under the "
+                                "preceding shallower item and may omit phase."
                             ),
                         },
                     },
@@ -230,7 +200,7 @@ OMH_TODO_SCHEMA = {
             },
             "omh_home": {
                 "type": "string",
-                "description": "Standalone operator override for action=show only; set, advance and clear reject overrides. Native Hermes calls reject this field; omit it to use the active profile.",
+                "description": "Standalone operator override for action=show only; writes reject it. Native Hermes calls reject this field; omit it to use the active profile.",
             },
             "observation": OBSERVATION_SCHEMA,
         },

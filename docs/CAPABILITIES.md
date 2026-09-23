@@ -48,7 +48,12 @@ when Hermes needs local setup/runtime status or a capability roadmap without
 asking the user to approve a shell command.
 Use `action=summary` when Hermes needs to answer "what can OMH do?" or render a
 small workflow picker/card without asking the user to approve a shell catalog
-command.
+command. `summary` is also what the tool returns when no `action` is given;
+a call that names only a `section` gets that `export` section instead.
+`action=export` returns the full capability manifest, over 800k characters
+without a `section`. Hermes writes a tool result that large to a file and shows
+the model only a short preview, so export stays an explicit choice and is best
+narrowed with `section`.
 Use `action=impact` to separate locally proven route selection from guidance,
 host load, provider availability, artifact verification, and comparative
 outcome claims. The report intentionally has no aggregate capability score.

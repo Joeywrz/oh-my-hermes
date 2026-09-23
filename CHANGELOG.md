@@ -4,6 +4,18 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **`omh_capabilities` answers with the summary when no action is given.** The
+  default was `export`, the full capability manifest (over 800k characters),
+  which Hermes writes to a file, showing the model only a short preview.
+  `action=export` still returns it when asked for by name, and a call that
+  names only a `section` still gets that export section. The `omh_todo` and
+  `omh_loop` tool schemas drop prose that restated another field or explained
+  a rule rather than stating it (7,752 and 7,230 chars, from 9,827 and 7,812);
+  every parameter, enum, required field and stop/continue rule is kept. The
+  longer phase, `blocked_reason`/`deferred_reason` and checkpoint explanations
+  are in the `todo-checklist` skill's references.
+  `plugin_tool_schema_chars` ratchets from 57,968 to 55,468.
+
 - **The release budgets now watch what can reach the model on every request.**
   `omh release drift` gains four ratchets, each measured by a producer: the
   full-profile skill index Hermes renders (`skill_index_chars`, 10,894 chars,

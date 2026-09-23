@@ -145,7 +145,13 @@ SKILL_INDEX_LINE_CHAR_LIMIT = 100
 # plugin tool is deferrable (`tools/tool_search.py::is_deferrable_tool_name`),
 # so a request carries a bounded listing entry per tool plus the schemas of the
 # tools the model describes or calls.
-PLUGIN_TOOL_SCHEMA_CHAR_LIMIT = 57968
+# 57968 -> 55468: the `omh_todo` (9827 -> 7752) and `omh_loop` (7812 -> 7230)
+# descriptions drop prose that restated another field of the same schema or
+# gave the reason behind a rule the schema still states;
+# `omh_capabilities` (1433 -> 1590) now says its default is `summary`
+# (`export` when only a section is given) and which actions read `section`.
+# Producer-measured after the change.
+PLUGIN_TOOL_SCHEMA_CHAR_LIMIT = 55468
 # The largest fenced `pre_llm_call` context over the named scenario set in
 # `src/maintenance/per_turn_context.py` (the `all_surfaces` scenario). Hermes
 # replays each turn's injection from `api_content` on every later turn, so this

@@ -111,6 +111,16 @@ class PluginCapabilitiesTests(unittest.TestCase):
             self.assertIn("explicit_invocation_prefixes", payload["keywords"])
 
             summary = json.loads(handler({"action": "summary"}))
+            # With no action the tool answers with the compact summary; the full
+            # manifest (`export`) is large enough that it is only returned when
+            # asked for by name.
+            default = json.loads(handler({}))
+            self.assertEqual(default["schema_version"], "omh_capability_summary/v1")
+            self.assertEqual(default, summary)
+            # A section with no action still means the export section it narrows;
+            # summary would ignore the section silently.
+            section_only = json.loads(handler({"section": "keywords"}))
+            self.assertEqual(section_only, payload)
             summary_lanes = {lane["id"]: lane for lane in summary["lanes"]}
             summary_families = {family["id"]: family for family in summary["capability_families"]}
             self.assertEqual(summary["schema_version"], "omh_capability_summary/v1")
@@ -377,6 +387,7 @@ merge_observed=false
                 keywords = json.loads(handler({{"action": "export", "section": "keywords"}}))
                 exported = json.loads(handler({{"action": "export"}}))
                 summary = json.loads(handler({{"action": "summary"}}))
+                default_action = json.loads(handler({{}}))
                 recommendation = json.loads(
                     recommend_handler({{"message": "make an image summary for this PR with secret-token-123", "limit": 2}})
                 )
@@ -487,6 +498,7 @@ merge_observed=false
                     "source": exported["source"],
                     "summary_schema": summary["schema_version"],
                     "summary_source": summary["source"],
+                    "default_action_is_summary": default_action == summary,
                     "recommend_schema": recommendation["schema_version"],
                     "recommend_source": recommendation["source"],
                     "recommend_status": recommendation["status"],
@@ -626,6 +638,7 @@ merge_observed=false
             self.assertEqual(payload["source"], "standalone_plugin_bundle_fallback")
             self.assertEqual(payload["summary_schema"], "omh_capability_summary/v1")
             self.assertEqual(payload["summary_source"], "standalone_plugin_bundle_fallback")
+            self.assertTrue(payload["default_action_is_summary"])
             self.assertEqual(
                 len(payload["summary_family_workflows"]),
                 len(set(payload["summary_family_workflows"])),

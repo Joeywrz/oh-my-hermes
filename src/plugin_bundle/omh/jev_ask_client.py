@@ -33,7 +33,9 @@ single explicit, user-requested call narrow:
   never put in an error string, and any server text echoed back -- an error
   excerpt, the served model id -- has JSON escapes decoded and then every run
   that matches a substring of the key at least `MIN_KEY_FRAGMENT_CHARS` long,
-  compared case-insensitively, redacted before it leaves this module.
+  compared case-insensitively, redacted before it leaves this module; an echo
+  that spells such a substring with whitespace between its characters
+  redacts the whole excerpt.
 
 Wire facts are `documented_not_observed` (docs.typesafe.ai/api.md and
 openrouter.ai/docs/guides/community/typesafe-sdk.md, read 2026-09-23). Proxy
@@ -434,6 +436,27 @@ def _fold(text: str) -> str:
     return "".join(lowered if len(lowered := char.lower()) == 1 else char for char in text)
 
 
+def _key_windows(key: str) -> set[str]:
+    """Every MIN_KEY_FRAGMENT_CHARS-long window of the folded, whitespace-free key."""
+    folded_key = _fold("".join(key.split()))
+    width = min(MIN_KEY_FRAGMENT_CHARS, len(folded_key))
+    return {folded_key[index:index + width] for index in range(len(folded_key) - width + 1)} if width else set()
+
+
+def carries_key_fragment(text: str, key: str) -> bool:
+    """Whether `text`, folded and with all whitespace removed, holds a key window.
+
+    Whitespace is dropped from both sides first, so a key spelled with its
+    characters spaced apart, or broken across lines, still matches.
+    """
+    windows = _key_windows(key)
+    if not windows:
+        return False
+    compact = _fold("".join(str(text).split()))
+    width = len(next(iter(windows)))
+    return any(compact[index:index + width] in windows for index in range(len(compact) - width + 1))
+
+
 def scrub_key(text: str, key: str) -> str:
     """`text` with every run that matches a substring of the key replaced by `[redacted]`.
 
@@ -442,12 +465,20 @@ def scrub_key(text: str, key: str) -> str:
     first, then every window of MIN_KEY_FRAGMENT_CHARS characters that equals a
     window of the key, compared case-insensitively, is marked, and each run of
     marked characters becomes one `[redacted]`. A key shorter than the window
-    is matched whole. Over-redaction is accepted; a key substring of
-    MIN_KEY_FRAGMENT_CHARS or more never survives.
+    is matched whole. An echo with whitespace between the key's characters
+    has no contiguous run to mark, so when one survives the marking the whole
+    text becomes `[redacted]`. Over-redaction is accepted; a key substring of
+    MIN_KEY_FRAGMENT_CHARS or more never survives, spaced out or not.
     """
     if not key:
         return text
     text = _decode_escapes(text)
+    scrubbed = _scrub_contiguous(text, key)
+    return "[redacted]" if carries_key_fragment(scrubbed, key) else scrubbed
+
+
+def _scrub_contiguous(text: str, key: str) -> str:
+    """Replace each run of characters covered by a contiguous key window with `[redacted]`."""
     width = min(MIN_KEY_FRAGMENT_CHARS, len(key))
     folded_key = _fold(key)
     windows = {folded_key[index:index + width] for index in range(len(key) - width + 1)}
@@ -674,6 +705,7 @@ __all__ = [
     "SUCCESS_STATUS",
     "TransportReply",
     "build_request_body",
+    "carries_key_fragment",
     "cost_for",
     "safe_served_model",
     "scrub_key",

@@ -24,6 +24,8 @@ from ..route_answer_store import (
     write_route_answer,
 )
 from ..runtime_reader import default_omh_home
+from .jev_ask_tool import ROUTE_CHOICE_QUESTION_ID as _ROUTE_CHOICE_ID
+from .jev_ask_tool import route_question_questions_sha256
 
 OMH_ROUTE_ANSWER_SCHEMA = {
     "name": "omh_route_answer",
@@ -167,7 +169,7 @@ def omh_route_answer_handler(args: dict[str, Any], **kwargs) -> str:
         message_sha256 = _resolved_message_sha256(args)
     except ValueError as error:
         return _result(payload, observation, status="invalid_request", error=str(error))
-    verified, verification, mismatch = _verify_digest(args)
+    verified, verification, mismatch, question = _verify_digest(args)
     if mismatch:
         return _result(
             payload,
@@ -179,8 +181,18 @@ def omh_route_answer_handler(args: dict[str, Any], **kwargs) -> str:
             ),
             digest_verification=verification,
         )
+    if question is not None and str(args.get("route_choice") or "").strip() not in _choice_options(question):
+        # Whoever answered, a verified digest names a question with known
+        # options, and a Choice outside them answers some other question.
+        return _result(
+            payload,
+            observation,
+            status="invalid_request",
+            error="route_choice is not one of the options of the question this digest names; nothing was recorded",
+            digest_verification=verification,
+        )
     if str(args.get("answered_by") or "").strip() == ANSWERED_BY_OMH_JEV_ASK:
-        refusal = _omh_jev_ask_claim_refusal(args, session_ref)
+        refusal = _omh_jev_ask_claim_refusal(args, session_ref, question)
         if refusal:
             return _result(payload, observation, status="invalid_request", error=refusal)
     try:
@@ -215,7 +227,7 @@ def omh_route_answer_handler(args: dict[str, Any], **kwargs) -> str:
 _PROBABILITY_TOLERANCE = 1e-9
 
 
-def _omh_jev_ask_claim_refusal(args: dict[str, Any], session_ref: str) -> str:
+def _omh_jev_ask_claim_refusal(args: dict[str, Any], session_ref: str, question: dict[str, Any] | None) -> str:
     """Why an `answered_by: omh_jev_ask` record is refused, or "" when an answered ask backs it.
 
     The record of a route-question ask this process sent and Jev answered
@@ -225,6 +237,12 @@ def _omh_jev_ask_claim_refusal(args: dict[str, Any], session_ref: str) -> str:
     Otherwise the model could file its own numbers under Jev's provenance.
     The ledger file is not consulted: a model with a file tool can append a
     row to it.
+
+    The digest alone does not bind the ask to its question: `omh_jev_ask`
+    echoes whatever digest the block carries, and the block does not carry
+    the request hash the digest is built from. So the claim needs `message`,
+    the question is re-derived from it (`question`), and the ask must have
+    sent exactly that question's projection (`questions_sha256`).
     """
     ask = answered_ask(str(args.get("ask_id") or ""))
     if ask is None:
@@ -234,6 +252,14 @@ def _omh_jev_ask_claim_refusal(args: dict[str, Any], session_ref: str) -> str:
         )
     if str(ask.get("question_digest") or "") != str(args.get("question_digest") or "").strip():
         return "that ask answered a different question_digest; nothing was recorded"
+    if question is None:
+        return (
+            "answered_by omh_jev_ask needs the message, so the question this digest names can be "
+            "re-derived and checked against what the ask sent; nothing was recorded"
+        )
+    expected = route_question_questions_sha256(question)
+    if not expected or str(ask.get("questions_sha256") or "") != expected:
+        return "that ask sent a different question than this digest names; nothing was recorded"
     if str(ask.get("session_ref") or "") != session_ref[:160]:
         return "that ask was made in a different session; nothing was recorded"
     if str(args.get("route_choice") or "").strip() != str(ask.get("route_choice") or ""):
@@ -302,8 +328,16 @@ def _resolved_message_sha256(args: dict[str, Any]) -> str:
     return derived or supplied
 
 
-def _verify_digest(args: dict[str, Any]) -> tuple[bool, str, bool]:
-    """(verified, verification, mismatch) for the supplied digest.
+def _choice_options(question: dict[str, Any]) -> set[str]:
+    """The option names of a route_question/v1 block's Choice."""
+    questions = question.get("questions")
+    choice = questions.get(_ROUTE_CHOICE_ID) if isinstance(questions, dict) else None
+    options = choice.get("options") if isinstance(choice, dict) else None
+    return {str(name) for name in options} if isinstance(options, dict) else set()
+
+
+def _verify_digest(args: dict[str, Any]) -> tuple[bool, str, bool, dict[str, Any] | None]:
+    """(verified, verification, mismatch, the matched question block) for the supplied digest.
 
     Verification needs the core router, which this bundle may be running
     without -- Hermes loads this directory with its own interpreter. The
@@ -325,7 +359,7 @@ def _verify_digest(args: dict[str, Any]) -> tuple[bool, str, bool]:
     message = str(args.get("message") or "").strip()
     digest = str(args.get("question_digest") or "").strip()
     if not message or not digest:
-        return False, "not_requested", False
+        return False, "not_requested", False, None
     source = str(args.get("source") or _DEFAULT_SOURCE)
     try:
         from omh.routing.candidate_handoff import MAX_CANDIDATES
@@ -339,7 +373,7 @@ def _verify_digest(args: dict[str, Any]) -> tuple[bool, str, bool]:
         # `build/` tree where a new module inside an existing package is
         # invisible to the install. `loop_bridge` catches the pair for the
         # same reason.
-        return False, "unavailable_without_package_backend", False
+        return False, "unavailable_without_package_backend", False, None
     found = False
     for limit in range(1, MAX_CANDIDATES + 1):
         try:
@@ -347,7 +381,7 @@ def _verify_digest(args: dict[str, Any]) -> tuple[bool, str, bool]:
         except (ValueError, KeyError):
             # An unsupported source or a message the router refuses is the
             # caller's input, not a verdict about the digest.
-            return False, "message_not_routable", False
+            return False, "message_not_routable", False, None
         question = route.get("route_question")
         if not isinstance(question, dict):
             continue
@@ -358,10 +392,10 @@ def _verify_digest(args: dict[str, Any]) -> tuple[bool, str, bool]:
         # A match settles it: the remaining passes can only reach the same
         # digest again, so the common case is one router pass and not four.
         if current == digest:
-            return True, "matched", False
+            return True, "matched", False, question
     if not found:
-        return False, "no_route_question_for_message", False
-    return False, "mismatch", True
+        return False, "no_route_question_for_message", False, None
+    return False, "mismatch", True, None
 
 
 def _result(

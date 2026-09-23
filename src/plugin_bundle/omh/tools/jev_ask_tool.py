@@ -2,9 +2,11 @@
 
 The call is refused before any socket opens unless every gate holds, in this
 order: the person named Jev in this turn's own message (`jev_consent`), the
-request is well formed and carries no credential-like text, and a route
-resolves (a `TYPESAFE_API_KEY`, or `OPENROUTER_API_KEY` plus the operator
-setting). Only then does `jev_ask_client` send it.
+request is well formed and carries no credential-like text, a route resolves
+(a `TYPESAFE_API_KEY`, or `OPENROUTER_API_KEY` plus the operator setting), and
+no text in the request holds an 8-character window of either configured
+route key, compared case-insensitively with whitespace removed. Only then does
+`jev_ask_client` send it.
 
 What leaves the machine: `state` exactly as supplied, every question id,
 instruction, and option text, the model id, the key as a Bearer header, and a
@@ -59,6 +61,7 @@ from ..jev_ask_client import (
     MalformedReply,
     Transport,
     build_request_body,
+    carries_key_fragment,
     cost_for,
     send_ask,
     validate_questions,
@@ -67,6 +70,7 @@ from ..jev_ask_client import (
 )
 from ..jev_ask_store import (
     LEDGER_SCHEMA_VERSION,
+    ROUTE_KEY_NAMES,
     ROUTE_NONE,
     KeyUnresolvable,
     append_ledger_record,
@@ -270,6 +274,14 @@ class _Ask:
         if self.route == ROUTE_NONE or not key:
             self.route = ""
             return self._finish(STATUS_KEY_MISSING)
+        if _carries_route_key((body_state, self.questions), key):
+            # Not even a hash of the refused material is kept.
+            self.state_sha256 = self.questions_sha256 = ""
+            return self._finish(
+                STATUS_INVALID_REQUEST,
+                error="credential_like_content: state or question text holds part of a configured route key; "
+                "nothing was sent",
+            )
         try:
             self.model = self._model_for_route()
             body = build_request_body(self.model, body_state, self.questions)
@@ -471,6 +483,19 @@ def _project_route_question(block: object) -> tuple[dict[str, dict[str, Any]], s
     return projected, digest
 
 
+def route_question_questions_sha256(block: object) -> str:
+    """The `questions_sha256` an ask of this route_question/v1 block records.
+
+    `omh_route_answer` compares it with an answered ask's ledger record, so a
+    claim of Jev's provenance names the question Jev was actually sent. ""
+    when the ask path would refuse the block, since such a block was never sent.
+    """
+    try:
+        return _sha256_json(validate_questions(_project_route_question(block)[0]))
+    except AskRequestError:
+        return ""
+
+
 def _attempts_so_far(value: object) -> int:
     """The model-supplied retry count, validated before any socket opens."""
     if value is None:
@@ -493,6 +518,36 @@ def _carries_credential_like_text(value: object) -> bool:
     if isinstance(value, list):
         return any(_carries_credential_like_text(item) for item in value)
     return False
+
+
+def _carries_route_key(value: object, route_key: str) -> bool:
+    """Whether any text in `value` holds a key window of any configured route key.
+
+    The pattern heuristic misses a key whose vendor prefix was stripped or
+    whose characters were spaced apart, and with both keys set an ask on one
+    route could carry the other vendor's key. Every string -- keys and values
+    -- is joined and compared folded with whitespace removed
+    (`carries_key_fragment`). A key the host will not read for this profile
+    is one the model cannot read through it either, so it is skipped.
+    """
+    keys = [route_key]
+    for name in ROUTE_KEY_NAMES.values():
+        try:
+            keys.append(read_key(name))
+        except KeyUnresolvable:
+            continue
+    text = "".join(_strings(value))
+    return any(key and carries_key_fragment(text, key) for key in keys)
+
+
+def _strings(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Mapping):
+        return [text for name, item in value.items() for text in (*_strings(name), *_strings(item))]
+    if isinstance(value, (list, tuple)):
+        return [text for item in value for text in _strings(item)]
+    return []
 
 
 def _sha256_json(value: object) -> str:

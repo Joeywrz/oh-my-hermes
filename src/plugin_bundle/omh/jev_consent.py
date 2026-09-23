@@ -30,7 +30,11 @@ from host material and the person's words (`gateway/run_inbound.py`,
 
 * host blocks prepended before the text, each closed by `]` and a blank line:
   `[Triggering message id: ...]` (Discord), `[Replying to...: "<quoted>"]`, a
-  `[The user sent ...]` note per attachment, image, or voice clip;
+  `[The user sent ...]` note per attachment or image, and per voice clip when
+  speech-to-text is disabled, fails, or hears nothing;
+* a successfully transcribed voice clip, prepended as a bare quoted paragraph
+  `"<transcript>"` and a blank line, with no bracketed marker
+  (`_transcribe_one_clip`, read at hermes-agent origin/main 16fe260aab);
 * channel-history backfill, `<earlier messages>` then a blank line and
   `[New message]` on its own line before the text
   (`_prefix_inbound_sender_context`, on by default on Discord);
@@ -81,9 +85,12 @@ text too), and the busy-session pending slot appends captions and text the
 same way (`merge_pending_message_event`, `gateway/platforms/base.py`, read at
 hermes-agent origin/main f63c388e1a). A captionless photo takes another
 sender's caption whole, so a media event's caption is nobody's certain words.
-The cost is that an owner's "ask jev" on a second line, or as a photo
-caption, is not consent on a messaging platform; a terminal surface has no
-such merge and keeps every line.
+A voice clip is media too: the pending slot merges another sender's clip into
+the owner's event, and its transcript is prepended as the first paragraph, so
+a turn whose text opens with a quoted transcript paragraph is a media turn.
+The cost is that an owner's "ask jev" on a second line, as a photo caption,
+or spoken in a voice clip is not consent on a messaging platform; a terminal
+surface has no such merge and keeps every line.
 
 In a shared multi-user session any participant can type "ask jev", so there
 consent needs the session's owner: the `sender_id` Hermes passed on the turn
@@ -104,6 +111,19 @@ unless the host's `allow_admin_from` is set), or who speaks first after a
 `/stop` suspended the session (Hermes starts a fresh session for the next
 message, whoever sends it, `gateway/run_turn.py`), owns that session's
 consent.
+
+A bot is read as a person. Hermes drops other bots' messages by default and
+accepts them when the operator opts in (`DISCORD_ALLOW_BOTS=mentions|all`,
+`slack.allow_bots` / `SLACK_ALLOW_BOTS`); the adapter then sets
+`SessionSource.is_bot`, and the turn runner passes it on only as
+`turn_author.is_bot` to `run_conversation`, which hands it to memory
+providers' `on_turn_start` and `sync_turn` (read at hermes-agent origin/main
+16fe260aab). `pre_llm_call` receives `sender_id` and no bot flag, and a bot's
+id has the same shape as a person's, so this gate cannot tell them apart.
+Residual: on a profile that allows bot messages, a bot that relays
+third-party text naming Jev -- a CI bot posting a PR title -- consents like
+the person it stands in for, and in a per-user session it opened it is the
+session's owner. Leave bot messages off on a profile with a Jev route.
 
 Words the owner relays are read as the owner's own: no adapter marks a
 forwarded message, and WeCom's quote-only messages and forwarded voice
@@ -207,6 +227,11 @@ _MEDIA_NOTES: Final = ("[The user sent", "[If you need a closer look", "[Image a
 # Content-part types that carry text. Any other part -- `image_url`,
 # `input_audio`, a type this module has not read -- makes the turn a media turn.
 _TEXT_PART_TYPES: Final = frozenset({"text", "input_text"})
+# A successful speech-to-text note: the transcript as a bare quoted paragraph,
+# prepended before the text (`_transcribe_one_clip`). After a pending-slot
+# merge it may be another sender's clip, so it marks a media turn. DOTALL, so
+# a transcript that spans lines or quotes its own words still matches.
+_TRANSCRIPT_PARAGRAPH: Final = re.compile(r'\A\s*".*"(?:\n\n|\s*\Z)', re.DOTALL)
 _BACKFILL_SEPARATOR: Final = "\n\n[New message]\n"
 # Inlined material with no closing boundary: the generic note that says a
 # file's content follows, every adapter's `[Content of <name>]:` header, and
@@ -388,8 +413,15 @@ def note_turn(
             owner_speaks = True
         if messaging:
             flat, media = _flatten(request_message)
-            if media or _newest_user_row_has_media(history) or any(note in flat for note in _MEDIA_NOTES):
-                # A media event's caption may be another sender's, merged whole.
+            if (
+                media
+                or _newest_user_row_has_media(history)
+                or any(note in flat for note in _MEDIA_NOTES)
+                or _TRANSCRIPT_PARAGRAPH.match(flat)
+                or _TRANSCRIPT_PARAGRAPH.match(text)
+            ):
+                # A media event's caption or transcript may be another
+                # sender's, merged whole.
                 text = ""
             # Merged chunks from other senders follow a newline; only the
             # first line is certainly the event sender's own.

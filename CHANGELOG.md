@@ -92,8 +92,8 @@ All notable changes will be documented here.
   platform a person types into can consent, never a webhook, API, cron,
   subagent, batch, single-query, or kanban-worker turn; on a messaging
   platform only the first line of the message counts and a photo or file
-  caption does not, because Hermes merges other senders' text into the first
-  sender's message -- a native-vision turn, which reaches the hook as a
+  caption or a voice message does not, because Hermes merges other senders'
+  text and clips into the first sender's message -- a native-vision turn, which reaches the hook as a
   content list with image parts, counts as a media turn by its parts; in a
   shared chat only the participant who opened the session can, and a session
   a compaction started names no owner; and the consent is bound to its own
@@ -102,8 +102,12 @@ All notable changes will be documented here.
   message, a WeCom quote, or a forwarded voice transcript reads as the
   forwarding user's own words, since no chat app marks a forward, and after
   `/new` or a `/stop` whoever speaks first owns the next session's consent;
-  both are documented in the skills' rail. A credential in a field name or a
-  question id is refused like one in a value. Only a
+  both are documented in the skills' rail. The gate cannot tell a bot from a
+  person, since the host's bot flag never reaches `pre_llm_call`, so on a
+  profile that admits bot messages a bot's words consent like a person's;
+  that residual is documented too. A credential in a field name or a
+  question id is refused like one in a value, and so is any 8-character piece
+  of either configured route key, in any case and with whitespace removed. Only a
   `TYPESAFE_API_KEY` enables it by itself (the OpenRouter route also needs
   `{"openrouter_route": true}` in `<omh_home>/jev/settings.json`, a local-trust
   opt-in), the route table is two fixed HTTPS hosts, redirects are refused,
@@ -111,9 +115,13 @@ All notable changes will be documented here.
   gateway's 504 or 524 included, may have been billed and are reported), the
   deadline bounds each read as well as the connect, and no key, `state`,
   question text, or reply is stored; any 8-character piece of a key echoed
-  back by the server, in any case or JSON-escaped, is scrubbed from every path.
+  back by the server, in any case or JSON-escaped, is scrubbed from every path,
+  and an echo that spaces the key's characters apart blanks the whole excerpt.
   An `answered_by: omh_jev_ask` record is accepted only for an ask this OMH
-  process itself sent and Jev answered, never on a ledger row alone. The skills
+  process itself sent and Jev answered, never on a ledger row alone, and only
+  with the request text, from which the question is re-derived: the ask must
+  have sent exactly that question, and a verified digest refuses a Choice
+  outside its options whoever answered. The skills
   declare `requires_tools: [omh_jev_ask]`, so Hermes leaves them out of the
   skill index where the tool is not registered (code-read, not observed live),
   for callers that pass a tool set; a caller that passes none shows them.

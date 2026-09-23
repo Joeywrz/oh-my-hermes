@@ -484,7 +484,12 @@ def _carries_credential_like_text(value: object) -> bool:
     if isinstance(value, str):
         return bool(value) and contains_credential_like_material(value)
     if isinstance(value, Mapping):
-        return any(_carries_credential_like_text(item) for item in value.values())
+        # Keys too: a model can put a pasted secret in a field name, and a key
+        # is sent exactly like a value.
+        return any(
+            _carries_credential_like_text(name) or _carries_credential_like_text(item)
+            for name, item in value.items()
+        )
     if isinstance(value, list):
         return any(_carries_credential_like_text(item) for item in value)
     return False

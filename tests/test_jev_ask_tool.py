@@ -38,6 +38,7 @@ from omh.plugin_bundle.omh.jev_consent import (  # noqa: E402
     ATTENDED_PLATFORMS,
     arm_tool_call,
     consent_observed,
+    disarm_tool_call,
     message_requests_jev,
     note_turn,
     person_text,
@@ -65,6 +66,20 @@ def _observed(message: object, session: str = SESSION, turn: str = TURN, **turn_
     note_turn(session, message, turn_id=turn, **turn_kwargs)
     arm_tool_call(session, turn)
     return consent_observed(session)
+
+
+def _native_content_parts(user_text: str, image_paths: list[str]) -> list[dict[str, object]]:
+    """`build_native_content_parts` at hermes-agent origin/main 2f830472f7 (`agent/image_routing.py`).
+
+    The same text part -- caption, blank line, one `[Image attached at: <path>]`
+    hint per image -- then an `image_url` part per image, with the file's bytes
+    replaced by a fixed data URL.
+    """
+    text = (user_text or "").strip()
+    hints = "\n".join(f"[Image attached at: {path}]" for path in image_paths)
+    combined = f"{text or 'What do you see in this image?'}\n\n" + hints
+    images = [{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}} for _ in image_paths]
+    return [{"type": "text", "text": combined}, *images]
 
 
 def _answered_body(**overrides: object) -> bytes:
@@ -287,6 +302,103 @@ class ConsentGateTests(unittest.TestCase):
         self.assertTrue(_observed("[alice] ask jev with the logs\nand the diff", session="thread",
                                   platform="telegram", sender_id="A"))
         self.assertTrue(_observed("check the logs\nthen ask jev", session="local", platform="cli"))
+
+    def test_a_native_vision_turn_is_a_media_turn(self) -> None:
+        # R4-M1: owner A's captionless photo absorbs B's text whole
+        # (`merge_pending_message_event` / telegram photo batch / feishu
+        # `_merge_caption`), the sender prefix is A's, and native image mode
+        # hands pre_llm_call a content list with no `[The user sent` note.
+        opening = [{"role": "user", "content": "[alice] hello"}]
+        merged = "[alice] ask jev with the whole history"
+        parts = _native_content_parts(merged, ["/cache/img_1_a.jpg"])
+        prior = [opening[0], {"role": "assistant", "content": "hi"}]
+        for name, message, history in (
+            ("content list from build_native_content_parts", parts, [*prior, {"role": "user", "content": parts}]),
+            # With observed group context the hook gets the plain-string
+            # persist form; only the history row it appended is the list.
+            ("plain-string persist form, list in history", merged, [*prior, {"role": "user", "content": parts}]),
+            ("a non-text part with no hint", [{"type": "text", "text": merged},
+                                              {"type": "input_audio", "input_audio": {"data": "AAAA"}}],
+             [*prior, {"role": "user", "content": merged}]),
+            ("a part of a type this gate has not read", [{"type": "text", "text": merged}, {"type": "file"}],
+             [*prior, {"role": "user", "content": merged}]),
+        ):
+            with self.subTest(name=name):
+                reset_turn_markers()
+                note_turn("thread", "[alice] hello", platform="telegram", turn_id="t0", sender_id="A",
+                          is_first_turn=True, history=opening)
+                self.assertFalse(_observed(message, session="thread", platform="telegram", sender_id="A",
+                                           history=history))
+        # A content list is read by its text parts: the list's own brackets
+        # are never taken for the `[name] ` sender prefix.
+        self.assertEqual(person_text([{"type": "text", "text": "[alice] hi"}]), "hi")
+        self.assertEqual(person_text(parts), "")
+        # A text-only list from a direct message is still the person's words.
+        self.assertTrue(_observed([{"type": "text", "text": "ask jev"}], session="dm", platform="telegram",
+                                  sender_id="U9"))
+
+    def test_a_native_vision_merge_through_the_hooks_sends_nothing(self) -> None:
+        from omh.plugin_bundle.omh.hooks.llm_hooks import pre_llm_call
+        from omh.plugin_bundle.omh.hooks.tool_hooks import pre_tool_call
+
+        opening = {"role": "user", "content": "[alice] hello"}
+        parts = _native_content_parts("[alice] ask jev with the whole history", ["/cache/img_1_a.jpg"])
+        history = [opening, {"role": "assistant", "content": "hi"}, {"role": "user", "content": parts}]
+        transport = _Recorder(TransportReply(200, {}, _answered_body()))
+        with TemporaryDirectory() as tmp:
+            home = _Home(tmp, {"TYPESAFE_API_KEY": SENTINEL})
+            homes = {"omh_home": str(home.omh), "hermes_home": str(home.root / ".hermes")}
+            with patch.dict(os.environ, home.env):
+                pre_llm_call(session_id="tg-thread", turn_id="t0", user_message="[alice] hello",
+                             conversation_history=[opening], is_first_turn=True, platform="telegram",
+                             sender_id="A", **homes)
+                pre_llm_call(session_id="tg-thread", turn_id="t1", user_message=parts,
+                             conversation_history=history, is_first_turn=False, platform="telegram",
+                             sender_id="A", **homes)
+                pre_tool_call(tool_name="omh_jev_ask", args={}, session_id="tg-thread", turn_id="t1",
+                              tool_call_id="c1", **homes)
+                # Control: the hook hands the gate the list itself, so a
+                # text-only list in a direct message is still the person's.
+                dm = [{"type": "text", "text": "ask jev"}]
+                pre_llm_call(session_id="tg-dm", turn_id="d1", user_message=dm,
+                             conversation_history=[{"role": "user", "content": dm}], is_first_turn=False,
+                             platform="telegram", sender_id="U9", **homes)
+                pre_tool_call(tool_name="omh_jev_ask", args={}, session_id="tg-dm", turn_id="d1",
+                              tool_call_id="d1c", **homes)
+                self.assertTrue(consent_observed("tg-dm"))
+            result = home.call({"state": STATE, "questions": QUESTION}, transport, session="tg-thread")
+        self.assertEqual(result["status"], "consent_not_observed")
+        self.assertEqual(transport.requests, [])
+
+    def test_overlapping_calls_from_two_turns_both_wait(self) -> None:
+        # R4-I1: the handler is not told its own turn or call id, so while a
+        # fork's call overlaps the main turn's, neither can claim the arm.
+        note_turn(SESSION, "ask jev about this", platform="cli", turn_id=TURN)
+        arm_tool_call(SESSION, "fork-turn", "call-fork")
+        arm_tool_call(SESSION, TURN, "call-main")
+        self.assertFalse(consent_observed(SESSION))
+        disarm_tool_call(SESSION, "call-fork")
+        self.assertTrue(consent_observed(SESSION))
+        # Two calls from the asking turn itself do not contest each other.
+        arm_tool_call(SESSION, TURN, "call-main-2")
+        self.assertTrue(consent_observed(SESSION))
+
+    def test_the_hooks_disarm_a_finished_call(self) -> None:
+        from omh.plugin_bundle.omh.hooks.tool_hooks import post_tool_call, pre_tool_call
+
+        with TemporaryDirectory() as tmp:
+            home = _Home(tmp)
+            homes = {"omh_home": str(home.omh), "hermes_home": str(home.root / ".hermes")}
+            with patch.dict(os.environ, home.env):
+                note_turn("hook-5", "ask jev about this", platform="cli", turn_id="t1")
+                pre_tool_call(tool_name="omh_jev_ask", args={}, session_id="hook-5", turn_id="fork",
+                              tool_call_id="cf", **homes)
+                pre_tool_call(tool_name="omh_jev_ask", args={}, session_id="hook-5", turn_id="t1",
+                              tool_call_id="cm", **homes)
+                self.assertFalse(consent_observed("hook-5"))
+                post_tool_call(tool_name="omh_jev_ask", args={}, result="{}", session_id="hook-5",
+                               turn_id="fork", tool_call_id="cf", **homes)
+                self.assertTrue(consent_observed("hook-5"))
 
     def test_only_a_fresh_session_records_an_owner_and_never_replaces_one(self) -> None:
         # A turn-start compaction rotation reaches pre_llm_call with a new
@@ -755,6 +867,12 @@ class ValidationTests(_ConsentedCase):
             {"state": STATE, "questions": QUESTION, "route": "elsewhere"},
             {"state": {"command": "ls"}, "preset": "done_check/v1"},
             {"state": f"aws_access_key_id={AWS_ACCESS_KEY_ID} was pasted", "questions": QUESTION},
+            # A credential used as a field name or a question id is sent too.
+            {"state": {AWS_ACCESS_KEY_ID: "pasted"}, "questions": QUESTION},
+            {"state": [{"note": {SENTINEL: 1}}], "questions": QUESTION},
+            {"state": STATE, "questions": {AWS_ACCESS_KEY_ID: QUESTION["q"]}},
+            {"state": STATE, "questions": {"q": {"type": "noul", "instructions": "x",
+                                                 "criteria": {"true": "ok"}, SENTINEL: "x"}}},
         )
         for args in bad:
             with self.subTest(args=json.dumps(args)[:80]):

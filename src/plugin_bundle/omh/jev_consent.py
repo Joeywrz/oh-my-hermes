@@ -55,7 +55,14 @@ requested" outright, because it cannot be split. The sender prefix is removed be
 remove text, so a wrong cut fails closed.
 
 On a messaging platform only the FIRST line of that segment counts, and a
-turn that carries an attachment note (`[The user sent ...`) counts not at all.
+media turn counts not at all: one whose message or newest user row in
+`conversation_history` carries a content part that is not text (a
+native-vision turn is an OpenAI-style list with an `image_url` part per image,
+`build_native_content_parts` in `agent/image_routing.py`; with observed group
+context the hook gets the plain-string persist form and only the history row
+is the list), or whose text carries an attachment note (`[The user sent ...`,
+`[Image attached ...`). A content list is read by its text parts, never
+`str()`-ed.
 Hermes merges inbound messages from different senders into the first
 sender's event and keeps that sender's `user_id`: the text batcher appends
 each chunk after a newline (`_append_text`; its key is the session, and
@@ -83,13 +90,27 @@ when a sender other than the recorded owner speaks. Residuals: a shared
 session on a platform that supplies no display name, first seen by this
 process after a restart, cannot be told from a direct message; and a
 participant who opens a fresh session with `/new` (open to every participant
-unless the host's `allow_admin_from` is set) owns that session's consent.
+unless the host's `allow_admin_from` is set), or who speaks first after a
+`/stop` suspended the session (Hermes starts a fresh session for the next
+message, whoever sends it, `gateway/run_turn.py`), owns that session's
+consent.
+
+Words the owner relays are read as the owner's own: no adapter marks a
+forwarded message, and WeCom's quote-only messages and forwarded voice
+transcripts reach the hook as plain text from the forwarding sender. A person
+who forwards someone else's "ask jev" into their own chat has asked for Jev;
+the owner is the one who decides what to forward.
 
 The marker is bound to the turn that recorded it. `pre_llm_call` stores the
-turn's `turn_id`; OMH's `pre_tool_call` arms the session with the `turn_id` of
-each `omh_jev_ask` call; the tool proceeds only when the two match. A
+turn's `turn_id`; OMH's `pre_tool_call` arms each `omh_jev_ask` call under its
+`tool_call_id` with the call's `turn_id`, and `post_tool_call` disarms it; the
+tool proceeds only when every armed call runs in the recorded turn. A
 background-review fork or a `/btw` side question shares the session id but runs
-under its own `turn_id`, so it cannot spend the main turn's consent.
+under its own `turn_id`, so it cannot spend the main turn's consent, and while
+its call overlaps the main turn's, neither proceeds: the handler is not told
+its own call id, so it cannot tell which arm is its own. Residual: a host path
+that runs the tool without `pre_tool_call` leaves no arm of its own, and would
+read another in-flight call's.
 
 Process-local and bounded, like `session_attendance`: nothing about it is
 written to disk.
@@ -110,8 +131,11 @@ _JEV_TOKEN: Final = re.compile(r"(?<![^\W_])jev(?![a-z])", re.IGNORECASE)
 _lock = threading.Lock()
 # session -> (turn_id, requested)
 _turn_markers: "OrderedDict[str, tuple[str, bool]]" = OrderedDict()
-# session -> turn_id of the latest `omh_jev_ask` pre_tool_call
-_armed_turns: "OrderedDict[str, str]" = OrderedDict()
+# session -> {tool_call_id: turn_id} of each `omh_jev_ask` call between its
+# pre_tool_call and its post_tool_call
+_armed_turns: "OrderedDict[str, dict[str, str]]" = OrderedDict()
+# In-flight calls tracked per session; past this the session reads as contested.
+MAX_ARMED_CALLS: Final = 32
 # session -> sender_id recorded on the session's first turn
 _session_owners: "OrderedDict[str, str]" = OrderedDict()
 
@@ -165,7 +189,14 @@ _HOST_BLOCK_OPENERS: Final = (
 _HOST_BLOCK_END: Final = "]\n\n"
 # Notes Hermes writes for an attachment; the pending slot merges any sender's
 # caption into such an event (`merge_pending_message_event`).
-_MEDIA_NOTES: Final = ("[The user sent", "[If you need a closer look")
+# `[Image attached at: <path>]` / `[Image attached: <url>]` is the hint
+# `build_native_content_parts` (`agent/image_routing.py`) adds to a native-vision
+# turn's text part; it is a second layer behind the structural check on the
+# message's parts in `_flatten`.
+_MEDIA_NOTES: Final = ("[The user sent", "[If you need a closer look", "[Image attached")
+# Content-part types that carry text. Any other part -- `image_url`,
+# `input_audio`, a type this module has not read -- makes the turn a media turn.
+_TEXT_PART_TYPES: Final = frozenset({"text", "input_text"})
 _BACKFILL_SEPARATOR: Final = "\n\n[New message]\n"
 # Inlined material with no closing boundary: the generic note that says a
 # file's content follows, every adapter's `[Content of <name>]:` header, and
@@ -182,9 +213,58 @@ _EXPANSION_HEADERS: Final = ("--- Context Warnings ---", "--- Attached Context -
 _SENDER_PREFIX: Final = re.compile(r"\[[^\]\n]*\] ")
 
 
+def _flatten(message: object) -> tuple[str, bool]:
+    """(the message's text, whether it carries any part that is not text).
+
+    Hermes passes a native-vision turn as an OpenAI-style content list
+    (`build_native_content_parts`): a text part, then an `image_url` part per
+    image. The text parts are joined by newlines, never `str()`-ed, so the
+    list's own brackets cannot pass for a sender prefix. A part this module
+    cannot read as text counts as media, and anything that is neither a
+    string nor a list of parts has no text at all.
+    """
+    if message is None:
+        return "", False
+    if isinstance(message, str):
+        return message, False
+    if isinstance(message, dict):
+        message = [message]
+    if not isinstance(message, (list, tuple)):
+        return "", True
+    texts: list[str] = []
+    media = False
+    for part in message:
+        if isinstance(part, str):
+            texts.append(part)
+        elif (
+            isinstance(part, dict)
+            and part.get("type") in _TEXT_PART_TYPES
+            and isinstance(part.get("text"), str)
+        ):
+            texts.append(part["text"])
+        else:
+            media = True
+    return "\n".join(texts), media
+
+
+def _newest_user_row_has_media(history: object) -> bool:
+    """Whether the newest user row of `conversation_history` carries a non-text part.
+
+    With observed group context Hermes hands `pre_llm_call` the plain-string
+    persist form of the turn while the API row it appended is the content
+    list, so the image is visible only here.
+    """
+    if not isinstance(history, (list, tuple)):
+        return False
+    for row in reversed(history):
+        if isinstance(row, dict) and row.get("role") == "user":
+            return _flatten(row.get("content"))[1]
+    return False
+
+
 def _person_segment(message: object, *, messaging: bool) -> tuple[str, bool]:
     """(the person's own text or "", whether a sender prefix was removed)."""
-    text = str(message or "")
+    text = _flatten(message)[0]
     if any(marker in text for marker in _UNSPLITTABLE_MARKERS):
         return "", False
     # Everything from the first `@`-reference expansion header on is host
@@ -291,7 +371,8 @@ def note_turn(
         else:
             owner_speaks = True
         if messaging:
-            if any(note in str(request_message or "") for note in _MEDIA_NOTES):
+            flat, media = _flatten(request_message)
+            if media or _newest_user_row_has_media(history) or any(note in flat for note in _MEDIA_NOTES):
                 # A media event's caption may be another sender's, merged whole.
                 text = ""
             # Merged chunks from other senders follow a newline; only the
@@ -303,24 +384,50 @@ def note_turn(
         _ = _armed_turns.pop(key, None)
 
 
-def arm_tool_call(session_id: object, turn_id: object) -> None:
+def arm_tool_call(session_id: object, turn_id: object, tool_call_id: object = "") -> None:
     """Record the turn an `omh_jev_ask` call is running in; `pre_tool_call` calls this."""
     key = str(session_id or "").strip()
     if not key:
         return
     with _lock:
-        _remember(_armed_turns, key, str(turn_id or "").strip())
+        arms = dict(_armed_turns.get(key, {}))
+        arms[str(tool_call_id or "").strip()] = str(turn_id or "").strip()
+        if len(arms) > MAX_ARMED_CALLS:
+            # Too many calls in flight to tell apart: no turn matches "".
+            arms = {"": ""}
+        _remember(_armed_turns, key, arms)
+
+
+def disarm_tool_call(session_id: object, tool_call_id: object) -> None:
+    """Forget a finished `omh_jev_ask` call; `post_tool_call` calls this."""
+    key = str(session_id or "").strip()
+    call = str(tool_call_id or "").strip()
+    if not key or not call:
+        return
+    with _lock:
+        arms = _armed_turns.get(key)
+        if arms is not None:
+            _ = arms.pop(call, None)
 
 
 def consent_observed(session_id: object) -> bool:
-    """True only when this session's current turn asked for Jev and the call runs in that turn."""
+    """True only when this session's current turn asked for Jev and every call in flight runs in that turn.
+
+    The tool handler receives the session id but not the call's turn id or
+    tool call id (Hermes `model_tools._execute_tool` passes `task_id`,
+    `session_id`, and `user_task`), so it cannot name its own arm. Each call
+    is armed under its `tool_call_id` and disarmed at its `post_tool_call`;
+    while calls from two different turns overlap -- a `/btw` fork's call next
+    to the main turn's -- neither can tell which arm is its own, so neither
+    proceeds.
+    """
     key = str(session_id or "").strip()
     if not key:
         return False
     with _lock:
         turn, requested = _turn_markers.get(key, ("", False))
-        armed = _armed_turns.get(key, "")
-    return requested and bool(turn) and armed == turn
+        armed = set(_armed_turns.get(key, {}).values())
+    return requested and bool(turn) and armed == {turn}
 
 
 def reset_turn_markers() -> None:
@@ -338,6 +445,7 @@ __all__ = [
     "arm_tool_call",
     "clear_turn",
     "consent_observed",
+    "disarm_tool_call",
     "message_requests_jev",
     "note_turn",
     "person_text",

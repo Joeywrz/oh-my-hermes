@@ -91,10 +91,17 @@ All notable changes will be documented here.
   subagent, batch, single-query, or kanban-worker turn; on a messaging
   platform only the first line of the message counts and a photo or file
   caption does not, because Hermes merges other senders' text into the first
-  sender's message; in a shared chat only the participant who opened the
-  session can, and a session a compaction started names no owner; and the
-  consent is bound to its
-  own turn, so a background fork of the session cannot spend it), only a
+  sender's message -- a native-vision turn, which reaches the hook as a
+  content list with image parts, counts as a media turn by its parts; in a
+  shared chat only the participant who opened the session can, and a session
+  a compaction started names no owner; and the consent is bound to its own
+  turn, so a background fork of the session cannot spend it, and while a
+  fork's call overlaps the main turn's, neither is sent). A forwarded
+  message, a WeCom quote, or a forwarded voice transcript reads as the
+  forwarding user's own words, since no chat app marks a forward, and after
+  `/new` or a `/stop` whoever speaks first owns the next session's consent;
+  both are documented in the skills' rail. A credential in a field name or a
+  question id is refused like one in a value. Only a
   `TYPESAFE_API_KEY` enables it by itself (the OpenRouter route also needs
   `{"openrouter_route": true}` in `<omh_home>/jev/settings.json`, a local-trust
   opt-in), the route table is two fixed HTTPS hosts, redirects are refused,

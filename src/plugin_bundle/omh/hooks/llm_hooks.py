@@ -420,9 +420,11 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     # on a platform nobody types into, and another participant of a shared
     # session record "not requested"; the marker is bound to this turn's id
     # (`jev_consent`).
+    # The raw message, not `request_message`'s `str()`: a native-vision turn
+    # is a content list whose image parts are what mark it a media turn.
     note_jev_turn(
         session_id,
-        request_message,
+        kwargs.get("user_message") if request_message else "",
         delegated=session_is_delegated(session_id, omh_home=omh_home),
         platform=kwargs.get("platform"),
         turn_id=kwargs.get("turn_id"),

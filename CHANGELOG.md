@@ -337,6 +337,18 @@ All notable changes will be documented here.
   still under-reads the flow form by one tier; it cannot import the core
   reader, and it states no enablement.
 
+- **A reply lint turns the reply rules into checkable evidence.**
+  `omh quality-evidence reply-lint` reads the sentence a person read (a file,
+  stdin, or the trailing replies of a Hermes session, opened read-only) and
+  reports `record_term_leak` (the rail's record vocabulary plus the Korean
+  renderings read in live replies, `표면` and `레인`), `awareness_line_quoted`
+  (`[OMH Awareness]`, `Boundary:`, `Route hint:` lines), `refusal_closer` (the
+  closing paragraph declares what will not be done and offers no question), and
+  `decision_without_question`. A term the user named is carved out, only the
+  closing paragraph decides the closing findings, and a finding exits 1. The
+  `reply_lint/v1` payload carries its own claim boundary: a clean result is not
+  evidence that the reply was correct or in the host's own voice.
+
 ## 2.0.5 - 2026-09-22
 
 - **The cut now asks for the site rebuild its own push cannot start.** A cut

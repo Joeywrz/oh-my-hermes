@@ -219,6 +219,44 @@ users express the intent in natural language and Hermes fills the flags.
 - Treat `harness_progress/v1.next_step` as a wrapper hint, not as proof that the
   next action has already happened.
 
+## Reply Lint
+
+The reply rules -- OMH's record vocabulary stays in records and tool calls,
+awareness lines are never quoted, and a stop or a decision the user owns ends
+the turn with the next action offered as a question -- ship as prompt text in
+every skill's Runtime Evidence tail, the common rail, and the awareness primers.
+Nothing observed whether a reply followed them until a person read "this is an
+evidence-bounded surface" or "I will not merge here" and said so.
+
+`omh quality-evidence reply-lint` reads the sentence a person read and reports
+where it departs from those rules:
+
+| Finding | What it means |
+| --- | --- |
+| `record_term_leak` | a record term in the reply: the rail's list (`prepared_not_observed`, `not_observed`, `evidence boundary`, `handoff`, the qualified `surface`/`lane`/`wrapper` forms) plus the Korean renderings read in live replies (`표면`, `레인`) |
+| `awareness_line_quoted` | an `[OMH Awareness]`, `Boundary:`, or `Route hint:` line quoted into the reply |
+| `refusal_closer` | the closing paragraph declares what will not be done and offers no question |
+| `decision_without_question` | the closing paragraph names an approval or a decision the user owns and offers no question |
+
+```sh
+omh quality-evidence reply-lint --text-file reply.txt [--user-text-file asked.txt]
+omh quality-evidence reply-lint --stdin < reply.txt
+omh quality-evidence reply-lint --hermes-session latest --last 5 [--json]
+```
+
+Only the closing paragraph decides the last two: a refusal in the body
+followed by a closing question is the rule's own shape, what was left undone
+stated as the option it leaves open. A term the user's own message names is
+explained on request, not leaked, so it is carved out and listed rather than
+counted. The Hermes source opens `state.db` read-only, pairs each reply with
+the user message it answered, and skips the `[PRIOR CONTEXT ...]` rows a
+compaction re-injects. A finding exits 1 so a QA loop can gate on it.
+
+The payload is `reply_lint/v1` and carries its own claim boundary: a clean
+result shows that the text carries none of these shapes. It does not show that
+the reply was correct, complete, or in the host's own voice, and it is not
+execution, review, CI, or merge evidence.
+
 ## Golden Examples
 
 See `examples/wrapper-golden/harness-quality.json` for deterministic examples

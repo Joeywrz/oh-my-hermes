@@ -332,7 +332,12 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # rows too. The entry above deliberately left this budget with no slack at
 # all, so the first ordinary change after it has to move the number; that is
 # the ratchet working, not a regression. Re-derived from the producer.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 422474
+# 422474 -> 422755: the two executing-engine rules (follow-up authority,
+# closing brief) now say how a stop ends the turn -- the next action offered
+# as a question, never a statement of what will not be done -- and the seven
+# engines' capability rows carry the longer rules. Re-derived from the
+# producer.
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 422755
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -1323,7 +1328,15 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # skill_context_cost_payload() producer, which is why the step is 278 and
 # not the 320 the added line weighs. The step is what this entry owns:
 # rebasing past `ultraqa`'s raise moved both endpoints and left 278 alone.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 979184
+# 979184 -> 999772: every generated workflow skill's Runtime Evidence tail
+# gained one sentence beside its stop condition -- a stop or a decision the
+# user owns ends the turn by offering the next action as a question, never
+# by declaring what will not be done -- and the seven executing engines
+# carry the reworded follow-up authority and closing brief rules. The model
+# had been closing runs with "I will not merge or force-push here"; the
+# sentence is read at the stop, so it belongs in the always-loaded body and
+# not in a reference. Re-derived from the full-profile producer.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 999772
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

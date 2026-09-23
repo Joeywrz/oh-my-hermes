@@ -1113,6 +1113,10 @@ class RouterContentTests(unittest.TestCase):
             "native subagents -> Hermes delegation when available, otherwise sequential lanes",
             "Record observed delegation results",
             "not_observed",
+            # A stop ends the turn with the next action offered, never with a
+            # refusal; every skill carries the sentence because every skill
+            # has a stop condition.
+            "offer the next action as a question rather than declaring what will not be done",
         )
         templates = {template.name: template.content for template in builtin_skill_templates()}
         rendered_files = {
@@ -1249,6 +1253,12 @@ class RouterContentTests(unittest.TestCase):
             self.assertIn("not automatically a replacement objective", templates[name].content, name)
             # The brief's scaling never licenses dropping the mandatory close.
             self.assertIn("Required closing lines stay outside this scaling", templates[name].content, name)
+            # A boundary stop is offered as the next question, never closed as
+            # a refusal: the pattern this replaced ended turns with "I will
+            # not merge or force-push here" and left the person no next move.
+            self.assertIn("asking whether to take it", templates[name].content, name)
+            self.assertIn("never by declaring what will not be done", templates[name].content, name)
+            self.assertIn("end with the next action offered as a question", templates[name].content, name)
         for planning_name in ("ralplan", "plan", "deep-interview"):
             for rule in (ENGINE_FOLLOW_UP_AUTHORITY_RULE, ENGINE_CLOSING_BRIEF_RULE):
                 self.assertNotIn(rule, definitions[planning_name].quality_bar, planning_name)

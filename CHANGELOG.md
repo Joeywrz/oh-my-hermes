@@ -4,6 +4,24 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A stop now ends the turn with the next action offered, not with a
+  refusal.** Runs on the executing engines closed with sentences like "I will
+  not merge or force-push here": the follow-up authority rule said to describe
+  a follow-up and wait for approval, but not how to close, and the closing
+  brief rule listed "follow-up declarations" among the bookkeeping not to
+  narrate, so the model stated what it would not do and the person saw no
+  next move. The follow-up authority rule now ends the turn by naming the next
+  action and asking whether to take it, as one question carrying the choices
+  the user has; the closing brief rule ends a boundary stop with that offered
+  action and states what was left undone as the option it leaves open; every
+  generated skill's tail carries the same sentence beside its stop condition,
+  and the common rail has a Turn Ending section with the before-and-after.
+  The wrapper copy for the file-lookup and direct-answer states is reordered
+  in every locale so it ends on the action rather than on "does not start an
+  OMH workflow". The per-skill byte ceiling moves 26,000 -> 26,500 for
+  `ultrawork`, with the reason at the entry.
+
+
 - **A Hermes child now receives its prompt.** `omh coding hermes-child
   dispatch` spawned `hermes --oneshot -` and wrote the prompt to stdin, but
   Hermes' `-z/--oneshot` takes the prompt as its positional value and reads no

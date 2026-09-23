@@ -55,7 +55,17 @@ STRUCTURE_LINT_RULE_IDS = (
 # reference, outside this budget. The sibling ledger pins in
 # src/maintenance/release.py were re-derived from their producers on the
 # same branch. Warranted always-loaded growth, not drift.
-STRUCTURE_LINT_SKILL_BODY_BYTE_CEILING = 26_000
+#
+# 26_000 -> 26_500: `ultrawork` measures 26_493 through the same gate after
+# the two executing-engine rules (follow-up authority, closing brief) and
+# the per-skill tail gained the turn-ending sentence: a stop at a boundary
+# or at a decision the user owns ends the turn by offering the next action
+# as a question, never by declaring what will not be done. The model had
+# been closing runs with "I will not merge or force-push here", which left
+# the person no next move; the sentence is what every skill's stop
+# condition needed and belongs in the always-loaded body because the stop
+# is where it is read. Warranted always-loaded growth, not drift.
+STRUCTURE_LINT_SKILL_BODY_BYTE_CEILING = 26_500
 _PICKER_SAFE_TRIGGER = re.compile(r"^[0-9A-Za-z\uac00-\ud7a3][0-9A-Za-z\uac00-\ud7a3 _.-]*$")
 _FRONTMATTER = re.compile(r'^---\nname: (.+)\ndescription: (.+)\nmetadata:\n(.*?)\n---\n', re.DOTALL)
 _JSON_STRING = re.compile(r'"(?:[^"\\\x00-\x1f]|\\["\\/bfnrt]|\\u[0-9A-Fa-f]{4})*"')

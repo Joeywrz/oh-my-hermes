@@ -206,7 +206,10 @@ class EfficiencyContractTests(unittest.TestCase):
         # 68,000 -> 70,000: agent-ops-review is a core-profile skill and gained
         # the three instrumentation-audit quality-bar rules (68,394 measured);
         # the ladder itself is an on-demand reference outside this count.
-        self.assertLess(core["skill_body"]["bytes"], 70_000)
+        # 70,000 -> 72,000: the turn-ending sentence on every skill's Runtime
+        # Evidence tail reaches the ten core bodies too (70,014 measured);
+        # the ceiling restores the ~2k headroom this gate carried.
+        self.assertLess(core["skill_body"]["bytes"], 72_000)
         # 815,000 -> 825,000: one new installable body (`web-research`) plus the
         # sentence that split `best-practice-research`'s boundary in two. Set to
         # restore the ~10k headroom this gate is meant to carry rather than to
@@ -272,7 +275,11 @@ class EfficiencyContractTests(unittest.TestCase):
         # restores the ~13k standing headroom this gate is meant to carry rather
         # than clearing the measurement by a hair; the exact value stays
         # ratcheted in `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
-        self.assertLess(full["skill_body"]["bytes"], 1_005_000)
+        # 1,005,000 -> 1,012,000: the turn-ending sentence on every workflow
+        # skill's tail plus the reworded engine rules took the full profile to
+        # 998,884; the ceiling restores the ~13k standing headroom, and the
+        # exact value stays ratcheted in `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
+        self.assertLess(full["skill_body"]["bytes"], 1_012_000)
         self.assertLess(full["repeated"]["share_percent"], 38.0)
 
         # References are progressive disclosure, counted outside the always-loaded body.

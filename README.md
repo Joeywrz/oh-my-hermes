@@ -404,14 +404,14 @@ credential, dispatch, or execution evidence:
 | `ultrabrain` | Deepest reasoning | GPT-6 Astra (xhigh) |
 | `deep` | Strong default tier | GPT-5.6 Terra, then DeepSeek Flash (V4.1) (high) |
 | `architect` | Architecture and system design | Claude Fable 5.1, then GPT-6 Astra, then Kimi K3 (xhigh) |
-| `unspecified-high` | Default working model | Kimi K3, then Claude Opus 5 (medium) |
-| `unspecified-low` | Cheaper fallback | GLM 5.3, then DeepSeek Flash (V4.1), then Claude Opus 5 (low) |
-| `quick` | Short tasks | GLM 5.3 Flash, then Kimi K3, then GPT-5.6 Luna, then Claude Fable 5.1 (low) |
+| `unspecified-high` | Default working model | Kimi K3, then Claude Opus 5.5 (medium) |
+| `unspecified-low` | Cheaper fallback | GLM 5.3, then DeepSeek Flash (V4.1), then Claude Opus 5.5 (low) |
+| `quick` | Short tasks | GLM 5.3 Flash, then Kimi K3, then GPT-6 Luna, then Claude Fable 5.1 (low) |
 | `writing` | Prose and docs | Kimi K3, then Qwen3-Coder, then Gemini 3.1 Pro (medium) |
 | `visual-engineering` | Frontend and visual | Claude Fable 5.1, then Kimi K3 (high) |
 | `artistry` | Unconventional work | Gemini 3.1 Pro, then Claude Fable 5.1, then Kimi K3 (high) |
-| `capable` | Strong general work | Claude Fable 5.1, then Claude Opus 5, then Kimi K3, then GLM 5.3 (medium) |
-| `simple-work` | Small everyday tasks | GPT-5.6 Luna, then DeepSeek Flash (V4.1), then Claude Haiku 4.5 (low) |
+| `capable` | Strong general work | Claude Fable 5.1, then Claude Opus 5.5, then Kimi K3, then GLM 5.3 (medium) |
+| `simple-work` | Small everyday tasks | GPT-6 Luna, then DeepSeek Flash (V4.1), then Claude Haiku 4.5 (low) |
 | `deep-work` | Long tasks at frontier depth | GPT-6 Astra (high) |
 
 Want to try the Ultrafast tier — Kimi K3 Ultrafast (300 TPS) and

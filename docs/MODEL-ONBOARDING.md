@@ -45,6 +45,16 @@ empty, record the table in the contract's `effort_mapping`, and let the
 route pass the rung through on record — the record says what the rung
 bought, and the chains name only documented rungs.
 
+A contract is surface-dependent: the vendor's API page, the vendor's own
+client, and the installed Hermes build can each document a different ladder
+or limit for the same id. GPT-6 Luna is the first case: the API page lists
+`none` through `max` and a 1,050,000-token context (official), the Codex
+client's catalog lists `low` through `max` with a 272K window (official-client),
+and a Hermes build older than upstream `79ec1f2a34` clamps `max` to `xhigh`
+(observed). Record the API ladder and limits as the contract and put each
+other surface in `surface_notes`, labeled; do not average them and do not
+let the narrowest surface overwrite the API record.
+
 When the vendor or host exposes multiple spellings for one documented model,
 do not infer inheritance by stripping suffixes. Add only the reviewed catalog
 ids to `DECLARED_MODEL_CONTRACT_PROJECTIONS`, preserve the requested/provider-
@@ -268,8 +278,11 @@ behavioral shifts). For other families: the vendor's release notes, thinking
 and tool-calling contract, context and output limits, list pricing, speed
 tiers. Run the lanes below as separate read-only research agents at the same
 time — each writes one dossier under `.omc/research/<family>-<generation>/`
-with every claim labeled official, community, or observed; a community claim
-never overrides an official contract.
+with every claim labeled official (a vendor doc), official-client (the
+vendor's own client source, such as the Codex model catalog), observed (a
+file:line, a CLI run, or a live read on this machine), or community. On
+conflict the earlier label wins: a community claim never overrides an
+official contract.
 
 1. **Official** — the vendor's docs, change log, pricing page, and model
    card. Quote the effort table verbatim when one exists (DeepSeek publishes
@@ -331,7 +344,10 @@ Rules that have held across every onboarding so far:
   superseded generation leaves the shipped chains (owner decision,
   2026-09-11, applied in one pass to Fable 5 behind 5.1, GLM 5.2 and its
   Ultrafast tier behind the 5.3 generation, DeepSeek V3.2 behind V4.1 Flash,
-  and GPT-5.6 Sol behind GPT-6 Astra on the two frontier slots). The public
+  and GPT-5.6 Sol behind GPT-6 Astra on the two frontier slots; applied again
+  on 2026-09-23 to Claude Opus 5 behind Opus 5.5 and GPT-5.6 Luna behind
+  GPT-6 Luna). Record each retirement as a `RETIREMENT_DECISIONS` row with its
+  own `decision_date`. The public
   table names the current generation of each line; a machine whose provider
   still serves only the older id keeps it through `omh model-chains set`.
   The retired alias stays recognized, priced, and provider-mapped — list it
@@ -355,9 +371,19 @@ Rules that have held across every onboarding so far:
   Glasswing) stays out of every shipped chain: naming a model most accounts
   cannot reach reads as a second model in the public tables. Keep it
   recognized, priced, and routable for a user who asks for it by name.
-- The Claude vendor order inside any chain is Fable 5.1 → Opus 5 (owner
-  decision, 2026-09-06). The Hermes lane and the Maestro lane are different
-  surfaces and both follow it.
+- The Claude vendor order inside any chain is Fable 5.1 → Opus 5.5 (owner
+  decision, 2026-09-06, which named Opus 5; Opus 5.5 took its place on
+  2026-09-23). The Hermes lane and the Maestro lane are different surfaces
+  and both follow it.
+- Know whether a slot names a pinned id or a vendor-tracking alias before
+  deciding it needs an edit. The Hermes lane names pinned ids
+  (`claude-opus-5-5`), so a generation bump is a repo change. The Maestro
+  lane's Claude Code rows name the `opus` alias, which moves without an OMH
+  edit — but on the client's terms, not OMH's: Claude Code resolves `opus`
+  to Opus 5.5 only from v2.1.280, and to Opus 4.6 on Microsoft Foundry
+  (official, code.claude.com/docs/en/model-config). An alias slot therefore
+  needs a docs caveat rather than an id change, and the same entry can run
+  different generations on different machines.
 - Shipped defaults change only with explicit owner approval; the operator's
   own placement goes through `omh model-chains set` and
   `omh coding category-maestro set`, never by hand-editing the JSON.
@@ -382,6 +408,10 @@ Files that move together (grep the old id to find every site):
 | Generated public chain table | `docs/INSTALLATION.md` is not hand-edited: its marked region renders from `SHIPPED_MODEL_RECOMMENDATIONS` through `src/catalogs/model_chain_table.py`. Run `uv run python -m omh.cli docs chain-table` and add the new alias to `MODEL_DISPLAY_LABELS` there — the renderer raises with the key to add when it is missing |
 | Pinned-chain and fallback-count tests | `tests/test_model_recommendations.py`, `tests/test_model_recommendation_routing.py`, `tests/test_model_routing_journey.py`, `tests/test_delegate_route_tool.py`, `tests/test_model_routing.py`, `tests/test_category_maestro.py`, `tests/test_task_scale_routing.py`, `tests/test_model_chains_command.py`, `tests/test_provider_entitlements.py` (chain-shaping cases), `tests/test_plugin_hermes_delegation.py` (route-provenance and reader fixtures name a chain member) — pins live in fixtures as well as assertions, so grep `tests/` for the old id and start the full suite in the background before the first doc edit, not after |
 | Retired-alias list (an alias that left every chain but stays routable) | `_RECOGNITION_ONLY_ALIAS_FAMILIES` in `tests/test_provider_entitlements.py` |
+| Placement and retirement records | `RECOMMENDATION_DECISIONS` (move the slot tuples to the new id) and `RETIREMENT_DECISIONS` (one row per superseded id, with successor, scope, and `decision_date`) in `src/coding/model_portfolio_qualification.py`; `tests/test_model_portfolio_qualification.py` checks every full retiree is out of both lanes, recognition-only, and priced |
+| Claude always-thinking guard | `_ALWAYS_THINKING_CLAUDE_PREFIXES` in `src/plugin_bundle/omh/tools/delegate_route_tool.py` — add the id when the vendor documents that thinking cannot be disabled, so `omh_delegate_route` refuses a no-thinking effort instead of sending a request the API rejects |
+| Benchmark arms | `benchmarks/live-model-tools/v1/manifest.json` — the old generation's arm, where one exists, stays as the baseline of the §8 pair and the new id's arm lands with the measurement PR; a line with no arm (GPT-5.6 Luna) gets both arms in that PR |
+| Last-resort prose | the shared-final-order sentences in `docs/INSTALLATION.md` and `docs/ARCHITECTURE.md` name the `last_resort.any` models by display label; `tests/test_model_recommendations.py` derives the expected order and fails when either sentence goes stale |
 | Contract audit doc paths | `_MODEL_DOCS` in `src/coding/model_contract_coverage.py` |
 | CLI help examples | `src/commands/coding.py` |
 
@@ -421,7 +451,9 @@ provider serves lands behind the served entries automatically. Record which
 lane got the new id.
 An id the resolving provider does not serve is not an error to hide: the
 provider's rejection comes back as a normal result and the chain falls
-through, which is exactly why the older generation stays behind the new one.
+through to the next entry. The superseded generation is not that next entry
+in the shipped chains (§4); a machine whose provider serves only the older
+id keeps it with `omh model-chains set`.
 
 ## 7. Prove it
 

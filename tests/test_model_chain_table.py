@@ -130,7 +130,7 @@ class GeneratedChainTableTests(unittest.TestCase):
         main = {row.row_id: row for row in chain_table_rows()}["role.main"]
         self.assertEqual(
             main.order,
-            "Kimi K3, Claude Fable 5.1, Claude Opus 5, "
+            "Kimi K3, Claude Fable 5.1, Claude Opus 5.5, "
             "GPT-6 Astra (`xhigh`), GPT-5.6 Terra (`high`)",
         )
 

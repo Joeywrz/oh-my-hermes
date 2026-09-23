@@ -68,7 +68,9 @@ HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     # low/high, so at xhigh `mixture_category_for` labels them architect;
     # Astra at xhigh stays labeled ultrabrain (its canonical head), which is
     # the honest projection when the chain falls through to it.
-    # Claude vendor order (owner decision, 2026-09-06): Fable 5.1 -> Opus 5.
+    # Claude vendor order (owner decision, 2026-09-06): Fable 5.1 -> Opus;
+    # Opus 5.5 holds Opus 5's former slots since 2026-09-23 (editorial,
+    # unmeasured), and GPT-6 Luna holds GPT-5.6 Luna's.
     # Claude Mythos 5.1 is Fable 5.1 under Project Glasswing access, so no
     # shipped chain names it; it stays recognized, priced, and routable for a
     # user who asks for it by name.
@@ -77,7 +79,7 @@ HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
         ("gpt-6-astra", "xhigh"),
         ("kimi-k3", "xhigh"),
     ),
-    "unspecified-high": (("kimi-k3", "medium"), ("claude-opus-5", "medium")),
+    "unspecified-high": (("kimi-k3", "medium"), ("claude-opus-5-5", "medium")),
     # A chain that would otherwise sit in one provider ecosystem ends with a
     # comparable-tier candidate from another (owner rule, 2026-08-19), so one
     # rejected ecosystem cannot exhaust the whole chain.
@@ -85,12 +87,12 @@ HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     "unspecified-low": (
         ("glm-5.3", "low"),
         ("deepseek-flash", "low"),
-        ("claude-opus-5", "low"),
+        ("claude-opus-5-5", "low"),
     ),
     "quick": (
         ("glm-5.3-flash", "low"),
         ("kimi-k3", "low"),
-        ("gpt-5.6-luna", "low"),
+        ("gpt-6-luna", "low"),
         ("claude-fable-5-1", "low"),
     ),
     "writing": (
@@ -114,13 +116,13 @@ HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     #
     # capable: strong general work one rung under the frontier categories,
     # crossing four provider ecosystems so the owner rule above holds. Effort
-    # is medium because that is how claude-opus-5 and kimi-k3 are already used
+    # is medium because that is how claude-opus-5-5 and kimi-k3 are already used
     # in unspecified-high, the closest existing lane. High was rejected:
     # ("claude-fable-5-1", "high") is visual-engineering's head, and a capable
     # chain at high would have taken that category's projection label.
     "capable": (
         ("claude-fable-5-1", "medium"),
-        ("claude-opus-5", "medium"),
+        ("claude-opus-5-5", "medium"),
         ("kimi-k3", "medium"),
         ("glm-5.3", "medium"),
     ),
@@ -128,10 +130,10 @@ HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     # small model where quick leads with the cheapest GLM tier, so a user who
     # wants GPT behavior on a trivial task can ask for it by category. Low
     # throughout, matching quick. Note this moves one existing label:
-    # ("gpt-5.6-luna", "low") projected to quick by chain position and now
-    # head-matches simple-work.
+    # ("gpt-5.6-luna", "low") projected to quick by chain position and then
+    # head-matched simple-work; ("gpt-6-luna", "low") inherits that label.
     "simple-work": (
-        ("gpt-5.6-luna", "low"),
+        ("gpt-6-luna", "low"),
         ("deepseek-flash", "low"),
         ("claude-haiku-4-5", "low"),
     ),
@@ -331,7 +333,7 @@ SUBSCRIPTION_CLI_PROFILES: tuple[str, ...] = ("claude-code",)
 # described.
 HERMES_MIXTURE_ALIAS_PROVIDER_FAMILIES: dict[str, tuple[str, ...]] = {
     "kimi-k3": ("apitopia", "kimi-coding", "openrouter", "opencode"),
-    "claude-opus-5": ("ccapi", "anthropic", "openrouter"),
+    "claude-opus-5-5": ("ccapi", "anthropic", "openrouter"),
     "claude-fable-5-1": ("ccapi", "anthropic", "openrouter"),
     "claude-haiku-4-5": ("ccapi", "anthropic", "openrouter"),
     # Recognition-only: no shipped chain names Claude Mythos 5.1, but a user
@@ -341,7 +343,7 @@ HERMES_MIXTURE_ALIAS_PROVIDER_FAMILIES: dict[str, tuple[str, ...]] = {
     "gpt-6-astra": ("openai-codex", "openai"),
     "gpt-5.6-sol": ("openai-codex", "openai"),
     "gpt-5.6-terra": ("openai-codex", "openai"),
-    "gpt-5.6-luna": ("openai-codex", "openai"),
+    "gpt-6-luna": ("openai-codex", "openai"),
     "deepseek-flash": ("deepseek", "openrouter", "opencode"),
     # Recognition-only: the versioned spelling of the Flash pointer above
     # (the gateway id `deepseek/deepseek-v4.1-flash` arrives this way).
@@ -353,6 +355,10 @@ HERMES_MIXTURE_ALIAS_PROVIDER_FAMILIES: dict[str, tuple[str, ...]] = {
     "deepseek-v3.2": ("deepseek", "openrouter", "opencode"),
     "glm-5.2": ("zai", "openrouter", "opencode"),
     "glm-5.2-ultrafast": ("zai", "openrouter", "opencode"),
+    # Retired on 2026-09-23 under the same rule (superseded by
+    # claude-opus-5-5 and gpt-6-luna respectively).
+    "claude-opus-5": ("ccapi", "anthropic", "openrouter"),
+    "gpt-5.6-luna": ("openai-codex", "openai"),
     "glm-5.3": ("zai", "openrouter", "opencode"),
     "glm-5.3-flash": ("zai", "openrouter", "opencode"),
     "grok-code-fast": ("xai", "openrouter"),
@@ -364,7 +370,7 @@ HERMES_MIXTURE_ALIAS_PROVIDER_FAMILIES: dict[str, tuple[str, ...]] = {
 # from declared aliases so a newly documented child contract stops inheriting
 # stale provider/category metadata until its own rows are added here.
 EXACT_MODEL_CONTRACT_ALIASES: frozenset[str] = frozenset(
-    {"gpt-6-astra", "deepseek-v4.1-flash", "jev-1.13.0"}
+    {"gpt-6-astra", "gpt-6-luna", "claude-opus-5-5", "deepseek-v4.1-flash", "jev-1.13.0"}
 )
 
 # Standalone mirror of coding.model_contracts' bounded declared projections.
@@ -382,6 +388,11 @@ DECLARED_MODEL_ALIAS_PROJECTIONS: dict[str, tuple[str, str, str]] = {
     # DeepSeek-V4.1-Flash. The pointer moves with the next Flash release, so
     # it is a declared projection with a read date, not an exact contract.
     "deepseek-flash": ("deepseek-v4.1-flash", "thinking", "standard"),
+    # Claude Opus 5.5's Bedrock id (the contract's `served_ids.bedrock`) and
+    # its dotted gateway spelling (OpenRouter's live listing, 2026-09-23):
+    # second spellings of the same model at the contract's mode and tier.
+    "anthropic.claude-opus-5-5": ("claude-opus-5-5", "thinking", "standard"),
+    "claude-opus-5.5": ("claude-opus-5-5", "thinking", "standard"),
     # TypeSafe publishes two aliases for Jev (docs.typesafe.ai/models,
     # 2026-09-21); both point at `jev-1.13.0` today and both move on the next
     # release, so each is a declared projection with a read date.
@@ -1209,19 +1220,38 @@ APPROX_PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
     # was read. A number without that is unauditable -- a reader cannot tell
     # a current price from one that drifted, which is how the Claude rows
     # went stale before anyone noticed.
-    # OpenAI list prices (openai.com/api/pricing, 2026-08):
-    "gpt-5.6-sol": (1.25, 10.0),
+    # OpenAI published price (developers.openai.com/api/docs/models/gpt-5.6-sol
+    # and /api/docs/pricing, read 2026-09-23): 4/20, cached input 0.40. The
+    # page labels it promotional, "available at least through November 21,
+    # 2026", and names no later price; re-read the page after that date. The
+    # earlier 1.25/10 matched neither page.
+    "gpt-5.6-sol": (4.0, 20.0),
     # OpenAI list price (developers.openai.com/api/docs/models/gpt-6-astra,
     # 2026-09): 10/50; cached input 1 (the default tenth). The $12.5 cache
     # write and the 2x/1.5x multiplier above 272K input have no column in
     # this table and stay documented in `src/coding/model_contracts.py`.
     "gpt-6-astra": (10.0, 50.0),
-    "gpt-5.6-terra": (1.25, 10.0),
-    "gpt-5.6-luna": (0.25, 2.0),
+    # OpenAI list price (developers.openai.com/api/docs/models/gpt-5.6-terra,
+    # read 2026-09-23): 2/12, cached input 0.20. The earlier 1.25/10 did not
+    # match the page.
+    "gpt-5.6-terra": (2.0, 12.0),
+    # OpenAI list price (developers.openai.com/api/docs/models/gpt-5.6-luna,
+    # 2026-09): 0.20/1.20. The earlier 0.25/2.0 did not match the page. The
+    # id left the shipped chains on 2026-09-23 and stays priced for overrides.
+    "gpt-5.6-luna": (0.20, 1.20),
+    # OpenAI list price (developers.openai.com/api/docs/models/gpt-6-luna and
+    # openai.com/api/pricing, 2026-09): 0.10/0.50; cached input 0.01 (the
+    # default tenth). Cache write, long-context, and service-tier rates stay
+    # documented in `src/coding/model_contracts.py`.
+    "gpt-6-luna": (0.10, 0.50),
     # Anthropic first-party list prices (docs.claude.com pricing, 2026-09):
     # Opus 5 5/25, Sonnet 5 2/10, Fable 5 and 5.1 10/50; Mythos 5.1 shares
     # Fable 5.1's per-token price. Earlier entries here were stale.
     "claude-opus-5": (5.0, 25.0),
+    # Anthropic list price (platform.claude.com pricing, 2026-09): Opus 5.5
+    # 4/20; cache read 0.05x input (APPROX_CACHE_READ_RATIO below). Cache
+    # write, Batch, and fast-mode rates stay in `model_contracts.py`.
+    "claude-opus-5-5": (4.0, 20.0),
     "claude-fable-5": (10.0, 50.0),
     "claude-fable-5-1": (10.0, 50.0),
     "claude-mythos-5-1": (10.0, 50.0),
@@ -1275,6 +1305,9 @@ APPROX_PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
 # shares Fable 5.1's per-token price and its cache-read rate was open at
 # launch, so its entry is the Fable figure, still an approximation.
 APPROX_CACHE_READ_RATIO: dict[str, float] = {
+    # Opus 5.5 cache read is "0.05x the base input price" (platform.claude.com
+    # pricing, 2026-09).
+    "claude-opus-5-5": 0.05,
     "claude-fable-5-1": 0.025,
     "claude-mythos-5-1": 0.025,
     # DeepSeek V4.1 Flash cache hit 0.006 vs cache miss 0.30 per MTok input

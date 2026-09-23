@@ -41,6 +41,32 @@ def _inventory(models: tuple[str, ...], *, status: str = "observed") -> dict[str
 
 
 class CoverageMatrixTests(unittest.TestCase):
+    def test_every_contract_names_its_docs(self) -> None:
+        from omh.coding.model_contract_coverage import _MODEL_DOCS
+        from omh.coding.model_contracts import MODEL_CONTRACTS
+
+        # A contract without a docs row reports its docs dimension `missing`
+        # although the contract itself is covered; keep the two key sets one.
+        self.assertEqual(set(_MODEL_DOCS), set(MODEL_CONTRACTS))
+
+    def test_new_generation_contracts_cover_effort_and_price(self) -> None:
+        rows = {
+            row["requested_model"]: row
+            for row in build_model_contract_coverage(
+                _inventory(("openai/gpt-6-luna", "anthropic/claude-opus-5-5", "anthropic/claude-opus-5"))
+            )["comparison"]["models"]
+        }
+        luna = rows["openai/gpt-6-luna"]
+        self.assertEqual(luna["status"], "exact")
+        self.assertEqual(luna["dimensions"]["effort"]["floor"], "none")
+        self.assertEqual(luna["dimensions"]["price"]["status"], "documented_list")
+        opus = rows["anthropic/claude-opus-5-5"]
+        self.assertEqual(opus["status"], "exact")
+        self.assertEqual(opus["dimensions"]["effort"]["floor"], "low")
+        self.assertIn("off", opus["dimensions"]["effort"]["unsupported_efforts"])
+        # The previous generation keeps no contract.
+        self.assertEqual(rows["anthropic/claude-opus-5"]["status"], "missing")
+
     def test_deepseek_pointer_inherits_the_exact_contract_and_routed_legacy_ids_stay_missing(self) -> None:
         inventory = _inventory(
             (

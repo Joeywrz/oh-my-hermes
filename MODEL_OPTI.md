@@ -129,8 +129,10 @@ family's:
   an arbitrary suffix. `omh coding model-contract --model <id>` prints the
   resolved record. The route resolver consults it before the catalog: a
   requested effort the contract documents as unsupported is raised to the
-  documented floor and the route says so (`effort_change.kind =
-  floor_raised`), on every executor profile, so an unsupported rung never
+  documented floor or, when that floor is the no-reasoning rung `none`
+  (GPT-6 Luna), to the lowest documented rung above the request, and the
+  route says so (`effort_change.kind = floor_raised`), on every executor
+  profile, so an unsupported rung never
   reaches a provider silently. Route receipts retain the requested id plus the
   canonical contract id, reasoning mode, service tier, and exact-versus-
   declared provenance. None of that claims catalog availability, entitlement,
@@ -370,7 +372,7 @@ baseline-vs-calibrated prompt pairs where the *only* difference is the
 calibration block, and `tests/test_omh_live_model_benchmark.py` pins that
 pairing so a benchmark claim can never mix in other prompt changes.
 
-### `gpt` (GPT-5.6 Sol / Terra / Luna)
+### `gpt` (GPT-5.6 Sol / Terra / Luna, GPT-6 Luna)
 
 - **Model trait:** a strong long-horizon reasoner. Its characteristic waste
   is spending depth on things that are already decided: re-deriving facts it
@@ -387,6 +389,31 @@ pairing so a benchmark claim can never mix in other prompt changes.
 - **Version rule:** the block above is written for the 5.6 generation and
   is what every `gpt-` id receives unless an exact-model override exists.
   GPT-6 Astra has one, below; the 5.6 prompts are byte-stable across it.
+- **GPT-6 Luna: documented traits, no counter shipped.** `gpt-6-luna` has
+  an exact contract (`src/coding/model_contracts.py`) but no exact
+  calibration, so it receives this family block. The reason is placement,
+  not an absence of traits: the shipped chains run Luna at `low` in `quick`
+  and `simple-work`, and the subagent calibration fires only at `high`,
+  `xhigh`, or `max` (`HIGH_EFFORT_TIER` in
+  `src/coding/unit_prompt_protocol.py`), so a shipped Luna unit never
+  receives a block. Luna is not a composer candidate either; the vendor
+  positions it for "focused, high-volume tasks". The evidence, kept ready
+  for an operator who runs it at `high` or above:
+  - official (the latest-model guide, read 2026-09-23), stated for the
+    GPT-6 family rather than for Luna: more likely to ask the user a
+    question; more sensitive to instructions contained in skills; tends
+    toward detailed, formatted responses; may delegate less often than
+    desired; thorough in testing before considering a task complete.
+  - official-client (the Codex model catalog's Luna prompt, compared with
+    Sol's): Codex drops the "continue work without ending the turn"
+    sentence for Luna and replaces Sol's testing bullets with "Do not add or
+    run tests unless the user asks you to test or verify implementation."
+    The vendor's own client restrains Luna rather than pushing it.
+
+  A future counter would narrow scope, never push the model to keep
+  working; test restraint is the strongest candidate. Editorial,
+  unmeasured: the `gpt-5.6-luna` vs `gpt-6-luna` pair at `low` is the named
+  follow-up.
 
 ### `gpt-6-astra` (GPT-6 Astra, exact-model override on the `gpt` family)
 
@@ -494,7 +521,7 @@ pairing so a benchmark claim can never mix in other prompt changes.
   evaluation, and system card, read 2026-09-04), plus the 2026-09-05
   measurement above for the first sentence's wording.
 
-### `claude` (Fable 5.1, Mythos 5.1, Fable 5, Opus 5, Sonnet, Haiku)
+### `claude` (Fable 5.1, Mythos 5.1, Fable 5, Opus 5.5, Opus 5, Sonnet, Haiku)
 
 - **Model trait:** conscientious to a fault. Left alone it grows the
   checklist mid-run ("while I'm here…"), adds just-to-be-sure verification
@@ -543,6 +570,23 @@ pairing so a benchmark claim can never mix in other prompt changes.
   served only to Project Glasswing-approved organizations; it takes the same
   calibration, and no shipped chain names it — a user who asks for it by
   name is still recognized and routed.
+- **Opus 5.5 (2026-09-23): no new counter, family blocks byte-stable.**
+  Anthropic says "Existing Claude Opus 5 prompts should perform well without
+  changes" (official, the Opus 5.5 prompting guide). Three documented traits
+  bear on reading this block for it, all official: effort names do not map
+  one-to-one across generations — Opus 5.5 at `medium` matches or exceeds
+  Opus 5 at `high` on Anthropic's coding and knowledge-work evaluations, and
+  it thinks more per turn at a given rung, especially at `xhigh` and `max`;
+  thinking is always on and cannot be disabled (a request that disables it
+  is a 400, which is why `omh_delegate_route` refuses a no-thinking effort
+  for this id); and text between tool calls arrives in `thinking` blocks
+  that are empty at the default display setting, which the existing "every
+  progress claim points at a tool result" sentence already covers. The
+  shipped rungs are `medium` and `low`, so the subagent block does not fire
+  in shipped chains; the composer block does, because Opus 5.5 is in the
+  `main` role suggestion. Anthropic's "Unattended agentic runs" paragraph is
+  deliberately not adopted: it tells the model to keep working. Editorial,
+  unmeasured: Opus 5 vs Opus 5.5 at the same rung is the named follow-up.
 - **Source:** the original checklist/fan-out counters are adapted research
   (same origin as `gpt`), the composer block was added after observing
   over-fan-out in live composition; the 5.1 additions follow the official
@@ -1043,7 +1087,8 @@ gate requires a completed paired run on the intended execution surface.
   tenth of input unless `APPROX_CACHE_READ_RATIO` names the model: Claude
   Fable 5.1 lists $10 / $50 per MTok with cache reads at $0.25 (0.025x) and
   cache writes at $12.50 (5-minute TTL) / $20 (1-hour TTL); Opus 5 reads at
-  the tenth. Mythos 5.1 carries the Fable figure because its cache-read rate
+  the tenth; Opus 5.5 lists $4 / $20 with cache reads at $0.20 (0.05x) and
+  cache writes at $5 / $8. Mythos 5.1 carries the Fable figure because its cache-read rate
   was open at launch — approximate, like every number in the table. DeepSeek
   V4.1 Flash reads at 0.02x (cache hit $0.006 against $0.30 miss, peak).
 - **`max_tokens` is a failure signal, not a stop** — a unit whose final turn
@@ -1102,6 +1147,7 @@ not, and how to reproduce it: `benchmarks/product-ab/v1/README.md`.
 | five declared Astra mode/tier aliases | yes → `gpt` | yes, inherited from canonical `gpt-6-astra` | bounded declared inheritance for contract, effort, calibration, provider/category metadata, and price; unknown suffixes remain missing |
 | `deepseek-v4.1-flash` (exact-model override) | yes → `deepseek` | yes, both override tables, resolved before the family block | exact documented contract (three-rung ladder, no floor) plus stop-shaped counters for the documented traits; the family-vs-optimized pair is the named follow-up, blocked on a served route |
 | `deepseek-flash` (declared pointer alias) | yes → `deepseek` | yes, inherited from canonical `deepseek-v4.1-flash` | the vendor's moving "current Flash" id, declared with a read date; `deepseek-v4-flash`, `deepseek-v4-pro`, and every other DeepSeek id keep the family block |
+| `gpt-6-luna`, `claude-opus-5-5` (exact contracts, no exact calibration) | yes → `gpt` / `claude` | yes, through the family block | exact documented contracts (Luna's `none`-to-`max` ladder; Opus 5.5's always-on thinking, forced-`tool_choice` 400, and 0.05x cache reads); no exact counter because neither shipped placement reaches the high-effort tier on the subagent side and the Opus composer block is kept byte-stable per the vendor's Opus 5.5 prompting guide; the old-vs-new generation pairs are the named follow-up |
 | `openai-gpt-`, `anthropic-claude-` (design-qualified aliases) | yes → `gpt` / `claude` | yes, through the design family | concrete models.dev/OpenCode serving ids carry these sub-prefixes; their catalog `base_model` fields establish the underlying design family |
 | other `openai-`, `anthropic-` vendor-qualified ids | recognized as model targets, family `unknown` | no → `generic` | vendor qualification alone does not establish a design; O-series, image, and emerging ids remain uncalibrated |
 | `jev` (non-generative) | yes | no, and none applies → no calibration pair | recognized, contracted (`jev-1.13.0`, with `jev-latest` and `jev-preview` as declared aliases), priced with a free output side, and in no chain by decision; the route answers `model_refused` and both chain editors refuse it. The coverage audit reports `effort`, `category_projection`, and `provider_eligibility` as `missing`, which is the honest reading for a model with no effort parameter and no chain membership — greening any of them would need an invented rung or an invented chain entry |

@@ -337,14 +337,14 @@ OMH에는 다음과 같이 편집 가능한 순서형 recommendation chain이 �
 | `ultrabrain` | 가장 깊은 추론 | GPT-6 Astra (xhigh) |
 | `deep` | 강력한 기본 티어 | GPT-5.6 Terra, 다음 DeepSeek Flash (V4.1) (high) |
 | `architect` | 아키텍처·시스템 설계 | Claude Fable 5.1, 다음 GPT-6 Astra, 다음 Kimi K3 (xhigh) |
-| `unspecified-high` | 기본 작업 모델 | Kimi K3, 다음 Claude Opus 5 (medium) |
-| `unspecified-low` | 저비용 폴백 | GLM 5.3, 다음 DeepSeek Flash (V4.1), 다음 Claude Opus 5 (low) |
-| `quick` | 짧은 작업 | GLM 5.3 Flash, 다음 Kimi K3, 다음 GPT-5.6 Luna, 다음 Claude Fable 5.1 (low) |
+| `unspecified-high` | 기본 작업 모델 | Kimi K3, 다음 Claude Opus 5.5 (medium) |
+| `unspecified-low` | 저비용 폴백 | GLM 5.3, 다음 DeepSeek Flash (V4.1), 다음 Claude Opus 5.5 (low) |
+| `quick` | 짧은 작업 | GLM 5.3 Flash, 다음 Kimi K3, 다음 GPT-6 Luna, 다음 Claude Fable 5.1 (low) |
 | `writing` | 문서·산문 | Kimi K3, 다음 Qwen3-Coder, 다음 Gemini 3.1 Pro (medium) |
 | `visual-engineering` | 프론트엔드·비주얼 | Claude Fable 5.1, 다음 Kimi K3 (high) |
 | `artistry` | 비정형 창작 | Gemini 3.1 Pro, 다음 Claude Fable 5.1, 다음 Kimi K3 (high) |
-| `capable` | 범용 고성능 작업 | Claude Fable 5.1, 다음 Claude Opus 5, 다음 Kimi K3, 다음 GLM 5.3 (medium) |
-| `simple-work` | 간단한 일상 작업 | GPT-5.6 Luna, 다음 DeepSeek Flash (V4.1), 다음 Claude Haiku 4.5 (low) |
+| `capable` | 범용 고성능 작업 | Claude Fable 5.1, 다음 Claude Opus 5.5, 다음 Kimi K3, 다음 GLM 5.3 (medium) |
+| `simple-work` | 간단한 일상 작업 | GPT-6 Luna, 다음 DeepSeek Flash (V4.1), 다음 Claude Haiku 4.5 (low) |
 | `deep-work` | 최상위 깊이의 긴 작업 | GPT-6 Astra (high) |
 
 Ultrafast 티어가 궁금하다면 — Kimi K3 Ultrafast(300 TPS), GLM 5.3 Ultrafast — [OpenGateway](https://opengateway.ai/)에서 만나볼 수 있습니다.

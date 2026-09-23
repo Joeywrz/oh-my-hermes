@@ -29,7 +29,7 @@ def _active(alias: str, provider: str, family: str) -> dict[str, object]:
 
 
 _KIMI = _active("kimi-k3", "apitopia", "kimi")
-_OPUS = _active("claude-opus-5", "ccapi", "claude")
+_OPUS = _active("claude-opus-5-5", "ccapi", "claude")
 _GROK = _active("grok-code-fast", "xai", "grok")
 _GEMINI = _active("gemini-3.1-pro", "google", "gemini")
 # Shipped chain members (the superseded GLM 5.2 Ultrafast and Fable 5
@@ -112,10 +112,10 @@ class HermesRecommendationRoutingTests(unittest.TestCase):
 
         self.assertEqual(route["status"], "routed")
         self.assertEqual(route["provenance"], "recommendation_chain_head")
-        self.assertEqual(route["selected_model"], "ccapi/claude-opus-5")
+        self.assertEqual(route["selected_model"], "ccapi/claude-opus-5-5")
         self.assertEqual(
             [entry["model_id"] for entry in route["chain"]],
-            ["ccapi/claude-opus-5"],
+            ["ccapi/claude-opus-5-5"],
         )
         recommendation = route["recommendation"]
         self.assertEqual(recommendation["inactive_candidates"][0], "kimi-k3")
@@ -187,7 +187,7 @@ class HermesRecommendationRoutingTests(unittest.TestCase):
 
         self.assertEqual(route["status"], "routed")
         self.assertEqual(route["provenance"], "recommendation_chain_head")
-        self.assertEqual(route["selected_model"], "ccapi/claude-opus-5")
+        self.assertEqual(route["selected_model"], "ccapi/claude-opus-5-5")
         self.assertEqual(route["recommendation"]["source"], "last_resort_chain")
         outcomes = {entry["stage"]: entry["outcome"] for entry in route["attempted"]}
         self.assertEqual(outcomes["recommendation_chain"], "last_resort")
@@ -242,7 +242,7 @@ class HermesRecommendationRoutingTests(unittest.TestCase):
                 "xai/grok-code-fast",
                 "apitopia/kimi-k3",
                 "google/gemini-3.1-pro",
-                "ccapi/claude-opus-5",
+                "ccapi/claude-opus-5-5",
             ],
         )
         self.assertEqual(route["selected_model"], "xai/grok-code-fast")

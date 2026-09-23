@@ -148,7 +148,10 @@ class ContractRecordTests(unittest.TestCase):
     def test_every_contract_ladder_is_canonical_vocabulary(self) -> None:
         for model_id, contract in MODEL_CONTRACTS.items():
             for effort in contract["reasoning_efforts"]:
-                self.assertIn(effort, REASONING_EFFORT_LADDER, model_id)
+                # `none` is the vendor spelling of the canonical `off` rung.
+                # A contract may record it verbatim (GPT-6 Luna documents it
+                # as a rung), and the route then keeps that spelling.
+                self.assertIn("off" if effort == "none" else effort, REASONING_EFFORT_LADDER, model_id)
             if contract.get("model_class") == NON_GENERATIVE_MODEL_CLASS:
                 # A model that answers typed questions carries no effort
                 # parameter at all: the request is a `state` plus a question
@@ -756,6 +759,369 @@ class JevContractTests(unittest.TestCase):
         self.assertIn("reasoning efforts: low, medium, high, xhigh, max (floor `low`)", stdout)
         for absent in ("question types:", "rate limits:", "list price per Mtok:", "documented trait:"):
             self.assertNotIn(absent, stdout)
+
+
+_LUNA_FORMS = ("gpt-6-luna", "openai/gpt-6-luna", "openai-codex/gpt-6-luna", "GPT-6-Luna")
+
+
+class Gpt6LunaContractTests(unittest.TestCase):
+    """The GPT-6 Luna exact contract (2026-09-23): the first contract whose
+    documented ladder carries `none` as a rung rather than rejecting it."""
+
+    def test_every_served_form_resolves_the_exact_contract(self) -> None:
+        base = model_contract("gpt-6-luna")
+        assert base is not None
+        for form in _LUNA_FORMS:
+            with self.subTest(form=form):
+                self.assertEqual(model_family(form), "gpt")
+                self.assertEqual(contract_model_id(form), "gpt-6-luna")
+                self.assertIs(model_contract(form), base)
+                projection = model_contract_projection(form)
+                assert projection is not None
+                self.assertEqual(projection["provenance"], "exact")
+
+    def test_bare_word_and_undocumented_variants_carry_no_contract(self) -> None:
+        # `luna` stays unknown by the pinned decision; the vendor ships Fast,
+        # Batch, and Flex as service tiers on the base id, not as separate
+        # ids, so a gateway's `-pro` / `-fast` spelling inherits nothing.
+        self.assertEqual(model_family("luna"), "unknown")
+        for model_id in ("luna", "gpt-6-luna-pro", "gpt-6-luna-fast", "gpt-6-luna-mini"):
+            with self.subTest(model_id=model_id):
+                self.assertIsNone(model_contract(model_id))
+        # The previous generation keeps its family-only treatment.
+        self.assertIsNone(model_contract("gpt-5.6-luna"))
+
+    def test_contract_records_the_api_ladder_limits_and_price(self) -> None:
+        contract = model_contract("gpt-6-luna")
+        assert contract is not None
+        self.assertEqual(contract["reasoning_efforts"], ("none", "low", "medium", "high", "xhigh", "max"))
+        self.assertEqual(contract["effort_floor"], "none")
+        self.assertEqual(contract["effort_default"], "medium")
+        self.assertEqual(set(contract["unsupported_efforts"]), {"minimal"})
+        self.assertEqual(
+            (contract["context_window_tokens"], contract["max_input_tokens"], contract["max_output_tokens"]),
+            (1_050_000, 922_000, 128_000),
+        )
+        self.assertEqual(contract["tool_calling"]["api"], "responses")
+        self.assertIn("reasoning effort `none`", contract["tool_calling"]["note"])
+        self.assertEqual(contract["unsupported_parameters"], ("temperature", "top_p", "top_logprobs"))
+        self.assertIn("not `none`", contract["unsupported_parameters_note"])
+        pricing = contract["pricing_usd_per_mtok"]
+        self.assertEqual(
+            (pricing["input"], pricing["cached_input"], pricing["cache_write"], pricing["output"]),
+            (0.10, 0.01, 0.125, 0.50),
+        )
+        for key in ("long_context_over_272k_input", "batch_and_flex", "fast_mode"):
+            self.assertIn(key, pricing)
+        # Surfaces that differ from the API page are recorded beside it, not
+        # folded into the ladder: Codex has no `none` and no `ultra`, and a
+        # Hermes build before the named upstream commit clamps `max`.
+        notes = contract["surface_notes"]
+        self.assertIn("no `ultra`", notes["codex"])
+        self.assertIn("272K", notes["codex"])
+        self.assertIn("79ec1f2a34", notes["hermes"])
+        self.assertEqual(contract["sources_read"], "2026-09-23")
+        self.assertIn("https://developers.openai.com/api/docs/models/gpt-6-luna", contract["sources"])
+        self.assertTrue(all(source.startswith("https://") for source in contract["sources"]))
+        self.assertEqual(contract["data_handling"]["training_use"], "not_recorded")
+        self.assertEqual(contract["claim_boundary"], MODEL_CONTRACT_CLAIM_BOUNDARY)
+        # No mid-conversation effort mechanism is claimed for Luna: the guide
+        # states it for the family, not for this model.
+        self.assertNotIn("dynamic_effort", contract)
+        self.assertIsNone(dynamic_effort_guidance("gpt-6-luna", "codex"))
+
+    def test_price_row_mirrors_the_contract_and_the_retired_row_is_corrected(self) -> None:
+        from omh.plugin_bundle.omh.hermes_delegation import APPROX_CACHE_READ_RATIO
+
+        contract = model_contract("gpt-6-luna")
+        assert contract is not None
+        pricing = contract["pricing_usd_per_mtok"]
+        self.assertEqual(APPROX_PRICE_PER_MTOK["gpt-6-luna"], (pricing["input"], pricing["output"]))
+        # Cached input is the default tenth, so no ratio row is needed.
+        self.assertNotIn("gpt-6-luna", APPROX_CACHE_READ_RATIO)
+        self.assertAlmostEqual(pricing["input"] / 10, pricing["cached_input"])
+        # The retired generation stays priced, at its documented list rate
+        # (developers.openai.com/api/docs/models/gpt-5.6-luna, 2026-09).
+        self.assertEqual(APPROX_PRICE_PER_MTOK["gpt-5.6-luna"], (0.20, 1.20))
+
+    def test_none_keeps_its_spelling_on_every_profile(self) -> None:
+        # Before this contract, `none` was normalized to `off`, a word the
+        # Hermes effort parser does not read as "disabled".
+        for profile in ("codex", "hermes", "claude-code", "generic"):
+            for model in ("gpt-6-luna", "openai/gpt-6-luna", "gpt-6-luna-2026-09-22"):
+                route = resolve_model_route(profile, requested_model=model, requested_effort="none")
+                with self.subTest(profile=profile, model=model):
+                    self.assertEqual(route["selected_model"], model)
+                    self.assertEqual(route["selected_reasoning_effort"], "none")
+                    change = route["effort_change"]
+                    self.assertEqual(change["kind"], "unchanged")
+                    self.assertEqual((change["requested"], change["selected"]), ("none", "none"))
+                    self.assertIn("documented rung", change["reason"])
+
+    def test_off_is_sent_as_none_on_every_profile(self) -> None:
+        # `off` is OMH's own spelling for no reasoning; the Hermes effort
+        # parser does not read it as "disabled", so Luna receives `none`.
+        for profile in ("codex", "hermes", "claude-code", "generic"):
+            for model in ("gpt-6-luna", "openai/gpt-6-luna", "gpt-6-luna-2026-09-22"):
+                route = resolve_model_route(profile, requested_model=model, requested_effort="off")
+                with self.subTest(profile=profile, model=model):
+                    self.assertEqual(route["selected_reasoning_effort"], "none")
+                    change = route["effort_change"]
+                    self.assertEqual(change["kind"], "vendor_spelling")
+                    self.assertEqual((change["requested"], change["selected"]), ("off", "none"))
+        self.assertIn("vendor_spelling", EFFORT_CHANGE_KINDS)
+        # A model without `none` on its ladder keeps `off` as before.
+        route = resolve_model_route("hermes", requested_model="gpt-5.6-luna", requested_effort="off")
+        self.assertEqual(route["selected_reasoning_effort"], "off")
+
+    def test_the_codex_record_names_its_surface_ladder_without_none(self) -> None:
+        # The effort is kept as requested; only the record names the
+        # Codex client catalog's ladder, which lists no `none`.
+        codex = resolve_model_route("codex", requested_model="gpt-6-luna", requested_effort="none")
+        self.assertEqual(codex["selected_reasoning_effort"], "none")
+        self.assertIn(
+            "`codex` surface's recorded ladder (low, medium, high, xhigh, max) does not list `none`",
+            codex["effort_change"]["reason"],
+        )
+        for profile in ("hermes", "claude-code", "generic"):
+            route = resolve_model_route(profile, requested_model="gpt-6-luna", requested_effort="none")
+            with self.subTest(profile=profile):
+                self.assertNotIn("surface", route["effort_change"]["reason"])
+
+    def test_astra_none_is_still_raised_and_uncontracted_ids_still_normalize(self) -> None:
+        route = resolve_model_route("hermes", requested_model="gpt-6-astra", requested_effort="none")
+        self.assertEqual(route["selected_reasoning_effort"], "low")
+        self.assertEqual(route["effort_change"]["kind"], EFFORT_FLOOR_KIND)
+        for model in ("gpt-5.6-luna", "luna", "gpt-6-terra-2026-09-22"):
+            route = resolve_model_route("hermes", requested_model=model, requested_effort="none")
+            with self.subTest(model=model):
+                self.assertEqual(route["selected_reasoning_effort"], "off")
+                self.assertEqual(route["effort_change"]["kind"], "legacy_alias_normalized")
+
+    def test_hermes_recommendation_lane_keeps_none_for_the_named_model(self) -> None:
+        route = resolve_model_route(
+            "hermes",
+            requested_model="gpt-6-luna",
+            requested_effort="none",
+            active_models=("gpt-6-luna",),
+        )
+        self.assertEqual(route["selected_model"], "gpt-6-luna")
+        self.assertEqual(route["selected_reasoning_effort"], "none")
+        route = resolve_model_route(
+            "hermes", requested_model="gpt-6-luna", requested_effort="off", active_models=("gpt-6-luna",)
+        )
+        self.assertEqual(route["selected_reasoning_effort"], "none")
+        self.assertEqual(route["effort_change"]["kind"], "vendor_spelling")
+        # The named-model branch applies the contract as the chain-head
+        # branch does: `minimal` is not a Luna rung.
+        route = resolve_model_route(
+            "hermes", requested_model="gpt-6-luna", requested_effort="minimal", active_models=("gpt-6-luna",)
+        )
+        self.assertEqual(route["selected_reasoning_effort"], "low")
+        self.assertEqual(route["effort_change"]["kind"], EFFORT_FLOOR_KIND)
+
+    def test_hermes_recommendation_chain_head_keeps_none(self) -> None:
+        # No named model: Luna is reached as the chain head of the
+        # categories that ship it.
+        for category in ("simple-work", "quick"):
+            for effort, kind in (("none", None), ("off", "vendor_spelling")):
+                route = resolve_model_route(
+                    "hermes",
+                    requested_effort=effort,
+                    requested_category=category,
+                    active_models=("gpt-6-luna",),
+                )
+                with self.subTest(category=category, effort=effort):
+                    self.assertEqual(route["provenance"], "recommendation_chain_head")
+                    self.assertEqual(route["selected_model"], "gpt-6-luna")
+                    self.assertEqual(route["selected_reasoning_effort"], "none")
+                    change = route.get("effort_change")
+                    self.assertEqual(change["kind"] if change else None, kind)
+
+    def test_minimal_is_raised_to_low_never_lowered_to_none(self) -> None:
+        # `none` turns reasoning off; a request for some reasoning is raised
+        # to the lowest documented rung above it, never lowered to the floor.
+        self.assertEqual(contract_effort_floor("gpt-6-luna", "minimal")[0], "low")
+        route = resolve_model_route("codex", requested_model="gpt-6-luna", requested_effort="minimal")
+        self.assertEqual(route["selected_reasoning_effort"], "low")
+        self.assertEqual(route["effort_change"]["kind"], EFFORT_FLOOR_KIND)
+        for effort in ("none", "low", "medium", "high", "xhigh", "max"):
+            self.assertIsNone(contract_effort_floor("gpt-6-luna", effort), effort)
+
+    def test_the_unsupported_parameters_note_says_rejected_not_dropped(self) -> None:
+        note = model_contract("gpt-6-luna")["unsupported_parameters_note"]
+        self.assertNotIn("drops", note)
+        self.assertIn("`logprobs` is rejected", note)
+
+    def test_the_cli_prints_the_condition_on_the_unsupported_parameters(self) -> None:
+        status, stdout, _stderr = run_cli(["coding", "model-contract", "--model", "gpt-6-luna"], output_json=False)
+        self.assertEqual(status, 0)
+        self.assertIn("reasoning efforts: none, low, medium, high, xhigh, max (floor `none`)", stdout)
+        self.assertIn("unsupported parameters: temperature, top_p, top_logprobs\n  rejected when", stdout)
+
+    def test_dated_snapshot_resolves_to_the_contract_and_an_unknown_base_stays_unknown(self) -> None:
+        projection = model_contract_projection("openai/gpt-6-luna-2026-09-22")
+        assert projection is not None
+        self.assertEqual(projection["contract_model_id"], "gpt-6-luna")
+        self.assertEqual(projection["provenance"], "dated_snapshot")
+        for model_id in ("gpt-6-lunar-2026-09-22", "luna-2026-09-22", "gpt-6-luna-pro-2026-09-22"):
+            with self.subTest(model_id=model_id):
+                self.assertIsNone(model_contract_projection(model_id))
+
+
+_OPUS_55_FORMS = ("claude-opus-5-5", "anthropic/claude-opus-5-5", "Claude-Opus-5-5")
+
+
+class ClaudeOpus55ContractTests(unittest.TestCase):
+    """The first Claude exact contract (2026-09-23): thinking is always on,
+    so a no-thinking rung is raised to the documented floor on record."""
+
+    def test_every_served_form_resolves_the_exact_contract(self) -> None:
+        base = model_contract("claude-opus-5-5")
+        assert base is not None
+        for form in _OPUS_55_FORMS:
+            with self.subTest(form=form):
+                self.assertEqual(model_family(form), "claude")
+                self.assertEqual(contract_model_id(form), "claude-opus-5-5")
+                self.assertIs(model_contract(form), base)
+
+    def test_other_claude_ids_keep_the_family_only_treatment(self) -> None:
+        # No dated form (Anthropic publishes none for 5.5), no undeclared
+        # regional Bedrock profile, and the tier alias `opus` and the
+        # previous generation stay contract-free.
+        for model_id in (
+            "claude-opus-5",
+            "opus",
+            "claude-fable-5-1",
+            "claude-opus-5-5-20260922",
+            "us.anthropic.claude-opus-5-5",
+            "anthropic.claude-opus-5",
+        ):
+            with self.subTest(model_id=model_id):
+                self.assertIsNone(model_contract(model_id))
+
+    def test_contract_records_the_always_thinking_ladder_and_wire_hazards(self) -> None:
+        contract = model_contract("claude-opus-5-5")
+        assert contract is not None
+        self.assertEqual(contract["reasoning_mode"], "thinking")
+        self.assertEqual(contract["reasoning_efforts"], ("low", "medium", "high", "xhigh", "max"))
+        self.assertEqual(contract["effort_floor"], "low")
+        self.assertEqual(contract["effort_default"], "medium")
+        self.assertIn("off", contract["unsupported_efforts"])
+        self.assertIn("400", contract["unsupported_efforts"]["off"])
+        self.assertEqual(contract["tool_calling"]["api"], "messages")
+        self.assertIn("`tool_choice`", contract["tool_calling"]["note"])
+        self.assertIn("400", contract["tool_calling"]["note"])
+        self.assertEqual((contract["context_window_tokens"], contract["max_output_tokens"]), (1_000_000, 128_000))
+        self.assertIn("300K", contract["limits_note"])
+        pricing = contract["pricing_usd_per_mtok"]
+        self.assertEqual((pricing["input"], pricing["output"]), (4.0, 20.0))
+        # Cache reads are a twentieth of input on this model, not the tenth
+        # the approximation table assumes by default.
+        self.assertEqual(pricing["cached_input"], 0.20)
+        self.assertEqual((pricing["cache_write_5m"], pricing["cache_write_1h"]), (5.0, 8.0))
+        self.assertIn("Claude API", pricing["fast_mode"])
+        self.assertIn("2027-09-22", contract["retirement"])
+        self.assertEqual(contract["sources_read"], "2026-09-23")
+        self.assertTrue(all(source.startswith("https://") for source in contract["sources"]))
+        self.assertEqual(contract["claim_boundary"], MODEL_CONTRACT_CLAIM_BOUNDARY)
+
+    def test_price_row_mirrors_the_contract_and_cache_ratio(self) -> None:
+        from omh.plugin_bundle.omh.hermes_delegation import APPROX_CACHE_READ_RATIO
+
+        contract = model_contract("claude-opus-5-5")
+        assert contract is not None
+        pricing = contract["pricing_usd_per_mtok"]
+        self.assertEqual(APPROX_PRICE_PER_MTOK["claude-opus-5-5"], (pricing["input"], pricing["output"]))
+        self.assertAlmostEqual(
+            APPROX_CACHE_READ_RATIO["claude-opus-5-5"] * pricing["input"], pricing["cached_input"]
+        )
+        # The retired generation keeps its row for a machine-level override.
+        self.assertEqual(APPROX_PRICE_PER_MTOK["claude-opus-5"], (5.0, 25.0))
+
+    def test_declared_second_spellings_resolve_the_contract(self) -> None:
+        # The contract's own Bedrock `served_ids` entry and the dotted gateway
+        # spelling are declared rows, so core routing and the plugin's
+        # always-thinking guard agree on them.
+        contract = model_contract("claude-opus-5-5")
+        assert contract is not None
+        self.assertEqual(contract["served_ids"]["bedrock"], "anthropic.claude-opus-5-5")
+        for form in (
+            "anthropic.claude-opus-5-5",
+            "claude-opus-5.5",
+            "anthropic/claude-opus-5.5",
+            "openrouter/anthropic/claude-opus-5.5",
+        ):
+            with self.subTest(form=form):
+                self.assertIs(model_contract(form), contract)
+                projection = model_contract_projection(form)
+                self.assertEqual(projection["provenance"], "declared_inheritance")
+                self.assertEqual((projection["reasoning_mode"], projection["service_tier"]), ("thinking", "standard"))
+                route = resolve_model_route("hermes", requested_model=form, requested_effort="off")
+                self.assertEqual(route["selected_reasoning_effort"], "low")
+                self.assertEqual(route["effort_change"]["kind"], EFFORT_FLOOR_KIND)
+
+    def test_hermes_named_model_lane_raises_no_thinking_on_record(self) -> None:
+        # The confirmed-active named-model branch used to pass `off` through;
+        # the contract documents a thinking-disabled request as HTTP 400.
+        for requested in ("off", "none", "minimal"):
+            route = resolve_model_route(
+                "hermes",
+                requested_model="claude-opus-5-5",
+                requested_effort=requested,
+                active_models=("claude-opus-5-5",),
+            )
+            with self.subTest(requested=requested):
+                self.assertEqual(route["provenance"], "request_named_model")
+                self.assertEqual(route["selected_reasoning_effort"], "low")
+                change = route["effort_change"]
+                self.assertEqual(change["kind"], EFFORT_FLOOR_KIND)
+                self.assertEqual(change["requested"], requested)
+        # Every exact contract's floor applies on this branch, not only Opus
+        # 5.5's: GPT-6 Astra passed `off` / `none` / `minimal` through before.
+        for requested in ("off", "none", "minimal"):
+            route = resolve_model_route(
+                "hermes", requested_model="gpt-6-astra", requested_effort=requested, active_models=("gpt-6-astra",)
+            )
+            with self.subTest(model="gpt-6-astra", requested=requested):
+                self.assertEqual(route["selected_reasoning_effort"], "low")
+                change = route["effort_change"]
+                self.assertEqual(change["kind"], EFFORT_FLOOR_KIND)
+                self.assertEqual(change["requested"], requested)
+                self.assertIn(f"`{requested}`", change["reason"])
+        # A supported rung is untouched and unrecorded, as before.
+        route = resolve_model_route(
+            "hermes", requested_model="claude-opus-5-5", requested_effort="high", active_models=("claude-opus-5-5",)
+        )
+        self.assertEqual(route["selected_reasoning_effort"], "high")
+        self.assertIsNone(route.get("effort_change"))
+
+    def test_no_thinking_rungs_are_raised_to_low_for_every_profile(self) -> None:
+        for profile in ("codex", "hermes", "claude-code", "generic"):
+            for requested in ("off", "none", "minimal"):
+                route = resolve_model_route(profile, requested_model="claude-opus-5-5", requested_effort=requested)
+                with self.subTest(profile=profile, requested=requested):
+                    self.assertEqual(route["selected_reasoning_effort"], "low")
+                    change = route["effort_change"]
+                    self.assertEqual(change["kind"], EFFORT_FLOOR_KIND)
+                    self.assertEqual(change["requested"], requested)
+                    self.assertIn("documented floor", change["reason"])
+
+    def test_opus_5_still_routes_off_as_before(self) -> None:
+        for model in ("claude-opus-5", "opus"):
+            route = resolve_model_route("hermes", requested_model=model, requested_effort="off")
+            with self.subTest(model=model):
+                self.assertEqual(route["selected_reasoning_effort"], "off")
+                self.assertNotEqual(route["effort_change"]["kind"], EFFORT_FLOOR_KIND)
+                self.assertNotIn("model_contract", route)
+
+    def test_family_calibration_stays_the_claude_block(self) -> None:
+        route = {"selected_model": "claude-opus-5-5", "model_family": "claude", "selected_reasoning_effort": "high"}
+        self.assertNotIn("claude-opus-5-5", MODEL_HIGH_EFFORT_CALIBRATIONS)
+        self.assertEqual(calibration_for_route(route), HIGH_EFFORT_CALIBRATIONS["claude"])
+        self.assertEqual(
+            composition_calibration_for_model("claude-opus-5-5"), MAIN_AGENT_COMPOSITION_CALIBRATIONS["claude"]
+        )
 
 
 if __name__ == "__main__":

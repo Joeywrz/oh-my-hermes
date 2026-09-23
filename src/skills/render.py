@@ -229,6 +229,8 @@ review, CI, merge-readiness, or merge evidence. Report actual tool results or
 `not_observed` / `not_available`; never invent dispatch or host accounting.
 Treat supplied context as advisory, not proof of hidden memory reads or writes.
 State scope, constraints, verification, and the stop condition before work.
+When a stop condition or a decision the user owns ends the turn, offer the next
+action as a question rather than declaring what will not be done.
 Supporting paths are relative to this skill directory; sibling skill paths are
 relative to its parent. Resolve them from the host-provided skill base directory
 (`{baseDir}` on hosts that provide it), never a hardcoded install location.
@@ -259,6 +261,7 @@ omh runtime record --skill {definition.name} --harness {primary_harness} --statu
 Prepared OMH routing is not execution, review, CI, merge-readiness, or merge evidence.
 {_memory_context_skill_contract_bullets(definition)}
 Preserve workflow intent and stop conditions; verify before claiming completion.
+When a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
 
 Use Hermes-native subagent/delegation features when available: native subagents -> Hermes delegation when available, otherwise sequential lanes.
 
@@ -753,6 +756,11 @@ multi-agent target topology, or the generic execution checklist is in play.
 
 - Preserve workflow intent and stop conditions; verify before claiming completion.
 - Use Hermes-native tools, file operations, and subagent/delegation features when available; do not require unavailable runtime tools, role prompts, or overlays.
+
+## Turn Ending
+
+- A stop condition, a boundary, or a decision the user owns ends the turn with the next action offered as a question, carrying the choices the user has, never with a statement of what will not be done: "shall I open the revert PR, or wait for the contributor's fix?" leaves a next move, "I will not merge or force-push here" leaves none.
+- What was left undone is stated as the option it leaves open. Required closing lines (observed run summary, prepared-not-observed or unmerged work) still close the brief; the offered next action follows them.
 
 ## Harness Discipline
 
@@ -1416,6 +1424,7 @@ Record only what is observed. A task card, route, plan, `coding_delegation.json`
   - native subagents -> Hermes delegation when available, otherwise sequential lanes,
   - shell bridge commands -> optional bridge mode only.
 - Record observed delegation results when exposed. If unavailable, say `not_available` or `not_observed`.
+- When a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
 
 ## Progressive Disclosure References
 
@@ -2633,6 +2642,7 @@ Contract: `references/full-contract.md`. Procedure: `references/procedure.md`.
 ## Completion Checklist
 
 - Preserve workflow intent and stop conditions; load the full contract before claiming completion.
+- When a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
 - Record observed delegation results; otherwise return `not_available` or `not_observed`.
 - Use Hermes-native subagent/delegation features when available: native subagents -> Hermes delegation when available, otherwise sequential lanes.
 
@@ -5621,6 +5631,7 @@ before mutation unless that separate action is authorized.
 - Prepared OMH routing is not execution, review, CI, or merge evidence.
 - Preserve workflow intent and stop conditions; verify before claiming
   completion.
+- When a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
 - Use Hermes-native subagent/delegation features when available:
   native subagents -> Hermes delegation when available, otherwise sequential lanes.
 

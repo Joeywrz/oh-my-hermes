@@ -442,21 +442,30 @@ ENGINE_INTERJECTION_RESUME_RULE = (
 # Follow-ups: the three conditions under which an engine stops to ask are
 # named, so "persist" never quietly becomes "expand". A refused escalation
 # is answered inside the boundary, never around it.
+# The approval step ends the turn as a question. Told only to "describe first
+# and wait", the model closed with what it would not do ("I will not merge or
+# force-push here") and the person saw no next move; the same stop, phrased
+# as the action offered with its choices, is what lets them answer.
 ENGINE_FOLLOW_UP_AUTHORITY_RULE = (
     "A follow-up that needs new authority, materially expands the scope, or changes external state not "
-    "already authorized is described first and started only on the user's approval; persistence never "
-    "broadens the authorized scope. A refused escalation gets a safer alternative inside the boundary, or "
-    "the authorization the boundary asks for — never a workaround or an indirect execution."
+    "already authorized is described first and started only on the user's approval: the turn ends by "
+    "naming that next action and asking whether to take it, as one question carrying the choices the "
+    "user has, never by declaring what will not be done; persistence never broadens the authorized "
+    "scope. A refused escalation is answered the same way, with a safer alternative inside the boundary "
+    "or the authorization the boundary asks for — never a workaround or an indirect execution."
 )
-# Closing brief: detail scales with the change, the result leads, and the
-# reader is not walked through abandoned paths or task bookkeeping.
+# Closing brief: detail scales with the change, the result leads, the reader
+# is not walked through abandoned paths or task bookkeeping, and a stop at a
+# boundary ends with the next action offered, not with a refusal.
 ENGINE_CLOSING_BRIEF_RULE = (
     "The closing brief scales to the change: one or two sentences plus the observed validation for a "
     "simple change, more only when the complexity earns it. Lead with the result or decision; omit "
     "abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal "
-    "bookkeeping (todo transitions, follow-up declarations, waits). Required closing lines stay "
-    "outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, "
-    "are stated whatever the brief's length."
+    "bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the "
+    "user owns, end with the next action offered as a question, and state what was left undone as the "
+    "option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the "
+    "observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the "
+    "brief's length."
 )
 
 # Shared five-step contract for the Hermes setup-guide skills (model-setup,

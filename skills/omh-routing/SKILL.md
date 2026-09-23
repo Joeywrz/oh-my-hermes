@@ -127,6 +127,7 @@ Record only what is observed. A task card, route, plan, `coding_delegation.json`
   - native subagents -> Hermes delegation when available, otherwise sequential lanes,
   - shell bridge commands -> optional bridge mode only.
 - Record observed delegation results when exposed. If unavailable, say `not_available` or `not_observed`.
+- When a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
 
 ## Progressive Disclosure References
 

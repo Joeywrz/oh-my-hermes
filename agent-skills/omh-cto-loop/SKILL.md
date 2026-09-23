@@ -103,6 +103,8 @@ review, CI, merge-readiness, or merge evidence. Report actual tool results or
 `not_observed` / `not_available`; never invent dispatch or host accounting.
 Treat supplied context as advisory, not proof of hidden memory reads or writes.
 State scope, constraints, verification, and the stop condition before work.
+When a stop condition or a decision the user owns ends the turn, offer the next
+action as a question rather than declaring what will not be done.
 Supporting paths are relative to this skill directory; sibling skill paths are
 relative to its parent. Resolve them from the host-provided skill base directory
 (`{baseDir}` on hosts that provide it), never a hardcoded install location.

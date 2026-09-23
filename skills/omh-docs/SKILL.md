@@ -107,6 +107,7 @@ before mutation unless that separate action is authorized.
 - Prepared OMH routing is not execution, review, CI, or merge evidence.
 - Preserve workflow intent and stop conditions; verify before claiming
   completion.
+- When a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
 - Use Hermes-native subagent/delegation features when available:
   native subagents -> Hermes delegation when available, otherwise sequential lanes.
 

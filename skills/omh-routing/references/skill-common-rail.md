@@ -23,6 +23,11 @@ multi-agent target topology, or the generic execution checklist is in play.
 - Preserve workflow intent and stop conditions; verify before claiming completion.
 - Use Hermes-native tools, file operations, and subagent/delegation features when available; do not require unavailable runtime tools, role prompts, or overlays.
 
+## Turn Ending
+
+- A stop condition, a boundary, or a decision the user owns ends the turn with the next action offered as a question, carrying the choices the user has, never with a statement of what will not be done: "shall I open the revert PR, or wait for the contributor's fix?" leaves a next move, "I will not merge or force-push here" leaves none.
+- What was left undone is stated as the option it leaves open. Required closing lines (observed run summary, prepared-not-observed or unmerged work) still close the brief; the offered next action follows them.
+
 ## Harness Discipline
 
 - Start from the representative harness registry in `oh-my-hermes` when the workflow needs coding, research, planning, goal execution, architecture, critique, QA, or documentation lanes.

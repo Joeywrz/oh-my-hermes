@@ -25,6 +25,7 @@ Contract: `references/full-contract.md`. Procedure: `references/procedure.md`.
 ## Completion Checklist
 
 - Preserve workflow intent and stop conditions; load the full contract before claiming completion.
+- When a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
 - Record observed delegation results; otherwise return `not_available` or `not_observed`.
 - Use Hermes-native subagent/delegation features when available: native subagents -> Hermes delegation when available, otherwise sequential lanes.
 

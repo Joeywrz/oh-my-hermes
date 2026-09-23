@@ -25,7 +25,11 @@ SKILL_MD = REPO_ROOT / "skills" / "ulw-interview" / "SKILL.md"
 
 # Measured 9,469 chars at introduction. The ceiling keeps the always-loaded body from
 # drifting upward unnoticed; the repo-wide gate is tests/test_efficiency.py.
-DEEP_INTERVIEW_SKILL_CHAR_CEILING = 10_000
+# 10_000 -> 10_300: the rendered body measures 10,131 after every skill's
+# Runtime Evidence tail gained the turn-ending sentence (a stop or a decision
+# the user owns ends the turn by offering the next action as a question).
+# One sentence of warranted always-loaded growth, not drift.
+DEEP_INTERVIEW_SKILL_CHAR_CEILING = 10_300
 
 
 def _skill_body() -> str:

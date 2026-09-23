@@ -3905,7 +3905,7 @@ class WrapperContractTests(unittest.TestCase):
                 "answer_file_lookup",
                 "answer:file_lookup",
                 "파일이나 텍스트",
-                "OMH workflow 실행은 시작하지 않습니다",
+                "먼저 물어보세요",
             ),
         )
 

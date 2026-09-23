@@ -45,20 +45,14 @@ def _strings(description: str, *, enum: tuple[str, ...] = ()) -> dict[str, Any]:
 OMH_LOOP_SCHEMA = {
     "name": "omh_loop",
     "description": (
-        "Manage one durable OMH Loop (loop_cycle/v2) for this session without shell commands: "
-        "assess whether a goal is loopable, start a permission-scoped loop, read its status card, "
-        "record feedback or steering, widen or narrow its authority envelope, take one legal "
-        "advancement, record a goal-driver observation, and record observed evidence against a "
-        "prepared queue item. Every mutation binds to the configured OMH home and to this host "
-        "session; no argument selects a store. Mutations against an existing loop require the "
-        "expected_revision that action=status reported, so a retry or a second session cannot "
-        "overwrite a change it never saw. A successful call records an OMH transition only: it is "
-        "never executor dispatch, implementation, review, CI, merge readiness, or merge, and a "
-        "queue item OMH prepares stays prepared_not_observed until separate evidence is recorded. "
-        "Each action accepts only its own fields, named per field below; sending a field that "
-        "belongs to a different action is refused rather than ignored, so nothing you pass is "
-        "silently dropped. Operator-only Loop surfaces (tick, sticky rules, queue dispatch and "
-        "recovery, driver binding and migration, handoffs, narration) stay on the `omh loop` CLI."
+        "Manage one durable, permission-scoped OMH Loop (loop_cycle/v2) for this session without "
+        "shell commands. Every mutation binds to the configured OMH home and this host session; no "
+        "argument selects a store. A successful call records an OMH transition only: never executor "
+        "dispatch, implementation, review, CI, merge readiness, or merge, and a queue item OMH "
+        "prepares stays prepared_not_observed until separate evidence is recorded. Each action "
+        "accepts only the fields marked with its name below; a field from another action is "
+        "refused, not ignored. Tick, sticky rules, queue dispatch and recovery, driver binding and "
+        "migration, handoffs, and narration stay on the `omh loop` CLI."
     ),
     "parameters": {
         "type": "object",
@@ -67,17 +61,16 @@ OMH_LOOP_SCHEMA = {
                 "type": "string",
                 "enum": list(LOOP_TOOL_ACTIONS),
                 "description": (
-                    "assess classifies a goal before any loop state exists (needs message). "
-                    "start creates one loop_cycle/v2 record (needs goal_summary, goal_reframe, "
-                    "success_criteria). status reads one loop's card, or lists every loop when "
-                    "loop_id is omitted. feedback records one cycle of observed artifacts, an "
-                    "internal gap, or an external wait. permit updates the authority envelope. "
-                    "run_once takes at most one legal advancement and reports why when it takes "
-                    "none. goal_driver_observe records one bounded driver observation. "
-                    "queue_observe records observed evidence against one prepared queue item "
-                    "(needs queue_id and evidence_refs). Every action except assess, start, and "
-                    "status needs loop_id; every action except assess and status needs "
-                    "expected_revision, apart from start."
+                    "assess classifies whether a goal is loopable before any loop exists (needs "
+                    "message). start creates one loop (needs goal_summary, goal_reframe, "
+                    "success_criteria). status reads one loop's card, or lists every loop without "
+                    "loop_id. feedback records one cycle's observed artifacts, internal gap, or "
+                    "external wait. permit widens or narrows the authority envelope. run_once takes "
+                    "at most one legal advancement and reports why when it takes none. "
+                    "goal_driver_observe records one driver observation. queue_observe records "
+                    "observed evidence against a prepared queue item (needs queue_id and "
+                    "evidence_refs). Every action but assess, start, and status needs loop_id and "
+                    "expected_revision."
                 ),
             },
             "loop_id": {
@@ -88,9 +81,9 @@ OMH_LOOP_SCHEMA = {
                 "type": "integer",
                 "minimum": 0,
                 "description": (
-                    "The record_revision the loop carried when it was last read. Required for "
-                    "every mutating action except start; the call is refused as stale rather "
-                    "than applied when the loop has moved on."
+                    "The record_revision action=status last reported. Required for every "
+                    "mutation except start; refused as stale, not applied, when the loop has "
+                    "moved on, so a retry or another session cannot overwrite an unseen change."
                 ),
             },
             "mutation_id": {

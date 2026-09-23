@@ -129,11 +129,14 @@ OMH_CAPABILITIES_SCHEMA = {
             "action": {
                 "type": "string",
                 "enum": ["summary", "export", "list", "inspect", "impact"],
-                "description": "Capability action to perform.",
+                "description": (
+                    "Capability action; defaults to summary, or to export when section is given. "
+                    "export returns the full manifest and is large, so pass section with it."
+                ),
             },
             "section": {
                 "type": "string",
-                "description": "Optional capability section filter.",
+                "description": "Section filter for export, list and inspect; summary and impact ignore it.",
             },
             "id": {
                 "type": "string",
@@ -147,8 +150,11 @@ OMH_CAPABILITIES_SCHEMA = {
 
 def omh_capabilities_handler(args: dict[str, object], **kwargs: object) -> str:
     observation = observe_plugin_tool_call("omh_capabilities", args, kwargs)
-    action = str(args.get("action", "export") or "export")
     section = str(args.get("section", "") or "") or None
+    # A section only narrows export, list and inspect, so a call that names a
+    # section and no action keeps the export it always meant.
+    default_action = "export" if section else "summary"
+    action = str(args.get("action", default_action) or default_action)
     try:
         payload = _handle_capability_action(action, section, str(args.get("id", "") or ""))
     except ValueError as exc:

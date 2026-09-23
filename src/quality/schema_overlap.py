@@ -143,8 +143,8 @@ REVIEWED_OVERLAP_DECISIONS: dict[str, str] = {
     ),
     "omh_loop.action:OVERLAP_ENUM_RESTATED": (
         "keep — each member is named with the field set it needs and what it does to "
-        "loop_cycle/v2, then the text states the two cross-cutting rules the members cannot "
-        "carry: which actions need loop_id and which need expected_revision. A caller that "
+        "loop_cycle/v2, then the text states the cross-cutting rule the members cannot "
+        "carry: which actions need loop_id and expected_revision. A caller that "
         "read only the member names would omit the guard and have the write refused."
     ),
     "omh_loop.work_kind:OVERLAP_ENUM_RESTATED": (
@@ -153,8 +153,9 @@ REVIEWED_OVERLAP_DECISIONS: dict[str, str] = {
         "default is not visible in a member list."
     ),
     "omh_todo.action:OVERLAP_ENUM_RESTATED": (
-        "keep — set/advance/clear/show are named with their effect on the stored list and the "
-        "rendered projection, which is output shape, not member names. The sentence after them "
+        "keep — set/advance/clear/show are named with their effect on the stored list (set "
+        "drops the items it leaves out), which is output shape, not member names. The sentence "
+        "after them "
         "carries the routing rule the members cannot: a state change goes through advance, "
         "because set replaces the whole list and a caller that reaches for it to tick one item "
         "drops the ones it forgets to re-send."
@@ -167,7 +168,8 @@ REVIEWED_OVERLAP_DECISIONS: dict[str, str] = {
     ),
     "omh_todo.items[].depth:OVERLAP_BOUND_RESTATED": (
         "keep — the numerals carry meaning the clamp cannot: 0 is a top-level task and 1-3 render "
-        "indented beneath their parent. Cutting them leaves a range with no semantics."
+        "as subtasks under the preceding shallower item. Cutting them leaves a range with no "
+        "semantics."
     ),
     "omh_todo.plan_stage:OVERLAP_ENUM_RESTATED": (
         "keep — the two members are the enum, and everything a caller needs is in the text "

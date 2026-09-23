@@ -1509,8 +1509,8 @@ class RouterContentTests(unittest.TestCase):
         additional_fragments = {
             "morning-brief": (
                 "never enable Send permission",
-                "pasted by the user",
-                "never stored",
+                "Never ask the user to paste secrets into chat",
+                "user-authorized credential store or local configuration",
             ),
             "websearch-setup": (
                 "scraper API key",

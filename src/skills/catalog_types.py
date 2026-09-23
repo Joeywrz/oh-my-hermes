@@ -475,11 +475,11 @@ ENGINE_CLOSING_BRIEF_RULE = (
 # approved apply -> verify. Composed into each skill's quality_bar so the
 # rendered SKILL.md carries the items verbatim in index order.
 _HERMES_SETUP_FIVE_STEP_BAR = (
-    "Prerequisite check: confirm the subscription, account, or capability the step needs exists before continuing; mark unmet prerequisites \"not applicable\" and skip them explicitly.",
-    "Read-only diagnose: read the current Hermes config, `.env` keys, and installed version without writing anything.",
-    "Guide: walk the user through any account creation, OAuth, or token issuance they must complete themselves.",
-    "Diff-approved apply: show the exact config or `.env` diff and write only after the user explicitly approves it.",
-    "Verify: re-read the updated config and report a completion checklist covering every applicable item.",
+    "Prerequisite check: confirm required access; mark unmet prerequisites \"not applicable\" and skip them.",
+    "Read-only diagnose: inspect non-secret config metadata, `.env` key names and presence only, and version; no secret reads or writes.",
+    "Guide: use Hermes-native secure entry or user-side OAuth/token setup, never chat secrets.",
+    "Diff-approved apply: show the config or `.env` diff with redacted placeholders; apply only after the user explicitly approves.",
+    "Verify: confirm applicable items using non-secret metadata, never secret values.",
 )
 
 _HERMES_SETUP_SKIP_SEMANTICS = (
@@ -488,9 +488,10 @@ _HERMES_SETUP_SKIP_SEMANTICS = (
 )
 
 _HERMES_SETUP_WRITE_BOUNDARY = (
-    "Diagnosis only reads the existing Hermes config, `.env` keys, and installed version; it never writes anything on its own.",
-    "Show the exact diff for any config or `.env` change and write it only after the user explicitly approves that diff.",
-    "Secret values such as tokens and API keys are pasted by the user directly in chat and are never stored, logged, or echoed back beyond the immediate diff confirmation.",
+    "Diagnosis reads non-secret metadata only; no writes.",
+    "Show redacted placeholders in the config or `.env` diff; apply only after the user explicitly approves.",
+    "Never ask the user to paste secrets into chat. Use Hermes-native secure entry or user-side OAuth/token setup; if unavailable, stop credential application and guide user-side setup.",
+    "Use only a user-authorized credential store or local configuration; disclose destination and scope first. Keep secrets out of chat, previews, logs and evidence. Do not promise chat or platform non-retention.",
 )
 
 _CATEGORY_FINAL_CHECKLISTS = {

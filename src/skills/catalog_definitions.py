@@ -953,7 +953,7 @@ _DEFINITIONS = [
             "Initialize the phase todo before engine work: declare numbered phases in delivery order with `omh_todo` (todo init) — bootstrap, one implement/verify/deliver task per lane or work unit, independent review lanes, and an evidence-and-cleanup close, with one task per observable outcome — keep exactly one item active while working, and update states as lanes complete; the run walks a bounded, HUD-visible checklist instead of an open-ended reasoning loop. Phase names and task titles are written in English — short, operator-legible labels — even when the conversation runs in another language, since the HUD todo checklist is an operator surface under the repo's English-by-default output contract.",
         ),
         do_not_use_when=(
-            "The work touches the same files or invariants in ways that need one owner.",
+            "Avoid conflicting parallel writers; use single-owner or ordered execution.",
             "The plan is not accepted, lane boundaries are unclear, or verification commands are missing.",
             "The user expects Hermes to secretly execute coding lanes instead of preparing explicit selected-runtime handoffs.",
         "For a decision spike, use `decision-prototype`.",
@@ -1069,18 +1069,16 @@ _DEFINITIONS = [
             _MAESTRO_RUN_SUMMARY_FINAL_CHECKLIST_NOTE,
         ),
         quality_bar=(
-            ENGINE_ENTRY_CONFIRMATION_RULE,
-            "Require the coding owner to already be chosen for this run -- named in the request, accepted when "
-            "asked, or recorded as an `accepted_explicit_choice` -- before composing anything; a routing "
-            "recommendation, a plan mention, or a previous run's owner is not a choice for this run. With no "
-            "owner, two owners, or an unready owner, ask `choose_executor` once and stop; never pick the owner "
-            "on the user's behalf.",
-            "When the coding owner was named explicitly for this run, the naming message is itself the "
-            "operator's dispatch opt-in: run compose, the readiness and permission probes, and the "
-            "fanout-dispatch bridge (`omh coding run` for one unit) as automatic steps to dispatch and report, "
-            "with no second confirmation in between. The ask-and-stop rule above stays exactly as written for "
-            "the no-owner or ambiguous-owner case -- this only shortens the path once that gate has already "
-            "passed.",
+            "Planning is not execution permission. Handoff requests authorize preparation only; explicit execution "
+            "requests authorize only their scope, subject to readiness and permission probes. Clarify missing authority.",
+            "Require an explicit owner choice for this run: named now, confirmed when asked, or "
+            "recorded as `accepted_explicit_choice`. Recommendations, plan mentions and previous owners do not count. "
+            "For a missing, ambiguous or unready owner, ask `choose_executor` once and stop; never choose for the user.",
+            "Owner selection alone is not dispatch permission: `prepare a Codex handoff only` or `use Codex, "
+            "do not dispatch` stays preparation-only. `Use Codex to implement this now` supplies both the owner "
+            "choice and dispatch permission within scope, with no redundant confirmation. After readiness and "
+            "permission probes, invoke the fanout-dispatch bridge (`omh coding run` for one unit); clarify missing "
+            "owner or action authority first.",
             "State the handoff mode before composing: claude-code is prompt-only (`coding_prompt_handoff/v1` -- "
             "the prepared handoff record is never dispatchable and never described as a run; only the "
             "fanout-dispatch bridge -- `omh coding fanout dispatch` or its `omh coding run` single-run entry -- "
@@ -7437,7 +7435,7 @@ _DEFINITIONS = [
             + " Delegate to a selected coding executor only if the user needs a change outside chat-driven config or `.env` edits."
         ),
         required_inputs=(
-            "scraper API key issued by the user's chosen web-extraction provider",
+            "scraper API key availability; value through secure entry or user-side setup only",
             "target auxiliary web-extract model role slot",
         ),
         expected_outputs=(
@@ -7506,7 +7504,7 @@ _DEFINITIONS = [
         ),
         required_inputs=(
             "mail and calendar MCP connection status",
-            "OAuth token or app password supplied by the user",
+            "OAuth/app-password availability; value through secure entry or user-side setup only",
         ),
         expected_outputs=(
             "read-only diagnosis of the current mail/calendar MCP connection state",
@@ -7516,7 +7514,7 @@ _DEFINITIONS = [
         artifact_expectations=("connection verification note when the wrapper captures it",),
         safety_rules=(
             "Configure mail and calendar MCP access as read and draft only; never enable Send permission, even if the user asks — drafts stay for the user to send themselves.",
-            "OAuth tokens or app passwords are pasted by the user directly in chat and are never stored, logged, or persisted beyond the immediate diff confirmation.",
+            "Use Hermes-native secure entry or user-side OAuth/app-password setup, never chat; disclose authorized storage without exposing secrets.",
             "Do not treat a prepared connection as an observed brief; only report a brief after the connection is verified.",
         ),
         quality_tier="hermes-setup-gated",
@@ -7524,7 +7522,7 @@ _DEFINITIONS = [
         + (
             "Keep the read/draft-only access boundary — never enable Send permission — as a hard constraint on every apply step, not an optional recommendation.",
         ),
-        why_this_exists="`morning-brief` exists to connect mail and calendar access for an on-demand brief while keeping the connection strictly read and draft-only and the user's credentials unstored.",
+        why_this_exists="`morning-brief` exists to connect mail and calendar access for an on-demand brief while keeping the connection strictly read and draft-only and credential entry outside chat, with explicit storage authorization.",
         do_not_use_when=(
             "The user wants Hermes to check their email or calendar right now rather than set up the connection.",
             "The connection is already configured and the user only wants today's brief, not a setup walkthrough.",
@@ -7544,7 +7542,7 @@ _DEFINITIONS = [
         + ("The connection is confirmed read and draft-only, with Send permission never enabled, before the brief is reported ready.",),
         recovery_notes=(
             "If the mail or calendar prerequisite is unmet, mark that surface \"not applicable\" and offer the brief scoped to whichever surface is connected.",
-            "If a pasted token fails validation, ask the user to reissue it rather than storing or retrying the same value silently.",
+            "If authentication fails, guide reauthorization or reissuance through secure entry or user-side setup; do not request the failed credential in chat or silently retry it.",
         ),
     ),
 ]

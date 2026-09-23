@@ -25,7 +25,7 @@ This is an OMH `ultrawork` workflow skill, projected for Agent Skills hosts (Cla
 
 ## Do Not Use When
 
-- The work touches the same files or invariants in ways that need one owner.
+- Avoid conflicting parallel writers; use single-owner or ordered execution.
 - The plan is not accepted, lane boundaries are unclear, or verification commands are missing.
 - The user expects Hermes to secretly execute coding lanes instead of preparing explicit selected-runtime handoffs.
 - For a decision spike, use `decision-prototype`.

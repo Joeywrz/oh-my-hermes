@@ -152,6 +152,16 @@ All notable changes will be documented here.
   it sends. No live Jev call was made; every wire fact is documented, not
   observed.
 
+- **Setup and execution guidance now agree with their existing boundaries.**
+  Setup workflows use secure native or user-side credential entry and redacted
+  approval previews instead of requesting secrets in chat or promising that
+  chat input is never retained. Maestro distinguishes choosing an executor
+  from authorizing it to run, while an explicit owner-and-execute request can
+  supply both without a second confirmation. Ultrawork excludes conflicting
+  parallel writers, not its supported single-owner or ordered execution modes.
+  These are generated-guidance corrections; no routing, dispatch mechanism,
+  public skill name, configuration option or runtime permission gate changes.
+
 - **The Claude subagent calibration no longer tells the model to keep
   working.** The high-effort `claude` block said "No one is watching this
   unit in real time: proceed on every reversible action inside the boundary

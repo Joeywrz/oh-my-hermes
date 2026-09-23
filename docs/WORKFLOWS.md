@@ -554,7 +554,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Initialize the phase todo before engine work: declare numbered phases in delivery order with `omh_todo` (todo init) — bootstrap, one implement/verify/deliver task per lane or work unit, independent review lanes, and an evidence-and-cleanup close, with one task per observable outcome — keep exactly one item active while working, and update states as lanes complete; the run walks a bounded, HUD-visible checklist instead of an open-ended reasoning loop. Phase names and task titles are written in English — short, operator-legible labels — even when the conversation runs in another language, since the HUD todo checklist is an operator surface under the repo's English-by-default output contract.
 - Use when: Use when an accepted implementation plan can be split into independent, reviewable work lanes.
 - Do not use when:
-  - The work touches the same files or invariants in ways that need one owner.
+  - Avoid conflicting parallel writers; use single-owner or ordered execution.
   - The plan is not accepted, lane boundaries are unclear, or verification commands are missing.
   - The user expects Hermes to secretly execute coding lanes instead of preparing explicit selected-runtime handoffs.
   - For a decision spike, use `decision-prototype`.
@@ -690,9 +690,9 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Expected behavior: Ask `choose_executor` for the coding owner before composing anything; never pick one on the user's behalf.
   - Why: No coding owner has been explicitly chosen yet, so composing a handoff would select the owner silently.
 - Quality bar:
-  - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
-  - Require the coding owner to already be chosen for this run -- named in the request, accepted when asked, or recorded as an `accepted_explicit_choice` -- before composing anything; a routing recommendation, a plan mention, or a previous run's owner is not a choice for this run. With no owner, two owners, or an unready owner, ask `choose_executor` once and stop; never pick the owner on the user's behalf.
-  - When the coding owner was named explicitly for this run, the naming message is itself the operator's dispatch opt-in: run compose, the readiness and permission probes, and the fanout-dispatch bridge (`omh coding run` for one unit) as automatic steps to dispatch and report, with no second confirmation in between. The ask-and-stop rule above stays exactly as written for the no-owner or ambiguous-owner case -- this only shortens the path once that gate has already passed.
+  - Planning is not execution permission. Handoff requests authorize preparation only; explicit execution requests authorize only their scope, subject to readiness and permission probes. Clarify missing authority.
+  - Require an explicit owner choice for this run: named now, confirmed when asked, or recorded as `accepted_explicit_choice`. Recommendations, plan mentions and previous owners do not count. For a missing, ambiguous or unready owner, ask `choose_executor` once and stop; never choose for the user.
+  - Owner selection alone is not dispatch permission: `prepare a Codex handoff only` or `use Codex, do not dispatch` stays preparation-only. `Use Codex to implement this now` supplies both the owner choice and dispatch permission within scope, with no redundant confirmation. After readiness and permission probes, invoke the fanout-dispatch bridge (`omh coding run` for one unit); clarify missing owner or action authority first.
   - State the handoff mode before composing: claude-code is prompt-only (`coding_prompt_handoff/v1` -- the prepared handoff record is never dispatchable and never described as a run; only the fanout-dispatch bridge -- `omh coding fanout dispatch` or its `omh coding run` single-run entry -- ever spawns a CLI), codex is a dispatchable `coding_executor_handoff/v1`, and omx-runtime/omo-runtime/omc-runtime are `coding_runtime_handoff/v1`.
   - Compose the prompt from the selected profile's DISCOVERED skills via `omh coding executor-skills --profile <profile>`: arrange the returned skills by the unit's role recipe, one named skill per step, using each skill's own invocation string verbatim (`/name`, `/pack:name` from its manifest, `$name` for a codex pack) -- never a guessed prefix. Empty discovery gets one explicit line -- "no installed skills discovered for <profile>; prompt composed generically" -- then compose generically. Load `references/executor-prompt-composition.md` for the full procedure.
   - A discovered skill is declared, never observed: a `SKILL.md` on disk is evidence the file exists, not that the receiving agent loads, enables, or honours it -- its own registry is the authority.
@@ -5889,7 +5889,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Compatibility alias: `false`
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
-- Handoff policy: Run diagnosis and reporting directly in Hermes for parallel-tool capability. Diagnosis only reads the existing Hermes config, `.env` keys, and installed version; it never writes anything on its own. Show the exact diff for any config or `.env` change and write it only after the user explicitly approves that diff. Secret values such as tokens and API keys are pasted by the user directly in chat and are never stored, logged, or echoed back beyond the immediate diff confirmation. Delegate to a selected coding executor only if the user needs a change outside a local version/config check.
+- Handoff policy: Run diagnosis and reporting directly in Hermes for parallel-tool capability. Diagnosis reads non-secret metadata only; no writes. Show redacted placeholders in the config or `.env` diff; apply only after the user explicitly approves. Never ask the user to paste secrets into chat. Use Hermes-native secure entry or user-side OAuth/token setup; if unavailable, stop credential application and guide user-side setup. Use only a user-authorized credential store or local configuration; disclose destination and scope first. Keep secrets out of chat, previews, logs and evidence. Do not promise chat or platform non-retention. Delegate to a selected coding executor only if the user needs a change outside a local version/config check.
 - Why this exists: `parallel-tools` exists to give a quick, read-first answer to whether parallel tool calls are current and enabled, with an update path only when currency is actually missing.
 - Use when: Use when the user wants Hermes to check whether parallel tool calls are current and enabled, run a version-currency check, or report capability status, following the shared prerequisite-check, diagnose, guide, diff-approved apply, and verify contract.
 - Do not use when:
@@ -5906,11 +5906,11 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Expected behavior: Route to a memory workflow instead of a version-currency check.
   - Why: Memory update is unrelated to parallel-tool capability or Hermes version.
 - Quality bar:
-  - Prerequisite check: confirm the subscription, account, or capability the step needs exists before continuing; mark unmet prerequisites "not applicable" and skip them explicitly.
-  - Read-only diagnose: read the current Hermes config, `.env` keys, and installed version without writing anything.
-  - Guide: walk the user through any account creation, OAuth, or token issuance they must complete themselves.
-  - Diff-approved apply: show the exact config or `.env` diff and write only after the user explicitly approves it.
-  - Verify: re-read the updated config and report a completion checklist covering every applicable item.
+  - Prerequisite check: confirm required access; mark unmet prerequisites "not applicable" and skip them.
+  - Read-only diagnose: inspect non-secret config metadata, `.env` key names and presence only, and version; no secret reads or writes.
+  - Guide: use Hermes-native secure entry or user-side OAuth/token setup, never chat secrets.
+  - Diff-approved apply: show the config or `.env` diff with redacted placeholders; apply only after the user explicitly approves.
+  - Verify: confirm applicable items using non-secret metadata, never secret values.
   - This is mostly a verify-only walkthrough: prefer reporting capability status over proposing a config change when parallel tools are already current.
 - Completion checklist:
   - If a prerequisite is unmet, mark that item "not applicable" and continue with the rest of the guide instead of blocking or guessing.
@@ -5947,7 +5947,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Compatibility alias: `false`
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
-- Handoff policy: Run diagnosis and guidance directly in Hermes for web search setup. Diagnosis only reads the existing Hermes config, `.env` keys, and installed version; it never writes anything on its own. Show the exact diff for any config or `.env` change and write it only after the user explicitly approves that diff. Secret values such as tokens and API keys are pasted by the user directly in chat and are never stored, logged, or echoed back beyond the immediate diff confirmation. Delegate to a selected coding executor only if the user needs a change outside chat-driven config or `.env` edits.
+- Handoff policy: Run diagnosis and guidance directly in Hermes for web search setup. Diagnosis reads non-secret metadata only; no writes. Show redacted placeholders in the config or `.env` diff; apply only after the user explicitly approves. Never ask the user to paste secrets into chat. Use Hermes-native secure entry or user-side OAuth/token setup; if unavailable, stop credential application and guide user-side setup. Use only a user-authorized credential store or local configuration; disclose destination and scope first. Keep secrets out of chat, previews, logs and evidence. Do not promise chat or platform non-retention. Delegate to a selected coding executor only if the user needs a change outside chat-driven config or `.env` edits.
 - Why this exists: `websearch-setup` exists to make web search cost and routing configurable through two clearly separated, diff-approved steps instead of one opaque edit.
 - Use when: Use when the user wants to reduce web search cost or configure web search by setting up a scraper API key or an auxiliary web-extract model routing block, following the shared prerequisite-check, diagnose, guide, diff-approved apply, and verify contract.
 - Do not use when:
@@ -5964,11 +5964,11 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Expected behavior: Run or route to the search request directly instead of starting a setup walkthrough.
   - Why: A live search request is not a configuration request.
 - Quality bar:
-  - Prerequisite check: confirm the subscription, account, or capability the step needs exists before continuing; mark unmet prerequisites "not applicable" and skip them explicitly.
-  - Read-only diagnose: read the current Hermes config, `.env` keys, and installed version without writing anything.
-  - Guide: walk the user through any account creation, OAuth, or token issuance they must complete themselves.
-  - Diff-approved apply: show the exact config or `.env` diff and write only after the user explicitly approves it.
-  - Verify: re-read the updated config and report a completion checklist covering every applicable item.
+  - Prerequisite check: confirm required access; mark unmet prerequisites "not applicable" and skip them.
+  - Read-only diagnose: inspect non-secret config metadata, `.env` key names and presence only, and version; no secret reads or writes.
+  - Guide: use Hermes-native secure entry or user-side OAuth/token setup, never chat secrets.
+  - Diff-approved apply: show the config or `.env` diff with redacted placeholders; apply only after the user explicitly approves.
+  - Verify: confirm applicable items using non-secret metadata, never secret values.
   - Show the scraper API key diff as one diff approval and the auxiliary web-extract model routing diff as a second, separate diff approval; never merge them.
 - Completion checklist:
   - If a prerequisite is unmet, mark that item "not applicable" and continue with the rest of the guide instead of blocking or guessing.
@@ -5978,7 +5978,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - If the scraper provider prerequisite is unmet, mark that step "not applicable" and continue with the auxiliary model routing step alone.
   - If either diff is rejected, keep the other step's state independent and do not roll both back together.
 - Required inputs:
-  - scraper API key issued by the user's chosen web-extraction provider
+  - scraper API key availability; value through secure entry or user-side setup only
   - target auxiliary web-extract model role slot
 - Expected outputs:
   - read-only diagnosis of the current scraper `.env` key and auxiliary web-extract model routing state
@@ -6006,8 +6006,8 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Compatibility alias: `false`
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
-- Handoff policy: Run diagnosis and guidance directly in Hermes for the mail/calendar connection. Diagnosis only reads the existing Hermes config, `.env` keys, and installed version; it never writes anything on its own. Show the exact diff for any config or `.env` change and write it only after the user explicitly approves that diff. Secret values such as tokens and API keys are pasted by the user directly in chat and are never stored, logged, or echoed back beyond the immediate diff confirmation. Delegate to a selected coding executor only if the user needs a change outside chat-driven MCP config edits.
-- Why this exists: `morning-brief` exists to connect mail and calendar access for an on-demand brief while keeping the connection strictly read and draft-only and the user's credentials unstored.
+- Handoff policy: Run diagnosis and guidance directly in Hermes for the mail/calendar connection. Diagnosis reads non-secret metadata only; no writes. Show redacted placeholders in the config or `.env` diff; apply only after the user explicitly approves. Never ask the user to paste secrets into chat. Use Hermes-native secure entry or user-side OAuth/token setup; if unavailable, stop credential application and guide user-side setup. Use only a user-authorized credential store or local configuration; disclose destination and scope first. Keep secrets out of chat, previews, logs and evidence. Do not promise chat or platform non-retention. Delegate to a selected coding executor only if the user needs a change outside chat-driven MCP config edits.
+- Why this exists: `morning-brief` exists to connect mail and calendar access for an on-demand brief while keeping the connection strictly read and draft-only and credential entry outside chat, with explicit storage authorization.
 - Use when: Use when the user wants Hermes to connect mail and calendar access for an on-demand morning brief, following the shared prerequisite-check, diagnose, guide, diff-approved apply, and verify contract.
 - Do not use when:
   - The user wants Hermes to check their email or calendar right now rather than set up the connection.
@@ -6023,11 +6023,11 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Expected behavior: Route to a mail-reading task instead of starting a connection setup walkthrough.
   - Why: A one-off email check is a task request, not an integration setup request.
 - Quality bar:
-  - Prerequisite check: confirm the subscription, account, or capability the step needs exists before continuing; mark unmet prerequisites "not applicable" and skip them explicitly.
-  - Read-only diagnose: read the current Hermes config, `.env` keys, and installed version without writing anything.
-  - Guide: walk the user through any account creation, OAuth, or token issuance they must complete themselves.
-  - Diff-approved apply: show the exact config or `.env` diff and write only after the user explicitly approves it.
-  - Verify: re-read the updated config and report a completion checklist covering every applicable item.
+  - Prerequisite check: confirm required access; mark unmet prerequisites "not applicable" and skip them.
+  - Read-only diagnose: inspect non-secret config metadata, `.env` key names and presence only, and version; no secret reads or writes.
+  - Guide: use Hermes-native secure entry or user-side OAuth/token setup, never chat secrets.
+  - Diff-approved apply: show the config or `.env` diff with redacted placeholders; apply only after the user explicitly approves.
+  - Verify: confirm applicable items using non-secret metadata, never secret values.
   - Keep the read/draft-only access boundary — never enable Send permission — as a hard constraint on every apply step, not an optional recommendation.
 - Completion checklist:
   - If a prerequisite is unmet, mark that item "not applicable" and continue with the rest of the guide instead of blocking or guessing.
@@ -6035,10 +6035,10 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The connection is confirmed read and draft-only, with Send permission never enabled, before the brief is reported ready.
 - Recovery notes:
   - If the mail or calendar prerequisite is unmet, mark that surface "not applicable" and offer the brief scoped to whichever surface is connected.
-  - If a pasted token fails validation, ask the user to reissue it rather than storing or retrying the same value silently.
+  - If authentication fails, guide reauthorization or reissuance through secure entry or user-side setup; do not request the failed credential in chat or silently retry it.
 - Required inputs:
   - mail and calendar MCP connection status
-  - OAuth token or app password supplied by the user
+  - OAuth/app-password availability; value through secure entry or user-side setup only
 - Expected outputs:
   - read-only diagnosis of the current mail/calendar MCP connection state
   - diff-approved MCP config write scoped to read and draft-only access
@@ -6047,7 +6047,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - connection verification note when the wrapper captures it
 - Safety rules:
   - Configure mail and calendar MCP access as read and draft only; never enable Send permission, even if the user asks — drafts stay for the user to send themselves.
-  - OAuth tokens or app passwords are pasted by the user directly in chat and are never stored, logged, or persisted beyond the immediate diff confirmation.
+  - Use Hermes-native secure entry or user-side OAuth/app-password setup, never chat; disclose authorized storage without exposing secrets.
   - Do not treat a prepared connection as an observed brief; only report a brief after the connection is verified.
 
 ### quality-evidence-loop
@@ -9607,14 +9607,15 @@ Walk a local Hermes setup change through prerequisite check, read-only diagnosis
 - Use when: Use when the user asks Hermes to configure its own local setup surface - models, parallel tools, web search, or a mail/calendar connection.
 - Quality tier: `hermes-setup-gated`
 - Quality bar:
-  - Prerequisite check: confirm the subscription, account, or capability the step needs exists before continuing; mark unmet prerequisites "not applicable" and skip them explicitly.
-  - Read-only diagnose: read the current Hermes config, `.env` keys, and installed version without writing anything.
-  - Guide: walk the user through any account creation, OAuth, or token issuance they must complete themselves.
-  - Diff-approved apply: show the exact config or `.env` diff and write only after the user explicitly approves it.
-  - Verify: re-read the updated config and report a completion checklist covering every applicable item.
-  - Diagnosis only reads the existing Hermes config, `.env` keys, and installed version; it never writes anything on its own.
-  - Show the exact diff for any config or `.env` change and write it only after the user explicitly approves that diff.
-  - Secret values such as tokens and API keys are pasted by the user directly in chat and are never stored, logged, or echoed back beyond the immediate diff confirmation.
+  - Prerequisite check: confirm required access; mark unmet prerequisites "not applicable" and skip them.
+  - Read-only diagnose: inspect non-secret config metadata, `.env` key names and presence only, and version; no secret reads or writes.
+  - Guide: use Hermes-native secure entry or user-side OAuth/token setup, never chat secrets.
+  - Diff-approved apply: show the config or `.env` diff with redacted placeholders; apply only after the user explicitly approves.
+  - Verify: confirm applicable items using non-secret metadata, never secret values.
+  - Diagnosis reads non-secret metadata only; no writes.
+  - Show redacted placeholders in the config or `.env` diff; apply only after the user explicitly approves.
+  - Never ask the user to paste secrets into chat. Use Hermes-native secure entry or user-side OAuth/token setup; if unavailable, stop credential application and guide user-side setup.
+  - Use only a user-authorized credential store or local configuration; disclose destination and scope first. Keep secrets out of chat, previews, logs and evidence. Do not promise chat or platform non-retention.
   - If a prerequisite is unmet, mark that item "not applicable" and continue with the rest of the guide instead of blocking or guessing.
   - Success is applicable-only: verification passes when every applicable item is confirmed complete, not when every possible item exists.
 - Inputs:

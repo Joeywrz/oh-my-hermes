@@ -332,6 +332,24 @@ class CalibrationSelectionTests(unittest.TestCase):
         self.assertIn("prices cached prefixes", MAIN_AGENT_COMPOSITION_CALIBRATIONS["deepseek"])
         self.assertIn("interleaved", HIGH_EFFORT_CALIBRATIONS["glm"])
 
+    def test_claude_subagent_block_carries_no_push_to_keep_working(self) -> None:
+        # MODEL-ONBOARDING §2: no calibration sentence may push the model to
+        # keep working. The removed sentence was measured on 2026-09-23 (og /
+        # anthropic/claude-fable-5-1 at xhigh, 18/30 either way, cost within
+        # same-text drift); the evidence sentence beside it is kept.
+        block = HIGH_EFFORT_CALIBRATIONS["claude"]
+        for clause in (
+            "No one is watching",
+            "proceed on every reversible action",
+            "do that work now",
+        ):
+            self.assertNotIn(clause, block)
+        self.assertIn(
+            "Every progress claim points at a tool result from this run — a failed "
+            "check is reported with its output, a skipped step as skipped.",
+            block,
+        )
+
     def test_no_route_means_no_calibration(self) -> None:
         self.assertEqual(calibration_for_route(None), "")
 

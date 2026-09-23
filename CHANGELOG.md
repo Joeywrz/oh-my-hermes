@@ -4,6 +4,21 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The Claude subagent calibration no longer tells the model to keep
+  working.** The high-effort `claude` block said "No one is watching this
+  unit in real time: proceed on every reversible action inside the boundary
+  without asking, and if your last paragraph is a plan, a question, or a
+  promise, do that work now", which breaks the rule that no calibration
+  sentence may push the model to keep working. That sentence is removed and
+  nothing else in the block changes. Measured on `og` /
+  `anthropic/claude-fable-5-1` at `xhigh` over the 30-instance evaluation
+  split of `benchmarks/live-model-tools/v1`: 18 / 30 before and after, the
+  same instances, and 2,641,559 harness tokens against 2,760,212 and
+  2,955,008 for two runs of the old text. The per-instance delta against
+  their mean is −7,202, CI95 [−15,422, −47]. The composer block's two
+  sentences of the same kind are not changed, because the benchmark cannot
+  reach that path (#1836).
+
 - **The Jev plugin posture follows the `hermes-jev` rename to `nerve`, and
   knows `jev-curator`.** An open upstream catalog change (hermes-agent #119045,
   read at its head on 2026-09-23, not merged) renames the community plugin

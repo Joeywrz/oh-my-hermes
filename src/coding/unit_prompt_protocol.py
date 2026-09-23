@@ -163,10 +163,8 @@ HIGH_EFFORT_CALIBRATIONS: Final[dict[str, str]] = {
         "checks out of the repository, and commit tests only where a criterion asks for them or the repo "
         "already keeps tests for this kind of change, sized like their neighbors. Add no helpers, "
         "fallbacks, validation, flags, or shims beyond what the criteria name; when you can just change "
-        "the code, change it. No one is watching this unit in real time: proceed on "
-        "every reversible action inside the boundary without asking, and if your last paragraph is a "
-        "plan, a question, or a promise, do that work now. Every progress claim points at a tool result "
-        "from this run — a failed check is reported with its output, a skipped step as skipped."
+        "the code, change it. Every progress claim points at a tool result from this run — a failed "
+        "check is reported with its output, a skipped step as skipped."
     ),
     "gemini": (
         "High-effort calibration: a claim without the tool output that proves it is not evidence — "

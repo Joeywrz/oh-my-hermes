@@ -430,20 +430,21 @@ class MixtureCategoryProjectionTest(unittest.TestCase):
                 )
 
     def test_dated_snapshot_labels_its_base_category_price_and_provider(self) -> None:
-        # Terra sits in the shipped deep chain; a provider that serves only the
-        # dated id (reported 2026-09-11) must label the same category, price,
-        # and provider family as the base, while an unknown base with a date
-        # gains nothing.
-        for spelling in ("gpt-5.6-terra-2026-07-09", "openai/gpt-5.6-terra-2026-07-09"):
+        # GPT-6 Sol heads the shipped deep chain; a provider that serves only
+        # a dated id (a shape reported for GPT-5.6 Terra on 2026-09-11; Terra
+        # left the shipped chains on 2026-09-23) must label the same category,
+        # price, and provider family as the base, while an unknown base with a
+        # date gains nothing.
+        for spelling in ("gpt-6-sol-2026-09-22", "openai/gpt-6-sol-2026-09-22"):
             with self.subTest(spelling=spelling):
                 self.assertEqual(
                     mixture_category_for(spelling, "high", parent_model="kimi-k3"),
-                    mixture_category_for("gpt-5.6-terra", "high", parent_model="kimi-k3"),
+                    mixture_category_for("gpt-6-sol", "high", parent_model="kimi-k3"),
                 )
                 self.assertEqual(mixture_category_for(spelling, "high", parent_model="kimi-k3"), "deep")
                 self.assertEqual(
                     hermes_delegation_module._approximate_cost_usd(spelling, 1000.0, 1000.0, 100.0),
-                    hermes_delegation_module._approximate_cost_usd("gpt-5.6-terra", 1000.0, 1000.0, 100.0),
+                    hermes_delegation_module._approximate_cost_usd("gpt-6-sol", 1000.0, 1000.0, 100.0),
                 )
                 self.assertIs(provider_serves_alias(spelling, "openai"), True)
                 self.assertIs(provider_serves_alias(spelling, "anthropic"), False)
@@ -460,7 +461,7 @@ class MixtureCategoryProjectionTest(unittest.TestCase):
         # model; the parent's own id is the base the reader knows, so this
         # holds for an alias no table describes as well.
         self.assertEqual(
-            mixture_category_for("gpt-5.6-terra-2026-07-09", "high", parent_model="gpt-5.6-terra"), "inherit"
+            mixture_category_for("gpt-6-sol-2026-09-22", "high", parent_model="gpt-6-sol"), "inherit"
         )
         self.assertEqual(
             mixture_category_for("zzz-mystery-2026-08-01", "high", parent_model="zzz-mystery"), "inherit"
@@ -469,16 +470,16 @@ class MixtureCategoryProjectionTest(unittest.TestCase):
         # child under a date-pinned parent, or a different date, is not the
         # parent's run and falls through to the chain match.
         self.assertEqual(
-            mixture_category_for("gpt-5.6-terra", "high", parent_model="openai/gpt-5.6-terra-2026-07-09"), "deep"
+            mixture_category_for("gpt-6-sol", "high", parent_model="openai/gpt-6-sol-2026-09-22"), "deep"
         )
         self.assertEqual(
-            mixture_category_for("gpt-5.6-terra-2026-08-01", "high", parent_model="gpt-5.6-terra-2026-07-09"), "deep"
+            mixture_category_for("gpt-6-sol-2026-10-01", "high", parent_model="gpt-6-sol-2026-09-22"), "deep"
         )
         self.assertEqual(
             mixture_category_for("zzz-mystery-2026-08-01", "high", parent_model="zzz-mystery-2026-07-09"), ""
         )
         # Bounds: an unknown base, a non-trailing date, and a compact shape.
-        for spelling in ("gpt-7-nova-2026-07-09", "gpt-5.6-terra-2026-07-09-fast", "gpt-5.6-terra-20260709"):
+        for spelling in ("gpt-7-nova-2026-07-09", "gpt-6-sol-2026-09-22-fast", "gpt-6-sol-20260922"):
             with self.subTest(spelling=spelling):
                 self.assertEqual(mixture_category_for(spelling, "high", parent_model="kimi-k3"), "")
                 self.assertIsNone(provider_serves_alias(spelling, "openai"))
@@ -1869,7 +1870,7 @@ class HudMergeTest(unittest.TestCase):
                 [
                     {
                         "id": "20260818_100100_eeee55",
-                        "model": "gpt-5.6-terra",
+                        "model": "gpt-6-sol",
                         "effort": "high",
                         "started_at": time.time() - 30,
                         "usage": {
@@ -1888,7 +1889,7 @@ class HudMergeTest(unittest.TestCase):
             rows = payload["subagents"]["rows"]
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["role"], "hermes-native")
-            # gpt-5.6-terra:high is the deep chain head and differs from the
+            # gpt-6-sol:high is the deep chain head and differs from the
             # parent model, so the routed category is visible in the HUD row.
             self.assertEqual(rows[0]["category"], "deep")
             # Nothing was dropped, so the disclosed hidden-row count is zero.

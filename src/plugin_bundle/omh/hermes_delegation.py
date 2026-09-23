@@ -61,8 +61,9 @@ HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     # documented rung, not a nearest-match guess. The alias is the vendor's
     # served pointer id (`deepseek-flash`); the first-party API rejects the
     # versioned spelling, and the versioned contract sits behind the pointer
-    # as a declared projection.
-    "deep": (("gpt-5.6-terra", "high"), ("deepseek-flash", "high")),
+    # as a declared projection. GPT-6 Sol heads it at the effort GPT-5.6
+    # Terra held there (owner decision, 2026-09-23; editorial, unmeasured).
+    "deep": (("gpt-6-sol", "high"), ("deepseek-flash", "high")),
     # Architecture/system-design lanes: full-depth effort across three
     # provider ecosystems. Fable and Kimi appear in other chains only at
     # low/high, so at xhigh `mixture_category_for` labels them architect;
@@ -341,8 +342,7 @@ HERMES_MIXTURE_ALIAS_PROVIDER_FAMILIES: dict[str, tuple[str, ...]] = {
     # answered rather than unknown. The parity gate lists it explicitly.
     "claude-mythos-5-1": ("ccapi", "anthropic", "openrouter"),
     "gpt-6-astra": ("openai-codex", "openai"),
-    "gpt-5.6-sol": ("openai-codex", "openai"),
-    "gpt-5.6-terra": ("openai-codex", "openai"),
+    "gpt-6-sol": ("openai-codex", "openai"),
     "gpt-6-luna": ("openai-codex", "openai"),
     "deepseek-flash": ("deepseek", "openrouter", "opencode"),
     # Recognition-only: the versioned spelling of the Flash pointer above
@@ -356,9 +356,12 @@ HERMES_MIXTURE_ALIAS_PROVIDER_FAMILIES: dict[str, tuple[str, ...]] = {
     "glm-5.2": ("zai", "openrouter", "opencode"),
     "glm-5.2-ultrafast": ("zai", "openrouter", "opencode"),
     # Retired on 2026-09-23 under the same rule (superseded by
-    # claude-opus-5-5 and gpt-6-luna respectively).
+    # claude-opus-5-5, gpt-6-luna, and gpt-6-sol for both GPT-5.6 Sol and
+    # GPT-5.6 Terra).
     "claude-opus-5": ("ccapi", "anthropic", "openrouter"),
     "gpt-5.6-luna": ("openai-codex", "openai"),
+    "gpt-5.6-sol": ("openai-codex", "openai"),
+    "gpt-5.6-terra": ("openai-codex", "openai"),
     "glm-5.3": ("zai", "openrouter", "opencode"),
     "glm-5.3-flash": ("zai", "openrouter", "opencode"),
     "grok-code-fast": ("xai", "openrouter"),
@@ -370,7 +373,7 @@ HERMES_MIXTURE_ALIAS_PROVIDER_FAMILIES: dict[str, tuple[str, ...]] = {
 # from declared aliases so a newly documented child contract stops inheriting
 # stale provider/category metadata until its own rows are added here.
 EXACT_MODEL_CONTRACT_ALIASES: frozenset[str] = frozenset(
-    {"gpt-6-astra", "gpt-6-luna", "claude-opus-5-5", "deepseek-v4.1-flash", "jev-1.13.0"}
+    {"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "claude-opus-5-5", "deepseek-v4.1-flash", "jev-1.13.0"}
 )
 
 # Standalone mirror of coding.model_contracts' bounded declared projections.
@@ -1224,7 +1227,8 @@ APPROX_PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
     # and /api/docs/pricing, read 2026-09-23): 4/20, cached input 0.40. The
     # page labels it promotional, "available at least through November 21,
     # 2026", and names no later price; re-read the page after that date. The
-    # earlier 1.25/10 matched neither page.
+    # earlier 1.25/10 matched neither page. The id left the shipped chains
+    # on 2026-09-23 and stays priced for overrides.
     "gpt-5.6-sol": (4.0, 20.0),
     # OpenAI list price (developers.openai.com/api/docs/models/gpt-6-astra,
     # 2026-09): 10/50; cached input 1 (the default tenth). The $12.5 cache
@@ -1233,7 +1237,8 @@ APPROX_PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
     "gpt-6-astra": (10.0, 50.0),
     # OpenAI list price (developers.openai.com/api/docs/models/gpt-5.6-terra,
     # read 2026-09-23): 2/12, cached input 0.20. The earlier 1.25/10 did not
-    # match the page.
+    # match the page. The id left the shipped chains on 2026-09-23 and stays
+    # priced for overrides.
     "gpt-5.6-terra": (2.0, 12.0),
     # OpenAI list price (developers.openai.com/api/docs/models/gpt-5.6-luna,
     # 2026-09): 0.20/1.20. The earlier 0.25/2.0 did not match the page. The
@@ -1244,6 +1249,11 @@ APPROX_PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
     # default tenth). Cache write, long-context, and service-tier rates stay
     # documented in `src/coding/model_contracts.py`.
     "gpt-6-luna": (0.10, 0.50),
+    # OpenAI list price (developers.openai.com/api/docs/models/gpt-6-sol and
+    # /api/docs/pricing, read 2026-09-23): 2/10, no promotion mark; cached
+    # input 0.20 (the default tenth). Cache write, long-context, and
+    # service-tier rates stay documented in `src/coding/model_contracts.py`.
+    "gpt-6-sol": (2.0, 10.0),
     # Anthropic first-party list prices (docs.claude.com pricing, 2026-09):
     # Opus 5 5/25, Sonnet 5 2/10, Fable 5 and 5.1 10/50; Mythos 5.1 shares
     # Fable 5.1's per-token price. Earlier entries here were stale.

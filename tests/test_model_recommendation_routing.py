@@ -126,13 +126,15 @@ class HermesRecommendationRoutingTests(unittest.TestCase):
         # A provider that serves only `<base>-YYYY-MM-DD` ids (reported
         # 2026-09-11 for gpt-5.6-terra / gpt-5.6-luna): the snapshot satisfies
         # the chain entry naming its base, and the route carries the id as
-        # served rather than the catalog spelling.
-        dated = _active("gpt-5.6-terra-2026-07-09", "openai", "gpt")
+        # served rather than the catalog spelling. Both 5.6 ids left the
+        # shipped chains on 2026-09-23, so the rule is held on the id that
+        # now heads `deep`; the date is a shape, not a published snapshot.
+        dated = _active("gpt-6-sol-2026-09-22", "openai", "gpt")
         recommendation = resolve_model_recommendation(owner="hermes", active_models=[dated], category="deep")
         self.assertEqual(recommendation["status"], "resolved")
-        self.assertEqual(recommendation["selected"]["model_alias"], "gpt-5.6-terra")
-        self.assertEqual(recommendation["selected"]["model_id"], "gpt-5.6-terra-2026-07-09")
-        qualified = _active("openai/gpt-5.6-terra-2026-07-09", "openai", "gpt")
+        self.assertEqual(recommendation["selected"]["model_alias"], "gpt-6-sol")
+        self.assertEqual(recommendation["selected"]["model_id"], "gpt-6-sol-2026-09-22")
+        qualified = _active("openai/gpt-6-sol-2026-09-22", "openai", "gpt")
         self.assertEqual(
             resolve_model_recommendation(owner="hermes", active_models=[qualified], category="deep")["status"],
             "resolved",
@@ -140,14 +142,14 @@ class HermesRecommendationRoutingTests(unittest.TestCase):
         # An explicit request for the base is met by its confirmed snapshot;
         # a request pinned to a date is not met by an unpinned base.
         self.assertEqual(
-            resolve_model_recommendation(owner="hermes", active_models=[dated], explicit_model="gpt-5.6-terra")["status"],
+            resolve_model_recommendation(owner="hermes", active_models=[dated], explicit_model="gpt-6-sol")["status"],
             "resolved",
         )
         self.assertEqual(
             resolve_model_recommendation(
                 owner="hermes",
-                active_models=[_active("gpt-5.6-terra", "openai", "gpt")],
-                explicit_model="gpt-5.6-terra-2026-07-09",
+                active_models=[_active("gpt-6-sol", "openai", "gpt")],
+                explicit_model="gpt-6-sol-2026-09-22",
             )["status"],
             "choice_required",
         )

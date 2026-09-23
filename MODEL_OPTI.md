@@ -372,7 +372,7 @@ baseline-vs-calibrated prompt pairs where the *only* difference is the
 calibration block, and `tests/test_omh_live_model_benchmark.py` pins that
 pairing so a benchmark claim can never mix in other prompt changes.
 
-### `gpt` (GPT-5.6 Sol / Terra / Luna, GPT-6 Luna)
+### `gpt` (GPT-5.6 Sol / Terra / Luna, GPT-6 Sol, GPT-6 Luna)
 
 - **Model trait:** a strong long-horizon reasoner. Its characteristic waste
   is spending depth on things that are already decided: re-deriving facts it
@@ -414,6 +414,40 @@ pairing so a benchmark claim can never mix in other prompt changes.
   working; test restraint is the strongest candidate. Editorial,
   unmeasured: the `gpt-5.6-luna` vs `gpt-6-luna` pair at `low` is the named
   follow-up.
+- **GPT-6 Sol: documented traits, no counter shipped.** `gpt-6-sol` has an
+  exact contract but no exact calibration, the Luna precedent. Unlike Luna,
+  its placement reaches the calibrated tiers: it heads `deep` at `high`,
+  where the subagent block fires, and it is a `main` role suggestion, so it
+  is a composer candidate. Both receive this family block, written for the
+  5.6 generation. An exact block waits on a `family` vs `optimized`
+  benchmark pair; until then the evidence is kept here:
+  - official (the latest-model guide, read 2026-09-23): the guide's GPT-6
+    prompting section addresses "behavior observed with GPT-6 Astra" and
+    gives no Sol-specific guidance, so these are family statements, not
+    Sol measurements: more likely to ask the user a question; more
+    sensitive to instructions contained in skills; tends toward detailed,
+    formatted responses; may delegate less often than desired; thorough in
+    testing before considering a task complete.
+  - official-client (the Codex model catalog's Sol prompt): it keeps
+    "continue work without ending the turn to clarify with the user", which
+    Luna's drops and Astra's keeps. That sentence pushes the model to keep
+    working and is not imported into any OMH block. The same prompt carries
+    a restraint a later exact block could adopt without its tail: "Broaden
+    or repeat testing only to resolve a concrete remaining risk or satisfy
+    a required gate." (the vendor's "continue toward the user's goal" is
+    dropped).
+  - The `gpt_sol_codex_handoff` throughput overlay matches any `*-sol` id,
+    so GPT-6 Sol as a Codex main agent receives it. That is kept on purpose
+    (owner decision, 2026-09-23): its rules are restraint-shaped (a declared
+    stop condition, stop on decisive evidence), and
+    `tests/test_executor_prompting.py` names `gpt-6-sol` so the inheritance
+    is a reviewed decision rather than a suffix accident. A dated
+    `gpt-6-sol-YYYY-MM-DD` id does not match the suffix; no dated Sol
+    snapshot is published.
+
+  Editorial, unmeasured. The named follow-up pairs: `gpt-5.6-sol` vs
+  `gpt-6-sol` at `medium` (the last-resort rung), `gpt-5.6-terra` `high` vs
+  `gpt-6-sol` `high` (the `deep` rung), and `main` at its effort.
 
 ### `gpt-6-astra` (GPT-6 Astra, exact-model override on the `gpt` family)
 
@@ -475,13 +509,17 @@ pairing so a benchmark claim can never mix in other prompt changes.
   with no textual CoT; that is not evidence of less overthinking, lower
   latency, or better task results, and a test pins the override free of it.
 - **Throughput overlay:** unchanged. The `gpt_sol_codex_handoff` overlay stays
-  gated to `*-sol` and the Hermes `ultrawork` overlay stays family-wide;
+  gated to `*-sol` (GPT-6 Sol included, by decision) and the Hermes
+  `ultrawork` overlay stays family-wide;
   neither has an Astra measurement, so Astra on codex gets the base rules.
 - **Routing:** heads `ultrabrain` and the GPT slot of `architect` in both
   lanes. GPT-5.6 Sol trailed it as fall-through until 2026-09-11, when the
-  superseded generations left every shipped chain (owner decision); Sol
-  stays in the shared last resort and as the codex cost-tier default. The
-  Terra and Luna lanes are cost-tier picks and stay as they were (#1313). An
+  superseded generations left every shipped chain (owner decision). Since
+  2026-09-23 GPT-6 Sol holds every slot GPT-5.6 Sol and GPT-5.6 Terra held
+  (the shared last resort, the head of `deep`, the `main` suggestion, and
+  the codex lighter categories), each at its previous effort; Astra lists
+  at 5x Sol, so it heads no cost-tier slot. The Luna lane is a cost-tier
+  pick and stays as it was. An
   account the staged rollout has not reached gets a provider rejection and
   the chain falls through to the next ecosystem.
 - **Pricing:** exact operator `model-prices.json` rows win first. A declared
@@ -872,7 +910,8 @@ pairing so a benchmark claim can never mix in other prompt changes.
   cache hits → byte-identical preamble; three-rung ladder with a published
   mapping → name a documented rung on every unit.
 - **Routing:** takes the slots DeepSeek V3.2 held — the reasoning-capable
-  budget fall-through behind GPT-5.6 Terra on `deep` at `high`, and the
+  budget fall-through behind GPT-6 Sol on `deep` at `high` (behind GPT-5.6
+  Terra until 2026-09-23), and the
   DeepSeek entry on `unspecified-low` at `low`. Both efforts are documented
   rungs. The chain alias is `deepseek-flash`, the id the vendor's API
   serves and Hermes forwards: the first-party endpoint rejects the
@@ -888,9 +927,9 @@ pairing so a benchmark claim can never mix in other prompt changes.
   `-pro` / `-fast` / `-flex` variant never labels its base id. V3.2 left the shipped chains
   with the other superseded generations on 2026-09-11 and stays
   recognized, priced, and provider-mapped for a machine-level override. It
-  does not head `deep`: that lane stays on Terra by owner decision
-  (#1313), and no OMH measurement of this model exists yet to argue
-  otherwise.
+  does not head `deep`: that lane was Terra's by owner decision (#1313)
+  and is GPT-6 Sol's since 2026-09-23, and no OMH measurement of this model
+  exists yet to argue otherwise.
 - **What the Hermes lane does with it (observed in the Hermes Agent source,
   v0.21.1 and origin/main, 2026-09-11 — recorded so nobody looks for an
   OMH fix):** Hermes forwards `reasoning_effort` from its own vocabulary,
@@ -1192,6 +1231,7 @@ not, and how to reproduce it: `benchmarks/product-ab/v1/README.md`.
 | five declared Astra mode/tier aliases | yes → `gpt` | yes, inherited from canonical `gpt-6-astra` | bounded declared inheritance for contract, effort, calibration, provider/category metadata, and price; unknown suffixes remain missing |
 | `deepseek-v4.1-flash` (exact-model override) | yes → `deepseek` | yes, both override tables, resolved before the family block | exact documented contract (three-rung ladder, no floor) plus stop-shaped counters for the documented traits; the family-vs-optimized pair is the named follow-up, blocked on a served route |
 | `deepseek-flash` (declared pointer alias) | yes → `deepseek` | yes, inherited from canonical `deepseek-v4.1-flash` | the vendor's moving "current Flash" id, declared with a read date; `deepseek-v4-flash`, `deepseek-v4-pro`, and every other DeepSeek id keep the family block |
+| `gpt-6-sol` (exact contract, no exact calibration) | yes → `gpt` | yes, through the family block | exact documented contract (the API `none`-to-`max` ladder; the Codex client's ladder recorded beside it without `none` and without the Codex-only `ultra`); no exact counter yet although `deep@high` and `main` reach the calibrated tiers, because the Codex Sol prompt's keep-working sentence is not importable and no `family` vs `optimized` pair has run; the three generation pairs are the named follow-up |
 | `gpt-6-luna`, `claude-opus-5-5` (exact contracts, no exact calibration) | yes → `gpt` / `claude` | yes, through the family block | exact documented contracts (Luna's `none`-to-`max` ladder; Opus 5.5's always-on thinking, forced-`tool_choice` 400, and 0.05x cache reads); no exact counter because neither shipped placement reaches the high-effort tier on the subagent side and the Opus composer block is kept byte-stable per the vendor's Opus 5.5 prompting guide; the old-vs-new generation pairs are the named follow-up |
 | `openai-gpt-`, `anthropic-claude-` (design-qualified aliases) | yes → `gpt` / `claude` | yes, through the design family | concrete models.dev/OpenCode serving ids carry these sub-prefixes; their catalog `base_model` fields establish the underlying design family |
 | other `openai-`, `anthropic-` vendor-qualified ids | recognized as model targets, family `unknown` | no → `generic` | vendor qualification alone does not establish a design; O-series, image, and emerging ids remain uncalibrated |
@@ -1255,8 +1295,10 @@ The closed dispositions also support `eligible_not_selected`,
 comparison establishes that dimension; this pass fabricates none. Caller
 `--intentional-exclusion ID=REASON` declares a runtime-contract exclusion,
 not an observed model failure. Retirements carry successor, scope, and owner
-decision date. Sol's retirement is frontier-slot-only: it remains recommended
-in last resort. Older ids stay routable, priced, and provider-mapped.
+decision date. GPT-5.6 Sol's 2026-09-11 frontier-slot retirement was widened
+on 2026-09-23 to every shipped chain (successor `gpt-6-sol`), and GPT-5.6
+Terra was retired the same day to the same successor. Older ids stay
+routable, priced, and provider-mapped.
 
 The report imports the contract audit's inventory parser, unions `models`,
 `available_models`, and discovery observations, and preserves case-variant
@@ -1312,6 +1354,7 @@ not a stronger design-brief expectation, governs these boundaries:
   exclusions; Astra list-price tiers alone do not establish dominance.
   Reviewable editorial retirements already exist for Fable 5 and GLM 5.2 in
   that inventory, with the owner-decision evidence in onboarding section 4.
-  Sol retains its frontier-slot retirement and last-resort recommendation.
+  GPT-5.6 Sol's frontier-slot retirement was widened to every shipped chain
+  on 2026-09-23, when GPT-6 Sol took its last-resort slot.
   Tests pin zero unsupported dominance findings separately from those honest,
   evidence-linked retirement decisions.

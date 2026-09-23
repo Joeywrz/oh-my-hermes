@@ -273,6 +273,112 @@ _GPT_6_LUNA: Final[dict[str, object]] = {
     "claim_boundary": MODEL_CONTRACT_CLAIM_BOUNDARY,
 }
 
+# GPT-6 Sol, the mid GPT-6 tier under Astra. The same shape as Luna: `none`
+# is a documented rung, so both no-reasoning spellings are sent as `none`,
+# and `minimal` is raised to `low`. The Codex client's ladder differs from
+# the API page in two ways, both recorded beside it rather than folded in:
+# it has no `none`, and it lists a Codex-only `ultra` rung, which the API
+# ladder does not document and which no OMH ladder carries.
+_GPT_6_SOL: Final[dict[str, object]] = {
+    "schema_version": MODEL_CONTRACT_SCHEMA_VERSION,
+    "model_id": "gpt-6-sol",
+    "reasoning_mode": "standard",
+    "service_tier": "standard",
+    "family": "gpt",
+    "generation": "gpt-6",
+    # The API changelog entry date ("Sep 22 ... Released GPT-6 Sol"); the
+    # model page carries no release date.
+    "released": "2026-09-22",
+    "rollout": (
+        "rolling out in Codex to Plus, Pro, Business, Enterprise, and Edu; a released id is not "
+        "account-level readiness evidence"
+    ),
+    "knowledge_cutoff": "2026-04-20",
+    "context_window_tokens": 1_050_000,
+    "max_input_tokens": 922_000,
+    "max_output_tokens": 128_000,
+    # The API page's ladder. `none` is a documented rung (the latest-model
+    # guide: Astra does not support it, Sol and Luna do). `minimal` is not in
+    # the ladder; a request for it asks for SOME reasoning, so it is raised to
+    # the lowest documented rung above it (`low`), never lowered to `none`.
+    "reasoning_efforts": ("none", "low", "medium", "high", "xhigh", "max"),
+    "effort_floor": "none",
+    "effort_default": "medium",
+    "unsupported_efforts": {
+        "minimal": "not in the documented ladder; the migration guide says start with `low`",
+    },
+    "tool_calling": {
+        "api": "responses",
+        "note": (
+            "tool calling with reasoning requires the Responses API; Chat Completions serves "
+            "function calling only at reasoning effort `none`"
+        ),
+    },
+    "unsupported_parameters": ("temperature", "top_p", "top_logprobs"),
+    "unsupported_parameters_note": (
+        "rejected when reasoning effort is not `none`; on Chat Completions `logprobs` is rejected too, "
+        "and on Responses `message.output_text.logprobs` is removed from `include`"
+    ),
+    "surface_notes": {
+        "codex": (
+            "the Codex client's model catalog lists `low` through `max` (no `none`) plus a "
+            "Codex-only `ultra` rung that no OMH ladder or chain carries, a `medium` default, and a 272K "
+            "context window with an 872K maximum; the client repository's catalog also names a "
+            "`priority` default service tier and a 0.155.0 minimum client version, which the "
+            "served catalog does not carry"
+        ),
+        "hermes": (
+            "an installed Hermes build that predates upstream commit 79ec1f2a34 (2026-09-22) "
+            "has no price for this id and clamps `max` to `xhigh` without a notice; that commit "
+            "also listed a `gpt-6-terra` tier, which 38c289c014 (2026-09-23) removed because "
+            "OpenAI never published it; observed in the Hermes source, not a vendor statement"
+        ),
+    },
+    # The Codex client's model-catalog ladder from `surface_notes.codex`,
+    # without `ultra` (owner decision, 2026-09-23: no OMH ladder or chain
+    # carries it).
+    "surface_efforts": {
+        "codex": ("low", "medium", "high", "xhigh", "max"),
+    },
+    # The GPT-6 family traits from the latest-model guide; the guide's
+    # prompting section is written for Astra and gives no Sol-specific
+    # guidance, so each is a family statement.
+    "documented_traits": (
+        "stated for the GPT-6 family: asks the user a question more readily",
+        "stated for the GPT-6 family: follows instructions more strictly and is more sensitive to "
+        "instructions contained in skills",
+        "stated for the GPT-6 family: tends toward detailed, formatted responses",
+        "stated for the GPT-6 family: may delegate less often than desired",
+        "stated for the GPT-6 family: tends to be thorough in testing before considering a task "
+        "complete",
+    ),
+    # OpenAI list price (developers.openai.com model and pricing pages,
+    # read 2026-09-23). No promotion mark. The cached rate is a tenth of
+    # input, which is the approximation table's default ratio.
+    "pricing_usd_per_mtok": {
+        "input": 2.0,
+        "cached_input": 0.2,
+        "cache_write": 2.5,
+        "output": 10.0,
+        "long_context_over_272k_input": "2x input and cache rates, 1.5x output, for the full request",
+        "batch_and_flex": "0.5x every standard rate",
+        "fast_mode": "2x every applicable rate",
+        "regional_processing": "+10% where available",
+    },
+    "data_handling": _DATA_HANDLING_NOT_READ,
+    "sources": (
+        "https://developers.openai.com/api/docs/models/gpt-6-sol",
+        "https://developers.openai.com/api/docs/guides/latest-model",
+        "https://developers.openai.com/api/docs/guides/reasoning",
+        "https://developers.openai.com/api/docs/pricing",
+        "https://developers.openai.com/api/docs/changelog",
+        "https://learn.chatgpt.com/docs/models",
+        "https://learn.chatgpt.com/docs/changelog",
+    ),
+    "sources_read": "2026-09-23",
+    "claim_boundary": MODEL_CONTRACT_CLAIM_BOUNDARY,
+}
+
 # Claude Opus 5.5, the first Claude contract. Thinking is always on: a
 # thinking-disabled request or a manual budget returns HTTP 400, so a
 # no-thinking rung is raised to `low` on record. One optional key joins
@@ -607,6 +713,7 @@ _JEV_1_13: Final[dict[str, object]] = {
 
 MODEL_CONTRACTS: Final[dict[str, Mapping[str, object]]] = {
     "gpt-6-astra": _GPT_6_ASTRA,
+    "gpt-6-sol": _GPT_6_SOL,
     "gpt-6-luna": _GPT_6_LUNA,
     "claude-opus-5-5": _CLAUDE_OPUS_5_5,
     "deepseek-v4.1-flash": _DEEPSEEK_V41_FLASH,

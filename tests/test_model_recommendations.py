@@ -239,11 +239,16 @@ class RecommendationCatalogTests(unittest.TestCase):
 
         # Superseded generations left every shipped chain (owner decision,
         # 2026-09-11): Fable 5, GLM 5.2 and its Ultrafast tier, DeepSeek
-        # V3.2, and Sol behind Astra. A chain names the current generation of
-        # each line; an older id lives on only in a machine-level override.
+        # V3.2, and Sol behind Astra; on 2026-09-23 GPT-6 Sol took both
+        # GPT-5.6 tiers' slots at the effort each slot carried. A chain names
+        # the current generation of each line; an older id lives on only in a
+        # machine-level override.
         self.assertEqual(aliases("role_suggestions", "main"), [
-            "kimi-k3", "claude-fable-5-1", "claude-opus-5-5", "gpt-6-astra", "gpt-5.6-terra",
+            "kimi-k3", "claude-fable-5-1", "claude-opus-5-5", "gpt-6-astra", "gpt-6-sol",
         ])
+        self.assertEqual(catalog["role_suggestions"]["main"][4]["reasoning_effort"], "high")
+        self.assertEqual(catalog["categories"]["deep"][0]["reasoning_effort"], "high")
+        self.assertEqual(catalog["last_resort"]["any"][1]["reasoning_effort"], "medium")
         # A chain that would otherwise sit in one provider ecosystem ends on
         # a comparable-tier candidate from another (owner rule, 2026-08-19)
         # so one rejected ecosystem cannot exhaust the chain.
@@ -258,7 +263,7 @@ class RecommendationCatalogTests(unittest.TestCase):
         # reasoning-capable budget fallback (owner request, 2026-08-21);
         # V4.1 Flash took the slot from V3.2 on 2026-09-11; the alias is the
         # vendor-served pointer id, and the versioned contract sits behind it.
-        self.assertEqual(aliases("categories", "deep"), ["gpt-5.6-terra", "deepseek-flash"])
+        self.assertEqual(aliases("categories", "deep"), ["gpt-6-sol", "deepseek-flash"])
         self.assertEqual(
             aliases("categories", "architect"),
             ["claude-fable-5-1", "gpt-6-astra", "kimi-k3"],
@@ -418,8 +423,8 @@ class RecommendationResolverTests(unittest.TestCase):
 
     def test_only_confirmed_active_owner_compatible_models_are_eligible(self) -> None:
         models = (
-            _active("gpt-5.6-terra", provider="openai-codex", status="observed_before"),
-            _active("gpt-5.6-terra", provider="openai-codex", owners=("maestro",)),
+            _active("gpt-6-sol", provider="openai-codex", status="observed_before"),
+            _active("gpt-6-sol", provider="openai-codex", owners=("maestro",)),
         )
         route = resolve_model_recommendation(owner="hermes", category="deep", active_models=models)
         self.assertEqual(route["status"], "owner_default")
@@ -485,7 +490,7 @@ class RecommendationResolverTests(unittest.TestCase):
         )
         self.assertEqual(route["selected"]["model_alias"], "qwen3-coder")
         self.assertEqual(route["selected"]["recommendation_source"], "user_override")
-        self.assertEqual(SHIPPED_MODEL_RECOMMENDATIONS["categories"]["deep"][0]["model_alias"], "gpt-5.6-terra")
+        self.assertEqual(SHIPPED_MODEL_RECOMMENDATIONS["categories"]["deep"][0]["model_alias"], "gpt-6-sol")
 
     def test_resolution_serialization_is_stable_across_active_input_order(self) -> None:
         first = resolve_model_recommendation(
@@ -501,7 +506,7 @@ class LastResortFallbackTests(unittest.TestCase):
     """The shared final attempt used only after a selected chain is exhausted."""
 
     _OPUS_ONLY = (_active("claude-opus-5-5", provider="ccapi", family="claude"),)
-    _SOL_ONLY = (_active("gpt-5.6-sol", provider="openai-codex", family="gpt"),)
+    _SOL_ONLY = (_active("gpt-6-sol", provider="openai-codex", family="gpt"),)
 
     def test_schema_versions_advance_and_legacy_override_remains_supported(self) -> None:
         self.assertEqual(MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION, "model_recommendation_catalog/v2")
@@ -593,7 +598,7 @@ class LastResortFallbackTests(unittest.TestCase):
         self.assertEqual(route["available_chain"], ["claude-opus-5-5"])
         self.assertEqual(
             route["inactive_candidates"],
-            ["glm-5.3-flash", "kimi-k3", "gpt-6-luna", "claude-fable-5-1", "gpt-5.6-sol"],
+            ["glm-5.3-flash", "kimi-k3", "gpt-6-luna", "claude-fable-5-1", "gpt-6-sol"],
         )
         self.assertEqual(route["projection"]["kind"], "hermes_native_binding")
         self.assertEqual(route["projection"]["apply_state"], "approval_required")
@@ -617,7 +622,7 @@ class LastResortFallbackTests(unittest.TestCase):
             owner="hermes", domain="x_platform_data", active_models=self._SOL_ONLY
         )
         self.assertEqual(route["source"], "last_resort_chain")
-        self.assertEqual(route["selected"]["model_alias"], "gpt-5.6-sol")
+        self.assertEqual(route["selected"]["model_alias"], "gpt-6-sol")
         self.assertEqual(
             route["inactive_candidates"],
             ["grok-code-fast", "kimi-k3", "gemini-3.1-pro", "claude-opus-5-5"],
@@ -644,7 +649,7 @@ class LastResortFallbackTests(unittest.TestCase):
                 "gpt-6-luna",
                 "claude-fable-5-1",
                 "claude-opus-5-5",
-                "gpt-5.6-sol",
+                "gpt-6-sol",
             ],
         )
 
@@ -656,7 +661,7 @@ class LastResortFallbackTests(unittest.TestCase):
         )
         self.assertEqual(
             [entry["model_alias"] for entry in route["projection"]["chain"]],
-            ["claude-opus-5-5", "gpt-5.6-sol"],
+            ["claude-opus-5-5", "gpt-6-sol"],
         )
 
     def test_last_resort_chain_is_user_overridable_through_the_same_closed_surface(self) -> None:

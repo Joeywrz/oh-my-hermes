@@ -48,7 +48,7 @@ class ModelRoutingStatusTests(unittest.TestCase):
         )
         _write(
             discovery_home / ".codex" / "sessions" / "seen.jsonl",
-            json.dumps({"payload": {"model_provider": "openai", "model": "gpt-5.6-terra"}}) + "\n",
+            json.dumps({"payload": {"model_provider": "openai", "model": "gpt-6-sol"}}) + "\n",
         )
         _write(
             hermes_home / "config.yaml",
@@ -77,11 +77,11 @@ class ModelRoutingStatusTests(unittest.TestCase):
         )
         self.assertEqual(
             [entry["model_id"] for entry in payload["models"]["discovered_only"]],
-            ["gpt-5.6-terra"],
+            ["gpt-6-sol"],
         )
         deep = payload["maestro"]["categories"]["deep"]
         self.assertEqual(deep["status"], "owner_default")
-        self.assertEqual(deep["missing_head"], "gpt-5.6-terra")
+        self.assertEqual(deep["missing_head"], "gpt-6-sol")
         unspecified = payload["maestro"]["categories"]["unspecified-high"]
         self.assertEqual(unspecified["selected_model"], "kimi-k3")
         self.assertIn("metadata", payload["claim_boundary"])

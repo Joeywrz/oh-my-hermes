@@ -1377,7 +1377,15 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # the substitution table lives in the rail reference, outside this budget.
 # Re-derived from the full-profile producer after rebasing past the
 # onboarding raise.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1029434
+# 1029434 -> 1029426: the GPT-6 Sol onboarding (2026-09-23). One body moves:
+# `model-setup` names GPT-6 Sol at the head of `deep` and in the shared final
+# order, lists GPT-5.6 Sol and GPT-5.6 Terra among the superseded generations
+# where it said "GPT-5.6 Sol behind Astra", and its dated-snapshot example
+# names a shape on a shipped base instead of a Terra id no chain names any
+# more (-8). The ratchet follows it down. Re-derived from the full-profile
+# skill_context_cost_payload() producer; skill_structure_lint_payload()
+# reports ok with no violation.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1029426
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

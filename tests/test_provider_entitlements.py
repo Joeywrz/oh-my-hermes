@@ -76,6 +76,9 @@ class ParityTests(unittest.TestCase):
         # Retired 2026-09-23 when Opus 5.5 and GPT-6 Luna took their slots.
         "claude-opus-5": ("ccapi", "anthropic", "openrouter"),
         "gpt-5.6-luna": ("openai-codex", "openai"),
+        # Retired 2026-09-23 when GPT-6 Sol took both GPT-5.6 tiers' slots.
+        "gpt-5.6-sol": ("openai-codex", "openai"),
+        "gpt-5.6-terra": ("openai-codex", "openai"),
     }
 
     def _catalog_families(self) -> dict[str, tuple[str, ...]]:

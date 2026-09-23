@@ -51,7 +51,9 @@ or limit for the same id. GPT-6 Luna is the first case: the API page lists
 `none` through `max` and a 1,050,000-token context (official), the Codex
 client's catalog lists `low` through `max` with a 272K window (official-client),
 and a Hermes build older than upstream `79ec1f2a34` clamps `max` to `xhigh`
-(observed). Record the API ladder and limits as the contract and put each
+(observed). GPT-6 Sol adds a rung the API does not have: the Codex catalog
+lists a Codex-only `ultra`, which stays out of every OMH ladder, including
+the machine-readable `surface_efforts`. Record the API ladder and limits as the contract and put each
 other surface in `surface_notes`, labeled; do not average them and do not
 let the narrowest surface overwrite the API record.
 
@@ -346,8 +348,13 @@ Rules that have held across every onboarding so far:
   Ultrafast tier behind the 5.3 generation, DeepSeek V3.2 behind V4.1 Flash,
   and GPT-5.6 Sol behind GPT-6 Astra on the two frontier slots; applied again
   on 2026-09-23 to Claude Opus 5 behind Opus 5.5 and GPT-5.6 Luna behind
-  GPT-6 Luna). Record each retirement as a `RETIREMENT_DECISIONS` row with its
-  own `decision_date`. The public
+  GPT-6 Luna, and the same day to GPT-5.6 Sol and GPT-5.6 Terra behind GPT-6
+  Sol). Record each retirement as a `RETIREMENT_DECISIONS` row with its
+  own `decision_date`. The table is keyed by model id, so a second
+  retirement of the same id rewrites its row rather than adding one: GPT-5.6
+  Sol's 2026-09-11 row (scope `frontier_slots`, successor `gpt-6-astra`) was
+  widened on 2026-09-23 to `all_shipped_chains` with successor `gpt-6-sol`,
+  and the earlier decision survives only in this paragraph. The public
   table names the current generation of each line; a machine whose provider
   still serves only the older id keeps it through `omh model-chains set`.
   The retired alias stays recognized, priced, and provider-mapped — list it
@@ -356,6 +363,17 @@ Rules that have held across every onboarding so far:
   resolves and still costs out. Before 2026-09-11 the rule was the opposite
   (old generation stays as fall-through); do not reintroduce it by copying an
   older comment.
+- A successor can come from the next tier up when the vendor names no
+  same-tier successor. No GPT-6 Terra exists (the model page returns 404
+  and no price table lists one), and the Codex client repository's model
+  catalog names GPT-6 Sol as the upgrade for both GPT-5.6 tiers
+  (official-client; the catalog the backend serves does not push that
+  upgrade yet); the API docs call Terra the "mini" tier
+  and 5.6 Sol the unsuffixed tier, so Terra → Sol is a tier change as well
+  as a generation change. The owner took it on 2026-09-23, each slot at the
+  effort it carried, because Sol's list price is at or below Terra's on
+  every documented rate. Editorial and unmeasured; the `high` pair on
+  `deep` confirms or reverses it.
 - A chain names the id the vendor's own API serves, not the spelling a
   gateway or a model card uses. DeepSeek serves `deepseek-flash` and
   rejects `deepseek-v4.1-flash` with HTTP 400, so the chain names the

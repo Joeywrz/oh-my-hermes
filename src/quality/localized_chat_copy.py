@@ -80,7 +80,7 @@ LOCALIZED_CHAT_COPY_CASES: tuple[LocalizedChatCopyCase, ...] = (
         expected_kind="source_finder",
         expected_next_action="prepare_source_finder_plan",
         headline_marker="plan d'acquisition de sources",
-        body_markers=("source-finder plan", "Je prépare", "avant observation"),
+        body_markers=("source-finder plan", "l'état de recherche", "ne présente pas comme faits"),
     ),
     LocalizedChatCopyCase(
         id="paper-learning-fr",
@@ -90,7 +90,7 @@ LOCALIZED_CHAT_COPY_CASES: tuple[LocalizedChatCopyCase, ...] = (
         expected_kind="paper_learning",
         expected_next_action="prepare_paper_learning",
         headline_marker="papier",
-        body_markers=("paper-learning card", "niveau d'explication", "avant observation"),
+        body_markers=("paper-learning card", "niveau d'explication", "ne présente pas comme faites"),
     ),
     LocalizedChatCopyCase(
         id="img-summary-ko",
@@ -100,7 +100,7 @@ LOCALIZED_CHAT_COPY_CASES: tuple[LocalizedChatCopyCase, ...] = (
         expected_kind="img_summary",
         expected_next_action="prepare_visual_prompt_card",
         headline_marker="공유용 이미지 카드",
-        body_markers=("이미지 안 문구", "연결된 이미지 생성 도구", "말하지 않고"),
+        body_markers=("이미지 안 문구", "연결된 이미지 생성 도구", "이미지가 있다고 말하는 대신"),
     ),
     LocalizedChatCopyCase(
         id="agent-ops-status-ko",
@@ -110,7 +110,7 @@ LOCALIZED_CHAT_COPY_CASES: tuple[LocalizedChatCopyCase, ...] = (
         expected_kind="agent_ops_review",
         expected_next_action="refresh_agent_ops_status",
         headline_marker="지금 상황",
-        body_markers=("관리자 관점", "shell 명령", "관측된 증거"),
+        body_markers=("관리자 관점", "shell 명령", "끝났다는 내용은 담지 않습니다"),
         forbidden_body_markers=("Progress, blockers",),
     ),
 )

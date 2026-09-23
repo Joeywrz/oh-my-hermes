@@ -664,7 +664,7 @@ Every wrapper-facing `chat_response/v1` can render a first-line usage marker
 from `chat_response.usage_trace.visible_prefix`, for example:
 
 ```text
-[omh] research - I can ground this with source-backed research.
+[omh] research - Source-backed research can ground this.
 ```
 
 That marker is product status, not a command the user has to learn. The same

@@ -138,6 +138,13 @@ uv run python -m omh.cli docs capability-families
 uv run python -m omh.cli cases demo --all --json > examples/use-cases/g1-g10-demo-cards.json
 ```
 
+Editing an existing skill instead of adding one: if the section you touched is
+listed for that skill in `PORTABLE_OVERRIDES` (`src/skills/catalog_portable.py`),
+the portable projection replaces it and your line does not reach
+`agent-skills/<skill>/SKILL.md`. Decide what the portable body should say, then
+re-derive `tests/fixtures/portable_override_source_digests.json`. See "When a
+replaced catalog section moves" in `docs/AGENT-SKILLS.md`.
+
 ## 5. Verify
 
 Every added skill costs context twice. Its index line -- the name and the first

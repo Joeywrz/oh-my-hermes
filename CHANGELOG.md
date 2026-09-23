@@ -254,6 +254,27 @@ All notable changes will be documented here.
   at each entry: the compact primer 900 -> 1,050, the markdown primer
   3,210 -> 3,400, the per-skill ceiling 26,500 -> 26,800, and the full-profile
   ratchets re-derived from their producers.
+- **A hand-written portable override now learns when the catalog section it
+  replaces has moved.** `PORTABLE_OVERRIDES` (12 skills, 28 sections) replaces
+  catalog sections wholesale for the Agent Skills projection, which is the
+  right mechanism -- a Hermes-shaped line has to be rewritten by a person -- but
+  no test read the table, so a line added to an overridden section was absent
+  from `agent-skills/<skill>/SKILL.md` with every gate green and nothing
+  recording that a decision was owed. `docs agent-skills --check` cannot see it:
+  it compares shipped bytes against a projection that already applied the
+  override, so it agrees with the override by construction. Two producers in
+  `src/skills/catalog_portable.py` now report a sha256 per replaced catalog
+  section and the entries that no longer resolve, pinned by
+  `tests/fixtures/portable_override_source_digests.json` and asserted in
+  `tests/test_agent_skills_projection.py`. A moved section fails naming the
+  `<skill>::<section>` entries, so the author re-reads that decision instead of
+  diffing 28 tuples; re-pinning without editing the override is the valid
+  outcome that records a deliberate choice not to mirror a line. The failure for
+  an entry that stops resolving carries its reason, because the two halves
+  behave differently at projection time: a dropped skill is looked up by display
+  name and silently misses, while a renamed section raises an `AttributeError`
+  out of rendering that names only the field. No override text and no projected
+  byte changes.
 
 ## 2.0.5 - 2026-09-22
 

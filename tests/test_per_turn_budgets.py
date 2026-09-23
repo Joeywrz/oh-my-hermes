@@ -30,6 +30,10 @@ from omh.maintenance.advisory import check_installed_skill_context_weight
 from omh.maintenance.drift import budget_metrics
 from omh.maintenance.release import (
     AWARENESS_PRIMER_CONTEXT_CHAR_LIMIT,
+    FULL_PROFILE_SKILL_BODY_HEADROOM_PERCENT,
+    FULL_PROFILE_SKILL_BODY_REPEATED_CEILING_STEP_CHARS,
+    FULL_PROFILE_SKILL_BODY_REPEATED_CHAR_LIMIT,
+    FULL_PROFILE_SKILL_BODY_REPEATED_MEASURED_CHARS,
     PLUGIN_TOOL_SCHEMA_CHAR_LIMIT,
     PRE_LLM_CALL_CONTEXT_CHAR_LIMIT,
     SKILL_INDEX_CHAR_LIMIT,
@@ -76,6 +80,112 @@ class PerRequestBudgetRegistryTests(unittest.TestCase):
         body = next(metric for metric in budget_metrics() if metric.name == "full_profile_skill_body_chars")
         self.assertIn("Install footprint", body.describe)
         self.assertIn("loaded on demand", body.describe)
+
+    def test_repeated_body_ceiling_is_the_documented_headroom_policy(self) -> None:
+        # Derived, never picked: the producer-measured figure plus the shared
+        # headroom percentage, rounded up to the step (src/maintenance/release.py).
+        repeated = next(
+            metric for metric in budget_metrics() if metric.name == "full_profile_skill_body_repeated_chars"
+        )
+        self.assertEqual(repeated.limit, FULL_PROFILE_SKILL_BODY_REPEATED_CHAR_LIMIT)
+        self.assertEqual(repeated.reviewed_exception, 0)
+        step = FULL_PROFILE_SKILL_BODY_REPEATED_CEILING_STEP_CHARS
+        with_headroom = -(
+            -FULL_PROFILE_SKILL_BODY_REPEATED_MEASURED_CHARS * (100 + FULL_PROFILE_SKILL_BODY_HEADROOM_PERCENT) // 100
+        )
+        self.assertEqual(FULL_PROFILE_SKILL_BODY_REPEATED_CHAR_LIMIT, -(-with_headroom // step) * step)
+
+    def test_repeated_body_measurement_is_the_producer_floor(self) -> None:
+        # The measurement is a floor as well as the base of the ceiling: a
+        # change that moves repeated text into references reads below it and
+        # must lower it (and re-derive the ceiling) in the same commit, so the
+        # freed slack is never left to be spent later without review; and a
+        # measurement inflated above what the producer reads fails here too.
+        repeated = next(
+            metric for metric in budget_metrics() if metric.name == "full_profile_skill_body_repeated_chars"
+        )
+        full = next(
+            profile for profile in skill_context_cost_payload()["profiles"] if profile["profile"] == "full"
+        )
+        live = repeated.live()
+        self.assertEqual(live, full["repeated"]["bytes"])
+        self.assertGreaterEqual(
+            live,
+            FULL_PROFILE_SKILL_BODY_REPEATED_MEASURED_CHARS,
+            "repeated bytes fell below the recorded measurement: set "
+            "FULL_PROFILE_SKILL_BODY_REPEATED_MEASURED_CHARS to the producer value and re-derive the ceiling",
+        )
+        self.assertLessEqual(live, repeated.limit)
+
+    def test_repeated_body_bytes_move_when_a_body_repeats_another(self) -> None:
+        # A body that copies another skill's sections verbatim adds every copied
+        # byte to the repeated figure and to the footprint alike; the ratchet
+        # must see it, not only the footprint.
+        from omh.skills import context_cost
+
+        templates = context_cost.builtin_skill_templates()
+        source = templates[0]
+        clone = dataclasses.replace(source, name=f"{source.name}-clone")
+        metrics = {metric.name: metric for metric in budget_metrics()}
+        before = {
+            name: metrics[name].live()
+            for name in ("full_profile_skill_body_chars", "full_profile_skill_body_repeated_chars")
+        }
+        with mock.patch.object(context_cost, "builtin_skill_templates", return_value=[*templates, clone]):
+            after = {name: metrics[name].live() for name in before}
+        for name in before:
+            with self.subTest(metric=name):
+                self.assertEqual(after[name] - before[name], len(source.content))
+
+    def test_one_more_ordinary_lane_member_fits_every_body_budget(self) -> None:
+        # The point of both body ceilings: a new skill that joins an existing
+        # lane needs no raise. Render a copy of every ordinary catalog member
+        # (no artifact contracts, no progressive disclosure) through the
+        # catalog render path under a new name, make its skill-specific
+        # sections unique -- a real new skill writes its own -- and keep the
+        # rail sections the renderer stamps byte-identical across skills. The
+        # largest such member must still fit under both ceilings; when it
+        # stops fitting, re-measure and re-derive before the next skill.
+        from omh.skills import context_cost
+        from omh.skills.render import workflow_skill_from_definition
+
+        templates = context_cost.builtin_skill_templates()
+        slices = context_cost._section_slices({template.name for template in templates}, templates)
+        copies: dict[tuple[str, str], int] = {}
+        for section in slices:
+            copies[(section.heading, section.body)] = copies.get((section.heading, section.body), 0) + 1
+        names = {template.name for template in templates}
+        members = [
+            definition
+            for definition in builtin_definitions()
+            if definition.name in names
+            and not definition.artifact_contracts
+            and not definition.progressive_disclosure
+        ]
+        self.assertGreater(len(members), 50)
+        metrics = {metric.name: metric for metric in budget_metrics()}
+        body_budgets = ("full_profile_skill_body_chars", "full_profile_skill_body_repeated_chars")
+        before = {name: metrics[name].live() for name in body_budgets}
+        worst: dict[str, tuple[int, str]] = {name: (0, "") for name in body_budgets}
+        for definition in members:
+            name = f"{definition.name}-lane-mate"
+            rendered = workflow_skill_from_definition(dataclasses.replace(definition, name=name), name)
+            content = "".join(
+                body if copies.get((heading, body), 0) >= 2 else f"{body}<!-- {name} -->\n"
+                for heading, body in context_cost._split_sections(rendered.content)
+            )
+            added = dataclasses.replace(rendered, content=content)
+            with mock.patch.object(context_cost, "builtin_skill_templates", return_value=[*templates, added]):
+                for budget in body_budgets:
+                    delta = metrics[budget].live() - before[budget]
+                    if delta > worst[budget][0]:
+                        worst[budget] = (delta, definition.name)
+        # The copy carries the rail sections, so it must move the repeated figure.
+        self.assertGreater(worst["full_profile_skill_body_repeated_chars"][0], 0)
+        for budget in body_budgets:
+            delta, member = worst[budget]
+            with self.subTest(budget=budget, member=member, delta=delta):
+                self.assertLessEqual(before[budget] + delta, metrics[budget].limit)
 
 
 class SkillIndexRenderingTests(unittest.TestCase):

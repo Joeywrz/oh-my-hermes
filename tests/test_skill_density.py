@@ -28,7 +28,7 @@ from omh.skills.packaging import builtin_skill_templates  # noqa: E402
 class SkillDensityGateTests(unittest.TestCase):
     """Standing density gate for the always-loaded skill bodies.
 
-    `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT` (src/maintenance/release.py) ratchets
+    `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT` (src/maintenance/release.py) bounds
     the pack's total bytes. It cannot separate a body that grew because a
     workflow gained a rule from one that grew because the prose got wordier.
     This gate measures the second thing per skill.

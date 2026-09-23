@@ -188,11 +188,15 @@ Rules:
   print(routing_precision_errors(payload))  # must be []
   ```
 
-  Confirm with `drift_report()["ok"]` before continuing the rebase. Two
-  adjacent budgets can fire in the same change and are raised the same way,
-  with the reason written at the entry: the per-skill Hangul freeze in
-  `tests/test_routing_language_policy.py` and
-  `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT` in `src/maintenance/release.py`.
+  Confirm with `drift_report()["ok"]` before continuing the rebase. Adjacent
+  budgets can fire in the same change and are raised the same way, with the
+  reason written at the entry: the per-skill Hangul freeze in
+  `tests/test_routing_language_policy.py` and the zero-slack ratchets in
+  `src/maintenance/release.py` (the per-request index, schema, and
+  `pre_llm_call` limits). `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT` and
+  `FULL_PROFILE_SKILL_BODY_REPEATED_CHAR_LIMIT` are ceilings with headroom,
+  not ratchets: re-derive them from the producer by the policy written beside
+  them, and only when a test says to.
 - Advancing `reviewed_ref` in `docs/SKILL-SOURCES.md` without appending the
   closure receipt, or landing the skill change and leaving the row behind.
   `docs skill-sources --check` fails either half by name

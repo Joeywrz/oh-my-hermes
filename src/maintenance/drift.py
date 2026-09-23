@@ -26,7 +26,10 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
+
+if TYPE_CHECKING:
+    from ..skills.context_cost import SkillContextCostProfile
 
 
 DRIFT_REPORT_SCHEMA_VERSION = "omh_drift_report/v1"
@@ -218,13 +221,21 @@ def _pre_llm_call_context_chars_max() -> int:
     return pre_llm_call_context_chars_max()
 
 
-def _full_profile_skill_body_chars() -> int:
+def _full_skill_context_cost_profile() -> SkillContextCostProfile:
     from ..skills.context_cost import skill_context_cost_payload
 
     for profile in skill_context_cost_payload()["profiles"]:
         if profile["profile"] == "full":
-            return int(profile["skill_body"]["bytes"])
+            return profile
     raise KeyError("full profile missing from skill_context_cost_payload()")
+
+
+def _full_profile_skill_body_chars() -> int:
+    return int(_full_skill_context_cost_profile()["skill_body"]["bytes"])
+
+
+def _full_profile_skill_body_repeated_chars() -> int:
+    return int(_full_skill_context_cost_profile()["repeated"]["bytes"])
 
 
 def count_metrics() -> tuple[CountMetric, ...]:
@@ -449,6 +460,7 @@ def budget_metrics() -> tuple[BudgetMetric, ...]:
         AWARENESS_PRIMER_MARKDOWN_CHAR_LIMIT,
         FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT,
         FULL_PROFILE_SKILL_BODY_CHAR_LIMIT,
+        FULL_PROFILE_SKILL_BODY_REPEATED_CHAR_LIMIT,
         FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS,
         PLUGIN_TOOL_SCHEMA_CHAR_LIMIT,
         PRE_LLM_CALL_CONTEXT_CHAR_LIMIT,
@@ -519,6 +531,17 @@ def budget_metrics() -> tuple[BudgetMetric, ...]:
             limit=FULL_PROFILE_SKILL_BODY_CHAR_LIMIT,
             limit_site="src/maintenance/release.py",
             reviewed_exception=FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS,
+        ),
+        # Text repeated verbatim across bodies is paid on every load of each of
+        # them and belongs once in a reference. A ceiling with headroom like the
+        # footprint above, sized so the rail copies an ordinary new lane member
+        # carries fit (policy in src/maintenance/release.py).
+        BudgetMetric(
+            name="full_profile_skill_body_repeated_chars",
+            describe="Repeated across bodies: full-profile SKILL.md sections byte-identical to another skill's (producer chars)",
+            live=_full_profile_skill_body_repeated_chars,
+            limit=FULL_PROFILE_SKILL_BODY_REPEATED_CHAR_LIMIT,
+            limit_site="src/maintenance/release.py",
         ),
         # The byte budget above says how much the pack costs; this says whether
         # the characters carry instruction. A hit is a reviewed filler phrase

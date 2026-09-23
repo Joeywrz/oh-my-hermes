@@ -1,6 +1,6 @@
 """Per-skill instruction density for the catalog-rendered skill bodies.
 
-`FULL_PROFILE_SKILL_BODY_CHAR_LIMIT` already ratchets how many bytes the whole
+`FULL_PROFILE_SKILL_BODY_CHAR_LIMIT` already bounds how many bytes the whole
 generated pack costs. It cannot tell a body that grew because a workflow gained
 a rule from a body that grew because someone wrote three sentences where one
 carried the instruction. This module measures the second thing: how much of a

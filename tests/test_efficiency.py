@@ -32,6 +32,10 @@ from omh.release import (
     AWARENESS_WORKFLOW_CONTEXT_CHAR_LIMIT,
     FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT,
     FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT,
+    FULL_PROFILE_SKILL_BODY_CEILING_STEP_CHARS,
+    FULL_PROFILE_SKILL_BODY_CHAR_LIMIT,
+    FULL_PROFILE_SKILL_BODY_HEADROOM_PERCENT,
+    FULL_PROFILE_SKILL_BODY_MEASURED_CHARS,
     STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT,
     STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT,
 )
@@ -290,7 +294,13 @@ class EfficiencyContractTests(unittest.TestCase):
         # took the full profile to 1,043,882; the ceiling restores the ~13k
         # standing headroom, and the exact value stays ratcheted in
         # `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
-        self.assertLess(full["skill_body"]["bytes"], 1_057_000)
+        # 1,057,000 -> FULL_PROFILE_SKILL_BODY_CHAR_LIMIT: that limit is no
+        # longer an exact-value ratchet but the install-footprint ceiling with
+        # standing headroom this literal used to provide, so the two gates
+        # became one. Every line above records a raise of this literal that an
+        # ordinary new skill forced; the ceiling's headroom policy is pinned in
+        # `test_full_profile_body_ceiling_is_the_documented_headroom_policy`.
+        self.assertLessEqual(full["skill_body"]["bytes"], FULL_PROFILE_SKILL_BODY_CHAR_LIMIT)
         self.assertLess(full["repeated"]["share_percent"], 38.0)
 
         # References are progressive disclosure, counted outside the always-loaded body.
@@ -304,6 +314,41 @@ class EfficiencyContractTests(unittest.TestCase):
         self.assertIn("## core profile", report)
         self.assertIn("## full profile", report)
         self.assertIn("Workflow Lane", report)
+
+    def test_full_profile_body_ceiling_is_the_documented_headroom_policy(self) -> None:
+        # The ceiling is derived, never picked: the producer-measured total at
+        # the time it was set, plus the headroom percentage, rounded up to the
+        # next step (policy and reason in src/maintenance/release.py). The
+        # literal must stay a literal for `tests/test_drift_registry.py`, so
+        # this is what keeps it equal to the derivation.
+        step = FULL_PROFILE_SKILL_BODY_CEILING_STEP_CHARS
+        with_headroom = -(
+            -FULL_PROFILE_SKILL_BODY_MEASURED_CHARS * (100 + FULL_PROFILE_SKILL_BODY_HEADROOM_PERCENT) // 100
+        )
+        self.assertEqual(FULL_PROFILE_SKILL_BODY_CHAR_LIMIT, -(-with_headroom // step) * step)
+        self.assertGreater(FULL_PROFILE_SKILL_BODY_HEADROOM_PERCENT, 0)
+        # The headroom must hold at least one average body at the measurement,
+        # or an ordinary new skill forces a raise again and the ceiling is a
+        # ratchet by another name.
+        from omh.skills.context_cost import skill_context_cost_payload
+
+        full = next(
+            profile for profile in skill_context_cost_payload()["profiles"] if profile["profile"] == "full"
+        )
+        average_body = FULL_PROFILE_SKILL_BODY_MEASURED_CHARS // full["skill_count"]
+        self.assertGreaterEqual(
+            FULL_PROFILE_SKILL_BODY_CHAR_LIMIT - FULL_PROFILE_SKILL_BODY_MEASURED_CHARS, average_body
+        )
+        # The measurement is the producer's reading on the commit that set it,
+        # so it is also a floor: an inflated measurement fails here, and a
+        # change that shrinks the pack re-measures and re-derives in the same
+        # commit instead of leaving the freed slack to be spent unreviewed.
+        self.assertGreaterEqual(
+            full["skill_body"]["bytes"],
+            FULL_PROFILE_SKILL_BODY_MEASURED_CHARS,
+            "skill bodies fell below the recorded measurement: set "
+            "FULL_PROFILE_SKILL_BODY_MEASURED_CHARS to the producer value and re-derive the ceiling",
+        )
 
     def test_skill_triggers_and_evidence_boundaries_survive_common_rail_move(self) -> None:
         """Differential gate for issue #634 on the three surfaces it must not change.

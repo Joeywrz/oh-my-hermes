@@ -165,6 +165,10 @@ KNOWN_JEV_PLUGINS: Final[tuple[JevPluginRecord, ...]] = (
         ),
         overlap="",
         read_from=_upstream_catalog("hermes-jev"),
+        # A `hermes-jev` directory updated in place to the renamed plugin keeps
+        # its directory name while its manifest now declares `nerve_` tools;
+        # the lineage prefix keeps those tools on this record's rung.
+        lineage_tool_prefix="nerve_",
     ),
     JevPluginRecord(
         # `hermes-jev` above, renamed by its maintainer: same maintainer, the

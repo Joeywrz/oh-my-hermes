@@ -13,7 +13,7 @@ All notable changes will be documented here.
   would report the plugin absent and the `jev_plugin` answerer rung would
   disappear from route questions. `nerve` is now a known record, labelled as
   read from the open PR, and its `nerve_` prefix counts as Jev-class for that
-  name alone; another plugin's `nerve_` tool is not a Jev signal. The observed
+  name alone; another plugin's `nerve_` tool does not classify that plugin. The observed
   tier, which sees a dispatched tool name without its plugin, counts only the
   exact `nerve_` names the entry declares. `hermes-jev` stays known for
   machines that have not updated. `jev-curator` (plugin-catalog, added

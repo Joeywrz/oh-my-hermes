@@ -291,6 +291,7 @@ class InjectedTextIsUnchangedTests(unittest.TestCase):
                 )
 
                 self.assertNotIn(JEV_TOOL_PREFIX, context)
+                self.assertNotIn("nerve_", context)
                 self.assertNotIn("route_question", context)
 
     def test_the_pre_llm_hook_names_no_jev_tool_on_an_undecidable_turn(self) -> None:
@@ -303,6 +304,11 @@ class InjectedTextIsUnchangedTests(unittest.TestCase):
             plugin_dir.mkdir(parents=True)
             (plugin_dir / "plugin.yaml").write_text(
                 "name: hermes-jev\nprovides_tools:\n  - jev_decide\n", encoding="utf-8"
+            )
+            nerve_dir = hermes / "plugins" / "nerve"
+            nerve_dir.mkdir(parents=True)
+            (nerve_dir / "plugin.yaml").write_text(
+                "name: nerve\nprovides_tools:\n  - nerve_decide\n", encoding="utf-8"
             )
             with patch.dict(
                 os.environ, {"OMH_HOME": str(root / ".omh"), "HERMES_HOME": str(hermes)}
@@ -317,6 +323,7 @@ class InjectedTextIsUnchangedTests(unittest.TestCase):
 
         injected = json.dumps(result or {}, sort_keys=True, ensure_ascii=False)
         self.assertNotIn(JEV_TOOL_PREFIX, injected)
+        self.assertNotIn("nerve_", injected)
 
 
 class AnswererLadderTests(unittest.TestCase):

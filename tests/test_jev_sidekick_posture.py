@@ -194,10 +194,16 @@ class ClassifierTests(unittest.TestCase):
         # not evidence of a Jev-class plugin.
         self.assertIsNone(classify_plugin("brainstem", ("nerve_ping",), ()))
         self.assertIsNone(classify_plugin("brainstem", ("nerve_decide",), ()))
-        # And under an old lineage name it is not counted as a Jev tool.
-        record = classify_plugin("hermes-jev", ("nerve_decide",), ())
+
+    def test_a_hermes_jev_directory_updated_in_place_keeps_its_nerve_tools(self) -> None:
+        # The repository rename redirects, so an existing `plugins/hermes-jev`
+        # checkout can be updated in place: the directory keeps the old name
+        # while its manifest declares `nerve_` tools. Those tools stay on the
+        # lineage's record instead of leaving the rung with an empty list.
+        record = classify_plugin("hermes-jev", ("nerve_decide", "unrelated_tool"), ())
         assert record is not None
-        self.assertEqual(record["jev_tools"], [])
+        self.assertTrue(record["known"])
+        self.assertEqual(record["jev_tools"], ["nerve_decide"])
 
     def test_is_jev_tool_name_takes_exact_lineage_names_and_no_bare_prefix(self) -> None:
         self.assertTrue(is_jev_tool_name("jev_decide"))

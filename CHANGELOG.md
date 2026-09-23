@@ -288,6 +288,33 @@ All notable changes will be documented here.
   out of rendering that names only the field. No override text and no projected
   byte changes.
 
+- **A bounded Kanban readback no longer contradicts itself.** The label line is
+  the first thing a model reads, and it printed a bare 64-character prefix of an
+  oversized task id while the JSON beside it listed that same id under
+  `omitted_fields` -- the second identity `docs/KANBAN-READBACK-CEILING.md`
+  promises is never manufactured. Label values now carry `...[truncated by omh]`
+  inside the 64-character cut, and a field the projection omitted is named
+  `<omitted: too long>` rather than quoted as a prefix of itself, with the
+  `kanban_show` label read off the projected records instead of the originals.
+  A row list that is not a list of objects is reported as one: it is named in
+  the new `omh_readback.malformed_rows` and in the label (`tasks not read
+  (malformed row list)`), it is not counted as dropped, and a projection leaves
+  the key out rather than writing `[]`, which rendered 62 host rows as an empty
+  board under a `0 of 0 tasks shown` label. A `kanban_show` whose `runs` cannot
+  be read says so instead of reading as a task that never ran; an empty list and
+  an explicit `null` stay ordinary absence. Both projection tiers are now
+  measured after rendering rather than the core one being returned unmeasured,
+  and a core projection that does not fit falls to an identity tier
+  (`projection = "identities_only"`: root `ok`/`error`/`task_id`, the task's id
+  and status, the latest run's id/outcome/status, no rows) whose size is fixed
+  by its field sets rather than by the input -- measured at 3,556 characters
+  against the 24,000 ceiling at the worst escaping the 256-character scalar cap
+  admits. The row-drop accounting gains its own tests: the tracked size no
+  longer subtracts a list separator for the last row, which put it below the
+  payload it stands for, and the dropped prefix leaves in one slice rather than
+  one `pop(0)` per row. None of this is reachable from the shapes the pinned
+  Hermes host emits today; it is the last-resort path the ceiling falls back to.
+
 ## 2.0.5 - 2026-09-22
 
 - **The cut now asks for the site rebuild its own push cannot start.** A cut

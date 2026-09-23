@@ -33,6 +33,23 @@ shortened and are listed in `truncated_fields`; other omitted record fields are
 counted. List projections share a 12,000-character serialized row budget. These
 fixed bounds leave headroom for root fields, labels and annotation metadata.
 
+The label line obeys the same rule as the body it prefixes. Every value it
+quotes is cut to 64 characters with `...[truncated by omh]` inside the cut, so a
+prefix can never read as a whole id, and a field the projection omitted is named
+`<omitted: too long>` rather than printed as a prefix of itself. The label is
+what the model reads first, so a label that disagrees with the body beside it is
+the same manufactured identity the body refuses to write.
+
+Every tier is measured after it is rendered, the projections included. A
+projection is bounded by its own field sets rather than by the input, so only a
+later widening of those sets renders one over the ceiling, and the measurement
+makes that a fall to the next tier instead of a string that crosses it. When the
+core projection does not fit, an identity tier keeps root `ok`/`error`/`task_id`,
+the task's id and status, the latest run's id, outcome and status, and no rows at
+all, disclosed as `omh_readback.projection = "identities_only"`; nothing it
+carries scales with the input. If even that does not fit, the transform declines
+and the host's own result passes through unchanged.
+
 The latest run's `completed` outcome remains **reported done**, never verified.
 Reducing the payload does not turn a worker's claim into test, review or CI evidence.
 
@@ -45,6 +62,14 @@ payload trim-and-reserialize loop. Parsing and the initial size measurement stil
 scale with input size; this correction is not a parser memory sandbox.
 
 Foreign tool names and malformed/non-object JSON retain the fail-open behavior.
+A row list under `runs`, `comments`, `events`, `tasks` or `attachments` that is
+not a list of objects is a shape this pass does not read: it is named in
+`omh_readback.malformed_rows` and in the label (`tasks not read (malformed row
+list)`), it is not counted as dropped, and a projection leaves the key out
+entirely rather than writing `[]`, which would report a board with no rows over
+rows the host did send. A `kanban_show` whose `runs` cannot be read says so
+rather than reading as a task that has not run. An empty list and an explicit
+`null` are ordinary absence, not a malformed shape.
 A within-budget pre-annotated object is left alone. An oversized pre-annotated
 object is processed again using its actual task/run fields, not a trusted prior
 confidence label. Reapplying the transform to its own label-plus-JSON output
@@ -69,8 +94,10 @@ PYTHONPATH=tests uv run python -m unittest \
 
 The tests cover control-character/quote/backslash escaping, Unicode, final-label
 and metadata overhead, large unlisted fields, exact row counters, unchanged small
-payloads, latest-run identity/status, disclosure, idempotency, foreign tools and
-constant whole-payload serialization count.
+payloads, latest-run identity/status, disclosure, idempotency, foreign tools,
+constant whole-payload serialization count, label/body agreement over an omitted
+identity, the measurement of every projection tier, malformed row lists, and the
+row-drop accounting.
 
 For native integration, copy the optional `tests/host_fixtures/kanban_ceiling.py`
 into an isolated complete Hermes checkout as

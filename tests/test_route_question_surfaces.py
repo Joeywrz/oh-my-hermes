@@ -463,6 +463,40 @@ class AnswererLadderTests(unittest.TestCase):
         self.assertEqual(ladder[0]["status"], "installed")
         self.assertEqual(jev_tool_observed_at(str(omh)), 0.0)
 
+    def test_the_renamed_nerve_lineage_keeps_the_rung_through_every_tier(self) -> None:
+        """hermes-jev renamed to `nerve` with `nerve_` tools (hermes-agent
+        #119045): neither the old name nor the `jev_` prefix fires, and the
+        rung must not vanish when the plugin updates."""
+        with TemporaryDirectory() as tmp:
+            hermes, omh = self._homes(Path(tmp).resolve())
+            self._install_jev_plugin(hermes, name="nerve", tools="nerve_decide")
+            installed = answerer_ladder(hermes, omh)
+            (hermes / "config.yaml").write_text("plugins:\n  enabled:\n    - nerve\n", encoding="utf-8")
+            enabled = answerer_ladder(hermes, omh)
+            record_tool_call("nerve_decide", omh_home=str(omh))
+            observed = answerer_ladder(hermes, omh)
+
+        self.assertEqual(installed[0]["answerer"], "jev_plugin")
+        self.assertEqual(installed[0]["status"], "installed")
+        self.assertEqual(installed[0]["plugins"], ["nerve"])
+        self.assertEqual(installed[0]["tools"], ["nerve_decide"])
+        self.assertEqual(enabled[0]["status"], "enabled")
+        self.assertEqual(observed[0]["status"], "observed")
+
+    def test_a_nerve_tool_from_another_plugin_is_not_a_jev_signal(self) -> None:
+        """The `nerve_` prefix belongs to one lineage, not to every plugin
+        that picks the same word: neither the manifest nor a dispatched call
+        of an undeclared `nerve_` name reads as Jev-class."""
+        with TemporaryDirectory() as tmp:
+            hermes, omh = self._homes(Path(tmp).resolve())
+            self._install_jev_plugin(hermes, name="brainstem", tools="nerve_ping")
+            ladder = answerer_ladder(hermes, omh)
+            record_tool_call("nerve_ping", omh_home=str(omh))
+            observed_at = jev_tool_observed_at(str(omh))
+
+        self.assertEqual([rung["answerer"] for rung in ladder], ["main_model", "none"])
+        self.assertEqual(observed_at, 0.0)
+
     def test_the_observation_outlives_the_entry_ring(self) -> None:
         """A durable scalar, not a scan: 200 unrelated calls must not turn an
         observed plugin back into an unobserved one."""

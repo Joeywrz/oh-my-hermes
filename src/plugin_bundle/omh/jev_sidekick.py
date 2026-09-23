@@ -41,7 +41,9 @@ from .metadata import PROVIDED_HOOKS
 
 # Every tool a Jev-class plugin registers in the catalog uses this prefix, so a
 # plugin under a name this table does not hold is still classified when its
-# manifest declares one. The prefix is the only signal that survives a rename.
+# manifest declares one. It survives a rename of the plugin, not of its tools:
+# a lineage that renamed its tools too carries its own prefix on its record
+# (`lineage_tool_prefix`), honored for that record's name alone.
 JEV_TOOL_PREFIX: Final = "jev_"
 
 # Vendor-documented (docs.typesafe.ai/models) plus the route two catalog
@@ -68,6 +70,16 @@ def _upstream_catalog(name: str) -> str:
     return f"hermes-agent plugin-catalog/{name}.yaml @ origin/main {_UPSTREAM_CATALOG_COMMIT}"
 
 
+# A later read, for the records added after the table above was transcribed.
+# `jev-curator` is on the catalog's upstream branch at the commit named here;
+# `nerve` is on no branch at all yet -- it exists only in the head of an OPEN
+# pull request, and its provenance says so rather than reading as catalog fact.
+_REFRESH_READ_ON: Final = "2026-09-23"
+_REFRESH_UPSTREAM_CATALOG_COMMIT: Final = "38c289c014"
+_NERVE_RENAME_PR: Final = "NousResearch/hermes-agent#119045"
+_NERVE_RENAME_PR_HEAD: Final = "84fca22d8b"
+
+
 @dataclass(frozen=True, slots=True)
 class JevPluginRecord:
     """One Jev-class plugin as its catalog entry declares it.
@@ -88,6 +100,10 @@ class JevPluginRecord:
     overlap: str = ""
     read_from: str = ""
     read_on: str = JEV_CATALOG_READ_ON
+    # A second tool prefix this lineage uses, counted only for a plugin whose
+    # name is this record's. Never a global prefix: another plugin's tool that
+    # happens to share it is not a Jev signal.
+    lineage_tool_prefix: str = ""
 
 
 KNOWN_JEV_PLUGINS: Final[tuple[JevPluginRecord, ...]] = (
@@ -151,6 +167,56 @@ KNOWN_JEV_PLUGINS: Final[tuple[JevPluginRecord, ...]] = (
         read_from=_upstream_catalog("hermes-jev"),
     ),
     JevPluginRecord(
+        # `hermes-jev` above, renamed by its maintainer: same maintainer, the
+        # same eight tools under `nerve_` plus eight new ones. Both names stay,
+        # because a machine that has not updated still holds the old one. The
+        # rename is an OPEN pull request, so this record is a read of that
+        # PR's head, not of a catalog Hermes ships.
+        name="nerve",
+        repo="https://github.com/keeltrace/hermes-nerve",
+        declares_tools=(
+            "nerve_decide",
+            "nerve_rank",
+            "nerve_verify",
+            "nerve_assess",
+            "nerve_context_curate",
+            "nerve_context_rehydrate",
+            "nerve_stats",
+            "nerve_nervous_event",
+            "nerve_supervise_card",
+            "nerve_work_event",
+            "nerve_work_status",
+            "nerve_remote_delegate_task",
+            "nerve_remote_worker_status",
+            "nerve_remote_worker_result",
+            "nerve_remote_worker_cancel",
+            "nerve_remote_worker_control",
+        ),
+        declares_hooks=(
+            "pre_tool_call",
+            "post_tool_call",
+            "pre_llm_call",
+            "transform_tool_result",
+            "pre_verify",
+            "post_api_request",
+            "api_request_error",
+            "post_llm_call",
+            "on_session_end",
+        ),
+        declared_disclosure=(
+            "Disclosure — the default Reflex backend is hosted Jev; when enabled it can send user prompts and "
+            "redacted tool/result previews to the configured Jev provider using the user's provider credentials. "
+            "Laya and OpenJev can be configured as local/self-hosted backends."
+        ),
+        overlap="",
+        read_from=(
+            f"hermes-agent plugin-catalog/nerve.yaml @ open PR {_NERVE_RENAME_PR} head {_NERVE_RENAME_PR_HEAD} "
+            "(not merged)"
+        ),
+        read_on=_REFRESH_READ_ON,
+        lineage_tool_prefix="nerve_",
+    ),
+    JevPluginRecord(
         name="jev-approvals",
         repo="https://github.com/anpicasso/hermes-jev-approvals",
         declares_tools=(),
@@ -162,6 +228,24 @@ KNOWN_JEV_PLUGINS: Final[tuple[JevPluginRecord, ...]] = (
         ),
         overlap="",
         read_from=_upstream_catalog("jev-approvals"),
+    ),
+    JevPluginRecord(
+        # Its description names Hermes' own Curator and `skill_manage`, and no
+        # OMH surface, so `overlap` stays empty. Its `pre_tool_call` is still
+        # compared with the bridge's hooks, where that claim is computed.
+        name="jev-curator",
+        repo="https://github.com/anpicasso/hermes-jev-curator",
+        declares_tools=("jev_skill_relations",),
+        declares_hooks=("on_skill_lifecycle", "pre_tool_call"),
+        declared_disclosure=(
+            "Disclosure — no egress occurs by default; after allow_content_egress is explicitly enabled, "
+            "redacted bounded skill content is sent to the configured TypeSafe, OpenRouter, or custom Jev "
+            "endpoint and may spend provider credits. Automatic refreshes never apply mutations, and missing, "
+            "stale, or incomplete evidence fails closed."
+        ),
+        overlap="",
+        read_from=f"hermes-agent plugin-catalog/jev-curator.yaml @ origin/main {_REFRESH_UPSTREAM_CATALOG_COMMIT}",
+        read_on=_REFRESH_READ_ON,
     ),
     JevPluginRecord(
         name="hermes-structured-aux-models",
@@ -228,6 +312,28 @@ KNOWN_JEV_PLUGINS: Final[tuple[JevPluginRecord, ...]] = (
 
 _BY_NAME: Final[dict[str, JevPluginRecord]] = {record.name: record for record in KNOWN_JEV_PLUGINS}
 
+# The exact tool names a lineage's own catalog entry declares under its own
+# prefix. A dispatched tool call carries a name and no plugin, so this is how
+# the observed tier recognizes a renamed lineage without claiming every tool
+# that merely shares its prefix.
+_LINEAGE_TOOL_NAMES: Final[frozenset[str]] = frozenset(
+    tool
+    for record in KNOWN_JEV_PLUGINS
+    if record.lineage_tool_prefix
+    for tool in record.declares_tools
+    if tool.startswith(record.lineage_tool_prefix)
+)
+
+
+def is_jev_tool_name(tool: str) -> bool:
+    """Whether a tool name, seen without its plugin, is a Jev-class tool.
+
+    The `jev_` prefix, or one of the exact names a renamed lineage's catalog
+    entry declares. A `nerve_`-prefixed name that entry does not declare is
+    another plugin's tool and reads as not Jev-class.
+    """
+    return tool.startswith(JEV_TOOL_PREFIX) or tool in _LINEAGE_TOOL_NAMES
+
 
 def classify_plugin(
     name: str,
@@ -240,7 +346,9 @@ def classify_plugin(
     name this table holds, and a declared tool carrying the `jev_` prefix. A
     plugin matching only the second is reported with ``known: false`` and no
     catalog quote, which is the honest reading -- OMH recognizes the tool
-    shape and has read nothing about that plugin.
+    shape and has read nothing about that plugin. A known record's
+    `lineage_tool_prefix` also counts, for that name alone: `nerve_` tools
+    are Jev tools under the `nerve` name and nothing under any other.
 
     `provides_tools` and `provides_hooks` come from the manifest installed on
     this machine; `declared_disclosure`, `overlap` and the provenance come
@@ -259,7 +367,10 @@ def classify_plugin(
     maintainer's record to this install.
     """
     record = _BY_NAME.get(name)
-    jev_tools = sorted({tool for tool in provides_tools if tool.startswith(JEV_TOOL_PREFIX)})
+    prefixes: tuple[str, ...] = (JEV_TOOL_PREFIX,)
+    if record is not None and record.lineage_tool_prefix:
+        prefixes += (record.lineage_tool_prefix,)
+    jev_tools = sorted({tool for tool in provides_tools if tool.startswith(prefixes)})
     if record is None and not jev_tools:
         return None
     hooks = sorted(set(provides_hooks))

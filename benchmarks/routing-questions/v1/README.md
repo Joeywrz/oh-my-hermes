@@ -126,6 +126,15 @@ Any tool that can read the exported corpus and write
              "fits::<workflow>": {"noul": 0.0}}}
 ```
 
+An installed Jev plugin (for example one exposing `jev_decide`, or
+`nerve_decide` after the Nerve rename) becomes an arm the same way, and the
+operator runs it: OMH never calls the plugin. For each item in `export`'s
+`items`, send the tool the item's `message` and one question from
+`question.questions` at a time (its `instructions`, plus `options` for
+`route_choice`), and never the item's `expected` or `deterministic` fields.
+Write the returned option id or `noul` value under the same question key in
+that case's row, then `score --preflight` the file before scoring it.
+
 `omh chat route-questions score` is the authority on what a row is worth. It
 names every malformed row by line, counts it, and never drops it silently.
 

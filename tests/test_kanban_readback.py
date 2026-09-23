@@ -385,6 +385,64 @@ class MalformedRowListTest(unittest.TestCase):
         self.assertNotIn("malformed_rows", payload[KANBAN_READBACK_KEY])
 
 
+class _CountingRows(list):
+    """A row list that records how it was mutated."""
+
+    def __init__(self, rows: object) -> None:
+        super().__init__(rows)
+        self.pops = 0
+        self.deletes = 0
+
+    def pop(self, *args: object) -> object:
+        self.pops += 1
+        return super().pop(*args)
+
+    def __delitem__(self, index: object) -> None:
+        self.deletes += 1
+        super().__delitem__(index)
+
+
+class DropOldestTest(unittest.TestCase):
+    """The tracked size is an upper bound and the rows leave in one slice."""
+
+    def test_tracked_size_never_understates_the_payload_it_tracks(self) -> None:
+        # The last row of a list has no separator after it. Subtracting one for
+        # it puts the tracked size below the payload it stands for, and every
+        # later decision is then made against a number that is too small.
+        for count in (1, 2, 3):
+            with self.subTest(rows=count):
+                rows = [{"id": i, "body": "x" * 24_000} for i in range(count)]
+                payload = {"ok": True, "comments": rows}
+                tracked, dropped = kanban_readback._drop_oldest(
+                    kanban_readback._payload_size(payload), rows
+                )
+                actual = kanban_readback._payload_size(payload)
+                self.assertEqual(dropped, count)
+                self.assertGreaterEqual(
+                    tracked,
+                    actual,
+                    f"tracked size {tracked} understates the {actual}-character "
+                    f"payload left after dropping all {count} rows",
+                )
+
+    def test_rows_are_removed_in_one_slice_not_one_pop_per_row(self) -> None:
+        for newest_first in (False, True):
+            with self.subTest(newest_first=newest_first):
+                rows = _CountingRows({"id": i, "body": "y" * 2_000} for i in range(40))
+                _, dropped = kanban_readback._drop_oldest(
+                    kanban_readback._payload_size({"comments": rows}),
+                    rows,
+                    newest_first=newest_first,
+                )
+                self.assertGreater(dropped, 1)
+                self.assertEqual(
+                    rows.pops, 0, f"{dropped} rows dropped with {rows.pops} pop calls"
+                )
+                self.assertEqual(
+                    rows.deletes, 1, f"{dropped} rows dropped in {rows.deletes} delete calls"
+                )
+
+
 class FailOpenTest(unittest.TestCase):
     def test_tool_set_is_the_three_readback_tools(self) -> None:
         self.assertEqual(

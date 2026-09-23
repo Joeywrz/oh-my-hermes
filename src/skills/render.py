@@ -61,6 +61,10 @@ from ..coding.wait_strategy import (
     MIDPOINT_PEEK_BUDGET,
     WAIT_TERMINAL_STATES,
 )
+from ..evidence.observed_check_results import (
+    OBSERVED_CHECK_RESULTS_TOKEN,
+    observed_check_results_field_phrase,
+)
 from ..plugin_bundle.omh.awareness import (
     awareness_shared_context_markdown,
     awareness_workflow_context_markdown,
@@ -1877,7 +1881,16 @@ HANDOVER_RECORD_SOURCES = (
             HandoverCitation("observed_check_results/v1", must_declare="observed"),
             HandoverCitation("claim_verdict/v1", must_declare="PASS"),
         ),
-        supplies="which command actually ran, its exit status, and which checks are missing or failed",
+        # The field half of this cell renders from the one declaration of the
+        # row (#1788). Written by hand it named two of the fields and read as
+        # the whole shape, which is how a reader of this table came to record a
+        # result with no freshness on it. Names only: the meanings are on the
+        # gate's own artifact expectation, and a table cell is not where a
+        # reader should meet them for the first time.
+        supplies=(
+            f"{observed_check_results_field_phrase()} for each check that ran, "
+            "plus which checks are missing or failed"
+        ),
         held_in=HANDOVER_NATIVE_DECLARATION,
         read_with="omh_todo action=recall",
     ),
@@ -4047,21 +4060,17 @@ The fixer's `parents` are the observed task ids from the three probe receipts, s
 """
 
 
-# The `observed_check_results/v1` row shape, taken from where `verification-gate`
-# declares it rather than written out again here.
+# The `observed_check_results/v1` row shape, read back from where
+# `verification-gate` declares it rather than written out again here.
 #
-# Three places in this repository enumerate that row and no two agree: this
-# artifact expectation, the gate's own "Record command/source, freshness, exit
-# status, and scope" quality-bar line, and `omh-wiki`'s handover table, which
-# names two of the fields. A fourth hand-written copy on the manual test guide
-# page would be a fourth variant, and the one it would most likely lose is
-# freshness -- which is the field that page exists to make somebody record,
-# because a person's report is the likeliest stale output there is. So the page
-# quotes the declaration instead of restating it, and cannot drift from the gate
-# it defers to. Which of the three is canonical is a question for the gate, not
-# for this page; the artifact expectation is used because declaring the row's
-# shape is that section's job.
-_OBSERVED_CHECK_RESULTS_PREFIX = "observed_check_results/v1 with "
+# The fields themselves live in `src/evidence/observed_check_results.py` and the
+# gate's artifact expectation renders from that declaration (#1788). This reads
+# the rendered value back off the catalog rather than calling the producer
+# directly, so the quote on the manual test guide page is the string the gate
+# actually publishes: a surface that stopped rendering from the declaration
+# would be caught here instead of being papered over by a second call to the
+# same producer.
+_OBSERVED_CHECK_RESULTS_PREFIX = f"{OBSERVED_CHECK_RESULTS_TOKEN} with "
 
 
 def observed_check_results_declaration() -> str:

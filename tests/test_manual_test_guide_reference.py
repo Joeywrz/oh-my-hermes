@@ -173,14 +173,15 @@ class ManualTestGuideReferenceTests(unittest.TestCase):
         )
 
     def test_the_row_shape_is_the_gate_s_own_declaration(self):
-        """Quote the gate, never a fourth copy of its field list.
+        """Quote the gate, never another copy of its field list.
 
-        Three places already enumerate `observed_check_results/v1` in prose
-        and no two agree, so a hand-written fourth would have been a fourth
-        variant -- and the field it would most likely lose is freshness,
-        which is the one this page exists to make somebody record. The page
-        renders the declaration instead, so the two cannot disagree; this
-        pins that it is still rendered and still the live catalog value.
+        `observed_check_results/v1` is enumerated on several surfaces, and a
+        hand-written copy here would have been one more -- the field it would
+        most likely lose is freshness, which is the one this page exists to
+        make somebody record. The page renders the declaration instead, so the
+        two cannot disagree; this pins that it is still rendered and still the
+        live catalog value. `tests/test_observed_check_results.py` owns the
+        wider question of whether any surface restates the row (#1788).
         """
         content = _reference_content(OWNING_SKILL, REFERENCE_PATH)
         declaration = observed_check_results_declaration()
@@ -192,7 +193,7 @@ class ManualTestGuideReferenceTests(unittest.TestCase):
             "than restate the fields, or the two surfaces can disagree",
         )
         self.assertIn(
-            "timestamp/source",
+            "freshness",
             declaration,
             "the freshness field left verification-gate's declaration; the "
             f"page quotes whatever it says, so check what {REFERENCE_PATH} now "

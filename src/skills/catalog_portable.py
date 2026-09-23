@@ -6,7 +6,11 @@ not generated-file searches. Schemas in prose are output contracts, not RPC tool
 """
 from __future__ import annotations
 
+import hashlib
+import json
+
 from .catalog import installable_skill_definitions, omh_skill_display_name
+from .catalog_types import SkillDefinition
 
 PORTABILITY_PORTABLE = "portable"
 PORTABILITY_REQUIRES_OMH_CLI = "requires-omh-cli"
@@ -913,3 +917,63 @@ PORTABLE_REFERENCE_PATHS = frozenset({
     'ai-slop-cleaner/references/prose-lexicon.md',
     'plan/references/project-constitution.md',
 })
+
+
+# An override REPLACES the catalog section rather than filtering it, which is
+# the point -- a Hermes-shaped line has to be rewritten by a person who knows
+# what the host can do -- and is also why a line added upstream leaves no trace
+# here: the portable body never consults it (#1786). These two producers feed
+# the pin that asks for that decision again. They report and never raise, so
+# the gate above them can say which entry moved and which one no longer
+# resolves as two different sentences.
+def _installable_by_display_name() -> dict[str, SkillDefinition]:
+    return {
+        omh_skill_display_name(definition.name): definition
+        for definition in installable_skill_definitions()
+    }
+
+
+def portable_override_source_digests() -> dict[str, str]:
+    """sha256 per replaced catalog section, keyed `<display name>::<section>`.
+
+    The hashed text is the JSON form of the catalog value, so a scalar field
+    and a one-element tuple never collide, and neither do tuple elements
+    rejoined across a newline. Entries whose skill or section is gone are left
+    out; `portable_override_unresolved()` owns those, because a vanished
+    section must not be reported as a digest that moved.
+    """
+    definitions = _installable_by_display_name()
+    digests = {
+        f"{name}::{section}": hashlib.sha256(
+            json.dumps(getattr(definitions[name], section), ensure_ascii=False).encode()
+        ).hexdigest()
+        for name, sections in PORTABLE_OVERRIDES.items()
+        for section in sections
+        if name in definitions and hasattr(definitions[name], section)
+    }
+    return dict(sorted(digests.items()))
+
+
+def portable_override_unresolved() -> tuple[str, ...]:
+    """Override entries naming a catalog skill or section that no longer exists.
+
+    The two halves fail differently at projection time, so the reason is part
+    of the entry. A dropped SKILL is silent: `_target_definition()` looks the
+    mapping up by display name, so its whole override is simply never applied
+    and the portable body reverts to the catalog with nothing said. A renamed
+    SECTION is loud but unnamed: `_target_definition()` reads the field off the
+    definition to decide scalar versus tuple, so rendering dies on an
+    `AttributeError` naming only the field. Naming both here is what turns
+    either one into a sentence about this table.
+    """
+    definitions = _installable_by_display_name()
+    reasons = {
+        False: "skill absent from the installable catalog",
+        True: "catalog field absent",
+    }
+    return tuple(sorted(
+        f"{name}::{section} ({reasons[name in definitions]})"
+        for name, sections in PORTABLE_OVERRIDES.items()
+        for section in sections
+        if name not in definitions or not hasattr(definitions[name], section)
+    ))

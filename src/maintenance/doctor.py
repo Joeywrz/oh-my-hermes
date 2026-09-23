@@ -15,7 +15,9 @@ from ..config_adapter import (
     external_dirs,
     memory_provider_selection,
     plugin_enablement,
+    plugin_enablement_shape_error,
     plugin_is_enabled,
+    plugins_enabled_extension_error,
     read_config,
 )
 from ..hashutil import sha256_file, sha256_text
@@ -197,6 +199,11 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
     # the running command knows its generation, and both name this directory.
     external_registered = external_dir_registered(dirs, paths.skills_dir)
     checks.append(Check("external_dir", external_registered, f"{paths.skills_dir} in skills.external_dirs"))
+    # Named with the `hermes_config` prefix so the summary groups it under
+    # Hermes registration. Setup refuses a `plugins.enabled` it cannot extend
+    # before it installs the bundle, and the plugin checks below run only once
+    # a bundle exists, so this is the one line that names that cause (#1825).
+    checks.append(_plugins_enabled_extension_check(paths, config_text, hermes_config_present))
     # `None`, not `dirs`, when the config is absent: `read_config` returns "" for
     # a missing file, so an empty list there would read as "Hermes registers no
     # foreign directory" when the truth is that Hermes was never asked.
@@ -1943,6 +1950,24 @@ def _plugin_enabled_check(paths: OmhPaths) -> Check:
             observed=False,
             next_action="Make the Hermes config readable, then rerun `omh doctor`.",
         )
+    # A file Hermes cannot read as a list is reported before the switch is:
+    # the line reader used to attribute items under `enabled: '[]'` to the
+    # key and this check passed over a config Hermes refused (#1825).
+    shape_error = plugin_enablement_shape_error(config_text)
+    if shape_error:
+        return Check(
+            "plugin_enabled_in_hermes",
+            False,
+            f"{config_path}: {shape_error}",
+            remediation=(
+                f"Edit {config_path} so `plugins.enabled` is a YAML block list "
+                f"with `- {PLUGIN_NAME}` under it."
+            ),
+            next_action=(
+                f"Edit {config_path} so `plugins.enabled` is a YAML block list, "
+                "then rerun `omh doctor`."
+            ),
+        )
     if plugin_is_enabled(config_text, PLUGIN_NAME):
         return Check(
             "plugin_enabled_in_hermes",
@@ -1960,6 +1985,38 @@ def _plugin_enabled_check(paths: OmhPaths) -> Check:
         ),
         remediation=f"Run `hermes plugins enable {PLUGIN_NAME}`.",
         next_action=f"Run `hermes plugins enable {PLUGIN_NAME}`, then restart or reload Hermes and rerun `omh doctor`.",
+    )
+
+
+def _plugins_enabled_extension_check(paths: OmhPaths, config_text: str, config_present: bool) -> Check:
+    """Can setup read `plugins.enabled` as a list and add to it?"""
+    config_path = paths.hermes_config_path
+    if not config_present:
+        return Check(
+            "hermes_config_plugins_enabled",
+            True,
+            f"no Hermes config at {config_path} yet; setup will write plugins.enabled",
+            observed=False,
+        )
+    error = plugins_enabled_extension_error(config_text, PLUGIN_NAME)
+    if not error:
+        return Check(
+            "hermes_config_plugins_enabled",
+            True,
+            f"plugins.enabled in {config_path} is a list setup can extend",
+        )
+    return Check(
+        "hermes_config_plugins_enabled",
+        False,
+        f"{config_path}: {error}",
+        remediation=(
+            f"Edit {config_path} so `plugins.enabled` is a YAML block list "
+            f"(`enabled:` over `    - {PLUGIN_NAME}`)."
+        ),
+        next_action=(
+            f"Edit {config_path} so `plugins.enabled` is a YAML block list, "
+            "then rerun `omh setup` and `omh doctor`."
+        ),
     )
 
 

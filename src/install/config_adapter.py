@@ -32,8 +32,12 @@ class _InlineExternalDirs:
 
 
 _BARE_YAML_NULLS = {"null", "Null", "NULL", "~"}
+# `'[]'` and `"[]"` are strings to YAML, not sequences: Hermes reads either as
+# no plugins at all, and a list item cannot be added under a closed scalar.
+_EMPTY_QUOTED_FLOW_SEQUENCES = {"'[]'", '"[]"'}
 _UNSUPPORTED_EXTERNAL_DIRS_SHAPE = "unsupported skills.external_dirs shape; use a YAML block list or inline list"
 _DUPLICATE_EXTERNAL_DIRS_SHAPE = "duplicate skills.external_dirs entries are unsupported; keep one YAML block list or inline list"
+_DUPLICATE_ENABLED_SHAPE = "duplicate plugins.enabled keys are unsupported; keep one YAML block list or inline list"
 
 
 def _normalize(value: str | Path) -> str:
@@ -58,6 +62,61 @@ def _parse_inline_list(value: str) -> list[str] | None:
             return None
         items.append(item)
     return items
+
+
+def _plugins_list_shape(rest: str) -> tuple[str, list[str]]:
+    """Classify the text after `enabled:` / `disabled:` on a `plugins.*` key line.
+
+    `block`: nothing (or only a comment) follows the colon, so the members are
+    the `- item` lines under it. `inline`: a flow sequence this editor can
+    rewrite. `empty`: a scalar that carries no member -- a YAML null, or the
+    quoted `[]` YAML reads as a string and Hermes therefore reads as no
+    plugins (#1825). `scalar`: any other scalar. YAML refuses a child node
+    under a closed value and folds one under a plain scalar into the string,
+    so the writer must never insert an item under the last two.
+    """
+    value = rest.strip()
+    if not value or value.startswith("#") or _only_node_properties(value):
+        return "block", []
+    inline = _parse_inline_list(_split_trailing_comment(value)[0])
+    if inline is not None:
+        return "inline", inline
+    if value in _BARE_YAML_NULLS or value in _EMPTY_QUOTED_FLOW_SEQUENCES:
+        return "empty", []
+    return "scalar", []
+
+
+def _split_trailing_comment(value: str) -> tuple[str, str]:
+    """`[omh] # keep` -> (`[omh]`, ` # keep`); anything else -> (`value`, "").
+
+    The split is taken only when what precedes ` #` closes a flow sequence,
+    so `['a #b', omh]` stays one value and a quoted scalar keeps its comment
+    as part of the text it is refused with. YAML reads the comment as
+    nothing; the writers carry it onto the key line so the person's note
+    survives the rewrite.
+    """
+    head, sep, tail = value.partition(" #")
+    if sep and head.rstrip().endswith("]"):
+        return head.rstrip(), f" #{tail}"
+    return value, ""
+
+
+def _only_node_properties(value: str) -> bool:
+    """`&anchor` / `!tag` alone: properties of the block node on the lines below.
+
+    `enabled: &plist` followed by items is a list every `*plist` alias in the
+    file resolves to, not a scalar; reading it as one would empty the list
+    and the reversal guard (`test_config_reversal`) already refuses to edit
+    under it. The writers keep their own refusal; this only keeps the reader
+    honest about where the members are.
+    """
+    tokens = value.split(" #", 1)[0].split()
+    return bool(tokens) and all(token[:1] in {"&", "!"} for token in tokens)
+
+
+def _closed_yaml_value(value: str) -> bool:
+    """Whether YAML refuses a child node under `value`: quoted or a flow node."""
+    return value[:1] in {"'", '"', "[", "{"}
 
 
 def _quoted_inline_items(value: str) -> bool:
@@ -180,9 +239,17 @@ def plugin_enablement(config_text: str) -> dict[str, list[str]]:
         if line.startswith("  ") and not line.startswith("    "):
             key, _, rest = stripped.partition(":")
             key = key.strip()
-            inline = _parse_inline_list(rest.strip()) if rest.strip() else None
-            if key in lists and inline is not None:
+            shape, inline = _plugins_list_shape(rest)
+            if key in lists and shape == "inline":
                 lists[key] = list(inline)
+                current = ""
+                continue
+            if key in lists and shape != "block":
+                # Hermes keeps only list members (`_names` in its plugin
+                # loader), so a scalar here means no plugins, and a scalar
+                # takes no children: item lines below it belong to nothing,
+                # not to this key (#1825).
+                lists[key] = []
                 current = ""
                 continue
             current = key if key in lists else ""
@@ -242,6 +309,96 @@ def plugin_enablement_is_readable(config_text: str) -> bool:
     return True
 
 
+def plugin_enablement_shape_error(config_text: str) -> str:
+    """Why Hermes reads no list at `plugins.enabled` / `plugins.disabled`, or "".
+
+    Names one shape: a key whose value is a scalar with `- item` lines under
+    it, which is what setup wrote for `enabled: '[]'` before #1825. Under a
+    closed value (a quoted string or a flow node) YAML refuses the children
+    and Hermes fails the whole file; under a plain scalar YAML folds them
+    into the string, so Hermes loads no plugin and reports nothing. The line
+    reader used to attribute those items to the key, and doctor reported the
+    plugin enabled. It no longer does; this is the sentence that says why, so
+    doctor can report the file rather than the switch.
+    """
+    in_plugins = False
+    scalar_key = ""
+    scalar_value = ""
+    for line in config_text.splitlines():
+        stripped = line.strip()
+        if not line.startswith(" ") and stripped:
+            in_plugins = stripped == "plugins:"
+            scalar_key = ""
+            continue
+        if not in_plugins or not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("- "):
+            if not scalar_key:
+                continue
+            # A closed value takes no child at any depth; a plain scalar
+            # folds a deeper item into itself, but an item at the key's own
+            # indent ends the scalar and YAML refuses it too.
+            level_item = len(line) - len(line.lstrip(" ")) <= 2
+            if _closed_yaml_value(scalar_value) or level_item:
+                consequence = "Hermes cannot parse this file"
+            else:
+                consequence = "YAML folds the items into that string, so Hermes loads no plugin from it"
+            return (
+                f"plugins.{scalar_key} is the scalar `{scalar_value}` with list items under it; "
+                f"{consequence}. Rewrite the key as a YAML block list."
+            )
+        if line.startswith("  ") and not line.startswith("    "):
+            key, _, rest = stripped.partition(":")
+            key = key.strip()
+            shape, _members = _plugins_list_shape(rest)
+            if key in ("enabled", "disabled") and shape in ("empty", "scalar"):
+                scalar_key, scalar_value = key, rest.strip()
+            else:
+                scalar_key = ""
+    return ""
+
+
+def _unsupported_enabled_shape_message(value: str, name: str) -> str:
+    return (
+        f"unsupported plugins.enabled shape ({value!r}); use a YAML block list "
+        f"or inline list, or run `hermes plugins enable {name}`"
+    )
+
+
+def plugins_enabled_extension_error(config_text: str, name: str) -> str:
+    """Why `ensure_plugin_enabled` would refuse `config_text`, or "".
+
+    The same sentence setup raises, so `omh doctor` can report it on a home
+    where setup already refused: setup stops before it installs the bundle,
+    and the plugin checks only run once a bundle exists, so without this the
+    diagnostic named side effects and never the cause (#1825).
+    """
+    shape_error = plugin_enablement_shape_error(config_text)
+    if shape_error:
+        return shape_error
+    in_plugins = False
+    enabled_keys = 0
+    for line in config_text.splitlines():
+        stripped = line.strip()
+        if not line.startswith(" ") and stripped:
+            in_plugins = stripped == "plugins:"
+            continue
+        if not in_plugins or not stripped or stripped.startswith("- "):
+            continue
+        if line.startswith("  ") and not line.startswith("    "):
+            key, _, rest = stripped.partition(":")
+            if key.strip() != "enabled":
+                continue
+            enabled_keys += 1
+            if enabled_keys > 1:
+                # YAML keeps the last duplicate and the writer edits the
+                # first, so setup would report an enable Hermes never reads.
+                return _DUPLICATE_ENABLED_SHAPE
+            if _plugins_list_shape(rest)[0] == "scalar":
+                return _unsupported_enabled_shape_message(rest.strip(), name)
+    return ""
+
+
 def ensure_plugin_enabled(config_text: str, name: str) -> ConfigChange:
     """Add `name` to `plugins.enabled` so Hermes will actually load the bridge.
 
@@ -253,6 +410,9 @@ def ensure_plugin_enabled(config_text: str, name: str) -> ConfigChange:
     deliberate opt-out, and setup must not override it. `omh doctor` reports that
     state instead.
     """
+    refusal = plugins_enabled_extension_error(config_text, name)
+    if refusal:
+        raise ValueError(refusal)
     listed = plugin_enablement(config_text)
     if name in listed["disabled"]:
         return ConfigChange(False, f"{name} is explicitly disabled; leaving it alone", config_text)
@@ -279,10 +439,24 @@ def ensure_plugin_enabled(config_text: str, name: str) -> ConfigChange:
             key, _, rest = line.strip().partition(":")
             if key.strip() != "enabled":
                 continue
-            inline = _parse_inline_list(rest.strip()) if rest.strip() else None
-            if inline is not None:
-                lines[idx:idx + 1] = ["  enabled:", *[f"{indent}- {value}" for value in [*inline, name]]]
+            shape, inline = _plugins_list_shape(rest)
+            if shape == "inline":
+                comment = _split_trailing_comment(rest.strip())[1]
+                lines[idx:idx + 1] = [f"  enabled:{comment}", *[f"{indent}- {value}" for value in [*inline, name]]]
                 return ConfigChange(True, "expanded inline plugins.enabled", "\n".join(lines) + "\n")
+            if shape == "empty":
+                # A null or a quoted `[]` carries no member, so a block list
+                # loses nothing of the person's. Inserting an item under it
+                # is what wrote the file Hermes could not parse (#1825).
+                lines[idx:idx + 1] = ["  enabled:", f"{indent}- {name}"]
+                return ConfigChange(
+                    True, "normalized empty plugins.enabled to a block list", "\n".join(lines) + "\n"
+                )
+            if shape == "scalar":
+                # Hermes reads any other scalar as no plugins. Rewriting it
+                # would decide what the person meant, so setup stops with the
+                # file untouched and names Hermes' own writer instead.
+                raise ValueError(_unsupported_enabled_shape_message(rest.strip(), name))
             lines.insert(idx + 1, f"{indent}- {name}")
             return ConfigChange(True, "added plugin to plugins.enabled", "\n".join(lines) + "\n")
 
@@ -965,8 +1139,8 @@ def remove_plugin_enabled(config_text: str, name: str) -> ConfigChange:
         if stripped and line.startswith("  ") and not line.startswith("    "):
             key, _, rest = stripped.partition(":")
             key = key.strip()
-            inline = _parse_inline_list(rest.strip()) if rest.strip() else None
-            if key in {"enabled", "disabled"} and inline is not None:
+            shape, inline = _plugins_list_shape(rest)
+            if key in {"enabled", "disabled"} and shape == "inline":
                 if key == "enabled" and name in inline and _quoted_inline_items(rest.strip()):
                     # `_parse_inline_list` splits on commas before it strips
                     # quotes, so `["a,b", omh]` parses as three entries and
@@ -980,14 +1154,15 @@ def remove_plugin_enabled(config_text: str, name: str) -> ConfigChange:
                     )
                 if key == "enabled" and name in inline:
                     remaining = [value for value in inline if value != name]
-                    output.append(f"  enabled: [{', '.join(remaining)}]")
+                    comment = _split_trailing_comment(rest.strip())[1]
+                    output.append(f"  enabled: [{', '.join(remaining)}]{comment}")
                     changed = True
                 else:
                     output.append(line)
                 current = ""
                 index += 1
                 continue
-            current = key if key in {"enabled", "disabled"} else ""
+            current = key if key in {"enabled", "disabled"} and shape == "block" else ""
         output.append(line)
         index += 1
     output.extend(lines[index:])

@@ -51,8 +51,18 @@ So the person's segment is found by cutting at the first expansion header
 line, then after the last backfill separator or, without one, after the last
 `]` plus blank line, and it counts only if no host-block opener and no other
 bracketed line survives the cut; a message with inlined material records "not
-requested" outright, because it cannot be split. The sender prefix is removed before matching. Every step can only
-remove text, so a wrong cut fails closed.
+requested" outright, because it cannot be split. The sender prefix is removed
+before matching.
+
+An expansion header next to a host block or backfill also records "not
+requested" outright. The reply pointer and the Discord trigger note are
+prepended AFTER expansion, and a quote keeps the other person's newlines, so
+text alone cannot tell a header line spelled inside a quoted or backfilled
+message from the host's own; cutting at it would leave the pointer's
+opener, and a `]` plus blank line planted in the quote would then pick the
+third party's line as the person's. The cost: a reply, or a backfilled turn,
+whose own words name Jev next to an `@`-reference is not consent. Every other
+step can only remove text, so a wrong cut fails closed.
 
 On a messaging platform only the FIRST line of that segment counts, and a
 media turn counts not at all: one whose message or newest user row in
@@ -274,6 +284,12 @@ def _person_segment(message: object, *, messaging: bool) -> tuple[str, bool]:
     lines = text.split("\n")
     for index, line in enumerate(lines):
         if line.strip() in _EXPANSION_HEADERS:
+            # The reply pointer and trigger note are prepended AFTER
+            # expansion, and backfill precedes the person's text, so a header
+            # next to any of them may be a line inside quoted or backfilled
+            # material rather than the host's own: fail closed.
+            if "[New message]" in text or any(opener in text for opener in _HOST_BLOCK_OPENERS):
+                return "", False
             text = "\n".join(lines[:index])
             break
     if _BACKFILL_SEPARATOR in text:

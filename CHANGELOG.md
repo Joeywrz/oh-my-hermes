@@ -86,7 +86,9 @@ All notable changes will be documented here.
   for that turn names Jev (`consent_not_observed` otherwise; text the host adds,
   such as a quoted reply to the bot's own offer, channel history, an image
   description, an inlined attachment, or a file or page an `@`-reference
-  pulled in, does not count; only an allowlisted
+  pulled in, does not count, and a reply or channel-history turn that also
+  carries an `@`-reference expansion does not consent at all, since a quote
+  can spell the expansion's header line; only an allowlisted
   platform a person types into can consent, never a webhook, API, cron,
   subagent, batch, single-query, or kanban-worker turn; on a messaging
   platform only the first line of the message counts and a photo or file

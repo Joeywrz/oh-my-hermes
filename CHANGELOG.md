@@ -180,6 +180,24 @@ All notable changes will be documented here.
   model adoption remains untested. No edit approval, receipt issuer, CI
   observer, merge authority or new task execution runtime is added.
 
+- **Hermes replies under OMH are written in the user's words and the host's
+  own voice.** People were reading OMH's record vocabulary back in chat ("this
+  is an evidence-bounded surface", "prepared_not_observed", "wrapper",
+  "handoff", "evidence boundary"), and nothing told the model that those terms
+  belong to records and tool calls rather than to the sentence a person reads,
+  or that the host's `SOUL.md` owns the voice. Every generated skill's tail now
+  says so in one sentence, the common rail gains a Reply Language And Host
+  Voice section with plain substitutes ("prepared, not run yet", "not checked",
+  "handing the coding work to X", "this shows X and does not show Y") and the
+  rule that awareness lines, route hints, and first-response shapes are
+  instructions never quoted to the user, both awareness primers carry the same
+  line, the closing brief rule leads "in the user's words", and the shared
+  purpose line of the operator skills ("a structured, evidence-bounded OMH
+  operating surface instead of ad hoc narration") becomes "a structured,
+  checkable answer instead of an improvised one". Budgets move with the reason
+  at each entry: the compact primer 900 -> 1,050, the markdown primer
+  3,210 -> 3,400, the per-skill ceiling 26,500 -> 26,800, and the full-profile
+  ratchets re-derived from their producers.
 
 ## 2.0.5 - 2026-09-22
 

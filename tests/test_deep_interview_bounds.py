@@ -29,7 +29,10 @@ SKILL_MD = REPO_ROOT / "skills" / "ulw-interview" / "SKILL.md"
 # Runtime Evidence tail gained the turn-ending sentence (a stop or a decision
 # the user owns ends the turn by offering the next action as a question).
 # One sentence of warranted always-loaded growth, not drift.
-DEEP_INTERVIEW_SKILL_CHAR_CEILING = 10_300
+# 10_300 -> 10_600: the tail sentence grew to carry the reply rule (the
+# user's words, the host's voice, record terms stay in records); the body
+# measures 10,347. Headroom restored rather than cleared by a hair.
+DEEP_INTERVIEW_SKILL_CHAR_CEILING = 10_600
 
 
 def _skill_body() -> str:

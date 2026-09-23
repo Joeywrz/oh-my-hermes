@@ -22,11 +22,6 @@ from ..quality.cross_harness_adapter_sandbox import (
     sandbox_command,
     unique_roots,
 )
-from .fanout_git_metadata import (
-    FanoutGitMetadata,
-    GitMetadataBoundaryError,
-    prepare_fanout_git_metadata,
-)
 
 FANOUT_FILESYSTEM_CONFINEMENT_SCHEMA_VERSION = "fanout_filesystem_confinement/v1"
 FANOUT_FILESYSTEM_CONFINEMENT_CLAIM_BOUNDARY = (
@@ -37,10 +32,6 @@ FANOUT_FILESYSTEM_CONFINEMENT_CLAIM_BOUNDARY = (
     "confinement evidence. Reads are not part of this boundary: every command this confinement returns runs with "
     "broad host read, so no receipt here reports a read boundary, whatever its write verdict."
 )
-
-
-class PinnedConfinementError(RuntimeError):
-    pass
 # Fanout confines writes, not reads: an invited coding CLI needs its own toolchain,
 # configuration, credentials, and caches. The receipt attests only the write boundary.
 _FANOUT_MACOS_TOOLCHAIN_WRITE_DATA_LITERALS = (Path("/dev/null"),)
@@ -50,7 +41,6 @@ _FANOUT_MACOS_TOOLCHAIN_WRITE_DATA_LITERALS = (Path("/dev/null"),)
 # credential access.
 _FANOUT_MACOS_CREDENTIAL_MACH_SERVICES = ("com.apple.securityd.xpc", "com.apple.SecurityServer")
 _FANOUT_TOOLCHAIN_TEMP_DIRECTORY = Path(".omh") / "confinement-tmp"
-_PINNED_EXECUTABLE_LAUNCH_SCRIPT = 'exec -a "$0" "$1" "${@:2}"'
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,7 +153,6 @@ class FanoutFilesystemConfinement:
     backend_digest: str
     executables: Mapping[str, str]
     receipt: dict[str, object]
-    git_metadata: FanoutGitMetadata | None = None
 
     def command(self, argv: Sequence[str]) -> tuple[str, ...] | None:
         """Return the same-root sandbox command, or None when no receipt proved it."""
@@ -172,48 +161,8 @@ class FanoutFilesystemConfinement:
         executable = self.executables.get(str(argv[0]))
         if not executable:
             return None
-        return self._sandbox_command(
-            (executable, *[str(argument) for argument in argv[1:]]),
-        )
-
-    def command_with_pinned_executable(
-        self,
-        argv: Sequence[str],
-        pinned_executable: str,
-    ) -> tuple[str, ...] | None:
-        if self.receipt.get("enforced") is not True or not argv or self.child is None:
-            return None
-        pinned = Path(pinned_executable).resolve(strict=True)
-        if any(
-            pinned == root or pinned.is_relative_to(root)
-            for root in self.write_roots
-        ) or pinned in self.write_literals:
-            raise PinnedConfinementError(
-                "pinned executor overlaps a confined child write path"
-            )
-        return self._sandbox_command(
-            (
-                "/bin/bash",
-                "--noprofile",
-                "--norc",
-                "-c",
-                _PINNED_EXECUTABLE_LAUNCH_SCRIPT,
-                str(argv[0]),
-                str(pinned),
-                *[str(argument) for argument in argv[1:]],
-            ),
-            process_exec_literals=(pinned,),
-        )
-
-    def _sandbox_command(
-        self,
-        argv: tuple[str, ...],
-        *,
-        process_exec_literals: tuple[Path, ...] = (),
-    ) -> tuple[str, ...]:
-        assert self.child is not None
         return sandbox_command(
-            argv,
+            (executable, *[str(argument) for argument in argv[1:]]),
             self.selected,
             self.roots,
             self.child,
@@ -227,7 +176,6 @@ class FanoutFilesystemConfinement:
             allow_broad_file_read=True,
             write_roots=self.write_roots,
             inherit_environment=True,
-            process_exec_literals=process_exec_literals,
         )
 
     def command_environment(self, environment: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -239,21 +187,10 @@ class FanoutFilesystemConfinement:
             or self.selected not in {"sandbox-exec", "bwrap"}
         ):
             return dict(selected_environment)
-        confined_environment = {
-            **{
-                key: value
-                for key, value in selected_environment.items()
-                if not key.startswith("GIT_")
-            },
+        return {
+            **selected_environment,
             "TMPDIR": str(self.child.work / _FANOUT_TOOLCHAIN_TEMP_DIRECTORY),
         }
-        if self.git_metadata is not None:
-            confined_environment.update(self.git_metadata.environment())
-        return confined_environment
-
-    def promote_git_metadata(self) -> str | None:
-        """Promote a clean private commit into only the linked unit branch."""
-        return None if self.git_metadata is None else self.git_metadata.promote()
 
 
 def planned_fanout_filesystem_confinement(
@@ -344,23 +281,6 @@ def prepare_fanout_filesystem_confinement(
         gitignore = scratch_directory / ".gitignore"
         if not gitignore.is_file() or gitignore.read_text(encoding="utf-8") != "*\n":
             _ = gitignore.write_text("*\n", encoding="utf-8")
-    try:
-        git_metadata = (
-            prepare_fanout_git_metadata(worktree)
-            if selected in {"sandbox-exec", "bwrap"}
-            else None
-        )
-    except GitMetadataBoundaryError:
-        return _unconfined(
-            worktree,
-            selected,
-            environment,
-            "linked_worktree_git_metadata_boundary_failed",
-            roots=roots,
-            write_roots=write_roots,
-            write_literals=write_literals,
-            executables=executables,
-        )
     child = ChildContext(
         worktree,
         worktree,
@@ -397,8 +317,6 @@ def prepare_fanout_filesystem_confinement(
             executables=executables,
         )
     receipt = _probe(selected, roots, write_roots, write_literals, child, environment, backend_digest)
-    if git_metadata is not None:
-        receipt = {**receipt, "git_metadata_boundary": git_metadata.receipt()}
     return FanoutFilesystemConfinement(
         selected,
         roots,
@@ -409,7 +327,6 @@ def prepare_fanout_filesystem_confinement(
         backend_digest,
         executables,
         receipt,
-        git_metadata,
     )
 
 
@@ -477,7 +394,7 @@ def _resolve_executables(
         located = name if Path(name).is_absolute() else shutil.which(name, path=path)
         if located is None:
             return {}
-        resolved[name] = str(Path(located).absolute())
+        resolved[name] = str(Path(located).resolve())
     return resolved
 
 

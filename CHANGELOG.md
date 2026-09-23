@@ -4,6 +4,26 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **A Hermes child now receives its prompt.** `omh coding hermes-child
+  dispatch` spawned `hermes --oneshot -` and wrote the prompt to stdin, but
+  Hermes' `-z/--oneshot` takes the prompt as its positional value and reads no
+  stdin, so the child answered the literal prompt `-` with a greeting, exited
+  0, and billed the routed model for it. The child is now
+  `hermes chat --query-file - --quiet`, the one Hermes transport that reads a
+  prompt from stdin; the prompt still never enters argv, and `--quiet` keeps
+  a completed turn's stdout to the final response as `-z` did. A start Hermes
+  refuses before the turn, because the child sees no provider, now prints
+  Hermes' first-run guidance on stdout and exits 1 where `-z` printed one
+  stderr line; the child's exit code and the literal verdict tags are what
+  callers read, so that text is a failed dispatch, never a result. Hermes
+  writes its `--usage-file` report for `-z` alone, so the observation's
+  `usage` is empty on this transport rather than a number it did not measure;
+  paired-run, final-review, and the live-model-tools isolated-child arm reuse
+  the same child and inherit both changes, and the docs of each say so. The
+  test fakes now model the real CLI (`--oneshot` reads argv, never stdin), so
+  the old argv fails the suite instead of passing it (#1824).
+
+
 - **Setup no longer writes a `plugins.enabled` Hermes cannot read.** A config
   carrying `enabled: '[]'` is a string to YAML and no plugins to Hermes, and
   setup inserted `    - omh` under it, which YAML refuses (`did not find

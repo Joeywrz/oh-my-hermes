@@ -403,18 +403,22 @@ class OmhLiveAdapterTests(unittest.TestCase):
                 "raise SystemExit(main())\n",
                 encoding="utf-8",
             )
+            # Mirrors the installed Hermes CLI: only `chat --query-file -`
+            # reads stdin, and no usage report is written on that path
+            # (`--usage-file` is `-z`-only), so the child reports no
+            # tokens or cost (#1824, #1831).
             hermes.write_text(
                 "#!/usr/bin/env python3\n"
-                "import json, os, sys\n"
+                "import sys\n"
                 "from pathlib import Path\n"
                 "args=sys.argv[1:]\n"
+                "if args[:3] != ['chat', '--query-file', '-']:\n"
+                "    raise SystemExit('no Hermes stdin transport in argv')\n"
                 "prompt=sys.stdin.read()\n"
                 "capture=Path(sys.argv[0]).resolve().parent/'capture'\n"
                 "index=len(list(capture.glob('prompt-*.txt')))\n"
                 "(capture/f'prompt-{index}.txt').write_text(prompt,encoding='utf-8')\n"
-                "usage=Path(args[args.index('--usage-file')+1])\n"
-                "usage.write_text(json.dumps({'provider':'fake','model':args[args.index('--model')+1],"
-                "'tool_calls':2,'total_tokens':37,'estimated_cost_usd':0.125}),encoding='utf-8')\n",
+                "print('done')\n",
                 encoding="utf-8",
             )
             executable = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
@@ -443,9 +447,12 @@ class OmhLiveAdapterTests(unittest.TestCase):
                 )
             self.assertEqual(trials[0]["task_digest"], trials[1]["task_digest"])
             self.assertEqual(trials[1]["route"]["model_family"], "qwen")
-            self.assertEqual(trials[1]["observation"]["tools"], 2)
-            self.assertEqual(trials[1]["observation"]["tokens"], 37)
-            self.assertEqual(trials[1]["observation"]["cost_usd"], 0.125)
+            self.assertEqual(trials[1]["observation"]["status"], "completed")
+            # Absent, never zero: the chat transport carries no usage report.
+            self.assertEqual(
+                (trials[1]["observation"]["tools"], trials[1]["observation"]["tokens"], trials[1]["observation"]["cost_usd"]),
+                (None, None, None),
+            )
             baseline = (capture / "prompt-0.txt").read_text(encoding="utf-8")
             optimized = (capture / "prompt-1.txt").read_text(encoding="utf-8")
             self.assertNotIn(HIGH_EFFORT_CALIBRATIONS["qwen"], baseline)

@@ -54,7 +54,7 @@ def configure_hermes_child_parser(
     prepare = actions.add_parser("prepare", help="Default-safe metadata-only preparation; starts no process.")
     _add_request_arguments(prepare, dispatch=False)
     prepare.set_defaults(func=handlers.prepare)
-    dispatch = actions.add_parser("dispatch", help="Explicitly dispatch one bounded local Hermes --oneshot child.")
+    dispatch = actions.add_parser("dispatch", help="Explicitly dispatch one bounded local Hermes single-query child (`chat --query-file -`).")
     _add_request_arguments(dispatch, dispatch=True)
     dispatch.set_defaults(func=handlers.dispatch)
     probe = actions.add_parser(

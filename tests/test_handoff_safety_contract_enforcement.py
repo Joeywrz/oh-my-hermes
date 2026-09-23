@@ -220,7 +220,7 @@ PROCESS_SPAWN_ALLOWLIST: dict[str, str] = {
     ),
     "src/coding/hermes_child_dispatch.py": (
         "operator-only, explicitly confirmed `ask_before_dispatch` seam for one bounded local "
-        "`hermes --oneshot --model` child; suppresses recursion and cleans its process group."
+        "`hermes chat --query-file - --model` child; suppresses recursion and cleans its process group."
     ),
     "src/coding/skill_load_process.py": (
         "private executable snapshot and process lifecycle adapter for the operator-only "

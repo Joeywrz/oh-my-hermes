@@ -14,15 +14,16 @@ import sys
 
 root = Path(sys.argv[0]).resolve().parent
 args = sys.argv[1:]
+# Mirrors the installed Hermes CLI: only `chat --query-file -` reads stdin;
+# `-z/--oneshot PROMPT` takes its prompt from argv (#1824).
+if args[:3] == ["chat", "--query-file", "-"]:
+    prompt = sys.stdin.read()
+elif "--oneshot" in args:
+    prompt = args[args.index("--oneshot") + 1]
+else:
+    raise SystemExit("no Hermes query transport in argv")
 with (root / "calls.jsonl").open("a", encoding="utf-8") as handle:
-    handle.write(json.dumps({"argv": args, "prompt": sys.stdin.read()}) + "\n")
-usage = Path(args[args.index("--usage-file") + 1])
-usage.write_text(json.dumps({
-    "provider": "fake-provider",
-    "model": args[args.index("--model") + 1],
-    "total_tokens": 3,
-    "estimated_cost_usd": 0.01,
-}), encoding="utf-8")
+    handle.write(json.dumps({"argv": args, "prompt": prompt}) + "\n")
 print("completed")
 """
 

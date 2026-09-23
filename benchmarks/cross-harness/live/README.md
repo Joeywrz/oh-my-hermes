@@ -134,7 +134,11 @@ once.
 The receipt's `efficiency` block reports `duration_ms`, `tokens`, and `cost_usd`
 for the run. It never earns points, never changes a level, and never turns a
 `partial` into a `pass`; it is not part of the envelope at all. Telemetry the
-child did not report stays `null` and is never estimated, and
+child did not report stays `null` and is never estimated. A Hermes child
+reports none: it runs as `hermes chat --query-file -`, the one transport that
+reads a prompt from stdin, and Hermes writes its usage report for `-z` alone,
+so `tokens` and `cost_usd` are `null` for that lane (#1831 tracks restoring
+them), and
 `observations_reporting_tokens` / `observations_reporting_cost_usd` say how many
 observations actually supplied each figure.
 

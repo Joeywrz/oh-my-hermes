@@ -74,7 +74,10 @@ omh coding hermes-child cancel --run-id child-1 --json
 `--confirm-dispatch`, sends the prompt over stdin, limits recursion to one
 isolated child, and records `routing_observation/v1`. Status, tool count, token
 usage, and cost are shown only when Hermes produced observed telemetry; OMH
-does not estimate missing values.
+does not estimate missing values. The child runs as `hermes chat --query-file -`,
+the one Hermes transport that reads a prompt from stdin, and Hermes writes its
+usage report for `-z` alone, so token usage and cost are absent for a Hermes
+child today (#1831).
 
 The same boundary has a separate, explicit loaded-skill capability probe:
 

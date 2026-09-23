@@ -70,20 +70,28 @@ args = sys.argv[1:]
 (root / "isolated-paths.json").write_text(json.dumps({
     "HOME": os.environ["HOME"], "HERMES_HOME": os.environ["HERMES_HOME"],
 }), encoding="utf-8")
+(root / "home-modes.json").write_text(json.dumps({
+    name: oct(os.stat(os.environ[name]).st_mode & 0o777) for name in ("HOME", "HERMES_HOME")
+}), encoding="utf-8")
 Path(os.environ["HERMES_HOME"]).joinpath("state.db").write_text("ephemeral", encoding="utf-8")
-if args[args.index("--oneshot") + 1] != "-":
-    raise SystemExit("oneshot prompt was not supplied through stdin")
-prompt = sys.stdin.read()
+# Mirrors the installed Hermes CLI (0.21.x): `-z/--oneshot PROMPT` takes the
+# prompt from argv and never reads stdin, so a "-" there is the literal
+# prompt "-"; only `chat --query-file -` reads stdin (#1824). Hermes writes
+# its `--usage-file` report for `-z` alone, so this path writes none.
+if "--oneshot" in args or "-z" in args:
+    flag = "--oneshot" if "--oneshot" in args else "-z"
+    prompt = args[args.index(flag) + 1]
+elif args[:3] == ["chat", "--query-file", "-"]:
+    prompt = sys.stdin.read()
+else:
+    raise SystemExit("no Hermes query transport in argv")
 (root / "prompt-seen").write_text(prompt, encoding="utf-8")
 (root / "started").touch()
-usage = Path(args[args.index("--usage-file") + 1])
-(root / "usage-mode").write_text(oct(usage.stat().st_mode & 0o777), encoding="utf-8")
-usage.write_text(json.dumps({
-    "estimated_cost_usd": 0.125, "input_tokens": 11, "output_tokens": 7,
-    "total_tokens": 18, "api_calls": 1, "model": args[args.index("--model") + 1],
-    "provider": "fake-provider", "completed": True, "failed": False,
-    "failure": "SECRET_FAILURE_TEXT_MUST_NOT_ESCAPE",
-}), encoding="utf-8")
+if "--usage-file" in args:
+    Path(args[args.index("--usage-file") + 1]).write_text(json.dumps({
+        "estimated_cost_usd": 0.125, "total_tokens": 18, "api_calls": 1,
+        "failure": "SECRET_FAILURE_TEXT_MUST_NOT_ESCAPE",
+    }), encoding="utf-8")
 if "spawn-descendant" in prompt:
     child = subprocess.Popen([
         sys.executable, "-c",
@@ -218,7 +226,24 @@ class HermesChildDispatchTests(unittest.TestCase):
             )
         self.assertFalse((self.root / "started").exists())
 
-    def test_real_fake_hermes_uses_secret_free_argv_and_reports_usage(self) -> None:
+    def test_prompt_reaches_the_child_over_query_file_stdin(self) -> None:
+        # #1824: the former `--oneshot -` argv handed a real Hermes the
+        # literal prompt "-" and ignored stdin. The fake mirrors that
+        # contract, so this passes only when the transport is the one Hermes
+        # reads from stdin.
+        prompt = "PING789 reply with exactly this token"
+        result = dispatch_hermes_child(
+            self.request(prompt), dispatch_policy="ask_before_dispatch", confirmed=True
+        )
+        argv = json.loads((self.root / "argv.json").read_text(encoding="utf-8"))
+        self.assertEqual(result.status, "completed")
+        self.assertEqual((self.root / "prompt-seen").read_text(encoding="utf-8"), prompt)
+        self.assertEqual(argv[:3], ["chat", "--query-file", "-"])
+        self.assertNotIn("--oneshot", argv)
+        self.assertNotIn("-z", argv)
+        self.assertNotIn(prompt, json.dumps(argv))
+
+    def test_real_fake_hermes_uses_secret_free_argv_and_reports_no_usage(self) -> None:
         secret = "SECRET_PROMPT_84f3c7"
         observed = []
         result = dispatch_hermes_child(
@@ -231,10 +256,12 @@ class HermesChildDispatchTests(unittest.TestCase):
         argv = json.loads((self.root / "argv.json").read_text(encoding="utf-8"))
         child_env = json.loads((self.root / "env.json").read_text(encoding="utf-8"))
         self.assertEqual(
-            argv[:8],
+            argv[:10],
             [
-                "--oneshot",
+                "chat",
+                "--query-file",
                 "-",
+                "--quiet",
                 "--provider",
                 "fake-provider",
                 "--model",
@@ -244,16 +271,17 @@ class HermesChildDispatchTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            argv[8:15],
-            ["--safe-mode", "--ignore-user-config", "--ignore-rules", "--toolsets", "file", "--usage-file", argv[14]],
+            argv[10:],
+            ["--safe-mode", "--ignore-user-config", "--ignore-rules", "--toolsets", "file"],
         )
+        self.assertNotIn("--usage-file", argv)
         self.assertNotIn(secret, json.dumps(argv))
         self.assertEqual(
             (result.status, result.stdout.replace("\r\n", "\n"), result.exit_code),
             ("completed", "fake Hermes provider response\n", 0),
         )
-        self.assertEqual(result.usage["total_tokens"], 18)
-        self.assertNotIn("SECRET_FAILURE_TEXT", repr(result.usage))
+        # Hermes reports usage for `-z` only; the stdin transport has none.
+        self.assertEqual(result.usage, {})
         self.assertEqual([item.status for item in observed], ["prepared", "running", "completed"])
         self.assertTrue(all(secret not in repr(item) for item in observed))
         self.assertEqual(child_env["OMH_ISOLATED_HERMES_ROUTING"], "disabled")
@@ -268,9 +296,13 @@ class HermesChildDispatchTests(unittest.TestCase):
         isolated = json.loads((self.root / "isolated-paths.json").read_text(encoding="utf-8"))
         self.assertFalse(Path(isolated["HOME"]).exists())
         self.assertFalse(Path(isolated["HERMES_HOME"]).exists())
-        self.assertTrue(result.usage_file_exists)
         if os.name != "nt":
-            self.assertEqual((self.root / "usage-mode").read_text(encoding="utf-8"), "0o600")
+            # The disposable homes are the child's only writable roots; the
+            # mode is what keeps another local user out of them while the
+            # child runs (the usage-file 0600 pin this replaced is gone with
+            # the file).
+            modes = json.loads((self.root / "home-modes.json").read_text(encoding="utf-8"))
+            self.assertEqual(modes, {"HOME": "0o700", "HERMES_HOME": "0o700"})
         self.assertNotIn(secret, "".join(path.read_text(encoding="utf-8") for path in self.omh_home.rglob("*") if path.is_file()))
 
     def test_real_dispatch_seals_actual_model_and_timeout_into_evaluation_receipt(self) -> None:
@@ -530,11 +562,11 @@ class HermesChildDispatchTests(unittest.TestCase):
         }
         self.assertEqual(remaining, prior_drainers)
 
-    def test_nonzero_exit_is_failed_and_usage_is_still_parsed(self) -> None:
+    def test_nonzero_exit_is_failed(self) -> None:
         result = dispatch_hermes_child(
             self.request("fail"), dispatch_policy="ask_before_dispatch", confirmed=True
         )
-        self.assertEqual((result.status, result.exit_code, result.usage["api_calls"]), ("failed", 9, 1))
+        self.assertEqual((result.status, result.exit_code, result.usage), ("failed", 9, {}))
         self.assertTrue(result.cleanup_verified)
 
     def test_timeout_sends_sigterm_then_sigkill_and_leaves_no_orphan(self) -> None:

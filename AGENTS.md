@@ -115,7 +115,8 @@ PR without the chat history.
   profiles.
 - The approved Hermes-native child boundary (`omh coding hermes-child dispatch`,
   2026-08 owner approval) is a second explicit operator/maintainer surface for
-  one isolated local `hermes --oneshot` process. It requires
+  one isolated local Hermes single-query process (`hermes chat --query-file -`,
+  the one Hermes transport that reads a prompt from stdin). It requires
   `--confirm-dispatch`, accepts prompts only through stdin/files, enforces a
   depth-one recursion limit and safe-mode file tools, records authenticated
   `routing_observation/v1` evidence, and never runs automatically. This

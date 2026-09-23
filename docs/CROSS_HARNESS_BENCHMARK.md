@@ -136,7 +136,9 @@ carries two facts `v1` cannot express: an ordered authenticity tier
 `controller_observed`) and an `efficiency` block. Efficiency is reported outside
 the quality score: it earns no points, changes no level, and is absent from the
 envelope entirely. Telemetry the child did not report stays null and is never
-estimated.
+estimated; a Hermes child reports none, because `hermes chat --query-file -`
+(the one transport that reads a prompt from stdin) writes no usage report, so
+its `tokens` and `cost_usd` are null (#1831).
 
 The controller submits a fixture result only for a predicate it observed itself.
 Four fixtures qualify: `evidence-command-binding` from the executed binding's

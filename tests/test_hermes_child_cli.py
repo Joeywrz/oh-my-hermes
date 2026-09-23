@@ -25,13 +25,16 @@ import time
 root = Path(sys.argv[0]).resolve().parent
 args = sys.argv[1:]
 (root / "argv.json").write_text(json.dumps(args), encoding="utf-8")
-prompt = sys.stdin.read()
+# Mirrors the installed Hermes CLI: `-z/--oneshot PROMPT` is an argv value
+# and reads no stdin; only `chat --query-file -` reads stdin (#1824).
+if "--oneshot" in args or "-z" in args:
+    flag = "--oneshot" if "--oneshot" in args else "-z"
+    prompt = args[args.index(flag) + 1]
+elif args[:3] == ["chat", "--query-file", "-"]:
+    prompt = sys.stdin.read()
+else:
+    raise SystemExit("no Hermes query transport in argv")
 (root / "prompt.txt").write_text(prompt, encoding="utf-8")
-usage = Path(args[args.index("--usage-file") + 1])
-usage.write_text(json.dumps({
-    "provider": "fake-provider", "model": args[args.index("--model") + 1],
-    "total_tokens": 19, "estimated_cost_usd": 0.25,
-}), encoding="utf-8")
 if "hang" in prompt:
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     while True:
@@ -171,13 +174,22 @@ class HermesChildCliTests(unittest.TestCase):
                 run_id = f"child-{index}"
                 command = [item if item != "child-456" else run_id for item in self.base("dispatch")]
                 command += ["--confirm-dispatch", "--hermes", str(self.hermes), "--timeout", timeout, "--termination-grace", "0.05"]
+                # The fake writes one shared file; a stale copy from the
+                # previous case must not be able to satisfy the readback.
+                (self.root / "prompt.txt").unlink(missing_ok=True)
                 status, stdout, stderr = run_cli(command, stdin_text=prompt)
                 self.assertEqual(status, expected_code, stderr)
                 payload = json.loads(stdout)
                 self.assertEqual(payload["status"], expected_status)
                 argv = json.loads((self.root / "argv.json").read_text(encoding="utf-8"))
                 self.assertNotIn(prompt, json.dumps(argv))
-                self.assertEqual(argv[argv.index("--oneshot") + 1], "-")
+                self.assertEqual(argv[:3], ["chat", "--query-file", "-"])
+                self.assertNotIn("--oneshot", argv)
+                if expected_status != "timed_out":
+                    # The 0.15 s hang case can be killed before the fake
+                    # reaches its write; the two finished cases prove the
+                    # prompt arrived over stdin.
+                    self.assertEqual((self.root / "prompt.txt").read_text(encoding="utf-8"), prompt)
                 stored = (self.omh_home / "coding" / "hermes-child" / run_id / "observation.json").read_text(encoding="utf-8")
                 self.assertNotIn(prompt, stored)
                 self.assertFalse((self.omh_home / "coding" / "hermes-child" / run_id / "active.json").exists())

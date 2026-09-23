@@ -13,6 +13,7 @@ from omh.config_adapter import (
     plugin_enablement,
     plugin_enablement_shape_error,
     plugin_is_enabled,
+    plugins_enabled_extension_error,
 )
 from omh.maintenance.doctor import run_doctor
 from omh.paths import resolve_paths
@@ -313,6 +314,17 @@ class ScalarEnabledValueTests(unittest.TestCase):
                     ensure_plugin_enabled(text, PLUGIN_NAME)
                 self.assertEqual(str(caught.exception), plugin_enablement_shape_error(text))
 
+    def test_extension_error_is_the_sentence_the_writer_raises(self) -> None:
+        # One home for the verdict: doctor reports what setup refused.
+        for text in (BROKEN_CONFIG, FOLDED_CONFIG, "plugins:\n  enabled: browser\n", "plugins:\n  enabled: '[browser]'\n"):
+            with self.subTest(text=text):
+                with self.assertRaises(ValueError) as caught:
+                    ensure_plugin_enabled(text, PLUGIN_NAME)
+                self.assertEqual(plugins_enabled_extension_error(text, PLUGIN_NAME), str(caught.exception))
+        for text in (ENABLED_CONFIG, "plugins:\n  enabled: '[]'\n", "plugins:\n  enabled: []\n", "skills:\n  external_dirs: []\n", ""):
+            with self.subTest(text=text):
+                self.assertEqual(plugins_enabled_extension_error(text, PLUGIN_NAME), "")
+
 
 class SetupWithScalarEnabledTests(unittest.TestCase):
     """The #1825 reproduction, end to end through `omh setup` and `omh doctor`."""
@@ -336,9 +348,9 @@ class SetupWithScalarEnabledTests(unittest.TestCase):
             self.assertTrue(plugin_is_enabled(config_text, PLUGIN_NAME), config_text)
 
             paths = resolve_paths(root / ".omh", hermes_home)
-            check = next((c for c in run_doctor(paths) if c.name == "plugin_enabled_in_hermes"), None)
-            self.assertIsNotNone(check)
-            self.assertTrue(check.ok, check.message)
+            by_name = {c.name: c for c in run_doctor(paths)}
+            self.assertTrue(by_name["plugin_enabled_in_hermes"].ok, by_name["plugin_enabled_in_hermes"].message)
+            self.assertTrue(by_name["hermes_config_plugins_enabled"].ok, by_name["hermes_config_plugins_enabled"].message)
 
     def test_setup_fails_closed_on_a_scalar_it_cannot_extend(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -354,6 +366,16 @@ class SetupWithScalarEnabledTests(unittest.TestCase):
             self.assertNotEqual(status, 0)
             self.assertIn("unsupported plugins.enabled shape", stderr)
             self.assertEqual(config_path.read_text(encoding="utf-8"), before)
+
+            # Setup stopped before it installed the bundle, so the plugin
+            # checks do not run; doctor still has to name the cause.
+            paths = resolve_paths(root / ".omh", hermes_home)
+            by_name = {c.name: c for c in run_doctor(paths)}
+            self.assertNotIn("plugin_enabled_in_hermes", by_name)
+            check = by_name["hermes_config_plugins_enabled"]
+            self.assertFalse(check.ok)
+            self.assertIn("unsupported plugins.enabled shape ('browser')", check.message)
+            self.assertIn("YAML block list", check.next_action)
 
     def test_doctor_reports_the_file_setup_used_to_write(self) -> None:
         with TemporaryDirectory() as tmp:

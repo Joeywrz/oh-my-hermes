@@ -14,7 +14,10 @@ All notable changes will be documented here.
   other scalar stops setup with the file untouched and `hermes plugins enable
   omh` named as the repair. The line reader stops attributing items under a
   scalar to the key, and `omh doctor` reports a file already in that state as
-  the file it is rather than as an enabled plugin (#1825).
+  the file it is rather than as an enabled plugin. A new
+  `hermes_config_plugins_enabled` check carries the same sentence setup
+  refuses with, so a home where setup stopped before installing the bundle
+  still names the cause instead of only its side effects (#1825).
 
 
 - **A board readback is now measured after it is serialized, and is no longer

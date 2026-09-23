@@ -338,6 +338,39 @@ def plugin_enablement_shape_error(config_text: str) -> str:
     return ""
 
 
+def _unsupported_enabled_shape_message(value: str, name: str) -> str:
+    return (
+        f"unsupported plugins.enabled shape ({value!r}); use a YAML block list "
+        f"or inline list, or run `hermes plugins enable {name}`"
+    )
+
+
+def plugins_enabled_extension_error(config_text: str, name: str) -> str:
+    """Why `ensure_plugin_enabled` would refuse `config_text`, or "".
+
+    The same sentence setup raises, so `omh doctor` can report it on a home
+    where setup already refused: setup stops before it installs the bundle,
+    and the plugin checks only run once a bundle exists, so without this the
+    diagnostic named side effects and never the cause (#1825).
+    """
+    shape_error = plugin_enablement_shape_error(config_text)
+    if shape_error:
+        return shape_error
+    in_plugins = False
+    for line in config_text.splitlines():
+        stripped = line.strip()
+        if not line.startswith(" ") and stripped:
+            in_plugins = stripped == "plugins:"
+            continue
+        if not in_plugins or not stripped or stripped.startswith("- "):
+            continue
+        if line.startswith("  ") and not line.startswith("    "):
+            key, _, rest = stripped.partition(":")
+            if key.strip() == "enabled" and _plugins_list_shape(rest)[0] == "scalar":
+                return _unsupported_enabled_shape_message(rest.strip(), name)
+    return ""
+
+
 def ensure_plugin_enabled(config_text: str, name: str) -> ConfigChange:
     """Add `name` to `plugins.enabled` so Hermes will actually load the bridge.
 
@@ -394,10 +427,7 @@ def ensure_plugin_enabled(config_text: str, name: str) -> ConfigChange:
                 # Hermes reads any other scalar as no plugins. Rewriting it
                 # would decide what the person meant, so setup stops with the
                 # file untouched and names Hermes' own writer instead.
-                raise ValueError(
-                    f"unsupported plugins.enabled shape ({rest.strip()!r}); use a YAML block list "
-                    f"or inline list, or run `hermes plugins enable {name}`"
-                )
+                raise ValueError(_unsupported_enabled_shape_message(rest.strip(), name))
             lines.insert(idx + 1, f"{indent}- {name}")
             return ConfigChange(True, "added plugin to plugins.enabled", "\n".join(lines) + "\n")
 

@@ -84,14 +84,22 @@ All notable changes will be documented here.
   is the second scoped exception to "OMH makes no network calls", and it is
   narrow on purpose: the tool opens no socket unless the person's own message
   for that turn names Jev (`consent_not_observed` otherwise; text the host adds,
-  such as a quoted reply to the bot's own offer or an inlined attachment, does
-  not count, and cron, subagent, and kanban-worker turns never do), only a
+  such as a quoted reply to the bot's own offer, channel history, an image
+  description, or an inlined attachment, does not count; only an allowlisted
+  platform a person types into can consent, never a webhook, API, cron,
+  subagent, batch, single-query, or kanban-worker turn; in a shared chat only
+  the participant who opened the session can; and the consent is bound to its
+  own turn, so a background fork of the session cannot spend it), only a
   `TYPESAFE_API_KEY` enables it by itself (the OpenRouter route also needs
-  `{"openrouter_route": true}` in `<omh_home>/jev/settings.json`), the route
-  table is two fixed HTTPS hosts, redirects are refused, a timeout (a
-  gateway's 504 or 524 included) is never retried, the deadline bounds the
-  read as well as the connect, and no key, `state`, question text, or reply is
-  stored; a key echoed back by the server is scrubbed from every path. The skills
+  `{"openrouter_route": true}` in `<omh_home>/jev/settings.json`, a local-trust
+  opt-in), the route table is two fixed HTTPS hosts, redirects are refused,
+  only 429, 503, and 529 are retried (any other 5xx and every timeout, a
+  gateway's 504 or 524 included, may have been billed and are reported), the
+  deadline bounds each read as well as the connect, and no key, `state`,
+  question text, or reply is stored; any 8-character piece of a key echoed
+  back by the server, in any case or JSON-escaped, is scrubbed from every path.
+  An `answered_by: omh_jev_ask` record is accepted only for an ask this OMH
+  process itself sent and Jev answered, never on a ledger row alone. The skills
   declare `requires_tools: [omh_jev_ask]`, so Hermes leaves them out of the
   skill index where the tool is not registered (code-read, not observed live),
   for callers that pass a tool set; a caller that passes none shows them.

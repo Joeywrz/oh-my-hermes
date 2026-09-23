@@ -13,20 +13,27 @@ single explicit, user-requested call narrow:
 * Bounded both ways: a request body above `MAX_REQUEST_BYTES` is refused
   before a socket opens, and a response is read to `MAX_RESPONSE_BYTES` at
   most.
-* A retry only follows a reply the server actually sent (429, 503/529, 5xx),
-  within `TOTAL_DEADLINE_SECONDS`. A timeout or a connection failure is never
-  retried: the request may have landed and been billed, and the caller decides.
+* A retry only follows a reply that says the request was NOT processed: 429
+  (rate limited) and 503/529 (overloaded), within `TOTAL_DEADLINE_SECONDS`.
+  Any other 5xx -- 500, 502, 520-523 -- may come after the origin received
+  and billed the request, so it is reported as `server_error` and the caller
+  decides, the same way a timeout or a connection failure is never retried.
   A gateway timeout (504, 524) is a timeout in that sense -- the gateway gave
   up after the origin may have received the request -- so it is reported as
-  `timeout` and not retried either.
-* The deadline also bounds the read: the body is read in chunks and the
-  deadline is checked between them, because urllib's timeout applies per
+  `timeout`.
+* The deadline also bounds the read: the body is read in chunks, the
+  deadline is checked between them, and before each read the socket's own
+  timeout is set to the time left, because urllib's timeout applies per
   socket operation and a server that trickles bytes would otherwise hold the
-  turn far past it.
+  turn a full attempt timeout past it. Residual: name resolution
+  (`getaddrinfo`) has no timeout in the standard library, and the status line
+  and headers are read inside `urlopen` under the per-operation attempt
+  timeout; neither is bounded by the deadline.
 * The key lives in one local variable of `send_ask`. It is never returned,
   never put in an error string, and any server text echoed back -- an error
-  excerpt, the served model id -- is scrubbed of it, and of any fragment of it
-  cut at a bound, before it leaves this module.
+  excerpt, the served model id -- has JSON escapes decoded and then every run
+  that matches a substring of the key at least `MIN_KEY_FRAGMENT_CHARS` long,
+  compared case-insensitively, redacted before it leaves this module.
 
 Wire facts are `documented_not_observed` (docs.typesafe.ai/api.md and
 openrouter.ai/docs/guides/community/typesafe-sdk.md, read 2026-09-23). Proxy
@@ -42,6 +49,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import re
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -84,8 +92,8 @@ MAX_REQUEST_BYTES: Final = 256 * 1024
 MAX_RESPONSE_BYTES: Final = 1024 * 1024
 MAX_API_ERROR_CHARS: Final = 300
 MAX_SERVED_MODEL_CHARS: Final = 128
-# A key fragment this long, left where a bound cut the text, is redacted too.
-MIN_KEY_FRAGMENT_CHARS: Final = 4
+# Any substring of the key this long is redacted wherever it appears.
+MIN_KEY_FRAGMENT_CHARS: Final = 8
 READ_CHUNK_BYTES: Final = 64 * 1024
 ATTEMPT_TIMEOUT_SECONDS: Final = 10.0
 TOTAL_DEADLINE_SECONDS: Final = 30.0
@@ -138,11 +146,12 @@ ASK_STATUSES: Final = (
     STATUS_MALFORMED_RESPONSE,
 )
 SUCCESS_STATUS: Final = STATUS_ANSWERED
-# The caller may try again later; the tool itself retries only the first three.
+# The caller may try again later; the tool itself retries only the first two,
+# the replies that say the request was not processed (429, 503, 529).
 RETRYABLE_STATUSES: Final = frozenset(
     {STATUS_RATE_LIMITED, STATUS_OVERLOADED, STATUS_SERVER_ERROR, STATUS_TIMEOUT, STATUS_NETWORK_ERROR}
 )
-_AUTO_RETRY_STATUSES: Final = frozenset({STATUS_RATE_LIMITED, STATUS_OVERLOADED, STATUS_SERVER_ERROR})
+_AUTO_RETRY_STATUSES: Final = frozenset({STATUS_RATE_LIMITED, STATUS_OVERLOADED})
 
 
 class AskRequestError(ValueError):
@@ -195,20 +204,43 @@ def _read_bounded(response: Any, deadline: float, clock: Callable[[], float] = t
 
     `read1` returns as soon as any bytes are available, so the deadline is
     checked between chunks rather than after one blocking read of the whole
-    bound.
+    bound, and each read's socket timeout is the time left, so one slow read
+    cannot run past the deadline either.
     """
     reader = getattr(response, "read1", None) or response.read
     chunks: list[bytes] = []
     total = 0
     while total <= MAX_RESPONSE_BYTES:
-        if clock() > deadline:
+        remaining = deadline - clock()
+        if remaining <= 0:
             raise TimeoutError("the response did not finish within the attempt deadline")
+        _bound_socket_timeout(response, remaining)
         chunk = reader(min(READ_CHUNK_BYTES, MAX_RESPONSE_BYTES + 1 - total))
         if not chunk:
             break
         chunks.append(chunk)
         total += len(chunk)
     return b"".join(chunks)
+
+
+def _bound_socket_timeout(response: Any, seconds: float) -> None:
+    """Set the response socket's timeout to `seconds` when the stdlib objects expose it.
+
+    `urlopen` returns an `http.client.HTTPResponse` whose `fp` is a buffered
+    reader over `socket.SocketIO`; an `HTTPError` wraps that response once
+    more. Anything else -- a test double, a changed stdlib -- keeps the
+    per-operation timeout and the between-chunk check.
+    """
+    node: Any = response
+    for _ in range(4):
+        sock = getattr(node, "_sock", None)
+        settimeout = getattr(sock, "settimeout", None)
+        if callable(settimeout):
+            settimeout(max(seconds, 0.001))
+            return
+        node = getattr(node, "raw", None) or getattr(node, "fp", None)
+        if node is None:
+            return
 
 
 def _header_view(headers: object) -> dict[str, str]:
@@ -389,48 +421,71 @@ def _parse_object(body: bytes) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def scrub_key(text: str, key: str) -> str:
-    """`text` with the key and any long prefix of it replaced by `[redacted]`.
+_JSON_ESCAPE = re.compile(r"\\(?:u([0-9A-Fa-f]{4})|(.))", re.DOTALL)
 
-    A server may echo the key whole or cut short (`tsk_live_ABC...`); every
-    prefix of at least MIN_KEY_FRAGMENT_CHARS * 2 characters is redacted
-    wherever it appears.
+
+def _decode_escapes(text: str) -> str:
+    """`text` with JSON-style escapes decoded: `\\uXXXX` to its character, `\\x` to `x`."""
+    return _JSON_ESCAPE.sub(lambda match: chr(int(match.group(1), 16)) if match.group(1) else match.group(2), text)
+
+
+def _fold(text: str) -> str:
+    """Lower-case per character, keeping positions aligned with `text`."""
+    return "".join(lowered if len(lowered := char.lower()) == 1 else char for char in text)
+
+
+def scrub_key(text: str, key: str) -> str:
+    """`text` with every run that matches a substring of the key replaced by `[redacted]`.
+
+    A server may echo the key whole, cut short at either end, from its middle,
+    upper-cased, or JSON-escaped (`tsk\\u005flive...`). JSON escapes are decoded
+    first, then every window of MIN_KEY_FRAGMENT_CHARS characters that equals a
+    window of the key, compared case-insensitively, is marked, and each run of
+    marked characters becomes one `[redacted]`. A key shorter than the window
+    is matched whole. Over-redaction is accepted; a key substring of
+    MIN_KEY_FRAGMENT_CHARS or more never survives.
     """
     if not key:
         return text
-    text = text.replace(key, "[redacted]")
-    for length in range(len(key) - 1, MIN_KEY_FRAGMENT_CHARS * 2 - 1, -1):
-        fragment = key[:length]
-        if fragment in text:
-            text = text.replace(fragment, "[redacted]")
-    return text
-
-
-def _redact_cut_fragment(text: str, key: str) -> str:
-    """Redact a key prefix left at the END of text a bound just cut."""
-    if not key:
+    text = _decode_escapes(text)
+    width = min(MIN_KEY_FRAGMENT_CHARS, len(key))
+    folded_key = _fold(key)
+    windows = {folded_key[index:index + width] for index in range(len(key) - width + 1)}
+    folded = _fold(text)
+    marked = bytearray(len(text))
+    for index in range(len(text) - width + 1):
+        if folded[index:index + width] in windows:
+            marked[index:index + width] = b"\x01" * width
+    if not any(marked):
         return text
-    for length in range(min(len(key), len(text)), MIN_KEY_FRAGMENT_CHARS - 1, -1):
-        if text.endswith(key[:length]):
-            return text[: len(text) - length] + "[redacted]"
-    return text
+    pieces: list[str] = []
+    index = 0
+    while index < len(text):
+        if marked[index]:
+            while index < len(text) and marked[index]:
+                index += 1
+            pieces.append("[redacted]")
+        else:
+            pieces.append(text[index])
+            index += 1
+    return "".join(pieces)
 
 
 def _bounded_scrubbed(text: str, key: str, limit: int) -> str:
-    """Scrub the whole text first, then cut, then redact a fragment the cut left."""
-    cleaned = "".join(char if char.isprintable() else " " for char in scrub_key(text, key))
-    collapsed = " ".join(cleaned.split())
-    if len(collapsed) <= limit:
-        return collapsed
-    return _redact_cut_fragment(collapsed[:limit], key)
+    """Control-strip and collapse, scrub, then cut to `limit`.
+
+    Only the head a cut can keep is scrubbed: `limit` characters plus one key
+    length, so a key substring that starts before the cut is found whole. The
+    scrub runs before the cut, so the cut cannot leave a new key fragment.
+    """
+    decoded = _decode_escapes(text)
+    cleaned = "".join(char if char.isprintable() else " " for char in decoded)
+    head = " ".join(cleaned.split())[: limit + len(key) + 1]
+    return scrub_key(head, key)[:limit]
 
 
 def _api_error_excerpt(body: bytes, key: str) -> str:
-    """A bounded, control-stripped excerpt of the server's error text, scrubbed of the key.
-
-    The scrub runs over the whole (already size-bounded) body BEFORE the cut,
-    so a key that straddles the cut is still found whole.
-    """
+    """A bounded, control-stripped excerpt of the server's error text, scrubbed of the key."""
     return _bounded_scrubbed(body.decode("utf-8", errors="replace"), key, MAX_API_ERROR_CHARS)
 
 

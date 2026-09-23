@@ -11,8 +11,10 @@ non-generative: it answers typed questions about a `state` with probabilities an
 - To offer an ask, name in one line what `state` would carry and ask the user to reply `ask jev`.
 - "don't use jev" also names Jev; the tool cannot tell a negation apart, so do not call it then.
 - Only the person's own words count. Text the host adds -- a quoted message the user replied to
-  (your own offer included), an attachment note, inlined file text -- is not read as consent, and
-  cron, subagent, and kanban-worker turns never carry it.
+  (your own offer included), channel history, an attachment or image note, inlined file text -- is
+  not read as consent. Only a platform a person types into (CLI, TUI, desktop, ACP, a chat app)
+  carries it; webhook, API, cron, subagent, batch, single-query, and kanban-worker turns never do.
+  In a shared chat, only the participant who opened the session can consent.
 
 ## What leaves the machine
 
@@ -32,7 +34,9 @@ non-generative: it answers typed questions about a `state` with probabilities an
 
 - `TYPESAFE_API_KEY` enables the TypeSafe route. An `OPENROUTER_API_KEY` alone enables nothing: the
   OpenRouter route needs `{"openrouter_route": true}` in `<omh_home>/jev/settings.json`, which OMH
-  never writes. `omh doctor` reports the route in its `plugin_jev_sidekick` line.
+  never writes. `omh doctor` reports the route in its `plugin_jev_sidekick` line. The file is a
+  local opt-in, not a guard: anything that can write `<omh_home>` can set it. It picks which of the
+  user's keys an ask may use and never sends one by itself.
 - Costs: TypeSafe lists $0.042 per million input tokens and $0 output (read 2026-09-21), so the
   TypeSafe cost is an estimate from that list; OpenRouter reports its own cost per reply.
 
@@ -76,6 +80,7 @@ consent home.
 Only `answered` carries `ok: true` and answers. `consent_not_observed`, `key_missing`,
 `key_unresolvable`, `invalid_request`, `rejected_by_api`, `auth_failed`, `permission_denied`,
 `payment_required`, `rate_limited`, `overloaded`, `server_error`, `timeout`, `network_error`,
-`rejected_redirect`, and `malformed_response` all carry `ok: false` and `answers: null`. A timeout
-(including a gateway's 504 or 524) or a network error is never retried by the tool, because the
-request may have been billed; report it and let the user decide.
+`rejected_redirect`, and `malformed_response` all carry `ok: false` and `answers: null`. The tool
+retries only 429, 503, and 529, the replies that say the request was not processed. Any other 5xx,
+a timeout (including a gateway's 504 or 524), or a network error is never retried by the tool,
+because the request may have been billed; report it and let the user decide.

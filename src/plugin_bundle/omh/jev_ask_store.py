@@ -8,7 +8,11 @@ Three things live here, all local:
   send OMH's questions through it, and treating it as one would make every
   OpenRouter user a Jev user. The same file is the home for the route-question
   answerer opt-in proposed in #1816, so one Jev egress has one consent file.
-  OMH never writes it.
+  OMH never writes it. It is a local-trust opt-in, not a control against the
+  host model: anything with write access to `<omh_home>` -- the operator, and
+  a model with a file tool -- can write it. It chooses which of the person's
+  own keys an ask may use; it cannot send an ask, which still needs this
+  turn's consent (`jev_consent`).
 * Route availability. The key VALUE is read only at call time, through the
   host's profile-scoped reader (`agent.secret_scope.get_secret`) when Hermes
   is present and `os.environ` only when that import does not exist. A host
@@ -17,8 +21,10 @@ Three things live here, all local:
 * The ask ledger `<omh_home>/jev/asks.jsonl`: one metadata-only line per
   attempted ask, every status included. It carries hashes, counts, statuses,
   usage, and cost, and never the key, `state`, question text, or the reply.
-  `omh_route_answer` reads it to confirm an `omh_jev_ask` provenance claim,
-  and `omh doctor` reads it for the last status.
+  `omh doctor` reads it for the last status. It is a record, not evidence:
+  a model with a file tool can append a row, so `omh_route_answer` confirms
+  an `omh_jev_ask` provenance claim against `answered_ask` -- the asks this
+  process itself answered -- and never against the file.
 
 Stdlib and intra-bundle imports only.
 """
@@ -27,6 +33,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+from collections import OrderedDict
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final
@@ -42,6 +50,11 @@ MAX_SETTINGS_BYTES: Final = 4096
 MAX_LEDGER_BYTES: Final = 512 * 1024
 MAX_LEDGER_LINES: Final = 512
 _LEDGER_LOCK_SECONDS: Final = 2.0
+MAX_REMEMBERED_ASKS: Final = 256
+
+_answered_lock = threading.Lock()
+# ask_id -> the ledger record of an ask this process sent and Jev answered.
+_answered_asks: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
 
 ROUTE_TYPESAFE: Final = "typesafe"
 ROUTE_OPENROUTER: Final = "openrouter"
@@ -182,15 +195,37 @@ def read_ledger_records(omh_home: Path) -> list[dict[str, Any]]:
     return records
 
 
-def find_answered_ask(omh_home: Path, ask_id: str) -> dict[str, Any] | None:
-    """The ledger record for `ask_id` when its status is `answered`, else None."""
+def remember_answered_ask(record: Mapping[str, Any]) -> None:
+    """Keep an answered ask's record in this process; only `omh_jev_ask` calls this."""
+    ask_id = str(record.get("ask_id") or "")
+    if not ask_id or record.get("status") != "answered":
+        return
+    with _answered_lock:
+        _ = _answered_asks.pop(ask_id, None)
+        _answered_asks[ask_id] = dict(record)
+        while len(_answered_asks) > MAX_REMEMBERED_ASKS:
+            _ = _answered_asks.popitem(last=False)
+
+
+def answered_ask(ask_id: str) -> dict[str, Any] | None:
+    """The record of an ask THIS process sent and Jev answered, else None.
+
+    Process-local on purpose: the ledger file is writable by anything with
+    access to `<omh_home>`, so a row there proves nothing. A restart forgets
+    every ask, which can only refuse a claim.
+    """
     wanted = str(ask_id or "").strip()
     if not wanted:
         return None
-    for record in reversed(read_ledger_records(omh_home)):
-        if record.get("ask_id") == wanted:
-            return record if record.get("status") == "answered" else None
-    return None
+    with _answered_lock:
+        record = _answered_asks.get(wanted)
+        return dict(record) if record is not None else None
+
+
+def forget_answered_asks() -> None:
+    """Test seam: forget every answered ask."""
+    with _answered_lock:
+        _answered_asks.clear()
 
 
 def ledger_summary(omh_home: Path) -> dict[str, Any]:
@@ -221,13 +256,15 @@ __all__ = [
     "ROUTE_NONE",
     "ROUTE_OPENROUTER",
     "ROUTE_TYPESAFE",
+    "answered_ask",
     "append_ledger_record",
-    "find_answered_ask",
+    "forget_answered_asks",
     "ledger_path",
     "ledger_summary",
     "openrouter_route_enabled",
     "read_key",
     "read_ledger_records",
+    "remember_answered_ask",
     "resolve_route",
     "route_available",
     "route_available_by_names",

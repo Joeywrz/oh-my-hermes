@@ -2752,10 +2752,12 @@ in `src/`: `plugin_bundle/omh/jev_ask_client.py` POSTs typed questions to Jev
 over one of two fixed HTTPS hosts (`api.typesafe.ai` with `TYPESAFE_API_KEY`,
 or `openrouter.ai` only when the operator also set `openrouter_route` in
 `<omh_home>/jev/settings.json`), refuses every redirect, bounds both bodies and
-the whole call by a deadline, and never retries a timeout. It opens no socket
-unless the person's own message for that turn names Jev: `pre_llm_call` records
-a per-turn consent marker (`jev_consent.py`), cron, subagent, and kanban-worker
-turns never carry one, and host-added quoted or inlined text is not read. INVARIANT 2
+the whole call by a deadline, and retries only 429, 503, and 529. It opens no
+socket unless the person's own message for that turn names Jev: `pre_llm_call`
+records a consent marker bound to the turn's id (`jev_consent.py`), only an
+allowlisted attended platform can set it, a shared chat's other participants
+cannot, and host-added quoted, backfilled, described, or inlined text is not
+read. INVARIANT 2
 in `tests/test_handoff_safety_contract_enforcement.py` pins the exception to
 that one file through `NETWORK_CLIENT_BRIDGES`, fails on a stale entry, and
 fails when any module other than the tool imports the bridge. The coding

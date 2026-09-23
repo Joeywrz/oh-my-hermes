@@ -71,6 +71,7 @@ from ..jev_ask_store import (
     KeyUnresolvable,
     append_ledger_record,
     read_key,
+    remember_answered_ask,
     resolve_route,
 )
 from ..jev_consent import consent_observed
@@ -391,7 +392,12 @@ class _Ask:
                 answers=result["answers"],
                 context={"attempts_so_far": self.attempts_so_far},
             )
-        result["ledger"] = "written" if append_ledger_record(self.home, self._ledger_record(result)) else "unavailable"
+        record = self._ledger_record(result)
+        if answered:
+            # What `omh_route_answer` checks a provenance claim against; the
+            # ledger file is not, since anything with a file tool can write it.
+            remember_answered_ask(record)
+        result["ledger"] = "written" if append_ledger_record(self.home, record) else "unavailable"
         return result
 
     def _ledger_record(self, result: Mapping[str, Any]) -> dict[str, Any]:

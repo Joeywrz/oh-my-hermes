@@ -11,6 +11,7 @@ from typing import Protocol, TypeGuard, runtime_checkable
 from ..degradation import runtime_binding_degradation
 from ..approval_bypass import record_approval_bypass
 from ..host_observation import observe_plugin_hook_call
+from ..jev_consent import arm_tool_call as arm_jev_tool_call
 from ..omh_roles import extract_role_marker, resolve_role_name, role_aliases, role_names
 from ..plan_stage_gate import plan_stage_edit_directive
 from ..tool_bursts import (
@@ -115,6 +116,11 @@ def _rule_directive_or_recorded_fault(
 
 def pre_tool_call(**kwargs: object) -> dict[str, object] | None:
     """Return only host-supported pre-tool directives or role warnings."""
+    if str(kwargs.get("tool_name", "") or "") == "omh_jev_ask":
+        # First, before any early return: the call carries the turn it runs
+        # in, and `omh_jev_ask` proceeds only when that is the turn whose own
+        # request asked for Jev (`jev_consent`).
+        arm_jev_tool_call(kwargs.get("session_id"), kwargs.get("turn_id"))
     try:
         omh_home = str(runtime_paths.plugin_home(kwargs.get("omh_home")))
         # Bound the same way as always; kept now because the plan-stage gate

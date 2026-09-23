@@ -416,13 +416,18 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     # exactly the turn on which those matter.
     request_message = "" if host_synthesized_turn(turn_display_kind) else user_message
     # `omh_jev_ask` sends data off the machine only when THIS turn's own
-    # request names Jev. A notice, a tracker event, a delegated child, and a
-    # cron or subagent turn record "not requested" (`jev_consent`).
+    # request names Jev. A notice, a tracker event, a delegated child, a turn
+    # on a platform nobody types into, and another participant of a shared
+    # session record "not requested"; the marker is bound to this turn's id
+    # (`jev_consent`).
     note_jev_turn(
         session_id,
         request_message,
         delegated=session_is_delegated(session_id, omh_home=omh_home),
         platform=kwargs.get("platform"),
+        turn_id=kwargs.get("turn_id"),
+        sender_id=kwargs.get("sender_id"),
+        is_first_turn=is_first_turn,
     )
     message_matches_awareness = False
     degraded: list[tuple[str, str]] = []

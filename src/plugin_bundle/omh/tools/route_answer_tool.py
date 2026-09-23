@@ -12,7 +12,7 @@ from ..host_observation import (
     host_session_id,
     observe_plugin_tool_call,
 )
-from ..jev_ask_store import find_answered_ask
+from ..jev_ask_store import answered_ask
 from ..route_answer_store import (
     ANSWERED_BY_OMH_JEV_ASK,
     ANSWERED_BY_VALUES,
@@ -58,8 +58,8 @@ OMH_ROUTE_ANSWER_SCHEMA = {
                     "produced it and OMH is recording a number it did not observe; OMH never "
                     "calls such a plugin. omh_jev_ask means OMH's own omh_jev_ask call answered "
                     "it: pass that call's ask_id and Jev's route_choice, probabilities, and fits as "
-                    "returned; the record is refused unless the ask's ledger row is answered, "
-                    "from this session, for this question_digest, with that same Choice."
+                    "returned; refused unless this OMH process sent and Jev answered that ask, in "
+                    "this session, for this question_digest, with that same Choice."
                 ),
             },
             "route_choice": {
@@ -216,19 +216,21 @@ _PROBABILITY_TOLERANCE = 1e-9
 
 
 def _omh_jev_ask_claim_refusal(args: dict[str, Any], session_ref: str) -> str:
-    """Why an `answered_by: omh_jev_ask` record is refused, or "" when the ledger backs it.
+    """Why an `answered_by: omh_jev_ask` record is refused, or "" when an answered ask backs it.
 
-    The ledger row of an answered route-question ask records the Choice Jev
-    made and its probabilities. The claim must name that same ask, from this
-    same session, for this same digest, and repeat Jev's Choice and any
-    probability it supplies. Otherwise the model could file its own numbers
-    under Jev's provenance.
+    The record of a route-question ask this process sent and Jev answered
+    holds the Choice Jev made and its probabilities (`answered_ask`). The
+    claim must name that same ask, from this same session, for this same
+    digest, and repeat Jev's Choice and any probability it supplies.
+    Otherwise the model could file its own numbers under Jev's provenance.
+    The ledger file is not consulted: a model with a file tool can append a
+    row to it.
     """
-    ask = find_answered_ask(default_omh_home(), str(args.get("ask_id") or ""))
+    ask = answered_ask(str(args.get("ask_id") or ""))
     if ask is None:
         return (
-            "answered_by omh_jev_ask needs the ask_id of an answered omh_jev_ask call; none is in the "
-            "ledger, so nothing was recorded"
+            "answered_by omh_jev_ask needs the ask_id of an omh_jev_ask call this process sent and Jev "
+            "answered; there is none, so nothing was recorded"
         )
     if str(ask.get("question_digest") or "") != str(args.get("question_digest") or "").strip():
         return "that ask answered a different question_digest; nothing was recorded"

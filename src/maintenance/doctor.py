@@ -89,7 +89,7 @@ _JEV_NEXT_ACTION_OPENING = (
 # declares has a specific clause here, so the fallback stays unreached.
 _JEV_UNREAD_DECLARATION_NOTES = {
     "name": "declares a name in a form OMH does not read, so it was not classified by name at all",
-    "provides_tools": "declares tools in a form OMH does not read, so its jev_ tools are not established",
+    "provides_tools": "declares tools in a form OMH does not read, so its Jev-class tools are not established",
     "provides_hooks": (
         "declares hooks in a form OMH does not read, so its hook overlap with the OMH bridge is not established"
     ),
@@ -1007,7 +1007,7 @@ def _jev_plugin_note(entry: dict[str, object]) -> str:
     borrowing another record's disclosure.
     """
     state = _jev_enablement_label(entry)
-    tools = ", ".join(str(tool) for tool in entry.get("jev_tools", [])) or "no jev_ tool"
+    tools = ", ".join(str(tool) for tool in entry.get("jev_tools", [])) or "no Jev-class tool"
     parts = [f"{entry.get('name', '')} ({state}) declares {tools}"]
     hooks = [str(hook) for hook in entry.get("declares_hooks", [])]
     if hooks:

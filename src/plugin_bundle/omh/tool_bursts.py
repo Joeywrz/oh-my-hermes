@@ -82,7 +82,7 @@ from typing import Any
 # Reuse the awareness ledger's portable lock and atomic-write primitives so
 # there is exactly one file-locking implementation in the plugin.
 from .awareness_delivery import _awareness_delivery_lock, _write_delivery_record
-from .jev_sidekick import JEV_TOOL_PREFIX
+from .jev_sidekick import is_jev_tool_name
 
 TOOL_BURSTS_SCHEMA_VERSION = "omh_tool_bursts/v1"
 
@@ -92,9 +92,11 @@ TOOL_BURSTS_SCHEMA_VERSION = "omh_tool_bursts/v1"
 # "never" -- a reader cannot tell that from a plugin that stopped being used.
 # The scalar is the same shape `post_tool_call_observed_at` uses for the same
 # reason. A TIMESTAMP only: no tool name, no arguments, no session. That this
-# install has seen SOME `jev_`-prefixed tool run is the whole of the fact the
+# install has seen SOME Jev-class tool run is the whole of the fact the
 # answerer ladder needs, and it is the most that can be recorded without
 # turning a burst ledger into a record of what a third-party plugin was asked.
+# "Jev-class" is `is_jev_tool_name`: the `jev_` prefix, or an exact tool name a
+# renamed lineage's catalog entry declares (`nerve_decide`, not `nerve_*`).
 JEV_TOOL_OBSERVED_KEY = "jev_tool_observed_at"
 TOOL_ACTIVITY_SCHEMA_VERSION = "omh_tool_activity/v1"
 TOOL_BURSTS_FILE = "tool-bursts.json"
@@ -1144,7 +1146,7 @@ def record_tool_call(
             # only for a call that reached dispatch -- a call the gate above
             # refused never ran and must not be recorded as one that did.
             jev_observed_at = record["jev_tool_observed_at"]
-            if name.startswith(JEV_TOOL_PREFIX):
+            if is_jev_tool_name(name):
                 jev_observed_at = max(tick, jev_observed_at)
             if call_id:
                 open_calls[call_id] = {
@@ -1882,7 +1884,7 @@ def _read_snapshot(omh_home: str, *, now: float) -> dict[str, Any]:
 
 
 def jev_tool_observed_at(omh_home: str = "") -> float:
-    """When this install last dispatched a `jev_`-prefixed tool call, or 0.0.
+    """When this install last dispatched a Jev-class tool call, or 0.0.
 
     Durable: the value survives the entry ring's 200-call window, so a reader
     is told "this machine has seen one" rather than "one happened recently".

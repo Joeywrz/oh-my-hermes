@@ -4,6 +4,24 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The Jev plugin posture follows the `hermes-jev` rename to `nerve`, and
+  knows `jev-curator`.** An open upstream catalog change (hermes-agent #119045,
+  read at its head on 2026-09-23, not merged) renames the community plugin
+  `hermes-jev` to `nerve` and its `jev_*` tools to `nerve_*`. Once that lands,
+  neither signal OMH classified on would fire -- the name was not in the table
+  and the tools no longer carry the `jev_` prefix -- so `plugin_jev_sidekick`
+  would report the plugin absent and the `jev_plugin` answerer rung would
+  disappear from route questions. `nerve` is now a known record, labelled as
+  read from the open PR, and its `nerve_` prefix counts as Jev-class for that
+  name alone; another plugin's `nerve_` tool does not classify that plugin. The observed
+  tier, which sees a dispatched tool name without its plugin, counts only the
+  exact `nerve_` names the entry declares. `hermes-jev` stays known for
+  machines that have not updated. `jev-curator` (plugin-catalog, added
+  2026-09-21) now reports `known: true` with its catalog disclosure instead of
+  `known: false`. The routing-questions benchmark README says how an operator
+  drives an installed Jev plugin over the exported corpus to produce an
+  external arm; OMH still never calls one.
+
 - **Claude Opus 5.5 and GPT-6 Luna take their predecessors' shipped slots.**
   `claude-opus-5-5` replaces `claude-opus-5` in `unspecified-high`,
   `unspecified-low`, `capable`, the `main` role suggestion, and the shared

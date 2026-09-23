@@ -539,6 +539,17 @@ class RoutingQuestionLaneContractTests(unittest.TestCase):
         self.assertIn("not_live_joinable", readme)
         self.assertIn("message_sha256", readme)
 
+    def test_the_jev_arm_recipe_is_operator_run_and_hides_the_answer_key(self) -> None:
+        # A decision-plugin arm is driven by the operator over the exported
+        # corpus. The recipe must say OMH does not call the plugin, and must
+        # keep the fields that hold the answer away from the tool answering.
+        readme = (LANE / "README.md").read_text(encoding="utf-8")
+        section = readme.split("## Producing an external arm", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("OMH never calls the plugin", section)
+        self.assertIn("never the item's `expected` or `deterministic` fields", section)
+        self.assertIn("`question.questions`", section)
+        self.assertIn("score --preflight", section)
+
     def test_the_lane_never_imports_the_package_it_measures(self) -> None:
         # The lane measures the installed product through its executable. An
         # `import omh` would silently measure the checkout it happens to sit in.

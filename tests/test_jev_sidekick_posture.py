@@ -39,6 +39,7 @@ from omh.plugin_bundle.omh.jev_sidekick import (  # noqa: E402
     JEV_TOOL_PREFIX,
     KNOWN_JEV_PLUGINS,
     classify_plugin,
+    is_jev_tool_name,
 )
 from omh.plugin_bundle.omh.metadata import PROVIDED_HOOKS  # noqa: E402
 from omh.plugin_bundle.omh.provider_detection import (  # noqa: E402
@@ -167,6 +168,62 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(record["read_from"], "")
         self.assertEqual(record["read_on"], "")
 
+    def test_the_renamed_nerve_lineage_classifies_on_its_own_prefix(self) -> None:
+        record = classify_plugin("nerve", ("nerve_decide", "nerve_work_status", "unrelated_tool"), ())
+
+        assert record is not None
+        self.assertTrue(record["known"])
+        self.assertEqual(record["repo"], "https://github.com/keeltrace/hermes-nerve")
+        self.assertEqual(record["jev_tools"], ["nerve_decide", "nerve_work_status"])
+        # #119045 is open: the provenance must say it is a PR head, not the
+        # catalog Hermes ships.
+        self.assertIn("open PR NousResearch/hermes-agent#119045", str(record["read_from"]))
+        self.assertIn("(not merged)", str(record["read_from"]))
+        self.assertEqual(record["read_on"], "2026-09-23")
+
+    def test_the_pre_rename_name_stays_known(self) -> None:
+        record = classify_plugin("hermes-jev", ("jev_decide",), ())
+
+        assert record is not None
+        self.assertTrue(record["known"])
+        self.assertEqual(record["jev_tools"], ["jev_decide"])
+
+    def test_a_nerve_tool_under_another_name_is_not_a_jev_signal(self) -> None:
+        # The lineage prefix is honored for the `nerve` name alone. Another
+        # plugin's `nerve_` tool, including one the Nerve entry declares, is
+        # not evidence of a Jev-class plugin.
+        self.assertIsNone(classify_plugin("brainstem", ("nerve_ping",), ()))
+        self.assertIsNone(classify_plugin("brainstem", ("nerve_decide",), ()))
+
+    def test_a_hermes_jev_directory_updated_in_place_keeps_its_nerve_tools(self) -> None:
+        # The repository rename redirects, so an existing `plugins/hermes-jev`
+        # checkout can be updated in place: the directory keeps the old name
+        # while its manifest declares `nerve_` tools. Those tools stay on the
+        # lineage's record instead of leaving the rung with an empty list.
+        record = classify_plugin("hermes-jev", ("nerve_decide", "unrelated_tool"), ())
+        assert record is not None
+        self.assertTrue(record["known"])
+        self.assertEqual(record["jev_tools"], ["nerve_decide"])
+
+    def test_is_jev_tool_name_takes_exact_lineage_names_and_no_bare_prefix(self) -> None:
+        self.assertTrue(is_jev_tool_name("jev_decide"))
+        self.assertTrue(is_jev_tool_name("jev_anything_new"))
+        self.assertTrue(is_jev_tool_name("nerve_decide"))
+        self.assertTrue(is_jev_tool_name("nerve_remote_worker_control"))
+        self.assertFalse(is_jev_tool_name("nerve_ping"))
+        self.assertFalse(is_jev_tool_name("nerve_"))
+        self.assertFalse(is_jev_tool_name("read_file"))
+
+    def test_jev_curator_is_known_with_its_catalog_quote(self) -> None:
+        record = classify_plugin("jev-curator", ("jev_skill_relations",), ("on_skill_lifecycle", "pre_tool_call"))
+
+        assert record is not None
+        self.assertTrue(record["known"])
+        self.assertEqual(record["repo"], "https://github.com/anpicasso/hermes-jev-curator")
+        self.assertIn("allow_content_egress", str(record["declared_disclosure"]))
+        self.assertEqual(record["read_from"], "hermes-agent plugin-catalog/jev-curator.yaml @ origin/main 38c289c014")
+        self.assertEqual(record["read_on"], "2026-09-23")
+
     def test_neither_signal_is_not_a_finding(self) -> None:
         self.assertIsNone(classify_plugin("herdr-agent-state", ("herdr_state",), ("on_session_start",)))
         self.assertIsNone(classify_plugin("jevons-paradox", (), ()))
@@ -182,15 +239,20 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(record["hook_overlap"], [shared])
         self.assertIn("a_hook_omh_does_not_register", record["declares_hooks"])
 
+    # The original transcription, and the 2026-09-23 refresh that added
+    # jev-curator and the nerve rename. A third date is a new read and names
+    # itself here.
+    READ_ON = (JEV_CATALOG_READ_ON, "2026-09-23")
+
     def test_every_record_carries_where_and_when_it_was_read(self) -> None:
         for record in KNOWN_JEV_PLUGINS:
             with self.subTest(plugin=record.name):
                 self.assertTrue(record.repo.startswith("https://github.com/"))
                 self.assertTrue(record.read_from.startswith("hermes-agent plugin-catalog/"))
                 self.assertIn(f"/{record.name}.yaml", record.read_from)
-                self.assertEqual(record.read_on, JEV_CATALOG_READ_ON)
+                self.assertIn(record.read_on, self.READ_ON)
                 for tool in record.declares_tools:
-                    self.assertTrue(tool.startswith(JEV_TOOL_PREFIX))
+                    self.assertTrue(tool.startswith((JEV_TOOL_PREFIX, record.lineage_tool_prefix or JEV_TOOL_PREFIX)))
                 if record.declared_disclosure:
                     self.assertTrue(record.declared_disclosure.startswith("Disclosure — "))
 
@@ -258,6 +320,50 @@ class CatalogTranscriptionTests(unittest.TestCase):
             "Disclosure — with the default settings (nervous_enabled / turn_admission on) each turn's user "
             "prompt (up to 12k characters) and redacted tool/result previews are sent to OpenRouter Decisions "
             "(TypeSafe Jev) using your OPENROUTER_API_KEY or TYPESAFE_API_KEY, spending your credits on every turn.",
+        ),
+        "nerve": (
+            "https://github.com/keeltrace/hermes-nerve",
+            (
+                "nerve_decide",
+                "nerve_rank",
+                "nerve_verify",
+                "nerve_assess",
+                "nerve_context_curate",
+                "nerve_context_rehydrate",
+                "nerve_stats",
+                "nerve_nervous_event",
+                "nerve_supervise_card",
+                "nerve_work_event",
+                "nerve_work_status",
+                "nerve_remote_delegate_task",
+                "nerve_remote_worker_status",
+                "nerve_remote_worker_result",
+                "nerve_remote_worker_cancel",
+                "nerve_remote_worker_control",
+            ),
+            (
+                "pre_tool_call",
+                "post_tool_call",
+                "pre_llm_call",
+                "transform_tool_result",
+                "pre_verify",
+                "post_api_request",
+                "api_request_error",
+                "post_llm_call",
+                "on_session_end",
+            ),
+            "Disclosure — the default Reflex backend is hosted Jev; when enabled it can send user prompts and "
+            "redacted tool/result previews to the configured Jev provider using the user's provider credentials. "
+            "Laya and OpenJev can be configured as local/self-hosted backends.",
+        ),
+        "jev-curator": (
+            "https://github.com/anpicasso/hermes-jev-curator",
+            ("jev_skill_relations",),
+            ("on_skill_lifecycle", "pre_tool_call"),
+            "Disclosure — no egress occurs by default; after allow_content_egress is explicitly enabled, "
+            "redacted bounded skill content is sent to the configured TypeSafe, OpenRouter, or custom Jev "
+            "endpoint and may spend provider credits. Automatic refreshes never apply mutations, and missing, "
+            "stale, or incomplete evidence fails closed.",
         ),
         "jev-approvals": (
             "https://github.com/anpicasso/hermes-jev-approvals",
@@ -340,6 +446,29 @@ class PostureTests(unittest.TestCase):
             self.assertEqual(entry["directory"], "local-checkout")
             self.assertFalse(entry["known"])
             self.assertEqual(entry["enablement"], ENABLEMENT_NOT_ENABLED)
+
+    def test_an_installed_nerve_reports_known_with_its_renamed_tools(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "nerve", "name: nerve\nprovides_tools:\n  - nerve_decide\n  - nerve_stats\n")
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+
+            self.assertEqual(posture["status"], "installed")
+            entry = posture["plugins"][0]
+            self.assertTrue(entry["known"])
+            self.assertEqual(entry["jev_tools"], ["nerve_decide", "nerve_stats"])
+            self.assertIn("hosted Jev", str(entry["declared_disclosure"]))
+
+    def test_an_unrelated_nerve_tool_plugin_is_not_reported(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "brainstem", "name: brainstem\nprovides_tools:\n  - nerve_ping\n")
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+
+            self.assertEqual(posture["status"], "absent")
+            self.assertEqual(posture["plugins"], [])
 
     def test_a_known_name_is_found_with_no_tools_declared(self) -> None:
         with TemporaryDirectory() as tmp:

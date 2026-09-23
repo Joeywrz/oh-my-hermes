@@ -10,9 +10,11 @@ The rungs, most specific first:
 
 * ``jev_plugin`` -- a Jev-class plugin is on this machine. It appears only
   when one was detected, and its ``status`` is the strongest tier OMH can
-  prove: ``installed`` (a manifest declares a ``jev_`` tool), ``enabled``
-  (Hermes' config also lists the plugin), ``observed`` (a ``jev_``-prefixed
-  tool call reached dispatch on this install at least once).
+  prove: ``installed`` (a manifest declares a Jev-class tool, or the plugin
+  is a known one), ``enabled`` (Hermes' config also lists the plugin),
+  ``observed`` (a Jev-class tool call reached dispatch on this install at
+  least once). Jev-class tools are ``jev_``-prefixed, plus the exact
+  ``nerve_`` names the renamed ``nerve`` lineage declares.
 * ``main_model`` -- the host model reading this payload. Always available,
   because a model that can read the question can answer it.
 * ``none`` -- leave the question unanswered. Always available, and it is not
@@ -34,7 +36,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .jev_sidekick import JEV_TOOL_PREFIX, classify_plugin
+from .jev_sidekick import classify_plugin
 from .runtime_reader import _yaml_list_values, installed_plugin_advertised_tools
 from .todo_store import strip_control_characters
 from .tool_bursts import jev_tool_observed_at
@@ -158,7 +160,7 @@ def _bounded_items(values: list[str]) -> list[str]:
 
 
 def _detected_jev_plugins(hermes_home: object) -> dict[str, list[str]]:
-    """Installed plugin directory name -> the `jev_` tools its manifest declares.
+    """Installed plugin directory name -> the Jev-class tools its manifest declares.
 
     The classifier decides what counts as Jev-class, so a known plugin under a
     name that declares no tool at all is detected too, and the tool-prefix
@@ -179,7 +181,7 @@ def _detected_jev_plugins(hermes_home: object) -> dict[str, list[str]]:
         record = classify_plugin(name, tools)
         if record is None:
             continue
-        detected[name] = [tool for tool in tools if tool.startswith(JEV_TOOL_PREFIX)]
+        detected[name] = [str(tool) for tool in record["jev_tools"]]
     return detected
 
 
@@ -245,7 +247,7 @@ def _plugins_block(config_text: str) -> str:
 
 
 def _jev_tool_observed(omh_home: object) -> bool:
-    """Whether this install has ever dispatched a `jev_`-prefixed tool call.
+    """Whether this install has ever dispatched a Jev-class tool call.
 
     The empty home is refused rather than passed down. `jev_tool_observed_at("")`
     falls back to the ambient `default_omh_home()`, so a caller that named a

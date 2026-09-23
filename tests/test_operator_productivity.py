@@ -152,7 +152,7 @@ class OperatorProductivityTests(unittest.TestCase):
             ("작업상황 브리핑해줘", "지금 상황", "관리자 관점"),
             ("무슨일이노", "지금 상황", "shell 명령"),
             ("status update please", "Progress, blockers, and throughput", "quality gates"),
-            ("今何してる？", "現在の状況", "workflow 状態"),
+            ("今何してる？", "現在の状況", "進行状況、ブロッカー"),
         )
         for message in cases:
             with self.subTest(message=message[0]):

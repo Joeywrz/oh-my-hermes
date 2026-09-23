@@ -6710,7 +6710,13 @@ def build_chat_response_from_route(
         )
     if action == "fallback" and _is_file_lookup_fallback(decision):
         copy = chat_copy("file_lookup", locale=copy_locale)
-        body = copy.body if localized_copy else str(decision.get("clarification") or copy.body)
+        # The card copy in every locale, not only the localized ones. The
+        # router's clarification for this fallback is a constant addressed to
+        # Hermes ("Answer this as a file or text lookup..."), so using it as the
+        # English body printed an instruction at the reader. It still reaches
+        # Hermes through `routing_instruction` and the route explanation, which
+        # is where an instruction belongs.
+        body = copy.body
         return _chat_response(
             kind="clarification",
             headline=copy.headline,
@@ -6732,7 +6738,9 @@ def build_chat_response_from_route(
         )
     if action == "fallback" and _is_direct_answer_fallback(decision):
         copy = chat_copy("direct_answer", locale=copy_locale)
-        body = copy.body if localized_copy else str(decision.get("clarification") or copy.body)
+        # Same as the file-lookup fallback above: this decision's clarification
+        # is a constant instruction to Hermes, not a sentence for the reader.
+        body = copy.body
         return _chat_response(
             kind="clarification",
             headline=copy.headline,

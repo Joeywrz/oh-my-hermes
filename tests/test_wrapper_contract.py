@@ -3342,7 +3342,10 @@ class WrapperContractTests(unittest.TestCase):
                 if any("\uac00" <= char <= "\ud7a3" for char in message):
                     self.assertIn("파일/텍스트 확인", response["body"])
                 else:
-                    self.assertIn("file or text lookup", response["body"])
+                    self.assertIn("straight from the file or text in the request", response["body"])
+                # The Hermes-facing instruction keeps its own field; the body is
+                # the card copy in every locale.
+                self.assertNotIn("Answer this as a file or text lookup", response["body"])
                 self.assertIn("file or text lookup", response["state"]["routing_instruction"])
                 self.assertEqual(response["state"]["lookup_kind"], "file_or_text")
                 explanation = response["state"]["workflow_explanation"]
@@ -3372,9 +3375,10 @@ class WrapperContractTests(unittest.TestCase):
                 self.assertEqual(payload["next_action"], "answer_directly")
                 response = payload["chat_response"]
                 self.assertEqual(response["kind"], "clarification")
-                self.assertEqual(response["plain_headline"], "This does not need an OMH workflow.")
+                self.assertEqual(response["plain_headline"], "This can be answered directly in the chat.")
                 self.assertEqual(response["state"]["lookup_kind"], "direct_answer")
-                self.assertIn("Answer directly in the current chat", response["body"])
+                self.assertIn("The answer stays in this chat", response["body"])
+                self.assertNotIn("Answer directly in the current chat", response["body"])
                 self.assertIn("No OMH workflow", response["claim_boundary"])
                 actions = {action["id"]: action for action in response["actions"]}
                 self.assertIn("answer:direct", actions)

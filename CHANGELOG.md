@@ -349,6 +349,37 @@ All notable changes will be documented here.
   `reply_lint/v1` payload carries its own claim boundary: a clean result is not
   evidence that the reply was correct or in the host's own voice.
 
+- **Wrapper cards now say what they hold and what they leave out, in the
+  reader's own words.** All 79 `ChatCopy` headline/body entries in the
+  localized card table are rewritten across their seven locales (en, ko, ja,
+  zh, es, fr, de): no first-person voice competing with the host's `SOUL.md`,
+  no OMH record vocabulary (`workflow`, `picker`, `handoff`, `lane`,
+  `wrapper`, `observed`, `prepared`), and each evidence limit stated as "this
+  shows X and does not show Y" instead of as a refusal to claim. The two cards
+  whose bodies were instructions addressed to Hermes rather than sentences for
+  the reader -- the file-or-text lookup and the direct answer -- now describe
+  what the card does and what the reader can supply, and both now reach an
+  English reader at all: their English body came from the router's constant
+  fallback clarification, so the sentence Discord and Slack printed was
+  "Answer this as a file or text lookup..." rather than any card copy. Those
+  two cards render their copy in every locale now, and the Hermes-facing
+  instruction keeps the `routing_instruction` and route-explanation fields it
+  already had. `card_copy_voice_violations` re-derives both rules from the
+  table itself, so a card added later is checked without anyone enrolling it:
+  run against the
+  table as it stood before this change it reports 173 violations spread over
+  all twelve cards and all seven locales, and none after. The first-person
+  half is a regression list rather than a grammar checker, and says so at the
+  list: four of the seven languages drop the subject pronoun, so what gives
+  the speaker away is a verb inflection, and no short list of inflections is
+  complete. Two headlines change on the wire and their pins move with them:
+  the direct-answer card reads "This can be answered directly in the chat."
+  and the research card "Source-backed research can ground this.".
+  Wrapper-facing text produced elsewhere -- the operating-brief cards and
+  inline headlines in `omh.wrapper.contract`, the session ladder in
+  `omh.wrapper.sessions` -- is outside this change and still carries the
+  shapes the new rule rejects.
+
 ## 2.0.5 - 2026-09-22
 
 - **The cut now asks for the site rebuild its own push cannot start.** A cut

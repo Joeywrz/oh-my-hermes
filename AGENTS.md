@@ -320,9 +320,12 @@ and defer to the two files above, which stay the single source of truth.
 
 ## Git And Commits
 
-Use executor-appropriate branch names. `codex/` is fine for Codex-authored work,
-but use neutral or matching prefixes such as `agent/`, `claude/`, or `hermes/`
-when Claude Code, Hermes, or a generic executor owns the coding work.
+Name a branch by the kind of change, not by the executor that makes it:
+`feature/<topic>` for a new or extended capability, `fix/<topic>` for a
+defect, and `omh/<topic>` for everything else (docs, release, maintenance,
+measurement). Codex, Claude Code, Hermes, and a generic executor all use the
+same three prefixes; `codex/`, `claude/`, `agent/`, and `hermes/` are no longer
+used for new branches. Branches that already exist keep their names.
 Before editing files for a coding task, create or switch to a dedicated
 task branch unless the current branch is already clearly dedicated to that exact
 user goal. Do this before the first implementation edit so the work does not mix

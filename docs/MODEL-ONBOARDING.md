@@ -20,7 +20,7 @@ bump is one goal even though it touches ~20 files; do not split it into
 "chains" and "docs" PRs. Measurement is the one valid second PR, because it
 needs a served route the first PR may not have.
 
-Branch before the first edit: `claude/<family>-<generation>-onboarding`.
+Branch before the first edit: `feature/<family>-<generation>-onboarding`.
 
 ## 1. Recognize
 

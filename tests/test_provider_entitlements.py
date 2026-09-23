@@ -73,6 +73,9 @@ class ParityTests(unittest.TestCase):
         "deepseek-v3.2": ("deepseek", "openrouter", "opencode"),
         "glm-5.2": ("zai", "openrouter", "opencode"),
         "glm-5.2-ultrafast": ("zai", "openrouter", "opencode"),
+        # Retired 2026-09-23 when Opus 5.5 and GPT-6 Luna took their slots.
+        "claude-opus-5": ("ccapi", "anthropic", "openrouter"),
+        "gpt-5.6-luna": ("openai-codex", "openai"),
     }
 
     def _catalog_families(self) -> dict[str, tuple[str, ...]]:

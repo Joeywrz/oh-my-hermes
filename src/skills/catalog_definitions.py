@@ -1101,8 +1101,9 @@ _DEFINITIONS = [
             "When the user names a model for this delegated run (for example \"opus로 돌려줘\", \"fable로 돌려줘\", "
             "\"use opus\"), pass it through `omh coding run`'s `--model` flag (or the unit's `model` field under "
             "`omh coding fanout dispatch`) using the executor's own accepted identifier -- codex and claude-code "
-            "both take `--model`, so an alias like `opus` or a full id like `claude-opus-5` reaches the CLI "
-            "unmodified.",
+            "both take `--model`, so an alias like `opus` or a full id like `claude-opus-5-5` reaches the CLI "
+            "unmodified; Claude Code's `opus` alias tracks the provider's recommended Opus (Opus 5.5 needs Claude "
+            "Code v2.1.280 or later; on Microsoft Foundry it resolves to Opus 4.6).",
             "That named model is handed to the executor verbatim, unvalidated; an unknown or unentitled value "
             "surfaces as the executor's own observed exit failure, never a silent fallback to the dispatch-model "
             "preference or the executor's own default.",
@@ -6644,8 +6645,8 @@ _DEFINITIONS = [
             "tracked gap, not an error.",
             "Research official docs first — release notes, thinking/tool-calling contract, context and "
             "output limits, pricing, speed tiers — then how other open-source harnesses handle the model. "
-            "Label every finding official or community and keep the source; a community claim never "
-            "overrides an official contract.",
+            "Label every finding official, official-client (the vendor's own client source), observed, or "
+            "community and keep the source; on conflict the earlier label wins.",
             "Author calibration as trait-to-counter: name the model's documented or observed behavior, then "
             "state the concrete counter-behavior, version-aware where generations differ. Do not restate "
             "universal protocol rules inside a family entry.",
@@ -6653,7 +6654,8 @@ _DEFINITIONS = [
             "weights served faster and projects onto its base model; a separately trained sibling is its "
             "own chain entry. Place routing through config surfaces first (omh model-chains set, omh coding "
             "category-maestro set); shipped editorial defaults change only as a repo change with explicit "
-            "owner approval, and existing entries stay as fall-through unless the owner says replace.",
+            "owner approval; a superseded generation leaves the shipped chains, and its retired alias stays "
+            "recognized and priced so a machine-level override still resolves.",
             "Record cost only from documented list pricing; a model or tier without a documented price gets "
             "no entry — absence renders no estimate, never a fabricated number.",
             "Close with measurement: a calibration ships measurable, and the baseline-vs-optimized benchmark "
@@ -6683,7 +6685,7 @@ _DEFINITIONS = [
         ),
         final_checklist=(
             "Recognition probe output exists for every new id, and the family label is the expected one.",
-            "Every research finding is labeled official or community with its source kept.",
+            "Every research finding is labeled official, official-client, observed, or community with its source kept.",
             "The calibration draft counters named traits and marks version-specific rules as such.",
             "Routing and pricing changes name their surface (operator config vs repo change) and their approval state.",
             "The measurement plan names the benchmark pair, or the recorded reason none can run, and the worse-measured-calibration rule is stated.",
@@ -7286,9 +7288,9 @@ _DEFINITIONS = [
         )
         + (
             "Treat each Hermes role slot (main, realtime-search, design), semantic category, and external owner as an independent prerequisite/diagnose/recommend/apply unit instead of one combined change.",
-            "Explain the shipped recommendations as editable editorial defaults, not benchmarks or allowlists: ultrabrain uses GPT-6 Astra; deep uses GPT-5.6 Terra then DeepSeek Flash (V4.1); architect prefers Claude Fable 5.1, GPT-6 Astra, then Kimi K3 at xhigh; unspecified-high prefers Kimi K3 then Claude Opus 5; unspecified-low prefers GLM-5.3, DeepSeek Flash (V4.1), then Claude Opus 5 at low; quick prefers GLM-5.3 Flash, Kimi K3, GPT-5.6 Luna, then Claude Fable 5.1 at low; writing prefers Kimi K3, Qwen3-Coder, then Gemini 3.1 Pro; visual-engineering prefers Claude Fable 5.1 then Kimi K3; artistry prefers Gemini 3.1 Pro, Claude Fable 5.1, then Kimi K3; capable prefers Claude Fable 5.1, Claude Opus 5, Kimi K3, then GLM-5.3 at medium; simple-work prefers GPT-5.6 Luna, DeepSeek Flash (V4.1), then Claude Haiku 4.5 at low; and deep-work uses GPT-6 Astra at high. Each chain names the current generation of a model line; a superseded generation (Fable 5, GLM 5.2, DeepSeek V3.2, GPT-5.6 Sol behind Astra) is kept only by a machine-level chain override. Chain customization is a config edit: a category written into ~/.omh/routing/model-chains.json (mixture_chain_overrides/v1, seeded by omh setup) replaces that chain for routing, fallback, and HUD labels without touching code. The interactive omh setup also records which providers the machine holds and whether it has a Claude Code subscription in ~/.omh/routing/providers.json (provider_entitlements/v1); every chain is then reordered so served entries lead, nothing is removed, and the Claude Code subscription only seeds the Maestro lane's --model preference because Hermes cannot spend it.",
+            "Explain the shipped recommendations as editable editorial defaults, not benchmarks or allowlists: ultrabrain uses GPT-6 Astra; deep uses GPT-5.6 Terra then DeepSeek Flash (V4.1); architect prefers Claude Fable 5.1, GPT-6 Astra, then Kimi K3 at xhigh; unspecified-high prefers Kimi K3 then Claude Opus 5.5; unspecified-low prefers GLM-5.3, DeepSeek Flash (V4.1), then Claude Opus 5.5 at low; quick prefers GLM-5.3 Flash, Kimi K3, GPT-6 Luna, then Claude Fable 5.1 at low; writing prefers Kimi K3, Qwen3-Coder, then Gemini 3.1 Pro; visual-engineering prefers Claude Fable 5.1 then Kimi K3; artistry prefers Gemini 3.1 Pro, Claude Fable 5.1, then Kimi K3; capable prefers Claude Fable 5.1, Claude Opus 5.5, Kimi K3, then GLM-5.3 at medium; simple-work prefers GPT-6 Luna, DeepSeek Flash (V4.1), then Claude Haiku 4.5 at low; and deep-work uses GPT-6 Astra at high. Each chain names the current generation of a model line; a superseded generation (Fable 5, Opus 5, GLM 5.2, DeepSeek V3.2, GPT-5.6 Luna, GPT-5.6 Sol behind Astra) is kept only by a machine-level chain override. Chain customization is a config edit: a category written into ~/.omh/routing/model-chains.json (mixture_chain_overrides/v1, seeded by omh setup) replaces that chain for routing, fallback, and HUD labels without touching code. The interactive omh setup also records which providers the machine holds and whether it has a Claude Code subscription in ~/.omh/routing/providers.json (provider_entitlements/v1); every chain is then reordered so served entries lead, nothing is removed, and the Claude Code subscription only seeds the Maestro lane's --model preference because Hermes cannot spend it.",
             "For X/Twitter scraping or trend analysis, keep x_platform_data as a domain affinity rather than a role alias: prefer confirmed-active Grok, then Kimi K3, then Gemini, without removing the rest of the route or overriding an explicit model.",
-            "When a recommendation head is missing, choose the first confirmed-active owner-compatible candidate in that chain. Only after every selected category, role-slot, and domain chain is exhausted, consult the shared final order Claude Opus 5 then GPT-5.6 Sol. If no candidate is confirmed active anywhere, keep the selector on its owner's native default model and let the rest of OMH setup finish without a model-config write.",
+            "When a recommendation head is missing, choose the first confirmed-active owner-compatible candidate in that chain. Only after every selected category, role-slot, and domain chain is exhausted, consult the shared final order Claude Opus 5.5 then GPT-5.6 Sol. If no candidate is confirmed active anywhere, keep the selector on its owner's native default model and let the rest of OMH setup finish without a model-config write.",
             "Give provider-specific native next actions without claiming provider readiness: use installed Hermes flows for OpenAI OAuth/OpenAI Codex, Anthropic or an existing Claude provider, Qwen OAuth or Alibaba, Gemini/Google/Vertex, Grok/xAI, Kimi, GLM/Z.AI, or an already-working custom provider; preserve working alternatives.",
             "Closing step: once model routing/chains are confirmed, ask once whether the user also wants to set up coding delegation (the maestro lane) for an external coding CLI -- do not ask before model setup is done and never auto-enable it. Point at `omh coding executor-skills --profile <profile>` for skill-set discovery, `~/.omh/routing/dispatch-models.json` for an optional per-owner model preference, and the `ulw-maestro` skill for the handoff itself; name Codex and Claude Code neutrally rather than favoring either.",
         ),

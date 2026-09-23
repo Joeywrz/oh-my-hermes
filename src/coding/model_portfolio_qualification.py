@@ -88,7 +88,7 @@ RECOMMENDATION_DECISIONS: Final[dict[str, tuple[str, ...]]] = {
         "categories:quick", "categories:visual-engineering", "role_suggestions:main",
     ),
     "claude-haiku-4-5": ("categories:simple-work",),
-    "claude-opus-5": (
+    "claude-opus-5-5": (
         "categories:capable", "categories:unspecified-high", "categories:unspecified-low",
         "last_resort:any", "role_suggestions:main",
     ),
@@ -96,12 +96,12 @@ RECOMMENDATION_DECISIONS: Final[dict[str, tuple[str, ...]]] = {
     "gemini-3.1-pro": ("categories:artistry", "categories:writing", "domain_affinities:x_platform_data"),
     "glm-5.3": ("categories:capable", "categories:unspecified-low"),
     "glm-5.3-flash": ("categories:quick",),
-    "gpt-5.6-luna": ("categories:quick", "categories:simple-work"),
     "gpt-5.6-sol": ("last_resort:any",),
     "gpt-5.6-terra": ("categories:deep", "role_suggestions:main"),
     "gpt-6-astra": (
         "categories:architect", "categories:deep-work", "categories:ultrabrain", "role_suggestions:main",
     ),
+    "gpt-6-luna": ("categories:quick", "categories:simple-work"),
     "grok-code-fast": ("domain_affinities:x_platform_data",),
     "kimi-k3": (
         "categories:architect", "categories:artistry", "categories:capable", "categories:quick",
@@ -110,23 +110,27 @@ RECOMMENDATION_DECISIONS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "qwen3-coder": ("categories:writing",),
 }
+# Each row carries its own decision date: retirements land one onboarding at
+# a time, so a shared date would misdate every row after the first round.
 RETIREMENT_DECISIONS: Final[dict[str, dict[str, object]]] = {
     model: {
         "disposition": "excluded_superseded",
         "successor": successor,
         "reason": f"Owner retired this generation from {scope}; successor is {successor}.",
         "scope": scope,
-        "decision_date": "2026-09-11",
+        "decision_date": decision_date,
         "evidence_state": "editorial_not_measured",
         "evidence_pointers": ["docs/MODEL-ONBOARDING.md#4-place-routing", "src/coding/model_recommendations.py"],
     }
-    for model, successor, scope in (
-        ("claude-fable-5", "claude-fable-5-1", "all_shipped_chains"),
-        ("glm-5.2", "glm-5.3", "all_shipped_chains"),
-        ("glm-5.2-ultrafast", "glm-5.3-flash", "all_shipped_chains"),
-        ("deepseek-v3.2", "deepseek-v4.1-flash", "all_shipped_chains"),
+    for model, successor, scope, decision_date in (
+        ("claude-fable-5", "claude-fable-5-1", "all_shipped_chains", "2026-09-11"),
+        ("glm-5.2", "glm-5.3", "all_shipped_chains", "2026-09-11"),
+        ("glm-5.2-ultrafast", "glm-5.3-flash", "all_shipped_chains", "2026-09-11"),
+        ("deepseek-v3.2", "deepseek-v4.1-flash", "all_shipped_chains", "2026-09-11"),
         # Sol remains the cheap GPT last resort: exclusion is slot-scoped.
-        ("gpt-5.6-sol", "gpt-6-astra", "frontier_slots"),
+        ("gpt-5.6-sol", "gpt-6-astra", "frontier_slots", "2026-09-11"),
+        ("claude-opus-5", "claude-opus-5-5", "all_shipped_chains", "2026-09-23"),
+        ("gpt-5.6-luna", "gpt-6-luna", "all_shipped_chains", "2026-09-23"),
     )
 }
 
@@ -142,6 +146,30 @@ def _served_aliases(canonical: str) -> list[str]:
         if canonical == exact or canonical in pointers:
             return sorted((exact, *pointers))
     return [canonical]
+
+
+def _superseded_by(canonical: str, inventory_ids: frozenset[str]) -> dict[str, object] | None:
+    """Advisory successor link, read from RETIREMENT_DECISIONS only.
+
+    No version string is parsed: an id without a recorded retirement has no
+    successor here, however its name compares with another id's. The link
+    never changes a disposition or the exit code; it names the successor so
+    a reader of the older row does not have to find it by hand.
+    `successor_in_inventory` matches the successor's unqualified id or a
+    declared served pointer of it; another spelling (a dotted gateway id)
+    does not count.
+    """
+    retirement = RETIREMENT_DECISIONS.get(canonical)
+    if not retirement:
+        return None
+    successor = str(retirement["successor"])
+    return {
+        "successor": successor,
+        "scope": retirement["scope"],
+        "decision_date": retirement["decision_date"],
+        "successor_in_inventory": any(alias in inventory_ids for alias in _served_aliases(successor)),
+        "advisory": True,
+    }
 
 
 def _calibration_resolution(model: str) -> dict[str, str]:
@@ -193,6 +221,7 @@ def _qualification_row(
     identities: Mapping[str, object],
     read_date: str | None,
     exclusions: Mapping[str, str],
+    inventory_ids: frozenset[str] = frozenset(),
 ) -> dict[str, object]:
     canonical = _canonical_id(model)
     family = model_family(model)
@@ -289,6 +318,7 @@ def _qualification_row(
         "reason": reason,
         "decision": decision or None,
         "retirement_decisions": [retirement] if retirement else [],
+        "superseded_by": _superseded_by(canonical, inventory_ids),
         "inventory_evidence": deepcopy(dict(identities)),
         "inventory_read_date": read_date,
         "model_version_boundary": {
@@ -333,7 +363,11 @@ def build_model_portfolio_qualification(
                 raise ValueError("conflicting intentional exclusion reasons")
             exclusions[key] = reason.strip()
     required = _normalized_refs(required_models)
-    rows = [_qualification_row(model, identities[model.casefold()], read_date, exclusions) for model in refs]
+    inventory_ids = frozenset(_canonical_id(model) for model in refs)
+    rows = [
+        _qualification_row(model, identities[model.casefold()], read_date, exclusions, inventory_ids)
+        for model in refs
+    ]
     by_id = {row["requested_model"].casefold(): row for row in rows}
     required_gaps = []
     for model in required:

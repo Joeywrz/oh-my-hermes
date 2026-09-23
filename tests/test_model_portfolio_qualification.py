@@ -14,9 +14,15 @@ load_local_package()
 
 from omh.coding.model_portfolio_qualification import (  # noqa: E402
     PORTFOLIO_DISPOSITIONS,
+    RETIREMENT_DECISIONS,
     build_model_portfolio_qualification,
 )
 from omh.coding.model_recommendations import SHIPPED_MODEL_RECOMMENDATIONS  # noqa: E402
+from omh.coding.model_routing import BUILTIN_CATEGORY_MODELS  # noqa: E402
+from omh.plugin_bundle.omh.hermes_delegation import APPROX_PRICE_PER_MTOK  # noqa: E402
+# A module binding, not the TestCase class: binding the class here would make
+# the loader collect and run its tests a second time from this module.
+import test_provider_entitlements as entitlement_tests  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures/model_portfolio_seed_inventory.json"
 SECTIONS = ("categories", "role_suggestions", "domain_affinities", "last_resort")
@@ -157,7 +163,7 @@ class PortfolioTests(unittest.TestCase):
             for dimension in ("quality", "tool_reliability", "latency"):
                 self.assertEqual(row["evidence"][dimension], {"state": "unmeasured", "evidence_pointers": []})
         retired = {row["canonical_model_id"] for row in rows if row["disposition"] == "excluded_superseded"}
-        self.assertEqual(retired, {"claude-fable-5", "glm-5.2"})
+        self.assertEqual(retired, {"claude-fable-5", "glm-5.2", "claude-opus-5", "gpt-5.6-luna"})
         # List-price multipliers alone cannot prove role-specific efficiency.
         tiers = [row for row in rows if row["canonical_model_id"].startswith("gpt-6-astra-")]
         self.assertTrue(tiers)
@@ -167,13 +173,19 @@ class PortfolioTests(unittest.TestCase):
             self.assertFalse(row["recommendation_eligibility"])
 
     def test_retirements_preserve_scoped_sol_last_resort(self):
-        successors = {"claude-fable-5": "claude-fable-5-1", "glm-5.2": "glm-5.3",
-                      "glm-5.2-ultrafast": "glm-5.3-flash", "deepseek-v3.2": "deepseek-v4.1-flash"}
+        successors = {
+            "claude-fable-5": ("claude-fable-5-1", "2026-09-11"),
+            "glm-5.2": ("glm-5.3", "2026-09-11"),
+            "glm-5.2-ultrafast": ("glm-5.3-flash", "2026-09-11"),
+            "deepseek-v3.2": ("deepseek-v4.1-flash", "2026-09-11"),
+            "claude-opus-5": ("claude-opus-5-5", "2026-09-23"),
+            "gpt-5.6-luna": ("gpt-6-luna", "2026-09-23"),
+        }
         rows = rows_for(*successors, "gpt-5.6-sol")
-        for model, successor in successors.items():
+        for model, (successor, decision_date) in successors.items():
             self.assertEqual(rows[model]["disposition"], "excluded_superseded")
             self.assertEqual(rows[model]["decision"]["successor"], successor)
-            self.assertEqual(rows[model]["decision"]["decision_date"], "2026-09-11")
+            self.assertEqual(rows[model]["decision"]["decision_date"], decision_date)
             self.assertEqual(rows[model]["decision"]["evidence_state"], "editorial_not_measured")
             self.assertTrue(rows[model]["decision"]["reason"])
             self.assertTrue(rows[model]["decision"]["evidence_pointers"])
@@ -182,6 +194,56 @@ class PortfolioTests(unittest.TestCase):
         self.assertEqual(sol["disposition"], "recommended")
         self.assertEqual(sol["retirement_decisions"][0]["successor"], "gpt-6-astra")
         self.assertEqual(sol["retirement_decisions"][0]["disposition"], "excluded_superseded")
+
+    def test_superseded_by_is_an_advisory_link_from_the_retirement_table(self):
+        report = build_model_portfolio_qualification(
+            {"models": ["anthropic/claude-opus-5", "claude-opus-5-5", "gpt-5.6-luna",
+                        "deepseek-v3.2", "deepseek-flash", "gpt-5.6-sol", "gpt-6-luna-9"]},
+            required_models=["claude-opus-5-5"],
+        )
+        rows = {row["requested_model"]: row for row in report["comparison"]["models"]}
+        self.assertEqual(rows["anthropic/claude-opus-5"]["superseded_by"], {
+            "successor": "claude-opus-5-5", "scope": "all_shipped_chains",
+            "decision_date": "2026-09-23", "successor_in_inventory": True, "advisory": True,
+        })
+        # Successor absent from this inventory: the link still names it.
+        self.assertEqual(rows["gpt-5.6-luna"]["superseded_by"]["successor"], "gpt-6-luna")
+        self.assertFalse(rows["gpt-5.6-luna"]["superseded_by"]["successor_in_inventory"])
+        # A declared served pointer of the successor counts as present.
+        self.assertTrue(rows["deepseek-v3.2"]["superseded_by"]["successor_in_inventory"])
+        # Slot-scoped retirement keeps its scope and its recommended standing.
+        self.assertEqual(rows["gpt-5.6-sol"]["superseded_by"]["scope"], "frontier_slots")
+        self.assertEqual(rows["gpt-5.6-sol"]["disposition"], "recommended")
+        # No version-string parsing: the successor and an id that merely
+        # sorts later carry no link of their own.
+        self.assertIsNone(rows["claude-opus-5-5"]["superseded_by"])
+        self.assertIsNone(rows["gpt-6-luna-9"]["superseded_by"])
+        # Advisory only: the link neither blocks the report nor fails the command.
+        self.assertFalse(report["blocking"])
+        status, _, _ = run_cli(
+            ["coding", "model-portfolio-qualification", "--inventory", "-", "--json"],
+            stdin_text='{"models":["claude-opus-5","claude-opus-5-5"]}',
+        )
+        self.assertEqual(status, 0)
+
+    def test_every_full_retiree_is_out_of_both_lanes_recognized_and_priced(self):
+        retirees = sorted(model for model, decision in RETIREMENT_DECISIONS.items()
+                          if decision["scope"] == "all_shipped_chains")
+        self.assertIn("claude-opus-5", retirees)
+        self.assertIn("gpt-5.6-luna", retirees)
+        hermes = {candidate["model_alias"].rsplit("/", 1)[-1].casefold()
+                  for section in SECTIONS for chain in SHIPPED_MODEL_RECOMMENDATIONS[section].values()
+                  for candidate in chain}
+        maestro = {entry["model_id"].rsplit("/", 1)[-1].casefold()
+                   for categories in BUILTIN_CATEGORY_MODELS.values()
+                   for chain in categories.values() for entry in chain}
+        recognition = entitlement_tests.ParityTests._RECOGNITION_ONLY_ALIAS_FAMILIES
+        for model in retirees:
+            with self.subTest(model=model):
+                self.assertNotIn(model, hermes, "retired id still in a Hermes-lane chain")
+                self.assertNotIn(model, maestro, "retired id still in a Maestro-lane chain")
+                self.assertIn(model, recognition, "retired id must stay recognition-only")
+                self.assertIn(model, APPROX_PRICE_PER_MTOK, "retired id must stay priced")
 
     def test_shipped_guard_and_negative_injection(self):
         assert_shipped_qualified(self, SHIPPED_MODEL_RECOMMENDATIONS)

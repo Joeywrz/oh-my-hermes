@@ -26,7 +26,14 @@ from __future__ import annotations
 import re
 from typing import Final, Iterable, Mapping
 
-from .model_contracts import EFFORT_FLOOR_KIND, contract_effort_floor, model_contract_projection
+from .model_contracts import (
+    EFFORT_FLOOR_KIND,
+    contract_documents_effort,
+    contract_effort_floor,
+    contract_model_id,
+    contract_surface_efforts,
+    model_contract_projection,
+)
 
 CODING_MODEL_ROUTE_SCHEMA_VERSION: Final[str] = "coding_model_route/v2"
 # The frozen v1 identifier: referenced only for reading persisted payloads.
@@ -93,12 +100,16 @@ EFFORT_CHANGE_KINDS: Final[tuple[str, ...]] = (
     "catalog_no_authority_passthrough",
     "unknown_vocabulary_passthrough",
     "rejected_unsafe_shape",
-    # The requested effort sits below an exact model's DOCUMENTED ladder
-    # (`src/coding/model_contracts.py`); it is raised to the documented floor
-    # and the record says so, so an unsupported rung never reaches a provider
-    # silently and never leaves the route effort-less on a model whose
-    # contract has no default.
+    # The requested effort is a rung an exact model's contract documents as
+    # unsupported (`src/coding/model_contracts.py`); it is raised to the
+    # documented floor or, when the floor is the no-reasoning rung `none`, to
+    # the lowest documented rung above the request, and the record says so,
+    # so an unsupported rung never reaches a provider silently and never
+    # leaves the route effort-less on a model whose contract has no default.
     EFFORT_FLOOR_KIND,
+    # OMH's canonical `off` sent as `none` to a model whose exact contract
+    # lists `none` as a rung of its own ladder (GPT-6 Luna).
+    "vendor_spelling",
 )
 
 # Canonical weakest-to-strongest reasoning vocabulary. Consumers may compare
@@ -123,7 +134,9 @@ CODING_MODEL_ROUTE_CLAIM_BOUNDARY: Final[str] = (
 
 # Built-in default candidates per dispatchable/prompt-handoff executor profile.
 # Claude Code accepts concrete model ids and stable tier aliases (`opus`
-# tracks the newest Opus); Codex takes vendor model ids. Both CLIs also accept
+# tracks the provider's recommended Opus: Opus 5.5 from Claude Code v2.1.280,
+# Opus 4.6 on Microsoft Foundry, per code.claude.com/docs/en/model-config);
+# Codex takes vendor model ids. Both CLIs also accept
 # ids this catalog has never heard of, so requested models always pass
 # through unvalidated — the catalog is a default candidate list, not an
 # allowlist. The Fable-tier rows are concrete ids on purpose: the CLI's
@@ -743,7 +756,7 @@ def resolve_model_route(
         return _resolve_hermes_recommendation_route(
             role=normalized_role,
             requested_model=model,
-            requested_effort="off" if effort == "none" else effort,
+            requested_effort=effort,
             requested_domain=domain,
             requested_depth=depth,
             requested_scale=scale,
@@ -874,7 +887,7 @@ def resolve_model_route(
             {"stage": "requested_model", "outcome": "selected", "reason": f"request names `{model}`"}
         )
         selected_effort, effort_change = _selected_effort(
-            options, effort, "", model, authoritative=effort_authoritative
+            options, effort, "", model, authoritative=effort_authoritative, profile=profile
         )
         return _route_payload(
             profile,
@@ -945,7 +958,7 @@ def resolve_model_route(
             )
             selected_effort, effort_change = _selected_effort(
                 options, effort, str(head.get("reasoning_effort", "") or ""), selected,
-                authoritative=effort_authoritative,
+                authoritative=effort_authoritative, profile=profile,
             )
             return _route_payload(
                 profile,
@@ -1091,6 +1104,11 @@ def _resolve_hermes_recommendation_route(
     """
     from .model_recommendations import resolve_model_recommendation
 
+    # A no-reasoning request is spelled `none` only on a model whose contract
+    # documents it, and the model is known only per branch below; every other
+    # use reads the canonical spelling.
+    raw_effort = requested_effort
+    requested_effort = "off" if raw_effort == "none" else raw_effort
     attempted: list[dict[str, str]] = []
     active = tuple(active_models)
     category = requested_category or _recommendation_category(role, requested_depth, requested_scale)
@@ -1137,6 +1155,7 @@ def _resolve_hermes_recommendation_route(
             payload["recommendation"] = explicit
             return payload
         selected = _recommendation_binding(explicit)
+        selected_effort, effort_change = _hermes_requested_effort(raw_effort, selected)
         attempted.append(
             {
                 "stage": "requested_model",
@@ -1150,7 +1169,8 @@ def _resolve_hermes_recommendation_route(
             provenance="request_named_model",
             role=role,
             selected_model=selected,
-            selected_reasoning_effort=requested_effort,
+            selected_reasoning_effort=selected_effort,
+            effort_change=effort_change,
             catalog_kind="editorial_recommendations",
             domain=requested_domain,
             depth=requested_depth,
@@ -1249,15 +1269,8 @@ def _resolve_hermes_recommendation_route(
         return payload
 
     selected = str(chain[0]["model_id"])
-    selected_effort = requested_effort or str(chain[0].get("reasoning_effort", ""))
-    effort_change: dict[str, str] | None = None
-    if requested_effort:
-        # Same contract rule as the catalog path: a requested rung the exact
-        # model documents as unsupported is raised to its floor, on record.
-        floor = contract_effort_floor(selected, requested_effort)
-        if floor is not None:
-            selected_effort, reason = floor
-            effort_change = _effort_change(requested_effort, selected_effort, EFFORT_FLOOR_KIND, reason)
+    selected_effort, effort_change = _hermes_requested_effort(raw_effort, selected)
+    selected_effort = selected_effort or str(chain[0].get("reasoning_effort", ""))
     last_resort = str(recommendation.get("source", "")) == "last_resort_chain"
     attempted.append(
         {
@@ -1294,6 +1307,41 @@ def _resolve_hermes_recommendation_route(
     )
     payload["recommendation"] = recommendation
     return payload
+
+
+def _hermes_requested_effort(raw_effort: str, model_id: str) -> tuple[str, dict[str, str] | None]:
+    """The Hermes lane's effort for a selected model, with its change record.
+
+    Same contract rule as the catalog path: a no-reasoning request takes the
+    model's documented spelling, and a rung the exact contract documents as
+    unsupported is raised on record. Any other change is left unrecorded, as
+    this lane always has.
+    """
+    effort = _requested_effort_spelling(raw_effort, model_id)
+    if not effort:
+        return "", None
+    floor = contract_effort_floor(model_id, effort)
+    if floor is not None:
+        rung, reason = floor
+        # The reason names the normalized spelling; the record keeps the raw
+        # request, so the reason names that too.
+        requested = str(raw_effort or "").strip().casefold()
+        if requested and requested != effort:
+            reason = reason.replace(f"`{effort}`", f"`{requested}`", 1)
+        return rung, _effort_change(raw_effort, rung, EFFORT_FLOOR_KIND, reason)
+    if effort == "none" and raw_effort != "none":
+        return effort, _vendor_spelling_change(raw_effort, model_id)
+    return effort, None
+
+
+def _vendor_spelling_change(requested_effort: str, model_id: str) -> dict[str, str]:
+    return _effort_change(
+        requested_effort,
+        "none",
+        "vendor_spelling",
+        f"`{contract_model_id(model_id)}`'s effort ladder documents no reasoning as `none`; "
+        f"sent as `none` rather than `{requested_effort}`",
+    )
 
 
 def _recommendation_category(role: str, depth: str, scale: str) -> str:
@@ -1758,6 +1806,7 @@ def _selected_effort(
     model_id: str,
     *,
     authoritative: bool = True,
+    profile: str = "",
 ) -> tuple[str, dict[str, str] | None]:
     """Resolve the effort and its typed change record.
 
@@ -1768,7 +1817,7 @@ def _selected_effort(
     catalog (local inventory) never adjudicates at all.
     """
     if requested_effort:
-        normalized_effort = "off" if requested_effort == "none" else requested_effort
+        normalized_effort = _requested_effort_spelling(requested_effort, model_id)
         supported, authority = _supported_efforts(options, model_id)
         supported = tuple("off" if value == "none" else value for value in supported)
         if not authoritative:
@@ -1780,9 +1829,33 @@ def _selected_effort(
                 "automatic_passthrough",
                 "`auto` delegates effort selection to the executor contract",
             )
+        if normalized_effort == "none":
+            # Reached only when the exact contract lists `none` as a rung.
+            if requested_effort == "none":
+                change = _effort_change(
+                    requested_effort,
+                    normalized_effort,
+                    "unchanged",
+                    f"`none` is a documented rung of `{contract_model_id(model_id)}`'s effort ladder; "
+                    "kept as the vendor spells it",
+                )
+            else:
+                change = _vendor_spelling_change(requested_effort, model_id)
+            # The ladder is the API page's. A surface whose own recorded ladder
+            # omits `none` (the Codex client catalog) is named on the record;
+            # the route does not substitute a rung the caller did not ask for.
+            surface_ladder = contract_surface_efforts(model_id, profile)
+            if surface_ladder is not None and "none" not in surface_ladder:
+                change["reason"] += (
+                    f"; the `{profile}` surface's recorded ladder "
+                    f"({', '.join(surface_ladder)}) does not list `none`"
+                )
+            return normalized_effort, change
         # A documented contract for the exact model outranks both catalog
         # authority and the union fallback: a rung the vendor documents as
-        # unsupported is raised to the documented floor, recorded as such.
+        # unsupported is raised to the documented floor or, when that floor is
+        # the no-reasoning rung `none`, to the lowest documented rung above
+        # the request, recorded as such.
         floor = contract_effort_floor(model_id, normalized_effort)
         if floor is not None:
             rung, reason = floor
@@ -1842,6 +1915,19 @@ def _selected_effort(
     if chain_effort:
         return chain_effort, None
     return "", None
+
+
+def _requested_effort_spelling(requested_effort: str, model_id: str) -> str:
+    """OMH spells "no reasoning" `off` and reads `none` as its legacy alias.
+
+    The one exception is a model whose exact contract lists `none` as a rung
+    of its own ladder (GPT-6 Luna): there `none` is the vendor's word, and the
+    Hermes effort parser reads `none` as "disabled" where it does not read
+    `off` that way, so both spellings are sent as `none`.
+    """
+    if requested_effort not in ("none", "off"):
+        return requested_effort
+    return "none" if contract_documents_effort(model_id, "none") else "off"
 
 
 def _effort_change(requested: str, selected: str, kind: str, reason: str) -> dict[str, str]:

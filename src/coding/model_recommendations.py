@@ -82,14 +82,16 @@ _KIMI_K3 = _candidate(
     ("apitopia", "kimi-coding", "openrouter", "opencode"),
     reasoning="Editorial general-work recommendation; not a benchmark claim.",
 )
-_OPUS_5 = _candidate(
-    "claude-opus-5",
+_OPUS_55 = _candidate(
+    "claude-opus-5-5",
     "claude",
     ("ccapi", "anthropic", "openrouter"),
     reasoning="Editorial high-capability alternative; not a benchmark claim.",
 )
-# The Claude vendor order inside every chain is Fable 5.1 -> Opus 5 (owner
-# decision, 2026-09-06). Claude Mythos 5.1 is the same model as Fable 5.1
+# The Claude vendor order inside every chain is Fable 5.1 -> Opus (owner
+# decision, 2026-09-06); Opus 5.5 took Opus 5's slots on 2026-09-23 at the
+# same positions and efforts (editorial, unmeasured), and Opus 5 left the
+# shipped chains under the superseded-generation rule below. Claude Mythos 5.1 is the same model as Fable 5.1
 # served only to Project Glasswing-approved organizations, so a shipped chain
 # naming it would read as a second model most accounts cannot reach; a user
 # who explicitly names it is still recognized and routed. Fable 5 left the
@@ -176,8 +178,11 @@ _QWEN = _candidate(
     ("qwen-oauth", "openrouter", "opencode"),
     reasoning="Editorial coding and structured-writing alternative; not a benchmark claim.",
 )
+# GPT-6 Luna took GPT-5.6 Luna's slots on 2026-09-23 at the same positions
+# and effort (editorial, unmeasured); GPT-5.6 Luna left the shipped chains
+# under the superseded-generation rule (owner decision, 2026-09-11).
 _LUNA = _candidate(
-    "gpt-5.6-luna",
+    "gpt-6-luna",
     "gpt",
     ("openai-codex", "openai"),
     reasoning="Editorial fast GPT-tier quick candidate; not a benchmark claim.",
@@ -226,20 +231,20 @@ SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
             _with_effort(_ASTRA, "xhigh"),
             _with_effort(_KIMI_K3, "xhigh"),
         ],
-        "unspecified-high": [_with_effort(_KIMI_K3, "medium"), _with_effort(_OPUS_5, "medium")],
+        "unspecified-high": [_with_effort(_KIMI_K3, "medium"), _with_effort(_OPUS_55, "medium")],
         # Owner rule (2026-08-19): a chain that would otherwise sit in one
         # provider ecosystem ends with a comparable-tier candidate from
         # another, so one rejected ecosystem cannot exhaust the whole chain
         # (observed live: a Codex-billed account 400'd every GLM child and
         # quick fell straight to inherit). Tails are the owner's explicit
-        # picks: Opus 5 at low closes unspecified-low, and quick runs the
+        # picks: Opus 5.5 at low closes unspecified-low, and quick runs the
         # owner-ordered Ultrafast -> Kimi -> Luna -> Fable sequence.
         # GLM 5.3 leads (owner decision, 2026-08-31). The 5.2 entries left
         # with the other superseded generations (owner decision, 2026-09-11).
         "unspecified-low": [
             _with_effort(_GLM_53, "low"),
             _with_effort(_DEEPSEEK_FLASH, "low"),
-            _with_effort(_OPUS_5, "low"),
+            _with_effort(_OPUS_55, "low"),
         ],
         "quick": [
             _with_effort(_GLM_53_FLASH, "low"),
@@ -264,19 +269,19 @@ SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
         # The three categories below are appended rather than interleaved
         # (owner request, 2026-09-11). Position is not cosmetic: canonical
         # order breaks ties in `mixture_category_for`, so appending is what
-        # keeps `(claude-opus-5, medium)` labeled unspecified-high instead of
+        # keeps `(claude-opus-5-5, medium)` labeled unspecified-high instead of
         # moving to capable on an equal-position tie.
         #
         # capable: the strong general-work lane, one rung under the frontier
         # categories, spanning four provider ecosystems. Effort is medium
-        # because that is how opus-5 and kimi-k3 are already used in
+        # because that is how opus-5-5 and kimi-k3 are already used in
         # unspecified-high, the nearest neighbour to what this is for. High
         # was rejected: `(claude-fable-5-1, high)` is visual-engineering's
         # chain head, so a capable chain at high would have taken that
         # category's projection label away from it.
         "capable": [
             _with_effort(_FABLE_51, "medium"),
-            _with_effort(_OPUS_5, "medium"),
+            _with_effort(_OPUS_55, "medium"),
             _with_effort(_KIMI_K3, "medium"),
             _with_effort(_GLM_53, "medium"),
         ],
@@ -305,7 +310,7 @@ SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
         "main": [
             deepcopy(_KIMI_K3),
             deepcopy(_FABLE_51),
-            deepcopy(_OPUS_5),
+            deepcopy(_OPUS_55),
             deepcopy(_ASTRA),
             deepcopy(_TERRA),
         ],
@@ -320,7 +325,7 @@ SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
     # anchor: it never outranks a category, role, or domain candidate, and it
     # never rescues an unavailable explicit model.
     "last_resort": {
-        "any": [deepcopy(_OPUS_5), deepcopy(_SOL)],
+        "any": [deepcopy(_OPUS_55), deepcopy(_SOL)],
     },
 }
 

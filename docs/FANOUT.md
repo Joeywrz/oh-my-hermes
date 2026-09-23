@@ -621,8 +621,14 @@ Rules, all applied at freeze time:
   strongest claude-code tier and knows their account carries it can set
   `"claude-code": "opus"` themselves (this codebase's own model-family alias
   set, `_CLAUDE_TIER_ALIASES` in `src/coding/model_routing.py`, recognizes
-  `opus` as a claude-family model id; whether `claude --help` documents it as
-  a `--model` alias on a given install is unverified here). `codex` has no
+  `opus` as a claude-family model id). Claude Code documents `opus` as an
+  alias that tracks the provider's recommended Opus rather than a pinned id:
+  it resolves to Opus 5.5 on the Anthropic API, Claude Platform on AWS,
+  Bedrock, and Google Cloud, which needs Claude Code v2.1.280 or later, and
+  to Opus 4.6 on Microsoft Foundry (official,
+  code.claude.com/docs/en/model-config, read 2026-09-23). An account on an
+  older Claude Code or on Foundry therefore runs a different Opus under the
+  same entry; name `claude-opus-5-5` to pin it. `codex` has no
   recommended value either (no local `codex` CLI in this repo to confirm its
   `--model` value space against). An operator profile entry, including an
   explicit empty string, always overrides an unset default.

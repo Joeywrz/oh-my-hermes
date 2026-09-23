@@ -261,7 +261,7 @@ class ShowNamesTheInertCaseTests(unittest.TestCase):
                 json.dumps(
                     {
                         "schema_version": "model_provider_routes/v1",
-                        "models": {"gpt-5.6-luna": {"provider": "elsewhere", "model": "gpt-5.6-luna"}},
+                        "models": {"gpt-6-luna": {"provider": "elsewhere", "model": "gpt-6-luna"}},
                     }
                 ),
             )

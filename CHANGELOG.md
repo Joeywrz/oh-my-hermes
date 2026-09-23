@@ -4,6 +4,41 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **Claude Opus 5.5 and GPT-6 Luna take their predecessors' shipped slots.**
+  `claude-opus-5-5` replaces `claude-opus-5` in `unspecified-high`,
+  `unspecified-low`, `capable`, the `main` role suggestion, and the shared
+  last-resort order, and `gpt-6-luna` replaces `gpt-5.6-luna` in `quick` and
+  `simple-work`, each at the same position and effort. The Claude vendor order
+  stays Fable 5.1 before Opus. Both superseded ids leave the shipped chains and
+  stay recognized, priced, and provider-mapped, so a machine whose provider
+  serves only the older id keeps it with `omh model-chains set`. The placement
+  is editorial and unmeasured; the old-vs-new pairs are the follow-up.
+
+  Both ids gain exact contracts read from the vendors' pages, the first for a
+  Claude model: Luna's route sends a no-reasoning request as `none`, its
+  documented rung, whether it was spelled `none` or `off`, and
+  `omh coding model-route` raises a no-thinking request for Opus 5.5 to
+  `low` because the API rejects disabling thinking, which
+  `omh_delegate_route` now refuses for it as it does for Fable. The Hermes
+  lane's named-model branch now applies every exact contract's floor, so GPT-6
+  Astra asked for `off`, `none`, or `minimal` there is raised to `low` on
+  record, as the catalog lane already did. New price
+  rows follow the documented lists, and three stale GPT-5.6 rows are
+  corrected to the vendor pages: Luna to $0.20 / $1.20, Terra to $2 / $12,
+  and Sol to $4 / $20, which OpenAI labels promotional through at least
+  2026-11-21 with no later price published. No calibration text
+  changed: neither shipped placement reaches the subagent high-effort tier,
+  and the Claude blocks stay byte-stable.
+
+  The loop itself was corrected where it contradicted its own rule. The
+  `model-optimization` skill still told a runner that an older generation
+  stays as fall-through; it now states the superseded-generation rule and the
+  four source labels. The shared-final-order sentences in the installation,
+  architecture, and model-routing docs are now checked against the catalog,
+  and each retirement records its own decision date and is checked out of both
+  lanes. The Maestro docs note that Claude Code's `opus` alias reaches Opus 5.5
+  only from v2.1.280 and resolves to Opus 4.6 on Microsoft Foundry.
+
 - **A stop now ends the turn with the next action offered, not with a
   refusal.** Runs on the executing engines closed with sentences like "I will
   not merge or force-push here": the follow-up authority rule said to describe
@@ -41,7 +76,6 @@ All notable changes will be documented here.
   test fakes now model the real CLI (`--oneshot` reads argv, never stdin), so
   the old argv fails the suite instead of passing it (#1824).
 
-
 - **Setup no longer writes a `plugins.enabled` Hermes cannot read.** A config
   carrying `enabled: '[]'` is a string to YAML and no plugins to Hermes, and
   setup inserted `    - omh` under it, which YAML refuses (`did not find
@@ -56,7 +90,6 @@ All notable changes will be documented here.
   `hermes_config_plugins_enabled` check carries the same sentence setup
   refuses with, so a home where setup stopped before installing the bundle
   still names the cause instead of only its side effects (#1825).
-
 
 - **A board readback is now measured after it is serialized, and is no longer
   run through diff padding.** The ceiling that keeps `kanban_show`,

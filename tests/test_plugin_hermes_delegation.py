@@ -264,7 +264,7 @@ class MixtureCategoryProjectionTest(unittest.TestCase):
 
     def test_a_membership_only_model_falls_back_to_its_first_chain(self):
         self.assertEqual(
-            mixture_category_for("claude-opus-5", "medium", parent_model="kimi-k3"),
+            mixture_category_for("claude-opus-5-5", "medium", parent_model="kimi-k3"),
             "unspecified-high",
         )
 
@@ -333,6 +333,7 @@ class MixtureCategoryProjectionTest(unittest.TestCase):
         contracts = {
             "gpt-6-astra": ("openai", "xhigh", "ultrabrain", "openai", "anthropic"),
             "deepseek-v4.1-flash": ("deepseek", "high", "deep", "deepseek", "anthropic"),
+            "claude-opus-5-5": ("anthropic", "medium", "unspecified-high", "anthropic", "openai"),
         }
         # A contract in no shipped chain, named by no provider-family row,
         # has nothing for its aliases to inherit. Jev is that case by
@@ -802,12 +803,12 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
         self.assertAlmostEqual(row["tokens_per_second"], 4000 / 280)
         # The host recorded no cost (subscription billing), so the row carries
         # the token-derived approximation, flagged so the widget renders `~$`:
-        # 10k input @ $1.25/M + 30k cache reads @ a tenth of input + 4k output
-        # @ $10/M.
+        # 10k input @ $4/M + 30k cache reads @ a tenth of input + 4k output
+        # @ $20/M.
         self.assertTrue(row["cost_approximate"])
         self.assertAlmostEqual(
             row["cost_usd"],
-            (10_000 * 1.25 + 30_000 * 0.125 + 4_000 * 10.0) / 1_000_000,
+            (10_000 * 4.0 + 30_000 * 0.40 + 4_000 * 20.0) / 1_000_000,
         )
 
     def test_inherited_base_price_override_keeps_operator_provenance(self):

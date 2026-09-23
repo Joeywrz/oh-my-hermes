@@ -1340,7 +1340,12 @@ def cmd_coding_model_route(args: argparse.Namespace) -> int:
         )
         lines.append(f"chain: {chain_text}")
     effort_change = route.get("effort_change")
-    if isinstance(effort_change, dict) and effort_change.get("kind") not in (None, "", "unchanged"):
+    # An `unchanged` record is shown only for a kept `none`, whose reason can
+    # carry a surface note the text reader would otherwise never see.
+    if isinstance(effort_change, dict) and (
+        effort_change.get("kind") not in (None, "", "unchanged")
+        or (effort_change.get("kind") == "unchanged" and effort_change.get("selected") == "none")
+    ):
         lines.append(
             f"effort: requested `{effort_change.get('requested')}` -> `{effort_change.get('selected') or 'CLI default'}` "
             f"({effort_change.get('kind')}: {effort_change.get('reason')})"
@@ -1665,6 +1670,10 @@ def cmd_coding_model_contract(args: argparse.Namespace) -> int:
     print(f"- tool calling: {contract['tool_calling']['api']} API — {contract['tool_calling']['note']}")
     if contract["unsupported_parameters"]:
         print(f"- unsupported parameters: {', '.join(contract['unsupported_parameters'])}")
+        # Optional: the condition under which they are rejected, when the
+        # vendor documents one (GPT-6 Luna accepts them at effort `none`).
+        if contract.get("unsupported_parameters_note"):
+            print(f"  {contract['unsupported_parameters_note']}")
     cutoff = str(contract.get("knowledge_cutoff", "") or "")
     print(
         f"- context {contract['context_window_tokens']:,} tokens; input {contract['max_input_tokens']:,}; "

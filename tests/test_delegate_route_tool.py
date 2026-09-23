@@ -696,18 +696,18 @@ class DelegateRouteToolTest(unittest.TestCase):
         )
 
     def test_an_explicit_model_override_wins_over_the_chain_head(self):
-        result = self._call(action="set", category="unspecified-high", model="claude-opus-5")
+        result = self._call(action="set", category="unspecified-high", model="claude-opus-5-5")
         self.assertEqual(
             result["applied"],
-            {"alias": "claude-opus-5", "model": "claude-opus-5"},
+            {"alias": "claude-opus-5-5", "model": "claude-opus-5-5"},
         )
         self.assertEqual(
             result["fallback_candidates"],
             [
                 {
-                    "alias": "claude-opus-5",
+                    "alias": "claude-opus-5-5",
                     "provider": "",
-                    "model": "claude-opus-5",
+                    "model": "claude-opus-5-5",
                     "reasoning_effort": "medium",
                 }
             ],
@@ -731,9 +731,9 @@ class DelegateRouteToolTest(unittest.TestCase):
             result["fallback_candidates"],
             [
                 {
-                    "alias": "gpt-5.6-luna",
+                    "alias": "gpt-6-luna",
                     "provider": "",
-                    "model": "gpt-5.6-luna",
+                    "model": "gpt-6-luna",
                     "reasoning_effort": "low",
                 },
                 {
@@ -768,7 +768,7 @@ class DelegateRouteToolTest(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertIn("no active route", result["error"])
 
-    def test_a_no_thinking_effort_is_refused_for_the_fable_tier(self):
+    def test_a_no_thinking_effort_is_refused_for_always_thinking_claude_models(self):
         # Fable 5.1 / Mythos 5.1 cannot disable thinking: Mythos 400s and
         # Fable drops the flag silently, so the route never carries it.
         for model in ("claude-fable-5-1", "claude-mythos-5-1", "fable", "anthropic/claude-mythos-5-1"):
@@ -776,8 +776,32 @@ class DelegateRouteToolTest(unittest.TestCase):
             self.assertEqual(result["status"], "error", model)
             self.assertIn("always thinks", result["error"])
         self.assertEqual(read_delegation_route(self.home), {})
-        # Opus 5 may still be asked for no thinking; the guard is tier-scoped.
+        # Opus 5.5 joined the always-thinking set: Anthropic documents a
+        # thinking-disabled request on it as a 400 (whats-new-opus-5-5). The
+        # dotted spelling is a gateway's (OpenRouter), matched on purpose, and
+        # the Bedrock id is matched with and without a regional prefix.
+        for model in (
+            "claude-opus-5-5",
+            "anthropic/claude-opus-5-5",
+            "claude-opus-5.5",
+            "anthropic/claude-opus-5.5",
+            "anthropic.claude-opus-5-5",
+            "us.anthropic.claude-opus-5-5",
+            "bedrock/global.anthropic.claude-opus-5-5",
+        ):
+            for effort in ("none", "off"):
+                result = self._call(action="set", model=model, reasoning_effort=effort)
+                self.assertEqual(result["status"], "error", (model, effort))
+                self.assertIn("always thinks", result["error"])
+        self.assertEqual(read_delegation_route(self.home), {})
+        # Opus 5 may still be asked for no thinking; the guard is
+        # generation-scoped, and the 5.5 prefix must not reach back to it.
         result = self._call(action="set", model="claude-opus-5", reasoning_effort="none")
+        self.assertEqual(result["status"], "routed")
+        result = self._call(action="set", model="anthropic.claude-opus-5", reasoning_effort="none")
+        self.assertEqual(result["status"], "routed")
+        # Opus 5.5 at a documented rung is untouched by the guard.
+        result = self._call(action="set", model="claude-opus-5-5", reasoning_effort="low")
         self.assertEqual(result["status"], "routed")
         # A category head on the Fable tier at its declared effort is untouched.
         result = self._call(action="set", category="architect")

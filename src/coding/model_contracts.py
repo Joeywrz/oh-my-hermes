@@ -81,9 +81,9 @@ DATA_HANDLING_ACCOUNT_SCOPE: Final[str] = (
     "account-level evidence and never states what this account agreed to"
 )
 
-# The reading both shipped contracts carry today. Their `sources` are vendor
-# model, pricing, and capability pages; none is a data-usage or retention
-# page, so no data-handling value was read and none is invented here.
+# The reading every contract that points here carries. Their `sources` are
+# vendor model, pricing, and capability pages; none is a data-usage or
+# retention page, so no data-handling value was read and none is invented here.
 # Replacing this on a contract means reading that vendor's data-usage page,
 # adding it to `sources`, and moving `sources_read`.
 _DATA_HANDLING_NOT_READ: Final[dict[str, object]] = {
@@ -168,6 +168,201 @@ _GPT_6_ASTRA: Final[dict[str, object]] = {
         "https://developers.openai.com/api/docs/guides/steering",
     ),
     "sources_read": "2026-09-04",
+    "claim_boundary": MODEL_CONTRACT_CLAIM_BOUNDARY,
+}
+
+# GPT-6 Luna, the efficient GPT-6 tier. Unlike Astra it documents `none` as
+# a rung of its own ladder, so the ladder records the vendor's spelling and
+# the route sends it for both no-reasoning spellings, `none` and OMH's
+# canonical `off` (a Hermes effort parser reads `none` as "disabled" and does
+# not read `off` that way). Three keys join
+# `model_contract/v1` here as optional keys a reader that predates them
+# ignores, on the same terms `served_ids` and `limits_note` did:
+# `unsupported_parameters_note` carries the condition the tuple cannot,
+# `surface_notes` records surfaces whose documented ladder or limits differ
+# from the API page this contract is read from, and `surface_efforts` is the
+# machine-readable ladder of such a surface, for the route record to read.
+_GPT_6_LUNA: Final[dict[str, object]] = {
+    "schema_version": MODEL_CONTRACT_SCHEMA_VERSION,
+    "model_id": "gpt-6-luna",
+    "reasoning_mode": "standard",
+    "service_tier": "standard",
+    "family": "gpt",
+    "generation": "gpt-6",
+    # The Codex changelog entry date; no separate API launch date was found.
+    "released": "2026-09-22",
+    "rollout": (
+        "rolling out in Codex to Plus, Pro, Business, Enterprise, and Edu, and to Free and Go in "
+        "the desktop app; a released id is not account-level readiness evidence"
+    ),
+    "knowledge_cutoff": "2026-05-18",
+    "context_window_tokens": 1_050_000,
+    "max_input_tokens": 922_000,
+    "max_output_tokens": 128_000,
+    # The API page's ladder. `none` is a documented rung (the latest-model
+    # guide: Astra does not support it, Sol and Luna do), so the floor is
+    # `none` and there is nothing to raise a no-reasoning request to.
+    # `minimal` is not in the ladder; a request for it asks for SOME
+    # reasoning, so it is raised to the lowest documented rung above it
+    # (`low`), never lowered to `none`.
+    "reasoning_efforts": ("none", "low", "medium", "high", "xhigh", "max"),
+    "effort_floor": "none",
+    "effort_default": "medium",
+    "unsupported_efforts": {
+        "minimal": "the ladder goes from `none`, no reasoning, straight to `low`",
+    },
+    "tool_calling": {
+        "api": "responses",
+        "note": (
+            "tool calling with reasoning requires the Responses API; Chat Completions serves "
+            "function calling only at reasoning effort `none`"
+        ),
+    },
+    "unsupported_parameters": ("temperature", "top_p", "top_logprobs"),
+    "unsupported_parameters_note": (
+        "rejected when reasoning effort is not `none`; on Chat Completions `logprobs` is rejected too"
+    ),
+    "surface_notes": {
+        "codex": (
+            "Codex documents reasoning efforts up to `max`, with no `ultra`; the Codex client's "
+            "model catalog lists `low` through `max` (no `none`) and a 272K context window with "
+            "an 872K maximum"
+        ),
+        "hermes": (
+            "an installed Hermes build that predates upstream commit 79ec1f2a34 (2026-09-22) "
+            "clamps `max` to `xhigh` without a notice; observed in the Hermes source, not a "
+            "vendor statement"
+        ),
+    },
+    # The Codex client's model-catalog ladder from `surface_notes.codex`.
+    "surface_efforts": {
+        "codex": ("low", "medium", "high", "xhigh", "max"),
+    },
+    # The GPT-6 family traits from the latest-model guide; the guide gives no
+    # Luna-specific prompting guidance, so each is a family statement.
+    "documented_traits": (
+        "stated for the GPT-6 family: asks the user a question more readily",
+        "stated for the GPT-6 family: follows instructions more strictly and is more sensitive to "
+        "instructions contained in skills",
+        "stated for the GPT-6 family: tends toward detailed, formatted responses",
+        "stated for the GPT-6 family: may delegate less often than desired",
+        "stated for the GPT-6 family: tends to be thorough in testing before considering a task "
+        "complete",
+    ),
+    # OpenAI list price (developers.openai.com model and pricing pages,
+    # 2026-09). The cached rate is a tenth of input, which is the
+    # approximation table's default ratio.
+    "pricing_usd_per_mtok": {
+        "input": 0.10,
+        "cached_input": 0.01,
+        "cache_write": 0.125,
+        "output": 0.50,
+        "long_context_over_272k_input": "2x input and cache rates, 1.5x output",
+        "batch_and_flex": "0.5x every standard rate",
+        "fast_mode": "2x every applicable rate",
+    },
+    "data_handling": _DATA_HANDLING_NOT_READ,
+    "sources": (
+        "https://developers.openai.com/api/docs/models/gpt-6-luna",
+        "https://developers.openai.com/api/docs/guides/latest-model",
+        "https://developers.openai.com/api/docs/pricing",
+        "https://learn.chatgpt.com/docs/models",
+        "https://learn.chatgpt.com/docs/changelog",
+    ),
+    "sources_read": "2026-09-23",
+    "claim_boundary": MODEL_CONTRACT_CLAIM_BOUNDARY,
+}
+
+# Claude Opus 5.5, the first Claude contract. Thinking is always on: a
+# thinking-disabled request or a manual budget returns HTTP 400, so a
+# no-thinking rung is raised to `low` on record. One optional key joins
+# `model_contract/v1` here on the `served_ids` / `limits_note` terms:
+# `retirement`, the vendor's published not-before date.
+_CLAUDE_OPUS_5_5: Final[dict[str, object]] = {
+    "schema_version": MODEL_CONTRACT_SCHEMA_VERSION,
+    "model_id": "claude-opus-5-5",
+    "reasoning_mode": "thinking",
+    "service_tier": "standard",
+    "family": "claude",
+    "generation": "claude-opus-5.5",
+    "released": "2026-09-22",
+    "rollout": (
+        "available on the Claude API, Amazon Bedrock, Google Cloud, Microsoft Foundry, and Claude "
+        "Platform on AWS; a released id is not account-level readiness evidence"
+    ),
+    # A fixed id with no date suffix: the dateless id is the pinned snapshot.
+    "served_ids": {
+        "first_party": "claude-opus-5-5",
+        "bedrock": "anthropic.claude-opus-5-5",
+    },
+    "retirement": "not sooner than 2027-09-22",
+    "knowledge_cutoff": "2026-06",
+    "context_window_tokens": 1_000_000,
+    "max_input_tokens": 1_000_000,
+    "max_output_tokens": 128_000,
+    "limits_note": (
+        "1M context and 128K max output are documented; Message Batches allow up to 300K output "
+        "with the `output-300k-2026-03-24` beta header; no separate max-input figure is published"
+    ),
+    "reasoning_efforts": ("low", "medium", "high", "xhigh", "max"),
+    "effort_floor": "low",
+    # The API default when a request omits effort. Opus 5 defaulted to
+    # `high`, so an effort-less request runs one level lower than it did.
+    "effort_default": "medium",
+    "unsupported_efforts": {
+        "off": (
+            "thinking is always on; `thinking.type=disabled` or a manual `budget_tokens` returns "
+            "HTTP 400"
+        ),
+        "minimal": "not in the documented ladder",
+    },
+    "tool_calling": {
+        "api": "messages",
+        "note": (
+            "forced `tool_choice` of type `any` or `tool` returns HTTP 400, on count_tokens as "
+            "well; use `auto` and say in the prompt when a tool applies"
+        ),
+    },
+    "unsupported_parameters": ("thinking.budget_tokens",),
+    "runtime_mechanisms": {
+        "preserved_thinking_blocks": "documented_not_observed",
+        "fast_mode": "documented_not_observed",
+    },
+    "documented_traits": (
+        "thinking is always on and adaptive; a request that disables it returns HTTP 400",
+        "`medium` is the API default, where Opus 5 defaulted to `high`",
+        "thinks more per turn than Opus 5 at the same effort level, especially at `xhigh` and "
+        "`max`",
+        "text between tool calls arrives in `thinking` blocks whose text is empty at the default "
+        "display setting",
+        "on long multi-part tasks some progress updates end the turn with text rather than a tool "
+        "call",
+        "thinking blocks are tied to the model and conversation that produced them",
+    ),
+    # Anthropic list price (platform.claude.com pricing, 2026-09). Cache
+    # reads are 0.05x input on this model, not the tenth the approximation
+    # table assumes by default.
+    "pricing_usd_per_mtok": {
+        "input": 4.0,
+        "cached_input": 0.20,
+        "cache_write_5m": 5.0,
+        "cache_write_1h": 8.0,
+        "output": 20.0,
+        "batch": "input 2.00, output 10.00 on Message Batches",
+        "fast_mode": "input 8.00, output 40.00; Claude API (first-party) only, beta",
+        "long_context": "no premium: the full 1M window is billed at standard rates",
+    },
+    "data_handling": _DATA_HANDLING_NOT_READ,
+    "sources": (
+        "https://platform.claude.com/docs/en/about-claude/models/overview.md",
+        "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "https://platform.claude.com/docs/en/models/opus-5-5/migration-guide",
+        "https://platform.claude.com/docs/en/models/opus-5-5/whats-new-opus-5-5",
+        "https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5",
+        "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "https://www.anthropic.com/claude-opus-5-5",
+    ),
+    "sources_read": "2026-09-23",
     "claim_boundary": MODEL_CONTRACT_CLAIM_BOUNDARY,
 }
 
@@ -412,6 +607,8 @@ _JEV_1_13: Final[dict[str, object]] = {
 
 MODEL_CONTRACTS: Final[dict[str, Mapping[str, object]]] = {
     "gpt-6-astra": _GPT_6_ASTRA,
+    "gpt-6-luna": _GPT_6_LUNA,
+    "claude-opus-5-5": _CLAUDE_OPUS_5_5,
     "deepseek-v4.1-flash": _DEEPSEEK_V41_FLASH,
     "jev-1.13.0": _JEV_1_13,
 }
@@ -451,6 +648,24 @@ DECLARED_MODEL_CONTRACT_PROJECTIONS: Final[dict[str, Mapping[str, str]]] = {
     # a read date and not a second exact contract.
     "deepseek-flash": {
         "contract_model_id": "deepseek-v4.1-flash",
+        "reasoning_mode": "thinking",
+        "service_tier": "standard",
+    },
+    # Claude Opus 5.5's second spellings, the same model at the contract's
+    # own mode and tier. The Bedrock id is the contract's own
+    # `served_ids.bedrock` (platform.claude.com models overview, read
+    # 2026-09-23); the dotted form is the gateway spelling OpenRouter's live
+    # model listing returned on 2026-09-23 (`anthropic/claude-opus-5.5`; the
+    # provider prefix is stripped before this lookup). Bedrock's regional
+    # inference-profile ids (`us.anthropic.claude-opus-5-5` and siblings) are
+    # not declared: no vendor page listing them was read.
+    "anthropic.claude-opus-5-5": {
+        "contract_model_id": "claude-opus-5-5",
+        "reasoning_mode": "thinking",
+        "service_tier": "standard",
+    },
+    "claude-opus-5.5": {
+        "contract_model_id": "claude-opus-5-5",
         "reasoning_mode": "thinking",
         "service_tier": "standard",
     },
@@ -584,9 +799,56 @@ def model_contract(model_id: str) -> Mapping[str, object] | None:
     return MODEL_CONTRACTS.get(str(projection["contract_model_id"])) if projection is not None else None
 
 
-def contract_effort_floor(model_id: str, effort: str) -> tuple[str, str] | None:
-    """Return (floor, reason) when ``effort`` sits below the model's documented ladder.
+def contract_documents_effort(model_id: str, effort: str) -> bool:
+    """Whether the model's contract lists ``effort`` verbatim as a ladder rung."""
+    contract = model_contract(model_id)
+    if contract is None:
+        return False
+    normalized = str(effort or "").strip().casefold()
+    return bool(normalized) and normalized in tuple(str(value) for value in contract.get("reasoning_efforts", ()))
 
+
+def contract_surface_efforts(model_id: str, surface: str) -> tuple[str, ...] | None:
+    """The ladder the contract records for one executor surface, or None.
+
+    None means the contract records no surface-specific ladder, so the API
+    page's ladder is the only one on record.
+    """
+    contract = model_contract(model_id)
+    ladders = contract.get("surface_efforts") if contract is not None else None
+    if not isinstance(ladders, Mapping):
+        return None
+    ladder = ladders.get(str(surface or "").strip().casefold())
+    return tuple(str(rung) for rung in ladder) if ladder is not None else None
+
+
+def _raise_target(supported: tuple[str, ...], requested: str, floor: str) -> str:
+    """The lowest documented rung above ``requested`` on the canonical ladder.
+
+    A contract's ladder is ordered weakest first. The floor is the answer
+    whenever it sits above the request (Astra: `off` and `minimal` both go to
+    `low`); when the floor is the no-reasoning rung (`none`) a request for
+    some reasoning is raised past it rather than lowered onto it.
+    """
+    # Imported here: model_routing imports this module at load time.
+    from .model_routing import REASONING_EFFORT_LADDER
+
+    def position(rung: str) -> int:
+        canonical = "off" if rung == "none" else rung
+        return REASONING_EFFORT_LADDER.index(canonical) if canonical in REASONING_EFFORT_LADDER else -1
+
+    requested_position = position(requested)
+    for rung in supported:
+        if position(rung) > requested_position:
+            return rung
+    return floor
+
+
+def contract_effort_floor(model_id: str, effort: str) -> tuple[str, str] | None:
+    """Return (rung, reason) when ``effort`` is a documented-unsupported rung.
+
+    The rung is the documented floor, or — when the floor is `none` and so
+    sits below the request — the lowest documented rung above the request.
     ``None`` means the contract has nothing to say: no contract, no floor, an
     effort the ladder supports, or a value that is not a documented-unsupported
     rung. The caller records the raise as an explicit effort change; nothing is
@@ -604,9 +866,16 @@ def contract_effort_floor(model_id: str, effort: str) -> tuple[str, str] | None:
     if not isinstance(unsupported, Mapping) or normalized not in unsupported:
         return None
     detail = str(unsupported[normalized])
-    return floor, (
-        f"`{normalized}` is below `{contract['model_id']}`'s documented effort ladder "
-        f"({detail}); raised to the documented floor `{floor}`"
+    target = _raise_target(supported, normalized, floor)
+    if target == floor:
+        return floor, (
+            f"`{normalized}` is below `{contract['model_id']}`'s documented effort ladder "
+            f"({detail}); raised to the documented floor `{floor}`"
+        )
+    return target, (
+        f"`{normalized}` is not a rung of `{contract['model_id']}`'s documented effort ladder "
+        f"({detail}); raised to `{target}`, the lowest documented rung above it, rather than "
+        f"lowered to the floor `{floor}`"
     )
 
 
@@ -677,8 +946,10 @@ __all__ = [
     "MODEL_CONTRACT_PROJECTION_CLAIM_BOUNDARY",
     "MODEL_CONTRACT_PROJECTION_SCHEMA_VERSION",
     "MODEL_CONTRACT_SCHEMA_VERSION",
+    "contract_documents_effort",
     "contract_effort_floor",
     "contract_model_id",
+    "contract_surface_efforts",
     "dynamic_effort_guidance",
     "model_contract",
     "model_contract_projection",

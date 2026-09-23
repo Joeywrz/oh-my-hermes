@@ -337,7 +337,12 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # as a question, never a statement of what will not be done -- and the seven
 # engines' capability rows carry the longer rules. Re-derived from the
 # producer.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 422755
+# 422755 -> 422796: the Claude Opus 5.5 / GPT-6 Luna onboarding's capability
+# rows (model-setup, model-optimization, maestro) carry the new chain members
+# and rules. The branch fitted inside the slack the budget had before the
+# raise above; that raise left none, so rebasing past it surfaced the 41.
+# Re-derived from the producer.
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 422796
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -1336,7 +1341,20 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # had been closing runs with "I will not merge or force-push here"; the
 # sentence is read at the stop, so it belongs in the always-loaded body and
 # not in a reference. Re-derived from the full-profile producer.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 999772
+# 999772 -> 1000101: the Claude Opus 5.5 / GPT-6 Luna onboarding (2026-09-23).
+# Three bodies move and nothing else: `model-setup` names the new chain
+# members and lists Opus 5 and GPT-5.6 Luna among the superseded generations
+# a machine-level override keeps (+26); `model-optimization` replaces the
+# pre-2026-09-11 "existing entries stay as fall-through" rule with the
+# superseded-generation rule docs/MODEL-ONBOARDING.md already states, and
+# names four source labels where it named two (+141); `maestro` gains the
+# Claude Code `opus` alias caveat -- the version floor for Opus 5.5 and the
+# Foundry resolution to Opus 4.6, both from code.claude.com/docs/en/model-config
+# -- because that alias is the one the Maestro lane ships (+162). The three
+# add to 329, and the step is 329 because the raise above it left no unused
+# room. Re-derived from the full-profile skill_context_cost_payload() producer
+# after rebasing past that raise.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1000101
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

@@ -265,8 +265,8 @@ class LinkedEntitlementTests(unittest.TestCase):
             )
             chains = effective_mixture_category_chains(omh_home, hermes_home)
         quick = HERMES_MIXTURE_CATEGORY_CHAINS["quick"]
-        self.assertNotEqual(quick[0][0], "gpt-5.6-luna")
-        self.assertEqual(chains["quick"][0][0], "gpt-5.6-luna")
+        self.assertNotEqual(quick[0][0], "gpt-6-luna")
+        self.assertEqual(chains["quick"][0][0], "gpt-6-luna")
         self.assertEqual(sorted(chains["quick"]), sorted(quick))
 
     def test_the_recorded_kind_wins_and_neither_side_drops_the_other(self) -> None:
@@ -365,7 +365,7 @@ class SurfaceTests(unittest.TestCase):
             status, text, _stderr = run_cli([*homes, "model-chains", "show"], output_json=False)
             self.assertEqual(status, 0)
             self.assertIn("Linked Hermes providers: openai-codex (login)", text)
-            self.assertIn("quick: gpt-5.6-luna:low", text)
+            self.assertIn("quick: gpt-6-luna:low", text)
             self.assertIn("(reordered by this machine's providers)", text)
             self.assertNotIn(TOKEN, text)
             _status, out, _stderr = run_cli([*homes, "model-chains", "show", "--json"])

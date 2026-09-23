@@ -10351,7 +10351,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
             omo = root / ".omo" / "omo.json"
             omo.parent.mkdir(parents=True)
-            omo.write_text(json.dumps({"models": [{"provider": "anthropic", "model_id": "claude-opus-5"}]}), encoding="utf-8")
+            omo.write_text(json.dumps({"models": [{"provider": "anthropic", "model_id": "claude-opus-5-5"}]}), encoding="utf-8")
             event = root / "event.json"
             event.write_text(
                 json.dumps(

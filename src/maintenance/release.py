@@ -1462,10 +1462,11 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # skill_structure_lint_payload() reports ok, the body at 9207 of the 26800
 # per-skill byte ceiling.
 # What this limit is: the install footprint of the full profile's SKILL.md
-# bodies, each loaded on demand. Hermes sends a skill's index line on every
-# request (`SKILL_INDEX_CHAR_LIMIT` above) and its body only when the model
-# loads it -- about 8k chars per load, and a loaded body stays in history
-# until compaction.
+# bodies, each loaded on demand. Until 1044180 it was a zero-slack ratchet;
+# the last entry below turns it into a ceiling with headroom. Hermes sends a
+# skill's index line on every request (`SKILL_INDEX_CHAR_LIMIT` above) and
+# its body only when the model loads it -- about 8k chars per load, and a
+# loaded body stays in history until compaction.
 # 1029724 -> 1044180: six compact `jev-*` bodies (the contract, preset
 # tables, and shared rail are references outside this budget), one deference
 # line each on `ask` and `strategy-brief` (installed as `omh-decide`), and the
@@ -1474,8 +1475,85 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # skill_context_cost_payload() producer after rebasing past the GPT-6 Sol
 # onboarding, the per-turn budget split (#1843), and the
 # observed_check_results declaration (#1788).
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1044180
+#
+# 1044180 -> 1150000: the limit stops being a zero-slack ratchet and becomes
+# an install-footprint CEILING with standing headroom (P5 of the 2026-09-23
+# skill-budget study). Every entry above is a commit that raised this number
+# to exactly the value the producer measured, so each new skill failed CI
+# until someone did; and the number cannot see a per-turn regression, because
+# a body is paid per load, not per request. The per-request budgets above
+# (`SKILL_INDEX_CHAR_LIMIT`, `SKILL_INDEX_LINE_CHAR_LIMIT`,
+# `PLUGIN_TOOL_SCHEMA_CHAR_LIMIT`, `PRE_LLM_CALL_CONTEXT_CHAR_LIMIT`) stay
+# zero-slack ratchets and are what catch per-turn growth; they held through a
+# real skill addition (#1844, six `jev-*` skills) before this change. What a
+# single load costs stays bounded per skill by
+# STRUCTURE_LINT_SKILL_BODY_BYTE_CEILING (src/skills/structure_lint.py), and
+# repeated text across bodies is bounded by its own ceiling below.
+#
+# Headroom policy: the ceiling is the producer-measured total at the time it
+# was set (`FULL_PROFILE_SKILL_BODY_MEASURED_CHARS`) plus
+# `FULL_PROFILE_SKILL_BODY_HEADROOM_PERCENT`, rounded UP to the next multiple
+# of `FULL_PROFILE_SKILL_BODY_CEILING_STEP_CHARS`. `tests/test_efficiency.py`
+# fails when the literal below is not that derivation. Why 10%: measured on
+# 2026-09-24 the full profile is 130 bodies averaging 8,032 chars, and the
+# largest additions this ledger records are about 14k -- the six `jev-*`
+# bodies together (+14,456) and `live-incident-response` alone (about
+# +12.5k). The resulting 105,820 chars hold about thirteen average bodies, so
+# an ordinary skill does not need a raise, while a runaway pack -- twenty
+# generated bodies, or one long section pasted into every body -- still
+# fails. When it fails: re-measure with the full-profile
+# skill_context_cost_payload() producer, set the measured constant to that
+# value, apply the same policy, and write the reason here as one more
+# `old -> new` line. Never raise the literal without moving the measurement.
+# The measurement must come from the producer on the commit that sets it,
+# and `tests/test_efficiency.py` holds it as a floor: the test fails when the
+# producer reads below it, so an inflated measurement is visible and a change
+# that shrinks the pack re-measures and re-derives in the same commit.
+FULL_PROFILE_SKILL_BODY_MEASURED_CHARS = 1044180
+FULL_PROFILE_SKILL_BODY_HEADROOM_PERCENT = 10
+FULL_PROFILE_SKILL_BODY_CEILING_STEP_CHARS = 50000
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1150000
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
+# Repeated bytes: characters of full-profile SKILL.md `##` sections that are
+# byte-identical to the same section in another skill -- the second and later
+# copies, the `repeated` figure the full-profile skill_context_cost_payload()
+# producer reports (`src/skills/context_cost.py`). Shared text belongs once in
+# a reference; every copy in a body is paid on every load of that body.
+# Measured on 2026-09-24: 104,214 of 1,044,180 chars (9.98%). Across the #1844
+# merge (d326252b^1 -> d326252b) the six `jev-*` skills moved it by +3,190.
+#
+# Why this is a ceiling and not a zero-slack ratchet: nearly all of these
+# bytes are rail sections the renderer stamps on every body from shared
+# inputs -- `## Workflow Lane` (one body per lane), and the shared lines of
+# `## Completion Checklist`, `## Recovery Notes`, `## Do Not Use When`, and
+# `## Runtime Evidence`. A new skill that joins an existing lane carries its
+# own copy and its author cannot avoid it: rendering a copy of every ordinary
+# catalog member (no artifact contracts, no progressive disclosure) with its
+# skill-specific sections made unique adds a median of about 1,450 repeated
+# chars and at most about 2,340. A zero-slack figure would have made every
+# new skill raise this constant, which is the churn the footprint ceiling
+# above removes. So it takes the same policy: the measurement plus
+# `FULL_PROFILE_SKILL_BODY_HEADROOM_PERCENT`, rounded UP to the next multiple
+# of `FULL_PROFILE_SKILL_BODY_REPEATED_CEILING_STEP_CHARS` (10,000, about a
+# tenth of the measurement). The 15,786 chars of headroom hold about ten
+# median lane members, while a renderer change that stamps one more shared
+# sentence longer than about 120 chars into every body, or a few skills that
+# copy other skills' own sections, still fails.
+#
+# The measurement is also a floor: `tests/test_per_turn_budgets.py` fails when
+# the producer reads below `FULL_PROFILE_SKILL_BODY_REPEATED_MEASURED_CHARS`,
+# so a change that moves repeated text into references lowers the measurement
+# and re-derives the ceiling in the same commit, and the slack it frees is not
+# left to be spent later without review. The same test fails when one more
+# worst-case ordinary member would not fit, which is the signal to re-measure
+# and re-derive before the next skill needs a raise. Re-derive it the same way
+# as the footprint and record the reason as one more `old -> new` line.
+# `src/skills/duplicate_content.py` is not the producer: it reports repeats
+# ACROSS surface kinds (primer, router snippet, body, reference), and today
+# carries none that are not allowlisted.
+FULL_PROFILE_SKILL_BODY_REPEATED_MEASURED_CHARS = 104214
+FULL_PROFILE_SKILL_BODY_REPEATED_CEILING_STEP_CHARS = 10000
+FULL_PROFILE_SKILL_BODY_REPEATED_CHAR_LIMIT = 120000
 
 
 @dataclass(frozen=True)

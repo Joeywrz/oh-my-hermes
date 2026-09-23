@@ -170,6 +170,24 @@ whether to load the skill, so the structure lint rule
 visible description (after `[omh] `) with the same three words; see
 `src/skills/skill_index.py` for the reviewed exceptions.
 
+Two more budgets read the skill bodies. Both are ceilings with standing
+headroom, not exact-value ratchets, so an ordinary new skill fits under them
+without a raise. `full_profile_skill_body_chars` is the install footprint of
+every `full` `SKILL.md` body. `full_profile_skill_body_repeated_chars` counts
+text repeated verbatim across bodies; every new skill moves it a little,
+because the renderer stamps the lane's `## Workflow Lane` and the shared rail
+lines into each body, and the headroom is sized for that. A skill that copies
+another skill's own sections moves it by far more, and the fix is to move the
+shared text into a reference. Each ceiling is derived from a recorded
+producer measurement by the policy written beside
+`FULL_PROFILE_SKILL_BODY_CHAR_LIMIT` and
+`FULL_PROFILE_SKILL_BODY_REPEATED_CHAR_LIMIT` in `src/maintenance/release.py`.
+That measurement is also a floor: a change that shrinks either figure below it
+re-measures and re-derives in the same commit, and the tests fail until it
+does.
+The per-skill body ceiling (`STRUCTURE_LINT_SKILL_BODY_BYTE_CEILING` in
+`src/skills/structure_lint.py`) still bounds what one load costs.
+
 Density is the other half of that number; see §6.
 
 ```sh
@@ -187,7 +205,7 @@ PYTHONPATH=tests uv run python -m unittest discover -s tests
 it is the install footprint of the `full` profile's `SKILL.md` files.
 `_full_profile_skill_body_chars()` in `src/maintenance/drift.py` reads
 `profile["skill_body"]["bytes"]`; `docs skill-context-cost` prints on-demand
-references as a separate figure, and the ratchet never reads it. A byte in the
+references as a separate figure, and neither body budget reads it. A byte in the
 body is therefore paid every time the skill is loaded, and stays in that
 session's history until compaction; a byte in a `references/*.md` is paid only
 when a reader opens it. Move optional detail out to a

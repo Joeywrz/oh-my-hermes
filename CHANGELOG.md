@@ -4,6 +4,25 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **Adding an ordinary skill no longer forces a raise of the skill-body
+  budget.** `full_profile_skill_body_chars`, the install footprint of every
+  `full` `SKILL.md` body, was a zero-slack ratchet that each new skill had to
+  raise to the exact value it measured, and it could not see growth in what
+  reaches every request. It is now a ceiling with standing headroom: the
+  producer-measured total (1,044,180 chars) plus 10%, rounded up to the next
+  50,000, which is 1,150,000 and holds about thirteen average bodies. A test
+  keeps the ceiling equal to that derivation. The per-request budgets (skill
+  index, tool schemas, `pre_llm_call` context) stay zero-slack ratchets, and
+  the per-skill body ceiling in the structure lint is unchanged. A new budget,
+  `full_profile_skill_body_repeated_chars`, bounds text repeated verbatim
+  across bodies (104,214 chars measured, 9.98%) by the same policy, rounded up
+  to the next 10,000: 120,000. Every lane member carries renderer-stamped rail
+  sections, so an ordinary new skill adds about 1,450 repeated chars and the
+  headroom holds about ten of them, while a skill that copies another's own
+  sections or a rail sentence stamped into every body still fails. Both
+  measurements are floors as well: a change that shrinks either figure lowers
+  its measurement and ceiling in the same commit.
+
 - **`omh_capabilities` answers with the summary when no action is given.** The
   default was `export`, the full capability manifest (over 800k characters),
   which Hermes writes to a file, showing the model only a short preview.

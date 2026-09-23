@@ -359,7 +359,7 @@ class CalibrationSelectionTests(unittest.TestCase):
             "keep working while delegated units run",
             "run it before closing",
         ):
-            self.assertNotIn(clause, block)
+            self.assertNotIn(clause, block.lower())
         self.assertIn("state them once, completely, and freeze", block)
         self.assertIn("keep in line anything that finishes in a handful of tool calls.", block)
 

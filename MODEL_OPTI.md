@@ -577,7 +577,8 @@ pairing so a benchmark claim can never mix in other prompt changes.
   sentence into a per-criterion report rule measured 18 / 30 at 2,904,402
   tokens; it was not shipped, since one of its clauses ("a next step described
   instead of run is reported as not done") reads as the same push. Its total
-  (+5.2%, +4,806 per instance) sits inside the same-text drift, but on the
+  (+5.2%, +4,806 per instance against the first current run) sits inside the
+  same-text drift, but on the
   passing instances it measured +7,287 [+2,783, +11,775], above the same-text
   passing drift of +4,525. Tool and API calls come from Hermes'
   session rows, outside the harness. Not measured: the composer block's
@@ -594,7 +595,10 @@ pairing so a benchmark claim can never mix in other prompt changes.
   sentences, no working shorthand). Two clauses were removed on 2026-09-23
   because they pushed the model to keep working: "keep working while
   delegated units run" and "If your closing paragraph is a dispatch you could
-  run, run it before closing". The change is deletion-only and **unmeasured**:
+  run, run it before closing". The second was the composer-side counter to
+  the 5.1 trait of announcing a next step instead of running it, so that
+  trait is no longer countered here, as in the subagent block. The change is
+  deletion-only and **unmeasured**:
   `benchmarks/live-model-tools/v1` runs one agent with no fanout and never
   calls `composition_calibration_for_model()`, so no arm can reach this block.
   #1836 tracks a measurement path for it.

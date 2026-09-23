@@ -1032,3 +1032,15 @@ class RouteProvenanceRecordingTest(unittest.TestCase):
         # that conversation's HUD relabel children it never dispatched.
         self._call(action="set", category="quick", session_id="20260920_233032_739b8a")
         self.assertNotIn("session_id", load_delegation_route_provenance(self.omh_home)[-1])
+
+
+class DelegateRouteSchemaExampleTest(unittest.TestCase):
+    def test_the_category_example_names_the_shipped_ultrabrain_head(self):
+        # The model reads this description; an example naming a model the
+        # chain no longer heads teaches a resolution that does not happen.
+        from omh.plugin_bundle.omh.hermes_delegation import HERMES_MIXTURE_CATEGORY_CHAINS
+        from omh.plugin_bundle.omh.tools.delegate_route_tool import OMH_DELEGATE_ROUTE_SCHEMA
+
+        model_id, effort = HERMES_MIXTURE_CATEGORY_CHAINS["ultrabrain"][0][:2]
+        description = OMH_DELEGATE_ROUTE_SCHEMA["parameters"]["properties"]["category"]["description"]
+        self.assertIn(f"ultrabrain -> {model_id} {effort}", description)

@@ -105,18 +105,25 @@ _FABLE_51 = _candidate(
     ("ccapi", "anthropic", "openrouter"),
     reasoning="Editorial most-capable Claude recommendation; not a benchmark claim.",
 )
+# GPT-6 Sol (2026-09-22) holds every slot GPT-5.6 Sol and GPT-5.6 Terra held
+# (owner decision, 2026-09-23), each at the effort that slot already carried:
+# medium in the shared last resort, high at the head of `deep` and in the
+# main-role suggestions. The Codex client repository's model catalog names
+# Sol as the upgrade for both 5.6 tiers (the served catalog does not push it
+# yet), no GPT-6 Terra exists, and Sol's list price is at or below Terra's
+# on every documented rate, so the cost-tier reason Terra held `deep` for
+# (#1313, about Astra's price) does not separate the two. Editorial and
+# unmeasured; both 5.6 ids left the shipped chains under the
+# superseded-generation rule (owner decision, 2026-09-11).
 _SOL = _candidate(
-    "gpt-5.6-sol",
+    "gpt-6-sol",
     "gpt",
     ("openai-codex", "openai"),
     reasoning_effort="medium",
     reasoning="Editorial reasoning recommendation; not a benchmark claim.",
 )
-# GPT-6 Astra (2026-09-03) heads the slots GPT-5.6 Sol held as the GPT
-# frontier. Sol no longer trails it (owner decision, 2026-09-11: superseded
-# generations leave the shipped chains); it stays in the shared last resort
-# as the cheap GPT entry. The Terra and Luna lanes are cost-tier picks and
-# stay as they were (#1313): Astra lists at 8x Sol.
+# GPT-6 Astra (2026-09-03) heads the frontier GPT slots. The Luna lane is a
+# cost-tier pick below it: Astra lists at 5x Sol and 100x Luna.
 _ASTRA = _candidate(
     "gpt-6-astra",
     "gpt",
@@ -124,15 +131,8 @@ _ASTRA = _candidate(
     reasoning_effort="xhigh",
     reasoning="Editorial GPT frontier recommendation; staged rollout, not a benchmark claim.",
 )
-_TERRA = _candidate(
-    "gpt-5.6-terra",
-    "gpt",
-    ("openai-codex", "openai"),
-    reasoning_effort="high",
-    reasoning="Editorial deep-work recommendation; not a benchmark claim.",
-)
 # DeepSeek V4.1 Flash (released 2026-09-10) takes the slots DeepSeek V3.2
-# held: the reasoning-capable budget fall-through behind Terra on `deep` and
+# held: the reasoning-capable budget fall-through behind Sol on `deep` and
 # the DeepSeek entry on `unspecified-low`. Its documented effort ladder is
 # low/high/max with high as the default, so both placements name a
 # documented rung. The chain names `deepseek-flash` — the id the vendor's
@@ -221,7 +221,7 @@ SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
         # DeepSeek gives deep a reasoning-capable budget fallback from a
         # fourth provider ecosystem — before it, deep sat entirely on GPT
         # and one rejected ecosystem exhausted the chain (owner rule below).
-        "deep": [deepcopy(_TERRA), _with_effort(_DEEPSEEK_FLASH, "high")],
+        "deep": [_with_effort(_SOL, "high"), _with_effort(_DEEPSEEK_FLASH, "high")],
         # Architecture and system-design lanes (owner request, 2026-08-19):
         # deepest declared effort across three provider ecosystems so a
         # rejected ecosystem cannot exhaust the chain. Efforts stay xhigh
@@ -312,7 +312,7 @@ SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
             deepcopy(_FABLE_51),
             deepcopy(_OPUS_55),
             deepcopy(_ASTRA),
-            deepcopy(_TERRA),
+            _with_effort(_SOL, "high"),
         ],
     },
     "domain_affinities": {
@@ -743,8 +743,8 @@ def _active_spellings(active: Mapping[str, str]) -> set[str]:
     """Every spelling a confirmed-active model answers to.
 
     As recorded, unqualified, and — when the provider serves a dated snapshot
-    (`gpt-5.6-terra-2026-07-09`) — the base alias it is a snapshot of, so the
-    chain entry `gpt-5.6-terra` still counts the model as available and the
+    (`gpt-6-sol-YYYY-MM-DD`) — the base alias it is a snapshot of, so the
+    chain entry `gpt-6-sol` still counts the model as available and the
     route keeps the id as served.
     """
     model_id = active["model_id"]

@@ -266,7 +266,8 @@ class CategoryMaestroResolverTests(unittest.TestCase):
         self.assertEqual(route["selected_reasoning_effort"], "high")
         self.assertEqual(route["provenance"], "role_chain_head")
         chain_models = [entry["model_id"] for entry in route["chain"]]
-        self.assertEqual(chain_models, ["gpt-5.6-sol"])
+        # The overridden head, then the built-in unspecified-low tail.
+        self.assertEqual(chain_models, ["gpt-5.6-sol", "gpt-6-sol"])
 
     def test_depth_and_scale_chains_derive_from_the_merged_table(self) -> None:
         deep = resolve_model_route(

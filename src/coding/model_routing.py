@@ -178,15 +178,36 @@ EXECUTOR_MODEL_OPTIONS: Final[dict[str, tuple[dict[str, object], ...]]] = {
             "reasoning_efforts": ("low", "medium", "high", "xhigh", "max"),
         },
         {
+            # GPT-6 Sol (2026-09-22) takes every chain slot the two GPT-5.6
+            # tiers held (owner decision, 2026-09-23). The efforts are the
+            # Codex client catalog's ladder from the exact contract's
+            # `surface_efforts`: no `none`, and the Codex-only `ultra` rung
+            # left out. The label claims no default: the Codex catalog ranks
+            # Astra first.
+            "model_id": "gpt-6-sol",
+            "label": "GPT-6 Sol (coding workhorse)",
+            "tier": "frontier",
+            "recommended_roles": ("brain", "implementation", "docs", "review", "research", "design_visual"),
+            "reasoning_efforts": ("low", "medium", "high", "xhigh", "max"),
+        },
+        # The two GPT-5.6 rows stay after they left every shipped chain: a
+        # row is this catalog's authority over the effort of an explicit
+        # `--model` override, and without it the retired id would pass any
+        # effort through unadjudicated. Their ladders are unchanged. The
+        # labels follow the served Codex catalog's descriptions ("Older
+        # coding model for complex work.", "Older balanced model for
+        # straightforward work."); the Sol row no longer claims to be the
+        # Codex CLI default, which that catalog gives to Astra.
+        {
             "model_id": "gpt-5.6-sol",
-            "label": "GPT-5.6 Sol (frontier coding; the Codex CLI default)",
+            "label": "GPT-5.6 Sol (older coding model)",
             "tier": "frontier",
             "recommended_roles": ("brain", "review", "design_visual"),
             "reasoning_efforts": ("low", "medium", "high", "xhigh"),
         },
         {
             "model_id": "gpt-5.6-terra",
-            "label": "GPT-5.6 Terra (deep work tier)",
+            "label": "GPT-5.6 Terra (older balanced model)",
             "tier": "standard",
             "recommended_roles": ("implementation", "docs", "review", "research"),
             "reasoning_efforts": ("low", "medium", "high", "xhigh"),
@@ -351,33 +372,31 @@ def _CLAUDE_FRONTIER_CHAIN(effort: str) -> tuple[dict[str, str], ...]:
 
 BUILTIN_CATEGORY_MODELS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
     # Codex: the same GPT generation the Hermes lane ships. GPT-6 Astra heads
-    # the two full-depth categories on its own — Sol no longer trails it, the
-    # same superseded-generation rule the Hermes lane applied on 2026-09-11;
-    # `deep` is Terra over Sol, mirroring the Hermes lane's cost-tier pick
-    # (#1313); every lighter category names Sol, the Codex CLI's own default,
-    # at the effort the tier wants (Astra lists at 8x Sol, so it never heads
-    # a cost-tier slot). The previous table named the gpt-5 generation, which
-    # the CLI no longer serves on the owner machine (2026-09-05).
+    # the full-depth categories on its own. GPT-6 Sol holds every slot the
+    # two GPT-5.6 tiers held (owner decision, 2026-09-23, the
+    # superseded-generation rule): `deep` was Terra over 5.6 Sol and is now
+    # Sol alone at high, the same single-entry shape as ultrabrain and
+    # architect, and every lighter category names Sol at the effort the tier
+    # already wanted (Astra lists at 5x Sol, so it never heads a cost-tier
+    # slot). Sol needs Codex CLI 0.155.0 or later (the client repository's
+    # catalog). Editorial and unmeasured.
     "codex": {
         "ultrabrain": ({"model_id": "gpt-6-astra", "reasoning_effort": "xhigh"},),
-        "deep": (
-            {"model_id": "gpt-5.6-terra", "reasoning_effort": "high"},
-            {"model_id": "gpt-5.6-sol", "reasoning_effort": "high"},
-        ),
+        "deep": ({"model_id": "gpt-6-sol", "reasoning_effort": "high"},),
         "architect": ({"model_id": "gpt-6-astra", "reasoning_effort": "xhigh"},),
-        "unspecified-high": ({"model_id": "gpt-5.6-sol", "reasoning_effort": ""},),
-        "unspecified-low": ({"model_id": "gpt-5.6-sol", "reasoning_effort": ""},),
-        "quick": ({"model_id": "gpt-5.6-sol", "reasoning_effort": "low"},),
-        "writing": ({"model_id": "gpt-5.6-sol", "reasoning_effort": ""},),
-        "visual-engineering": ({"model_id": "gpt-5.6-sol", "reasoning_effort": ""},),
-        "artistry": ({"model_id": "gpt-5.6-sol", "reasoning_effort": ""},),
+        "unspecified-high": ({"model_id": "gpt-6-sol", "reasoning_effort": ""},),
+        "unspecified-low": ({"model_id": "gpt-6-sol", "reasoning_effort": ""},),
+        "quick": ({"model_id": "gpt-6-sol", "reasoning_effort": "low"},),
+        "writing": ({"model_id": "gpt-6-sol", "reasoning_effort": ""},),
+        "visual-engineering": ({"model_id": "gpt-6-sol", "reasoning_effort": ""},),
+        "artistry": ({"model_id": "gpt-6-sol", "reasoning_effort": ""},),
         # The three appended categories keep this profile's rule: Sol at the
         # effort the tier wants, and Astra only where the category is about
         # depth rather than cost. deep-work is the one that earns Astra here,
         # and Sol does not trail it -- same shape as ultrabrain and architect
         # above, for the same reason.
-        "capable": ({"model_id": "gpt-5.6-sol", "reasoning_effort": "medium"},),
-        "simple-work": ({"model_id": "gpt-5.6-sol", "reasoning_effort": "low"},),
+        "capable": ({"model_id": "gpt-6-sol", "reasoning_effort": "medium"},),
+        "simple-work": ({"model_id": "gpt-6-sol", "reasoning_effort": "low"},),
         "deep-work": ({"model_id": "gpt-6-astra", "reasoning_effort": "high"},),
     },
     # Claude Code: every frontier category runs the owner-ordered Claude chain

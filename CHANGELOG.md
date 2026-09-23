@@ -4,6 +4,36 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **GPT-6 Sol takes every shipped slot both GPT-5.6 tiers held.** `gpt-6-sol`
+  replaces `gpt-5.6-sol` in the shared last-resort order (at `medium`) and in
+  the Codex Maestro rows, and replaces `gpt-5.6-terra` at the head of `deep`
+  and in the `main` role suggestion (both at `high`), in both lanes. The
+  Codex `deep` chain is now Sol alone at `high`. The Codex options gain a
+  Sol row, and both GPT-5.6 rows stay with their ladders unchanged, so an
+  explicit `--model gpt-5.6-sol` or `--model gpt-5.6-terra` override still
+  has its effort adjudicated; the 5.6 Sol label no longer claims to be the
+  Codex CLI default (the served Codex catalog ranks Astra first). Every slot
+  keeps its previous effort. Both GPT-5.6 ids leave the shipped chains and
+  stay recognized, priced, and provider-mapped; GPT-5.6 Sol's 2026-09-11
+  frontier-slot retirement is widened to every shipped chain. Terra has no
+  GPT-6 counterpart, and the Codex client repository's model catalog names
+  Sol as the upgrade for both 5.6 tiers (the served catalog does not push it
+  yet); Sol's list price ($2 / $10) is at or below Terra's on every
+  documented rate. The placement is editorial and unmeasured; the 5.6 Sol vs
+  6 Sol pair at `medium`, the Terra vs Sol pair at `high`, and `main` at its
+  effort are the follow-up.
+
+  `gpt-6-sol` gains an exact contract read from the vendor's pages: the
+  route sends a no-reasoning request as `none`, its documented rung, whether
+  it was spelled `none` or `off`, and raises `minimal` to `low`. The Codex
+  client's ladder is recorded beside the API ladder without `none` and
+  without the Codex-only `ultra` rung, which no OMH ladder or chain names. No
+  calibration text changed: Sol receives the GPT family block until a
+  measured pair argues for an exact one, and the Codex Sol prompt's sentence
+  telling the model to continue without ending the turn is not imported.
+  The `gpt_sol_codex_handoff` overlay keeps applying to GPT-6 Sol as a Codex
+  main agent, now pinned by a test that names it.
+
 - **The Claude subagent calibration no longer tells the model to keep
   working.** The high-effort `claude` block said "No one is watching this
   unit in real time: proceed on every reversible action inside the boundary

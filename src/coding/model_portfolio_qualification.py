@@ -96,12 +96,11 @@ RECOMMENDATION_DECISIONS: Final[dict[str, tuple[str, ...]]] = {
     "gemini-3.1-pro": ("categories:artistry", "categories:writing", "domain_affinities:x_platform_data"),
     "glm-5.3": ("categories:capable", "categories:unspecified-low"),
     "glm-5.3-flash": ("categories:quick",),
-    "gpt-5.6-sol": ("last_resort:any",),
-    "gpt-5.6-terra": ("categories:deep", "role_suggestions:main"),
     "gpt-6-astra": (
         "categories:architect", "categories:deep-work", "categories:ultrabrain", "role_suggestions:main",
     ),
     "gpt-6-luna": ("categories:quick", "categories:simple-work"),
+    "gpt-6-sol": ("categories:deep", "last_resort:any", "role_suggestions:main"),
     "grok-code-fast": ("domain_affinities:x_platform_data",),
     "kimi-k3": (
         "categories:architect", "categories:artistry", "categories:capable", "categories:quick",
@@ -127,10 +126,14 @@ RETIREMENT_DECISIONS: Final[dict[str, dict[str, object]]] = {
         ("glm-5.2", "glm-5.3", "all_shipped_chains", "2026-09-11"),
         ("glm-5.2-ultrafast", "glm-5.3-flash", "all_shipped_chains", "2026-09-11"),
         ("deepseek-v3.2", "deepseek-v4.1-flash", "all_shipped_chains", "2026-09-11"),
-        # Sol remains the cheap GPT last resort: exclusion is slot-scoped.
-        ("gpt-5.6-sol", "gpt-6-astra", "frontier_slots", "2026-09-11"),
         ("claude-opus-5", "claude-opus-5-5", "all_shipped_chains", "2026-09-23"),
         ("gpt-5.6-luna", "gpt-6-luna", "all_shipped_chains", "2026-09-23"),
+        # The dict is keyed by model id, so GPT-5.6 Sol's row is rewritten,
+        # not appended: its 2026-09-11 frontier-slot retirement (successor
+        # gpt-6-astra) is widened here to every shipped chain. That history
+        # stays in docs/MODEL-ONBOARDING.md.
+        ("gpt-5.6-sol", "gpt-6-sol", "all_shipped_chains", "2026-09-23"),
+        ("gpt-5.6-terra", "gpt-6-sol", "all_shipped_chains", "2026-09-23"),
     )
 }
 

@@ -53,7 +53,15 @@ class CoverageMatrixTests(unittest.TestCase):
         rows = {
             row["requested_model"]: row
             for row in build_model_contract_coverage(
-                _inventory(("openai/gpt-6-luna", "anthropic/claude-opus-5-5", "anthropic/claude-opus-5"))
+                _inventory(
+                    (
+                        "openai/gpt-6-luna",
+                        "anthropic/claude-opus-5-5",
+                        "anthropic/claude-opus-5",
+                        "openai/gpt-6-sol",
+                        "openai/gpt-5.6-sol",
+                    )
+                )
             )["comparison"]["models"]
         }
         luna = rows["openai/gpt-6-luna"]
@@ -64,8 +72,13 @@ class CoverageMatrixTests(unittest.TestCase):
         self.assertEqual(opus["status"], "exact")
         self.assertEqual(opus["dimensions"]["effort"]["floor"], "low")
         self.assertIn("off", opus["dimensions"]["effort"]["unsupported_efforts"])
+        sol = rows["openai/gpt-6-sol"]
+        self.assertEqual(sol["status"], "exact")
+        self.assertEqual(sol["dimensions"]["effort"]["floor"], "none")
+        self.assertEqual(sol["dimensions"]["price"]["status"], "documented_list")
         # The previous generation keeps no contract.
         self.assertEqual(rows["anthropic/claude-opus-5"]["status"], "missing")
+        self.assertEqual(rows["openai/gpt-5.6-sol"]["status"], "missing")
 
     def test_deepseek_pointer_inherits_the_exact_contract_and_routed_legacy_ids_stay_missing(self) -> None:
         inventory = _inventory(

@@ -2932,8 +2932,8 @@ def _todo_checklist_discipline_reference() -> str:
 
     The body carries what is wrong to discover late -- declarations are not
     evidence, one active item, `set` replaces the whole list. Everything here is
-    needed once, while writing the list, and is paid on demand rather than in
-    every context window of a `full` install.
+    needed once, while writing the list, and is paid on demand rather than on
+    every load of the skill body.
     """
 
     return """# Plan Checklist Discipline

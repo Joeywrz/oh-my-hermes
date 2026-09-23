@@ -50,8 +50,9 @@ NON_DESTRUCTIVE_DEFAULT_NOTE = (
     "to shrink an existing full install."
 )
 RECONCILE_CONTEXT_COST_NOTE = (
-    "Every installed skill adds per-turn context weight to every Hermes request, so an install that "
-    "still carries full-only skills costs full-profile context even when the recorded profile is core."
+    "Every installed skill adds an index line to every Hermes request and about 8k chars each time its "
+    "body loads, and a loaded body stays in history until compaction, so an install that still carries "
+    "full-only skills costs full-profile context weight even when the recorded profile is core."
 )
 
 
@@ -311,8 +312,8 @@ def _prune_flat_layout_skill_directories(
     move again to `skills/<category>/<label>/` so Hermes can read a dashboard
     category off the path. Installs are non-destructive, so each move wrote the
     new directories and left the old ones beside them: an observed machine went
-    from 92 skills to 184 after the relabel, doubling the pack's per-turn
-    context weight, and the manifest then reported every vanished old path as a
+    from 92 skills to 184 after the relabel, doubling the pack's index lines
+    and context weight, and the manifest then reported every vanished old path as a
     local modification. A leftover flat copy after this move would double-register
     every skill in Hermes AND keep a "general" group in the banner, which is the
     exact symptom the categorized layout exists to remove.
@@ -467,8 +468,10 @@ def _context_cost_warning(*, core_count: int, full_count: int) -> dict:
         "extra_skill_count": extra_count,
         "message": (
             f"full profile installs all {full_count} packaged skills, {extra_count} more than the "
-            f"{core_count}-skill core default; every installed skill adds per-turn context weight to "
-            "every Hermes request, so prefer core unless this workspace genuinely needs the complete catalog."
+            f"{core_count}-skill core default; every installed skill adds an index line to every Hermes "
+            "request and about 8k chars each time its body loads (a loaded body stays in history until "
+            "compaction), so this context weight grows with the catalog; prefer core unless this workspace "
+            "genuinely needs the complete catalog."
         ),
     }
 

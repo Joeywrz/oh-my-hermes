@@ -124,6 +124,34 @@ AWARENESS_PRIMER_CONTEXT_CHAR_LIMIT = 1050
 AWARENESS_PRIMER_MARKDOWN_CHAR_LIMIT = 3400
 AWARENESS_WORKFLOW_CONTEXT_CHAR_LIMIT = 1500
 ROLE_CONTEXT_CHAR_LIMIT = 2600
+# Per-request budgets: text Hermes can send on every turn of a session with OMH
+# installed (the tool schemas only with tool_search off; see below), unlike the
+# skill-body total further down, which is paid per `skill_view` load. Each
+# limit is the value its producer measured when the budget landed
+# (2026-09-23); raise one only with the reason written here.
+#
+# The full-profile `<available_skills>` lines, rendered with Hermes's 60-char
+# description rule (`src/skills/skill_index.py`): 124 skill lines and 9
+# category headers, joined by newlines.
+SKILL_INDEX_CHAR_LIMIT = 10894
+# The longest single skill line in that index. Every description is already cut
+# to 60 characters, so what moves this is a longer skill name.
+SKILL_INDEX_LINE_CHAR_LIMIT = 100
+# The plugin bundle's registered tool schemas, 19 tools serialized as JSON with
+# sorted keys (`src/maintenance/per_turn_context.py`); `omh_todo` and `omh_loop`
+# are the largest. This is the eager ceiling: all of it rides every request only
+# when Hermes's `tools.tool_search.enabled` is `off`, or on a host without the
+# bridge. Under the Hermes default (`auto`, an alias of `on`) every non-core
+# plugin tool is deferrable (`tools/tool_search.py::is_deferrable_tool_name`),
+# so a request carries a bounded listing entry per tool plus the schemas of the
+# tools the model describes or calls.
+PLUGIN_TOOL_SCHEMA_CHAR_LIMIT = 57968
+# The largest fenced `pre_llm_call` context over the named scenario set in
+# `src/maintenance/per_turn_context.py` (the `all_surfaces` scenario). Hermes
+# replays each turn's injection from `api_content` on every later turn, so this
+# accumulates in history. `AWARENESS_PRIMER_CONTEXT_CHAR_LIMIT` above still
+# bounds the primer alone.
+PRE_LLM_CALL_CONTEXT_CHAR_LIMIT = 6260
 # 340000 -> 349637: three capability-skill sections were added by the domain
 # skill pack (`backend`, `rust`, `native-debugging`), on top of the
 # `llm-app-dev` section that landed on main under the old ceiling. Each section
@@ -154,7 +182,7 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # inputs (audience, format, language), the briefing artifact in its outputs,
 # and the three quality-bar rules that make Hermes ask before retrieval
 # rather than after. The document standard itself is a reference file, so it
-# costs progressive disclosure rather than the always-loaded body; what is
+# costs progressive disclosure rather than the SKILL.md body; what is
 # counted here is the asking, not the standard.
 # 357345 -> 358092: ai-slop-cleaner's capability section grew its taxonomy,
 # ordered-pass, detection, and closing-report rules; instruction lines on one
@@ -295,7 +323,7 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # 427563 -> 430048: `todo-checklist` (#1642). `omh_todo` is registered on every
 # session and no skill named it, so a user looking for `/omh-todo` found
 # nothing and only the two delivery engines mentioned the tool at all. The
-# always-loaded body carries only what is wrong to discover late -- items are
+# SKILL.md body carries only what is wrong to discover late -- items are
 # declarations and never execution evidence, exactly one item active, and
 # `action=set` replaces the whole list so a partial write silently drops the
 # items left out. The shaping rules, the `blocked_reason` versus
@@ -395,7 +423,7 @@ FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 984912 -> 991599: `todo-checklist` (#1642). `omh_todo` is registered on every
 # session and no skill named it, so a user looking for `/omh-todo` found
 # nothing and only the two delivery engines mentioned the tool at all. The
-# always-loaded body carries only what is wrong to discover late -- items are
+# SKILL.md body carries only what is wrong to discover late -- items are
 # declarations and never execution evidence, exactly one item active, and
 # `action=set` replaces the whole list so a partial write silently drops the
 # items left out. The shaping rules, the `blocked_reason` versus
@@ -514,7 +542,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # senior-designer bar with flat-output-fails, the DESIGN.md-before-code
 # contract gate, primary-taste-direction selection, and reference-token
 # extraction). The reference bodies themselves load on demand and sit outside
-# this always-loaded budget; warranted growth.
+# this body budget; warranted growth.
 # 718545 -> 719033: the ultrawork and ralplan todo-init quality-bar rules
 # gained an English-labels clause (+488 chars: phase names and task titles
 # stay English even in a non-English conversation, since the HUD todo
@@ -532,13 +560,13 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # (+1725 chars: the red-before-green observed rule with pasted-output
 # evidence, forbidden test-weakening moves, the red-commit checkpoint, and
 # the pointer to the on-demand references/tdd-red-green.md discipline; the
-# reference body loads on demand and sits outside this always-loaded
+# reference body loads on demand and sits outside this body
 # budget); warranted growth.
 # 723197 -> 724180: context-budget-review gained the cache-placement
 # discipline (+983 chars: three prompt-cache triggers, the cache-stable
 # prefix-placement quality-bar rule, and the pointer to the on-demand
 # references/cache-placement.md card; the reference body loads on demand
-# and sits outside this always-loaded budget); warranted growth.
+# and sits outside this body budget); warranted growth.
 # 724180 -> 725734: agent-debug and failure-signal-audit gained real
 # debugging-methodology quality bars (+1554 chars: competing hypotheses
 # held with evidence for and against, cheapest-discriminating-probe-first
@@ -550,13 +578,13 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # capture-at-1440/768/375 rule with Blocker/High/Medium/Nit triage and the
 # recapture-until-the-difference-list-is-empty contract, plus the pointer to
 # the on-demand references/screenshot-loop.md; the reference body loads on
-# demand and sits outside this always-loaded budget); warranted growth.
+# demand and sits outside this body budget); warranted growth.
 # 726112 -> 726847: idea-to-deploy gained the greenfield project-bootstrap
 # pass (+735 chars: six new trigger phrases, a widened use-when clause naming
 # a fresh or empty repository, and the quality-bar rule requiring the
 # bootstrap pass before delivery planning with the explicit throwaway-work
 # skip, plus the pointer to the on-demand references/project-bootstrap.md;
-# the reference body loads on demand and sits outside this always-loaded
+# the reference body loads on demand and sits outside this body
 # budget); warranted growth.
 # 726847 -> 726824: the bare-noun "project scaffolding" trigger was dropped
 # from idea-to-deploy after review showed it dispatched read-only questions
@@ -597,7 +625,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # just each unit alone), and report merged/unmerged per unit, since merging
 # stays an explicit operator/reviewing-agent action dispatch never performs
 # (the full collect/verify/merge/report walkthrough lives in
-# `references/executor-prompt-composition.md`, outside this always-loaded
+# `references/executor-prompt-composition.md`, outside this body
 # budget); model-setup gained one closing-step quality-bar line pointing a
 # finished model-setup pass at the same maestro-delegation setup surfaces
 # (+907 chars total); warranted growth.
@@ -618,11 +646,11 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # warranted growth for a real per-run model-override capability.
 # 746326 -> 756725: the new `adversarial-consensus` (`omh-adversarial-consensus`)
 # skill was added -- an independent-perspectives / cross-attack / distill-only
-# planning contract whose always-loaded body is 10441 chars, close to
+# planning contract whose SKILL.md body is 10441 chars, close to
 # `ralplan`'s 9616 and well under `ultrawork`'s 23879. The round-by-round
 # procedure, the per-seat angle table, and the failure-mode table live in the
 # on-demand `references/consensus-protocol.md` (6894 chars), outside this
-# budget; what is always loaded is the roster bound, the round order, the
+# budget; what is in the body is the roster bound, the round order, the
 # independence and no-self-defense rules, the closed bucket set, and the
 # mandatory planner handoff -- the rules that are wrong to discover late. The
 # remainder of the delta is the `+N more` lane line regenerating across the
@@ -643,15 +671,15 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # the on-demand references -- the new `omh-visual-qa/references/
 # visual-verdict-contract.md` (4898 chars) and the grown `taste-foundations.md`
 # (+3838) and `design-critique-rubric.md` (+1122) -- outside this budget; what is
-# always loaded is the threshold, the rerun obligation, and the two-line override
+# in the body is the threshold, the rerun obligation, and the two-line override
 # test, the rules that are wrong to discover after a surface has shipped
 # (+1557 chars); warranted growth.
 # 758447 -> 770048: the new `llm-app-dev` (`omh-llm-app-dev`) skill was added --
-# the build-discipline contract for an LLM-powered feature, whose always-loaded
+# the build-discipline contract for an LLM-powered feature, whose SKILL.md
 # body is 11577 chars, between `adversarial-consensus`'s 10355 and
 # `ultrawork`'s 23881. The per-rail decisions and the eval-harness procedure
 # live in the two on-demand references (`build-rails.md` 6348 chars,
-# `eval-harness.md` 4744), outside this budget; what is always loaded is the
+# `eval-harness.md` 4744), outside this budget; what is in the body is the
 # rail order, the one-client-boundary and exact-model-ID rules, the
 # schema-first validate-and-repair rule, the prompt-artifact separation, the
 # retrieval-before-generation order, and the eval deliverables -- the rules that
@@ -663,10 +691,10 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # them; warranted growth for a new workflow.
 # 770048 -> 795266: the domain skill pack added `backend`, `rust`, and
 # `native-debugging` -- OMH's first technical-domain workflows, closing its two
-# zero-coverage engineering domains. Each always-loaded body is smaller than
+# zero-coverage engineering domains. Each SKILL.md body is smaller than
 # `frontend`'s and than `llm-app-dev`'s; the per-stack pointer table, the
 # migration order, the UB category table, and the debugger session recipes live
-# in five on-demand references, outside this budget. What is always loaded is
+# in five on-demand references, outside this budget. What is in the body is
 # only what is wrong to discover late -- the auth boundary before endpoints, the
 # deterministic unsafe/FFI/lock-free escalation trigger, and the
 # three-hypotheses-on-distinct-axes floor. The remainder of the delta is the
@@ -683,13 +711,13 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # rather than report -- an unlinked TODO/FIXME/stub marker in changed code, a
 # suppressed test with no linked reason, placeholder or self-referential
 # evidence, and a proof word with no command behind it. It belongs in the
-# always-loaded body because it changes the verdict the skill issues, and a
+# SKILL.md body because it changes the verdict the skill issues, and a
 # gate that only reports its verdict after the claim is written is the failure
 # this rule exists to stop; warranted growth.
 # 795956 -> 797568: the seed `ja` and `zh` trigger language packs put their
-# phrases into the catalog, so the always-loaded "Strong routing signals" line
+# phrases into the catalog, so the body's "Strong routing signals" line
 # of nineteen skills now also carries the Japanese and Chinese phrasings for
-# that skill (+1612 chars across all of them). It belongs in the always-loaded
+# that skill (+1612 chars across all of them). It belongs in the SKILL.md
 # body for exactly the reason the English and Korean phrases do: the routing
 # signal list is what a host's picker and the skill body both read to decide
 # whether this workflow is the one, and a phrase that is not there is a
@@ -700,7 +728,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # rule (+474 chars) requiring a named adversarial or regression case before a
 # diff that deletes a validation/refusal/sanitization/permission/allowlist
 # check, or the negative test that proved it, can be claimed complete. It
-# belongs in the always-loaded body for the same reason the completion-
+# belongs in the SKILL.md body for the same reason the completion-
 # integrity rule above does: it changes the verdict the skill issues, and a
 # gate that reports a lost guard instead of refusing the claim is the failure
 # this rule exists to stop; warranted growth.
@@ -744,7 +772,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # inputs (audience, format, language), the briefing artifact in its outputs,
 # and the three quality-bar rules that make Hermes ask before retrieval
 # rather than after. The document standard itself is a reference file, so it
-# costs progressive disclosure rather than the always-loaded body; what is
+# costs progressive disclosure rather than the SKILL.md body; what is
 # counted here is the asking, not the standard.
 # 816478 -> 817601: ai-slop-cleaner gained the classify-first taxonomy line,
 # the fixed pass order, the detection-first rule, the scope boundary, and the
@@ -821,11 +849,11 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # Lane lines; the judging model, weights, thresholds, and the worked
 # arithmetic live in one on-demand reference outside this count; warranted
 # growth.
-# 876865 -> 877208: same measured correction reaching the always-loaded
+# 876865 -> 877208: same measured correction reaching the SKILL.md
 # body; warranted growth.
 # 877208 -> 882271: measured full-profile output after adding the 5,295-byte
 # omh-docs body and projecting its research-and-ops lane membership; its four
-# progressive references remain outside the always-loaded body count.
+# progressive references remain outside the SKILL.md body count.
 # 882271 -> 882729: source-accuracy fixes document project-scoped OMH homes,
 # the doctor state-write side effect, and the metadata-only Hermes-memory
 # comparison boundary; this is measured product documentation, not padding.
@@ -851,7 +879,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # delivery, and the public-board clause in its use-when. The per-action
 # authority table, the approval record, the compaction/handoff rules, and the
 # anti-patterns live in the new on-demand `references/public-board.md` outside
-# this count; what is always loaded is only what is wrong to discover after a
+# this count; what is in the body is only what is wrong to discover after a
 # post has already been read; warranted growth.
 # 901000 -> 904072: the shared execution-wait discipline
 # (`EXECUTION_WAIT_DISCIPLINE_RULE`, one constant behind
@@ -859,7 +887,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # quality bar, the `ultrawork` and `loop` engines, and the command-operator
 # overlay, and the interjection-resume rule the six executing engines share now
 # names the armed wait instead of telling a run to say what it is waiting on.
-# It belongs in the always-loaded body because choosing the wait strategy is a
+# It belongs in the SKILL.md body because choosing the wait strategy is a
 # decision made BEFORE the work starts: a rule discovered after a sleep/status
 # loop has already been invented is a rule that arrives one wasted model turn
 # per check too late. The capability ladder table, the terminal-state list, and
@@ -872,7 +900,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # shared rails remain referenced rather than copied.
 # 914399 -> 914611: `achievements` and `run-efficiency` name the supplied
 # `session_activity_receipt/v1` as an artifact expectation (issue #1404). One
-# bounded line each, in the always-loaded body because it is an input the
+# bounded line each, in the SKILL.md body because it is an input the
 # workflow must ask for BEFORE it reports: without it "the skill was not used"
 # reads as a finding when nobody observed whether the skill was exposed, and
 # a missing counter reads as zero. The contract itself lives in
@@ -880,13 +908,13 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # 914611 -> 916671: `web-research` and `research` bind as-of claims to
 # `temporal_source_receipt/v1` (#1403): the receipt rule, the three-clock
 # quality-bar line, the as-of input, the receipt/surfaces output, and the
-# archive-gap recovery note on each lane. These belong in the always-loaded
+# archive-gap recovery note on each lane. These belong in the SKILL.md
 # body because the choice between a live page and a historical capture is
 # made when the source is cited, not after; the field-level contract lives in
 # `docs/TEMPORAL-SOURCE-RECEIPTS.md`, outside this budget; warranted growth.
 # 916671 -> 917583: `frontend` gains the scroll-motion lane - seven English
 # scroll/parallax triggers, one quality-bar line, and one safety rule. These
-# belong in the always-loaded body because taking a scroll library at all is
+# belong in the SKILL.md body because taking a scroll library at all is
 # decided BEFORE the contract is written: a native-first rule discovered
 # after a smooth-scroll dependency has shipped arrives one dependency and
 # one reduced-motion regression too late. The decision order, the Lenis
@@ -898,7 +926,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # `memory_provider_posture/v1` output and artifact expectation, two completion
 # checklist lines, one recovery note, and three safety rules - and `memory-sync`
 # gains the two lines that keep provider posture `not_omh_reviewed` and send
-# lifecycle questions to readiness. These belong in the always-loaded body
+# lifecycle questions to readiness. These belong in the SKILL.md body
 # because the decision they guard is made BEFORE the provider is enabled: a
 # reversibility rule discovered after automatic writes have run arrives one
 # irreversible adoption too late. The field-level contract lives in
@@ -909,7 +937,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # verdict outputs, three safety rules, one checklist line, one recovery note,
 # and the English voice triggers - while `voice-input` and
 # `media-input` each state that their own record is never realtime voice
-# readiness. These belong in the always-loaded body because the mistake they
+# readiness. These belong in the SKILL.md body because the mistake they
 # prevent is made at routing time: a supplied recording or a terse spoken
 # request reads as voice evidence unless the lane says it is not, and a
 # connector that authenticated reads as ready unless the lane asks for turn
@@ -919,7 +947,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # 922941 -> 922941_PENDING: `img-summary` binds image results to
 # `visual_generation_receipt/v1` (#1425): two outputs, one artifact
 # expectation, three safety rules, and one quality-bar line separating
-# requested route from observed route. These belong in the always-loaded body
+# requested route from observed route. These belong in the SKILL.md body
 # because the overclaim happens at the moment the result is reported -- a
 # backend that accepts a requested model without attesting it makes a returned
 # file read as proof of that model, and a rule discovered afterwards arrives
@@ -929,7 +957,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # 923796 -> 925045: `agent-board` gains the integrated native Kanban guidance -
 # the durable-versus-bounded-research choice, prepare-then-normal-tool-loop
 # order, the five request states, idempotent create and the two native
-# boundaries (issue #1417). These belong in the always-loaded body because a
+# boundaries (issue #1417). These belong in the SKILL.md body because a
 # host that skips preparation or treats a prepared card as an observed native
 # result corrupts task evidence before any reference is opened; the operation
 # table and QA boundaries live in `docs/AGENT-BOARD.md`, outside this budget;
@@ -941,7 +969,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # 925059 -> 925264: `model-setup` names the three categories added on
 # 2026-09-11 (capable, simple-work, deep-work) in the same sentence that
 # already enumerates every other shipped chain. This belongs in the
-# always-loaded body because that sentence IS the shipped-recommendation
+# SKILL.md body because that sentence IS the shipped-recommendation
 # enumeration the lane reads to a user choosing a category: one missing from
 # it reads as a category that does not exist. The chains themselves live in
 # the catalog, outside this budget; warranted growth.
@@ -950,11 +978,11 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # closing-brief scaling with its required-closing-lines clause; +~500 chars
 # each across seven bars) and the shared interjection rule gained the
 # steering-not-objective sentence; harness discipline the engines read every
-# run, so it belongs in the always-loaded body; warranted growth.
+# run, so it belongs in the SKILL.md body; warranted growth.
 # 932859 -> 934125: `maestro` gains the two rules that close the dispatch
 # lifecycle -- observe every unit to a terminal state via `omh coding fanout
 # status`, and treat a finished unit as an event to act on in the same turn
-# (verify, record, then recover or advance). These belong in the always-loaded
+# (verify, record, then recover or advance). These belong in the SKILL.md
 # body because both decisions are made while a worker is still running: a
 # supervisor that has already ended its turn on "waiting for the worker"
 # cannot be told afterwards that a live process with no new evidence was never
@@ -972,7 +1000,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # never by adding the two deltas.
 # 934491 -> 934924: `memory-new` gained a "retrieve instead" bullet
 # sending past-session history to Hermes' own session store rather than a
-# retained record. It belongs in the always-loaded body because the lane
+# retained record. It belongs in the SKILL.md body because the lane
 # applies it at the moment of capture, which is the only moment the choice
 # exists; a record admitted here is context every later turn pays for;
 # warranted growth. Re-derived from the producer after this branch met the
@@ -983,13 +1011,13 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # it from lifecycle rungs, and adds the bound that keeps the poll loop itself
 # from becoming the stall: a unit with neither a marker nor a summary row reads
 # `unknown` forever, so a wall clock of its own decides when a missing record
-# is chased rather than waited on. Both belong in the always-loaded body --
+# is chased rather than waited on. Both belong in the SKILL.md body --
 # they are read on every poll, and a supervisor that has already ended its turn
 # cannot be told afterwards which field it should have read; warranted growth.
 # 935543 -> 935940: #1495 adds the explicit post-composition advisory scan
 # before unattended handoff, including confirmation/error routing and the
 # no-permission boundary. The dispatching lane must read this before handoff;
-# warranted always-loaded guidance, re-derived from the full-profile producer.
+# warranted body guidance, re-derived from the full-profile producer.
 # #1513 adds the MCP tool-name compatibility output and its metadata-only
 # artifact guidance to harness-session-inventory. This owner-approved growth
 # names the audit command and keeps config-only, unsupported and ambiguous
@@ -999,7 +1027,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # `omh_loop` tool, its eight lifecycle actions, and the `omh loop` fallback for
 # a host without the plugin. The lane reads it at the moment it chooses how to
 # reach loop state, before it spends a turn assembling shell arguments, so it
-# belongs in the always-loaded body; warranted growth. Re-derived from the
+# belongs in the SKILL.md body; warranted growth. Re-derived from the
 # full-profile skill_context_cost_payload() producer, never by adding deltas.
 # 953716 -> 953938: #1559 gives `memory-sync` one pointer to the source-recovery
 # procedure. The procedure itself is a reference file, measured outside this
@@ -1032,7 +1060,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # and three Korean continuous-watch phrasings on `automation-blueprint` (the
 # Korean through its trigger pack), and two memory-provider comparison
 # phrasings on `external-connector-readiness`. Trigger lists render into the
-# always-loaded body because that is where a lane states what it answers to,
+# SKILL.md body because that is where a lane states what it answers to,
 # and a phrase
 # the router scores but the body does not print is a lane nobody can tell you
 # how to reach. Each phrase is a wording the router previously missed, not a
@@ -1135,7 +1163,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # safety rule, and the one quality bar that move a generated-path edit from
 # after the byte gate to before it (#1575). It folds here rather than becoming
 # a general engineering skill because a generic skill cannot know which files
-# are generated without a repo-declared map, and would pay a full always-loaded
+# are generated without a repo-declared map, and would pay a full SKILL.md
 # body for a filename heuristic. The body carries the asymmetry that makes the
 # heuristic wrong: a false positive redirects correct work, a miss costs one
 # regeneration, so a repository declaring no map reports `map_not_declared`.
@@ -1205,7 +1233,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # 984912 -> 991599: `todo-checklist` (#1642). `omh_todo` is registered on every
 # session and no skill named it, so a user looking for `/omh-todo` found
 # nothing and only the two delivery engines mentioned the tool at all. The
-# always-loaded body carries only what is wrong to discover late -- items are
+# SKILL.md body carries only what is wrong to discover late -- items are
 # declarations and never execution evidence, exactly one item active, and
 # `action=set` replaces the whole list so a partial write silently drops the
 # items left out. The shaping rules, the `blocked_reason` versus
@@ -1238,7 +1266,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # (#1691). `performance-goal` folds into `ultraperf`, `best-practice-research`
 # into `web-research`, and `autoresearch-goal` into `research`; each target
 # already produced the retired skill's outputs and more, so the pair was two
-# always-loaded bodies for one job. The retirement is an exposure change, not
+# SKILL.md bodies for one job. The retirement is an exposure change, not
 # a deletion: the contracts survive as workflow references and their triggers
 # fold into the target homes, which is why the fall is smaller than the three
 # bodies. This is a ratchet DOWN -- the budget was at 100% of its limit and
@@ -1264,7 +1292,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # for stop rendering one (#1690). Each paid about 150 bytes for a "Preferred
 # harness for this skill: `coding-handling`" line plus an `omh runtime record
 # --harness coding-handling` command nobody chose -- the renderer read the
-# routing fallback and wrote a coding handoff into the always-loaded body of
+# routing fallback and wrote a coding handoff into the SKILL.md body of
 # skills that do no coding. This is a ratchet DOWN, and the budget stood at
 # 100% of its limit again, so it has to move for the saving to be real.
 # Re-derived from the full-profile skill_context_cost_payload() producer,
@@ -1300,7 +1328,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # a long piece of work -- deep guide, ELI5 pass, quiz -- had no owner, and the
 # guidance itself is a reference file, which costs this budget nothing because
 # references load on demand. What is paid for here is the pointer alone: the
-# always-loaded body has to say the three exist, name the level they share
+# SKILL.md body has to say the three exist, name the level they share
 # with `paper-learning`, and name the one source that outlives the session --
 # the plan record -- or nothing ever reaches the reference. That last clause
 # is why the section is not shorter: only the plan record is persisted, so a
@@ -1352,7 +1380,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # by declaring what will not be done -- and the seven executing engines
 # carry the reworded follow-up authority and closing brief rules. The model
 # had been closing runs with "I will not merge or force-push here"; the
-# sentence is read at the stop, so it belongs in the always-loaded body and
+# sentence is read at the stop, so it belongs in the SKILL.md body and
 # not in a reference. Re-derived from the full-profile producer.
 # 999772 -> 1000101: the Claude Opus 5.5 / GPT-6 Luna onboarding (2026-09-23).
 # Three bodies move and nothing else: `model-setup` names the new chain
@@ -1373,7 +1401,7 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # not_observed) kept to records and tool calls. Users were reading OMH's
 # internal vocabulary back in Hermes replies ("this is an evidence-bounded
 # surface"), and the host's SOUL.md, not a skill, owns the voice. The sentence
-# is read where the reply is written, so it stays in the always-loaded body;
+# is read where the reply is written, so it stays in the SKILL.md body;
 # the substitution table lives in the rail reference, outside this budget.
 # Re-derived from the full-profile producer after rebasing past the
 # onboarding raise.
@@ -1385,6 +1413,11 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # more (-8). The ratchet follows it down. Re-derived from the full-profile
 # skill_context_cost_payload() producer; skill_structure_lint_payload()
 # reports ok with no violation.
+# What this limit is: the install footprint of the full profile's SKILL.md
+# bodies, each loaded on demand. Hermes sends a skill's index line on every
+# request (`SKILL_INDEX_CHAR_LIMIT` above) and its body only when the model
+# loads it -- about 8k chars per load, and a loaded body stays in history
+# until compaction.
 FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1029426
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 

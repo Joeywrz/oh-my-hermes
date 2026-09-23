@@ -280,7 +280,7 @@ def skill_density_violations(
                     measurement,
                     measurement.filler_hits,
                     DENSITY_FILLER_HIT_CEILING,
-                    f"{measurement.filler_hits} reviewed filler phrase(s) in the always-loaded body; "
+                    f"{measurement.filler_hits} reviewed filler phrase(s) in the SKILL.md body; "
                     "delete the phrase and keep the claim",
                     measurement.filler_excerpts,
                 )

@@ -194,6 +194,30 @@ def _standalone_capability_section_chars() -> int:
     return len(json.dumps(standalone_skill_capability_items(), sort_keys=True, ensure_ascii=False))
 
 
+def _skill_index_chars() -> int:
+    from ..skills.skill_index import skill_index_chars
+
+    return skill_index_chars()
+
+
+def _skill_index_line_max_chars() -> int:
+    from ..skills.skill_index import skill_index_line_max_chars
+
+    return skill_index_line_max_chars()
+
+
+def _plugin_tool_schema_chars() -> int:
+    from .per_turn_context import plugin_tool_schema_chars
+
+    return plugin_tool_schema_chars()
+
+
+def _pre_llm_call_context_chars_max() -> int:
+    from .per_turn_context import pre_llm_call_context_chars_max
+
+    return pre_llm_call_context_chars_max()
+
+
 def _full_profile_skill_body_chars() -> int:
     from ..skills.context_cost import skill_context_cost_payload
 
@@ -418,10 +442,47 @@ def budget_metrics() -> tuple[BudgetMetric, ...]:
         FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT,
         FULL_PROFILE_SKILL_BODY_CHAR_LIMIT,
         FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS,
+        PLUGIN_TOOL_SCHEMA_CHAR_LIMIT,
+        PRE_LLM_CALL_CONTEXT_CHAR_LIMIT,
+        SKILL_INDEX_CHAR_LIMIT,
+        SKILL_INDEX_LINE_CHAR_LIMIT,
         STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT,
     )
 
     return (
+        # The first four can reach the model on every request or turn (the tool
+        # schemas only when Hermes's tool_search is off; with the default bridge
+        # they are deferred behind a listing). Everything after them is paid on
+        # demand (a tool call, a `skill_view` load) or is a quality signal. Read
+        # this group first when a change grows context.
+        BudgetMetric(
+            name="skill_index_chars",
+            describe="Per request: full-profile skill index lines Hermes renders (60-char descriptions)",
+            live=_skill_index_chars,
+            limit=SKILL_INDEX_CHAR_LIMIT,
+            limit_site="src/maintenance/release.py",
+        ),
+        BudgetMetric(
+            name="skill_index_line_max_chars",
+            describe="Per request: longest single skill line in that index",
+            live=_skill_index_line_max_chars,
+            limit=SKILL_INDEX_LINE_CHAR_LIMIT,
+            limit_site="src/maintenance/release.py",
+        ),
+        BudgetMetric(
+            name="plugin_tool_schema_chars",
+            describe="Eager ceiling, per request only if tool_search is off: plugin tool schemas as registered (JSON chars)",
+            live=_plugin_tool_schema_chars,
+            limit=PLUGIN_TOOL_SCHEMA_CHAR_LIMIT,
+            limit_site="src/maintenance/release.py",
+        ),
+        BudgetMetric(
+            name="pre_llm_call_context_chars_max",
+            describe="Per turn, replayed in history: largest fenced pre_llm_call context over the named scenarios",
+            live=_pre_llm_call_context_chars_max,
+            limit=PRE_LLM_CALL_CONTEXT_CHAR_LIMIT,
+            limit_site="src/maintenance/release.py",
+        ),
         BudgetMetric(
             name="awareness_primer_markdown_chars",
             describe="Awareness primer markdown size",
@@ -445,7 +506,7 @@ def budget_metrics() -> tuple[BudgetMetric, ...]:
         ),
         BudgetMetric(
             name="full_profile_skill_body_chars",
-            describe="Full install profile skill_body size (producer chars)",
+            describe="Install footprint: full-profile SKILL.md bodies, each loaded on demand (producer chars)",
             live=_full_profile_skill_body_chars,
             limit=FULL_PROFILE_SKILL_BODY_CHAR_LIMIT,
             limit_site="src/maintenance/release.py",
@@ -453,10 +514,9 @@ def budget_metrics() -> tuple[BudgetMetric, ...]:
         ),
         # The byte budget above says how much the pack costs; this says whether
         # the characters carry instruction. A hit is a reviewed filler phrase
-        # that an install pays for in every context window without changing
-        # what a reader does, so the ceiling is zero on a corpus measured at
-        # zero. The other two density signals are floats and stay in
-        # `tests/test_skill_density.py`.
+        # that every load of a body pays for without changing what a reader
+        # does, so the ceiling is zero on a corpus measured at zero. The other
+        # two density signals are floats and stay in `tests/test_skill_density.py`.
         BudgetMetric(
             name="skill_density_filler_hits",
             describe="Reviewed filler phrases across all catalog skill bodies",

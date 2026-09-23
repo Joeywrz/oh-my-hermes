@@ -140,15 +140,28 @@ uv run python -m omh.cli cases demo --all --json > examples/use-cases/g1-g10-dem
 
 ## 5. Verify
 
-Every added skill grows the always-loaded prompt body of a `full` install.
-Check what it cost, and keep shared policy in
-`skills/omh-routing/references/skill-common-rail.md` instead of a new
-repeated section in `workflow_skill`:
+Every added skill costs context twice. Its index line -- the name and the first
+57 characters of its description -- is sent on every request of a `full`
+install. Its body costs about 8k characters each time the model loads it, and a
+loaded body stays in history until compaction. Check what it cost, and keep
+shared policy in `skills/omh-routing/references/skill-common-rail.md` instead
+of a new repeated section in `workflow_skill`:
 
 ```sh
 uv run python -m omh.cli docs skill-context-cost
 uv run python -m omh.cli release drift
 ```
+
+`release drift` checks four budgets on text that can ride every request:
+`skill_index_chars` and `skill_index_line_max_chars` (the index lines, rendered
+with Hermes's 60-character description rule), `plugin_tool_schema_chars` (the
+eager tool-schema ceiling, paid per request only when Hermes's
+`tools.tool_search` is off), and `pre_llm_call_context_chars_max`. A new skill moves the index budget by about one
+line. The first words of the description are what a model reads to decide
+whether to load the skill, so the structure lint rule
+`SKILL_INDEX_OPENING_DISTINCT` fails when two installable skills open their
+visible description (after `[omh] `) with the same three words; see
+`src/skills/skill_index.py` for the reviewed exceptions.
 
 Density is the other half of that number; see §6.
 
@@ -163,12 +176,14 @@ PYTHONPATH=tests uv run python -m unittest discover -s tests
 
 ## 6. Authoring doctrine: the body carries instruction, the trigger carries phrasing
 
-`FULL_PROFILE_SKILL_BODY_CHAR_LIMIT` bounds the always-loaded skill body, not the
-whole pack. `_full_profile_skill_body_chars()` in `src/maintenance/drift.py` reads
+`FULL_PROFILE_SKILL_BODY_CHAR_LIMIT` bounds the skill bodies, not the whole pack:
+it is the install footprint of the `full` profile's `SKILL.md` files.
+`_full_profile_skill_body_chars()` in `src/maintenance/drift.py` reads
 `profile["skill_body"]["bytes"]`; `docs skill-context-cost` prints on-demand
 references as a separate figure, and the ratchet never reads it. A byte in the
-body is therefore paid in every context window of a `full` install, and a byte in
-a `references/*.md` only when a reader opens it. Move optional detail out to a
+body is therefore paid every time the skill is loaded, and stays in that
+session's history until compaction; a byte in a `references/*.md` is paid only
+when a reader opens it. Move optional detail out to a
 reference instead of compressing it in place -- compression buys back a fraction
 of one skill's body, relocation buys back all of it.
 

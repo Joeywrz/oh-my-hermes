@@ -4,6 +4,32 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **The release budgets now watch what can reach the model on every request.**
+  `omh release drift` gains four ratchets, each measured by a producer: the
+  full-profile skill index Hermes renders (`skill_index_chars`, 10,894 chars,
+  one line per skill with the description cut to Hermes's 60 characters, plus a
+  100-char per-line ceiling), the plugin bundle's registered tool schemas
+  (`plugin_tool_schema_chars`, 57,968 chars across 19 tools, measured by running
+  the bundle's own `register()` against a recording context; an eager ceiling,
+  paid on every request only when Hermes's `tools.tool_search` is off, since
+  under its default bridge the plugin tools are deferred behind a listing), and
+  the largest fenced `pre_llm_call` context over a named scenario set
+  (`pre_llm_call_context_chars_max`, 6,260 chars when a routed first turn, a
+  role marker, an active workflow and a full running-work board coincide; the
+  parts no scenario seeds are listed beside the producer). The
+  skill-body total keeps its value and its enforcement and is relabelled for
+  what it is: the install footprint, each body loaded on demand. The wording
+  that called a skill body "always loaded" is corrected in the installer
+  warning, `omh setup --core` help, `docs skill-context-cost`, the doctor
+  skill-weight advisory, the structure-lint ceiling message, the adding-a-skill
+  guide and the installation guide: a body costs about 8k chars per load and
+  stays in history until compaction; only its index line rides every request.
+  A new structure-lint rule, `SKILL_INDEX_OPENING_DISTINCT`, fails when two
+  installable skills open their visible description with the same three words
+  (casefolded, punctuation around a word ignored); the two groups that do
+  today ("Hermes adaptation for", "Policy overlay for") are recorded with
+  reasons rather than rewritten here.
+
 - **GPT-6 Sol takes every shipped slot both GPT-5.6 tiers held.** `gpt-6-sol`
   replaces `gpt-5.6-sol` in the shared last-resort order (at `medium`) and in
   the Codex Maestro rows, and replaces `gpt-5.6-terra` at the head of `deep`

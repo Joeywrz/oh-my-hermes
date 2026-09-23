@@ -19,10 +19,11 @@ STRUCTURE_LINT_RULE_IDS = (
     "SKILL_FRONTMATTER_FIELDS",
     "SKILL_GENERATED_PARITY",
     "SKILL_HARNESS_RESOLVES",
+    "SKILL_INDEX_OPENING_DISTINCT",
     "SKILL_RENDERED_IDENTITY_UNIQUE",
     "SKILL_TRIGGER_FORMAT",
 )
-# Always-loaded body ceiling per skill. Ratchet, not a target: raise it only
+# Per-skill SKILL.md body ceiling (paid on each load, not every request). Ratchet, not a target: raise it only
 # with the reason written here. 24_000 held until 2026-09-11, when the
 # ultrawork body measured 25_078 bytes after the seven executing-engine bars
 # gained the follow-up-authority and closing-brief rules (Codex Desktop prompt
@@ -94,6 +95,7 @@ def build_skill_structure_lint_payload(inputs: StructureLintInputs) -> dict[str,
     """Return deterministic catalog-projection structure findings."""
     resolved = list(inputs.definitions)
     violations = _aggregate_violations(resolved)
+    violations.extend(_index_opening_violations(resolved, full_catalog=inputs.full_catalog))
     harness_names = {harness.name for harness in inputs.harnesses}
     for definition in sorted(resolved, key=lambda item: item.name):
         violations.extend(_definition_violations(definition, harness_names, inputs.validate_definition))
@@ -124,6 +126,67 @@ def _aggregate_violations(definitions: list[SkillDefinition]) -> list[dict[str, 
     duplicate_rendered = sorted(name for name, count in rendered.items() if name and count > 1)
     if duplicate_rendered and not duplicate_canonical:
         found.append({"rule": "SKILL_RENDERED_IDENTITY_UNIQUE", "skill": "<catalog>", "detail": f"duplicate rendered skill identities: {duplicate_rendered}"})
+    return found
+
+
+def _index_opening_violations(
+    definitions: list[SkillDefinition], *, full_catalog: bool
+) -> list[dict[str, str]]:
+    """Two installable skills must not open their index line with the same words.
+
+    Hermes shows a model only the first 57 description characters of each
+    skill and tells it to load any skill that is even partially relevant, so
+    a shared opening is a pair the model cannot separate before paying for
+    both bodies. `skill_index.index_opening` defines the opening; the reviewed
+    groups and their reasons live beside it. Only installable skills count,
+    because a retired definition contributes no index line.
+
+    A supplied subset can only show a group growing or appearing. Whether a
+    recorded member still shares its opening is a question about the whole
+    catalog, so a stale record is reported on the full catalog only.
+    """
+    from .catalog import installable_skill_names
+    from .render import frontmatter_description
+    from .skill_index import REVIEWED_SHARED_INDEX_OPENINGS, index_opening_collisions
+
+    installable = set(installable_skill_names())
+    pairs: list[tuple[str, str]] = []
+    for definition in definitions:
+        if definition.name not in installable:
+            continue
+        # The description the frontmatter emits, rendered from THIS definition:
+        # `_rendered_frontmatter` re-reads the catalog entry by name, so a
+        # supplied definition's own description would never be seen there.
+        try:
+            pairs.append((definition.name, frontmatter_description(definition)))
+        except ValueError:
+            continue  # SKILL_FRONTMATTER_FIELDS reports an unrenderable description.
+    live = index_opening_collisions(pairs)
+    found: list[dict[str, str]] = []
+    for opening, skills in sorted(live.items()):
+        reviewed = REVIEWED_SHARED_INDEX_OPENINGS.get(opening)
+        if reviewed is None or not skills <= reviewed[0]:
+            found.append({
+                "rule": "SKILL_INDEX_OPENING_DISTINCT",
+                "skill": "<catalog>",
+                "detail": (
+                    f"skills {sorted(skills)} open their index description with the same words "
+                    f"{opening!r}; make the first words name each skill's own trigger, or record the "
+                    "group with a reason in REVIEWED_SHARED_INDEX_OPENINGS (src/skills/skill_index.py)"
+                ),
+            })
+    if full_catalog:
+        for opening, (skills, _reason) in sorted(REVIEWED_SHARED_INDEX_OPENINGS.items()):
+            shared_now = live.get(opening, frozenset())
+            if not skills <= shared_now:
+                found.append({
+                    "rule": "SKILL_INDEX_OPENING_DISTINCT",
+                    "skill": "<catalog>",
+                    "detail": (
+                        f"reviewed shared opening {opening!r} records {sorted(skills)} but the catalog "
+                        f"shares it among {sorted(shared_now)}; update or delete the record"
+                    ),
+                })
     return found
 
 
@@ -275,5 +338,5 @@ def _lint_context_budget(definition: SkillDefinition) -> str:
         return ""
     size = len(template.content.encode("utf-8"))
     if size > STRUCTURE_LINT_SKILL_BODY_BYTE_CEILING:
-        return f"always-loaded skill body is {size} bytes, over the {STRUCTURE_LINT_SKILL_BODY_BYTE_CEILING} byte ceiling"
+        return f"SKILL.md body (per load) is {size} bytes, over the {STRUCTURE_LINT_SKILL_BODY_BYTE_CEILING} byte ceiling"
     return ""

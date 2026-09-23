@@ -126,7 +126,10 @@ Rules:
   and the command that proves each. Only one of them produces a PR.
 - One user goal → one PR. Do not frame partial slices; see Delivery Grain in
   `AGENTS.md` for the only valid split reasons.
-- Branch before the first edit: `claude/<topic>` (or `agent/`, `hermes/`).
+- Branch before the first edit, named by the kind of change, never by the
+  executor: `feature/<topic>` for a capability, `fix/<topic>` for a defect,
+  `omh/<topic>` for everything else (docs, release, maintenance). See Git And
+  Commits in `AGENTS.md`.
 - Every commit needs DCO `Signed-off-by:` plus the Lore-style trailers listed
   in `AGENTS.md` (Constraint / Rejected / Confidence / Scope-risk / Directive /
   Tested / Not-tested).

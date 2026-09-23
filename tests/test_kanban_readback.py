@@ -274,6 +274,20 @@ class KanbanShowBoundTest(unittest.TestCase):
         self.assertEqual(len(payload["worker_context"]), READBACK_FIELD_CEILING)
         self.assertEqual(payload["truncated_fields"], ["worker_context"])
 
+    def test_a_clipped_label_value_carries_the_truncation_marker(self) -> None:
+        # The body keeps this id whole, so the label may quote it -- but a bare
+        # 64-character prefix reads as the id itself, which is the second
+        # identity `_core_record` refuses to manufacture in the body.
+        task_id = "i" * 200
+        label, payload = _split(
+            transform_kanban_readback("kanban_show", _show(task={"id": task_id, "status": "done"}))
+        )
+        self.assertEqual(payload["task"]["id"], task_id)
+        self.assertNotIn(task_id[: kanban_readback._LABEL_VALUE_CEILING], label)
+        quoted = label.removeprefix("[OMH board readback] task ").split(" status=")[0]
+        self.assertTrue(quoted.endswith(kanban_readback._TRUNCATION_MARKER), quoted)
+        self.assertEqual(len(quoted), kanban_readback._LABEL_VALUE_CEILING)
+
     def test_short_fields_are_left_byte_identical(self) -> None:
         original = json.loads(_show())
         _, payload = _split(transform_kanban_readback("kanban_show", _show()))
@@ -312,6 +326,65 @@ class KanbanListAndAttachmentsTest(unittest.TestCase):
         self.assertIs(payload[KANBAN_READBACK_KEY]["truncated"], False)
 
 
+class MalformedRowListTest(unittest.TestCase):
+    """A row list this module cannot read is named, never shown as no rows."""
+
+    def test_a_malformed_task_list_is_named_rather_than_counted_as_zero(self) -> None:
+        rows: list[object] = [
+            {"id": f"task-{i}", "title": f"t{i}", "status": "done"} for i in range(61)
+        ]
+        rows.append("not-a-dict")
+        label, payload = _split(
+            transform_kanban_readback("kanban_list", json.dumps({"tasks": rows, "count": 62}))
+        )
+        self.assertIn("tasks not read (malformed row list)", label)
+        self.assertNotIn("0 of 0", label)
+        self.assertEqual(payload[KANBAN_READBACK_KEY]["malformed_rows"], ["tasks"])
+        # The host's own rows stay in the body; omh did not read or bound them.
+        self.assertEqual(len(payload["tasks"]), 62)
+
+    def test_a_malformed_run_list_is_not_a_task_that_never_ran(self) -> None:
+        label, payload = _split(transform_kanban_readback("kanban_show", _show(runs="not a list")))
+        self.assertIn("runs not read (malformed row list)", label)
+        self.assertNotIn("no runs", label)
+        self.assertNotIn("nothing has run yet", label)
+        readback = payload[KANBAN_READBACK_KEY]
+        self.assertEqual(readback["malformed_rows"], ["runs"])
+        # The confidence still fails closed; only the prose stops claiming the
+        # task is waiting to run.
+        self.assertEqual(readback["confidence"], labels.CONFIDENCE_NOT_RUN)
+
+    def test_malformed_attachments_keep_the_listing_caveat(self) -> None:
+        label, payload = _split(
+            transform_kanban_readback(
+                "kanban_attachments", json.dumps({"task_id": "t", "attachments": {"a": 1}})
+            )
+        )
+        self.assertIn("attachments not read (malformed row list)", label)
+        self.assertIn("not evidence any file was read", label)
+        self.assertEqual(payload[KANBAN_READBACK_KEY]["malformed_rows"], ["attachments"])
+
+    def test_an_empty_or_null_row_list_is_not_malformed(self) -> None:
+        # The negative control: a board with no rows is the ordinary case and
+        # must keep reading as a count, not as a shape that could not be read.
+        for rows in ([], None):
+            with self.subTest(rows=rows):
+                label, payload = _split(
+                    transform_kanban_readback(
+                        "kanban_list", json.dumps({"tasks": rows, "count": 0})
+                    )
+                )
+                self.assertIn("0 of 0 tasks shown", label)
+                self.assertNotIn("malformed", label)
+                self.assertNotIn("malformed_rows", payload[KANBAN_READBACK_KEY])
+
+    def test_well_formed_runs_keep_their_label(self) -> None:
+        label, payload = _split(transform_kanban_readback("kanban_show", _show()))
+        self.assertIn("outcome=completed -> reported done", label)
+        self.assertNotIn("malformed", label)
+        self.assertNotIn("malformed_rows", payload[KANBAN_READBACK_KEY])
+
+
 class FailOpenTest(unittest.TestCase):
     def test_tool_set_is_the_three_readback_tools(self) -> None:
         self.assertEqual(
@@ -343,7 +416,14 @@ class FailOpenTest(unittest.TestCase):
         transformed = transform_kanban_readback("kanban_show", odd)
         self.assertIsNotNone(transformed)
         label, payload = _split(transformed)
-        self.assertIn("task ? status=?; no runs -> not run", label)
+        # Three row lists of shapes this module cannot read: it says so rather
+        # than reporting a task that never ran over lists it never read.
+        self.assertIn("task ? status=?; runs not read (malformed row list)", label)
+        self.assertIn("comments, events not read (malformed row list)", label)
+        self.assertNotIn("nothing has run yet", label)
+        self.assertEqual(
+            payload[KANBAN_READBACK_KEY]["malformed_rows"], ["runs", "comments", "events"]
+        )
         self.assertEqual(payload["comments"], [1, "two", None])
         self.assertEqual(payload["runs"], "not a list")
 

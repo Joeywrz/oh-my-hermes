@@ -389,7 +389,16 @@ PRE_LLM_CALL_CONTEXT_CHAR_LIMIT = 6260
 # user's words"; the delta is that one clause in the one capability row
 # (`ultraqa`) that carries it. Re-derived from the producer after rebasing
 # past the onboarding raise.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 422817
+# 422817 -> 422908: `verification-gate`'s capability row carries its artifact
+# expectations, and `observed_check_results/v1` now renders from one
+# declaration that glosses each field a reader cannot infer -- source,
+# summary, scope, freshness (#1788). The row used to be written out twice in
+# that skill's own body with different field sets, so a consumer recorded
+# whichever copy it read and the field that went missing was freshness. The
+# meanings travel with the declaration, so a surface quoting it cannot quote a
+# name without its definition. 91 of the body's 298 reach this section.
+# Re-derived from the producer.
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 422908
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -1419,12 +1428,28 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # more (-8). The ratchet follows it down. Re-derived from the full-profile
 # skill_context_cost_payload() producer; skill_structure_lint_payload()
 # reports ok with no violation.
+# 1029426 -> 1029724: one body moves, `verification-gate` (#1788). It declared
+# `observed_check_results/v1` twice in its own body and the two disagreed: a
+# quality-bar line asking for command/source, freshness, exit status and scope,
+# and an artifact expectation asking for command, timestamp/source, exit
+# status, summary and a stale-output flag. Nothing could fail, because nothing
+# was derived; a consumer recorded whichever copy it happened to read and the
+# field that went missing was freshness, which is the gate's own guard against
+# reporting a stale output as evidence. The expectation now renders from
+# `src/evidence/observed_check_results.py` with a gloss on each field a reader
+# cannot infer (+207), and the quality-bar line points at it rather than
+# listing the fields a second time (+91). The glosses are what buys the second
+# half: a reader who meets `scope` as a bare word records the word, and the
+# whole failure this closes is consumers recording names they could not read.
+# Re-derived from the full-profile skill_context_cost_payload() producer;
+# skill_structure_lint_payload() reports ok, the body at 9207 of the 26800
+# per-skill byte ceiling.
 # What this limit is: the install footprint of the full profile's SKILL.md
 # bodies, each loaded on demand. Hermes sends a skill's index line on every
 # request (`SKILL_INDEX_CHAR_LIMIT` above) and its body only when the model
 # loads it -- about 8k chars per load, and a loaded body stays in history
 # until compaction.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1029426
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1029724
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

@@ -336,7 +336,6 @@ All notable changes will be documented here.
   error anywhere. The plugin bundle's routing-tier reader is unchanged and
   still under-reads the flow form by one tier; it cannot import the core
   reader, and it states no enablement.
-
 - **A reply lint turns the reply rules into checkable evidence.**
   `omh quality-evidence reply-lint` reads the sentence a person read (a file,
   stdin, or the trailing replies of a Hermes session, opened read-only) and
@@ -385,6 +384,32 @@ All notable changes will be documented here.
   That corrects a claim beside it -- the projection was described as carrying
   only the router's output, and it also carries the card's headline and
   boundary, which a card picks after the route.
+- **`observed_check_results/v1` is declared once, and every surface renders
+  it.** `verification-gate` stated the row's shape twice in its own body and
+  the two disagreed: a quality-bar line asking for command/source, freshness,
+  exit status and scope, and an artifact expectation asking for command,
+  timestamp/source, exit status, summary and a stale-output flag. `omh-wiki`'s
+  handover table named two of the fields, and a fourth restatement was written
+  before review caught it. Nothing could fail, because nothing was derived; a
+  consumer recorded whichever copy it read, and the field that went missing was
+  freshness, the gate's own guard against reporting a stale output as evidence.
+  `src/evidence/observed_check_results.py` is now the one declaration. The
+  reconciliation keeps both disputed fields rather than picking a list: `scope`
+  (what that run covered) and `summary` (what the output said) both stay,
+  `freshness` is the single name for what was freshness on one line and a
+  stale-output flag on the other, and `source` becomes a field of its own,
+  because the same command proves different things run in this checkout, in a
+  CI job, and in a person's report. Each field a reader cannot infer renders
+  with its meaning beside it, so a surface quoting the row cannot quote a name
+  without its definition. The gate's artifact expectation, its quality-bar line
+  (which now points at that expectation instead of listing the fields a second
+  time), the `omh-wiki` and `todo-checklist` handover tables, and `ulw-qa`'s
+  manual test guide all render from it. `tests/test_observed_check_results.py`
+  scans every rendered body and reference that names the row, fails a line that
+  enumerates the fields without rendering them, and runs the two drifted lines
+  through that same scan to show it fires. Budgets move with the reason at each
+  entry: the full capability section 422,817 -> 422,908 and the full-profile
+  skill bodies 1,029,426 -> 1,029,724, both re-derived from their producers.
 
 ## 2.0.5 - 2026-09-22
 

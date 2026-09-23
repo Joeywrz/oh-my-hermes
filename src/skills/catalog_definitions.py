@@ -10,6 +10,10 @@ Artifacts Map in CLAUDE.md.
 from __future__ import annotations
 
 from ..coding.orchestration_vocabulary import HERMES_HARNESS_DEFAULT_WORDING
+from ..evidence.observed_check_results import (
+    OBSERVED_CHECK_RESULTS_TOKEN,
+    observed_check_results_expectation,
+)
 from ..paper_learning import (
     PAPER_LEARNING_CARD_SCHEMA_VERSION,
     PAPER_LEARNING_COVERAGE_POLICY,
@@ -4751,7 +4755,7 @@ _DEFINITIONS = [
         ),
         artifact_expectations=(
             "verification_matrix/v1 covering build, lint, typecheck, unit/integration/e2e tests, generated docs, static/security checks, diff hygiene, and CI/DCO when applicable",
-            "observed_check_results/v1 with command, timestamp/source, exit status, summary, and stale-output flag",
+            observed_check_results_expectation(),
             "claim_verdict/v1 with PASS, HOLD, or BLOCK and exact missing or failed checks",
             "generated_artifact_provenance/v1 with one row per touched generated path: the source of truth that produces it, the regeneration command, and the drift gate that catches it, or the single state `map_not_declared` when the repository declares no generated-artifact map",
         ),
@@ -4768,7 +4772,8 @@ _DEFINITIONS = [
         quality_bar=(
             "Tie every completion claim to the smallest check that proves it, then broaden for shared surfaces.",
             "When a diff touches a declared generated path, name its source of truth and regeneration command before the edit rather than after a byte gate rejects it; a diff touching a generator and its output together is the correct shape, not a violation — load `references/generated-artifact-provenance.md` for the declaration and reporting rules.",
-            "Record command/source, freshness, exit status, and scope for each observed result.",
+            f"Record every field the `{OBSERVED_CHECK_RESULTS_TOKEN}` artifact expectation below names, "
+            "for each observed result; a field left out is a gap in the record, not a shorter record.",
             "For native `omh_todo` checkpoints, load the todo-checklist closing recipe; `record` then `recall` this verification declaration. Stored declarations are not proof.",
             "When the change answers to a written spec, plan, or issue, load `references/requirement-coverage-map.md` and map requirement to task to evidence under stable ids before claiming coverage.",
             "Return PASS only when required checks pass and stale or missing evidence is resolved.",

@@ -30,7 +30,12 @@ There are two explicit live execution paths:
 Both paths use the same pinned corpus and controller-only validators. In either
 case prompts are passed only on stdin, temporary usage telemetry is discarded
 once scalar observed tool/token/cost metrics are recorded, and raw prompts,
-stdout, stderr, credentials, and config content are never persisted.
+stdout, stderr, credentials, and config content are never persisted. The
+isolated-child path reports no tool, token, or cost metrics today: its child
+runs as `hermes chat --query-file -`, the one Hermes transport that reads a
+prompt from stdin, and Hermes writes its usage report for `-z` alone, so those
+fields are `null` for that arm (#1831); the current-session path keeps its
+`-z --usage-file` telemetry.
 
 ## Safety and claim boundary
 

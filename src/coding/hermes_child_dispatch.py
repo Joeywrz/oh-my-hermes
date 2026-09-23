@@ -1,4 +1,4 @@
-"""Explicit, bounded local Hermes ``--oneshot`` child dispatch.
+"""Explicit, bounded local Hermes single-query (``chat --query-file -``) child dispatch.
 
 This is an operator-command integration seam. Importing or constructing a
 request never starts work: callers must supply the fixed ask-before-dispatch
@@ -40,7 +40,6 @@ from ._hermes_child_process import (
     capture_truncation_record as _capture_truncation_record,
     install_signal_relays as _install_signal_relays,
     merge_signals as _merge_signals,
-    read_usage as _read_usage,
     restore_signal_handlers as _restore_signal_handlers,
     restore_signal_mask as _restore_signal_mask,
     start_pipe_drainers as _start_pipe_drainers,
@@ -175,9 +174,13 @@ class HermesChildResult:
     exit_code: int | None
     stdout: str
     stderr: str
+    # Empty on the `chat --query-file -` transport: Hermes writes its usage
+    # report only for `-z/--oneshot`, and that mode cannot read the prompt from
+    # stdin (#1824). The observation still copies this mapping into its
+    # session record (`omh coding hermes-child dispatch`), which is why the
+    # field stays.
     usage: Mapping[str, object]
     cleanup_verified: bool
-    usage_file_exists: bool
     termination_signals: tuple[int, ...]
     stdout_truncated: bool
     stderr_truncated: bool
@@ -325,8 +328,6 @@ def _dispatch_guarded(
     home = scratch_path / "home"
     hermes_home.mkdir(mode=0o700)
     home.mkdir(mode=0o700)
-    usage_path = scratch_path / "usage.json"
-    usage_path.touch(mode=0o600)
     marker = _parent_marker(request)
     child_env = _child_env(request, depth, hermes_home, home, marker)
     redaction_values = _redaction_values(request, child_env)
@@ -339,7 +340,6 @@ def _dispatch_guarded(
     drainers: tuple[PipeDrainer, PipeDrainer] | None = None
     stdin_thread: tuple[Thread, Event] | None = None
     usage: Mapping[str, object] = {}
-    usage_file_exists = False
     interrupted: BaseException | None = None
     handlers: dict[int, object] = {}
     old_mask: object | None = None
@@ -376,7 +376,7 @@ def _dispatch_guarded(
                 else:
                     def spawn() -> subprocess.Popen[bytes]:
                         return subprocess.Popen(
-                            _argv(request, usage_path), cwd=request.cwd, env=child_env,
+                            _argv(request), cwd=request.cwd, env=child_env,
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=False, close_fds=True, **_process_group_options(),
                         )
@@ -424,8 +424,6 @@ def _dispatch_guarded(
                     cleanup = cleanup and pipes_complete
                     stdout_capture = drainers[0].capture()
                     stderr_capture = drainers[1].capture()
-            usage = _read_usage(usage_path)
-            usage_file_exists = usage_path.exists()
     finally:
         if cancellation is not None:
             cancellation._remove(cancel_child)
@@ -459,7 +457,7 @@ def _dispatch_guarded(
     return _result(
         request, depth, status, process.returncode if process is not None else None,
         stdout, stderr, usage, cleanup, signals,
-        stdout_capture.truncated, stderr_capture.truncated, usage_file_exists,
+        stdout_capture.truncated, stderr_capture.truncated,
         stdout_truncation, stderr_truncation,
     )
 
@@ -489,15 +487,28 @@ def _spawn_preflight(request: HermesChildRequest) -> dict[str, object]:
     )
 
 
-def _argv(request: HermesChildRequest, usage_path: Path) -> tuple[str, ...]:
-    # "-" is the stdin sentinel; prompt text must never enter argv. Safe mode
+def _argv(request: HermesChildRequest) -> tuple[str, ...]:
+    # Prompt text must never enter argv, and `chat --query-file -` is the one
+    # Hermes transport that reads it from stdin (`_read_query_file` in
+    # hermes_cli/main.py). The top-level `-z/--oneshot PROMPT` takes the
+    # prompt as its positional value and reads no stdin, so the former
+    # `--oneshot -` handed the child the literal prompt "-" (#1824).
+    # `--quiet` drops the banner, spinner and tool previews, so a completed
+    # turn prints only the final response (Hermes' `_run_quiet_single_query`,
+    # read, not observed against a live provider here) with the session-id
+    # line on stderr. A start Hermes refuses before the turn -- no provider
+    # visible to the child -- prints its first-run guidance on stdout and
+    # exits 1, which `-z` did not; the verdict parsers need a literal tag, so
+    # that text reads as no verdict. `--usage-file` is a `-z`-only report and
+    # is not passed: this path writes none, so `usage` stays empty. Safe mode
     # is the strongest customization boundary in the installed Hermes CLI;
     # explicit ignore flags keep the contract visible and compatible.
     command = (
-        request.hermes, "--oneshot", "-", "--provider", request.provider,
-        "--model", request.model, "--reasoning", request.reasoning,
+        request.hermes, "chat", "--query-file", "-", "--quiet",
+        "--provider", request.provider, "--model", request.model,
+        "--reasoning", request.reasoning,
         "--safe-mode", "--ignore-user-config", "--ignore-rules",
-        "--toolsets", "file", "--usage-file", str(usage_path),
+        "--toolsets", "file",
     )
     if os.name == "nt" and Path(request.hermes).suffix.casefold() == ".py":
         return (sys.executable, *command)
@@ -595,13 +606,12 @@ def _result(
     stdout: str, stderr: str, usage: Mapping[str, object], cleanup: bool,
     signals: tuple[int, ...], stdout_truncated: bool = False,
     stderr_truncated: bool = False,
-    usage_file_exists: bool = False,
     stdout_truncation: Mapping[str, object] | None = None,
     stderr_truncation: Mapping[str, object] | None = None,
 ) -> HermesChildResult:
     return HermesChildResult(
         status, request.parent_run_id, request.run_id, depth, request.model, exit_code,
-        stdout, stderr, usage, cleanup, usage_file_exists, signals,
+        stdout, stderr, usage, cleanup, signals,
         stdout_truncated, stderr_truncated,
         dict(stdout_truncation or {}),
         dict(stderr_truncation or {}),

@@ -30,13 +30,10 @@ from pathlib import Path
 import sys
 
 args = sys.argv[1:]
+# Mirrors the installed Hermes CLI: only `chat --query-file -` reads stdin (#1824).
+if args[:3] != ["chat", "--query-file", "-"]:
+    raise SystemExit("no Hermes stdin transport in argv")
 sys.stdin.read()
-usage = Path(args[args.index("--usage-file") + 1])
-usage.write_text(json.dumps({
-    "provider": "fake-provider",
-    "model": args[args.index("--model") + 1],
-    "total_tokens": 1,
-}), encoding="utf-8")
 print("<verdict>PASS</verdict>")
 """
 
@@ -77,13 +74,10 @@ from pathlib import Path
 import sys
 
 args = sys.argv[1:]
+# Mirrors the installed Hermes CLI: only `chat --query-file -` reads stdin (#1824).
+if args[:3] != ["chat", "--query-file", "-"]:
+    raise SystemExit("no Hermes stdin transport in argv")
 sys.stdin.read()
-usage = Path(args[args.index("--usage-file") + 1])
-usage.write_text(json.dumps({
-    "provider": "fake-provider",
-    "model": args[args.index("--model") + 1],
-    "total_tokens": 1,
-}), encoding="utf-8")
 Path("review-mutation.txt").write_text("mutated", encoding="utf-8")
 print("<verdict>PASS</verdict>")
 """

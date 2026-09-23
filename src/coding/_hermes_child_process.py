@@ -1,15 +1,12 @@
-"""Private process, output, and usage helpers for isolated Hermes children."""
+"""Private process and output helpers for isolated Hermes children."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 import ctypes
 from dataclasses import dataclass
-import json
 import os
-from pathlib import Path
 import signal
-import stat
 import subprocess
 from threading import Event, Thread, current_thread, main_thread
 import time
@@ -18,18 +15,9 @@ from typing import BinaryIO, Final
 from ..system.metadata_safety import is_sensitive_metadata_text
 from ..system.output_truncation import truncation_notice, truncation_record
 
-_MAX_USAGE_BYTES: Final = 65_536
 _FORCE_KILL_SIGNAL: Final = getattr(signal, "SIGKILL", signal.SIGTERM)
 MAX_CAPTURE_BYTES: Final = 16_384
 _READ_CHUNK_BYTES: Final = 64 * 1024
-_USAGE_KEYS: Final = frozenset(
-    {
-        "estimated_cost_usd", "cost_status", "cost_source", "input_tokens",
-        "output_tokens", "cache_read_tokens", "cache_write_tokens",
-        "reasoning_tokens", "total_tokens", "api_calls", "model", "provider",
-        "completed", "failed", "service_tier", "turns", "tool_calls",
-    }
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,27 +263,6 @@ def process_absent(pid: int) -> bool:
         return exit_code.value != 259
     finally:
         kernel32.CloseHandle(handle)
-
-
-def read_usage(path: Path) -> Mapping[str, object]:
-    """Parse only bounded, scalar Hermes billing metadata."""
-    try:
-        metadata = path.lstat()
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > _MAX_USAGE_BYTES:
-            return {}
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return {}
-    if not isinstance(raw, dict):
-        return {}
-    usage: dict[str, object] = {}
-    for key in _USAGE_KEYS & raw.keys():
-        value = raw[key]
-        if value is None or isinstance(value, (bool, int, float)):
-            usage[key] = value
-        elif isinstance(value, str) and len(value) <= 200 and not is_sensitive_metadata_text(value):
-            usage[key] = value
-    return usage
 
 
 def capture_truncation_record(

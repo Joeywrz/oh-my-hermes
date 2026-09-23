@@ -65,7 +65,14 @@ STRUCTURE_LINT_RULE_IDS = (
 # the person no next move; the sentence is what every skill's stop
 # condition needed and belongs in the always-loaded body because the stop
 # is where it is read. Warranted always-loaded growth, not drift.
-STRUCTURE_LINT_SKILL_BODY_BYTE_CEILING = 26_500
+#
+# 26_500 -> 26_800: `ultrawork` measures 26_730 after the tail sentence grew
+# to say the reply is written in the user's own words and the host's own
+# voice, with OMH's record terms kept to records and tool calls, and after
+# the closing brief rule gained "in the user's words". Same reason as the
+# entry above: the sentence is read where the reply is written. Warranted
+# always-loaded growth, not drift.
+STRUCTURE_LINT_SKILL_BODY_BYTE_CEILING = 26_800
 _PICKER_SAFE_TRIGGER = re.compile(r"^[0-9A-Za-z\uac00-\ud7a3][0-9A-Za-z\uac00-\ud7a3 _.-]*$")
 _FRONTMATTER = re.compile(r'^---\nname: (.+)\ndescription: (.+)\nmetadata:\n(.*?)\n---\n', re.DOTALL)
 _JSON_STRING = re.compile(r'"(?:[^"\\\x00-\x1f]|\\["\\/bfnrt]|\\u[0-9A-Fa-f]{4})*"')

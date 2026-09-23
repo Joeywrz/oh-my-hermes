@@ -209,7 +209,10 @@ class EfficiencyContractTests(unittest.TestCase):
         # 70,000 -> 72,000: the turn-ending sentence on every skill's Runtime
         # Evidence tail reaches the ten core bodies too (70,014 measured);
         # the ceiling restores the ~2k headroom this gate carried.
-        self.assertLess(core["skill_body"]["bytes"], 72_000)
+        # 72,000 -> 74,000: the tail sentence grew to carry the reply rule
+        # (user's words, host's voice, record terms stay in records); the
+        # ten core bodies measure 72,222.
+        self.assertLess(core["skill_body"]["bytes"], 74_000)
         # 815,000 -> 825,000: one new installable body (`web-research`) plus the
         # sentence that split `best-practice-research`'s boundary in two. Set to
         # restore the ~10k headroom this gate is meant to carry rather than to
@@ -279,7 +282,11 @@ class EfficiencyContractTests(unittest.TestCase):
         # skill's tail plus the reworded engine rules took the full profile to
         # 998,884; the ceiling restores the ~13k standing headroom, and the
         # exact value stays ratcheted in `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
-        self.assertLess(full["skill_body"]["bytes"], 1_012_000)
+        # 1,012,000 -> 1,040,000: the reply rule on every workflow skill's
+        # tail took the full profile to 1,025,878; the ceiling restores the
+        # ~13k standing headroom, and the exact value stays ratcheted in
+        # `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
+        self.assertLess(full["skill_body"]["bytes"], 1_040_000)
         self.assertLess(full["repeated"]["share_percent"], 38.0)
 
         # References are progressive disclosure, counted outside the always-loaded body.
@@ -351,7 +358,9 @@ class EfficiencyContractTests(unittest.TestCase):
         primer_context = awareness_primer_context()
 
         self.assertLessEqual(len(primer_context), AWARENESS_PRIMER_CONTEXT_CHAR_LIMIT)
-        self.assertLessEqual(len(primer_context), 900)
+        # 900 -> 1050: one line about the reply itself (the user's words, the
+        # host's voice, these lines never quoted); the rail sat at 897.
+        self.assertLessEqual(len(primer_context), 1050)
         self.assertLessEqual(len(awareness_primer_markdown()), AWARENESS_PRIMER_MARKDOWN_CHAR_LIMIT)
         self.assertLessEqual(max(workflow_context_lengths.values()), AWARENESS_WORKFLOW_CONTEXT_CHAR_LIMIT)
         self.assertIn("Hermes-native workflow", primer_context)
@@ -375,6 +384,10 @@ class EfficiencyContractTests(unittest.TestCase):
         self.assertIn("Common cues before generic tools", awareness_primer_markdown())
         self.assertIn("check OMH prep/status/learning", awareness_primer_markdown())
         self.assertIn("Generic tool map", awareness_primer_markdown())
+        # Both primers carry the reply rule, because both reach the model:
+        # the compact one every turn, the markdown one in skills and docs.
+        self.assertIn("never quoted to the user", awareness_primer_markdown())
+        self.assertIn("never quoted to the user", awareness_primer_context())
         self.assertEqual(combined.count("## Workflow Lane"), len(workflow_skill_names))
         self.assertEqual(combined.count("## OMH Awareness Primer"), 1)
         common_rail = next(

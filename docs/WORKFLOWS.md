@@ -209,7 +209,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Classify the goal as task, project, ambition, external-wait, or unclear inside the loop, then keep progressing until a real permission, evidence, verification, context, budget, or external-wait gate appears.
   - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or name the armed wait it is waiting on -- handle, bound completion signal, deadline -- instead of re-reading status. Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it. A mid-run message is the latest steering for the active task, not automatically a replacement objective: it replaces the objective when the user says so and steers the current one otherwise.
   - A follow-up that needs new authority, materially expands the scope, or changes external state not already authorized is described first and started only on the user's approval: the turn ends by naming that next action and asking whether to take it, as one question carrying the choices the user has, never by declaring what will not be done; persistence never broadens the authorized scope. A refused escalation is answered the same way, with a safer alternative inside the boundary or the authorization the boundary asks for — never a workaround or an indirect execution.
-  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
+  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision, in the user's words; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
   - Expose core OMH roles: interviewer, planner, researcher, builder, reviewer, and loop controller.
   - Route tiny direct tasks to one-cycle delivery surfaces instead of forcing loop overhead.
   - Reframe a north-star ambition into a bounded arena, observable problem, next loop goal, and next verification without shrinking its ambition.
@@ -349,7 +349,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Keep terminology sparse: canonical identity, short definition, expression guidance, distinct-from boundary, and optional localized display label.
   - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or name the armed wait it is waiting on -- handle, bound completion signal, deadline -- instead of re-reading status. Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it. A mid-run message is the latest steering for the active task, not automatically a replacement objective: it replaces the objective when the user says so and steers the current one otherwise.
   - A follow-up that needs new authority, materially expands the scope, or changes external state not already authorized is described first and started only on the user's approval: the turn ends by naming that next action and asking whether to take it, as one question carrying the choices the user has, never by declaring what will not be done; persistence never broadens the authorized scope. A refused escalation is answered the same way, with a safer alternative inside the boundary or the authorization the boundary asks for — never a workaround or an indirect execution.
-  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
+  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision, in the user's words; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
   - Stop on a terminal frontier, explicit user request, or the shared round ceiling; then confirm the summary separately from planning or coding.
 - Completion checklist:
   - Source status and reviewed-profile status are named without treating either as model-use evidence.
@@ -597,7 +597,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Choose the wait strategy before starting long-running work and bind it to a completion signal the host exposes, never to a status loop: a command that fits one tool call runs once in the foreground with a duration-sized timeout; a longer terminal command runs in the background with completion notification armed and no process-status polling; a delegated lane relies on its delivered result while the parent continues independent work or ends the turn; a CI, PR, deploy, file, port, log-line, or external-session condition uses the host's monitor when observed, else exactly ONE bounded watcher or adaptive backoff outside model turns. Record the handle and observation mode at dispatch; every armed wait needs a hard deadline, a cancellation path, and a fallback naming the missing capability. Each wait closes in one terminal state with bounded evidence; an unbounded idle or busy-wait is a defect and a lost notification times out. One decision-changing midpoint peek and any user-requested status check stay allowed; neither is the wait mechanism. Ladder and terminal states: shared rail.
   - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or name the armed wait it is waiting on -- handle, bound completion signal, deadline -- instead of re-reading status. Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it. A mid-run message is the latest steering for the active task, not automatically a replacement objective: it replaces the objective when the user says so and steers the current one otherwise.
   - A follow-up that needs new authority, materially expands the scope, or changes external state not already authorized is described first and started only on the user's approval: the turn ends by naming that next action and asking whether to take it, as one question carrying the choices the user has, never by declaring what will not be done; persistence never broadens the authorized scope. A refused escalation is answered the same way, with a safer alternative inside the boundary or the authorization the boundary asks for — never a workaround or an indirect execution.
-  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
+  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision, in the user's words; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
   - Close a completed run with the localized run summary: call `omh_run_summary` with the conversation's language and print its summary_text verbatim as the final lines (elapsed seconds, token usage, and models used from observed host accounting — never numbers the model estimated); when the tool reports a non-observed status (no session id, no accounting row), print an explicit run-summary not_available line instead of omitting it or estimating the numbers.
   - [capability:single_owner_persistence] Do not enter a finish-until-done loop until scope, acceptance criteria, and verification commands are concrete.
   - [capability:single_owner_persistence] For single-owner coding edits, prepare and track the selected runtime path instead of implying unobserved work happened or hiding execution inside chat narration.
@@ -708,7 +708,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Write every steering delta as more than a restated brief: name the changed constraint, the new evidence, the required action, and whether the verification target moved.
   - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or name the armed wait it is waiting on -- handle, bound completion signal, deadline -- instead of re-reading status. Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it. A mid-run message is the latest steering for the active task, not automatically a replacement objective: it replaces the objective when the user says so and steers the current one otherwise.
   - A follow-up that needs new authority, materially expands the scope, or changes external state not already authorized is described first and started only on the user's approval: the turn ends by naming that next action and asking whether to take it, as one question carrying the choices the user has, never by declaring what will not be done; persistence never broadens the authorized scope. A refused escalation is answered the same way, with a safer alternative inside the boundary or the authorization the boundary asks for — never a workaround or an indirect execution.
-  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
+  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision, in the user's words; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
   - Entered from an `ulw-work` lane, own that lane's handoff only -- lane framing, disjointness, integration verification, and the closing brief stay with `ulw-work`; report back in that lane's evidence vocabulary.
   - Close with the localized `omh_run_summary` summary_text verbatim as the final lines, or an explicit run-summary not_available line -- never an estimated number.
 - Completion checklist:
@@ -795,7 +795,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Reserve the end of the run for synthesis; an interrupted run must still leave a partial dossier rather than lost context.
   - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or name the armed wait it is waiting on -- handle, bound completion signal, deadline -- instead of re-reading status. Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it. A mid-run message is the latest steering for the active task, not automatically a replacement objective: it replaces the objective when the user says so and steers the current one otherwise.
   - A follow-up that needs new authority, materially expands the scope, or changes external state not already authorized is described first and started only on the user's approval: the turn ends by naming that next action and asking whether to take it, as one question carrying the choices the user has, never by declaring what will not be done; persistence never broadens the authorized scope. A refused escalation is answered the same way, with a safer alternative inside the boundary or the authorization the boundary asks for — never a workaround or an indirect execution.
-  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
+  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision, in the user's words; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
   - Summarize the evidence or dossier before any planning or coding handoff; research is not implementation evidence.
 - Completion checklist:
   - The research question, source boundaries, recency assumptions, and confidence level are named.
@@ -4590,7 +4590,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
   - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or name the armed wait it is waiting on -- handle, bound completion signal, deadline -- instead of re-reading status. Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it. A mid-run message is the latest steering for the active task, not automatically a replacement objective: it replaces the objective when the user says so and steers the current one otherwise.
   - A follow-up that needs new authority, materially expands the scope, or changes external state not already authorized is described first and started only on the user's approval: the turn ends by naming that next action and asking whether to take it, as one question carrying the choices the user has, never by declaring what will not be done; persistence never broadens the authorized scope. A refused escalation is answered the same way, with a safer alternative inside the boundary or the authorization the boundary asks for — never a workaround or an indirect execution.
-  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
+  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision, in the user's words; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
   - Generate hostile scenarios from changed behavior and known risk areas.
   - Report pass/fail evidence separately from proposed fixes.
   - For native `omh_todo` checkpoints, load the todo-checklist closing recipe; `record` then `recall` this qa declaration. Stored declarations are not proof.
@@ -5302,7 +5302,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Set the regression budget as baseline x (1 + tolerance) and name the CI gate that enforces it.
   - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or name the armed wait it is waiting on -- handle, bound completion signal, deadline -- instead of re-reading status. Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it. A mid-run message is the latest steering for the active task, not automatically a replacement objective: it replaces the objective when the user says so and steers the current one otherwise.
   - A follow-up that needs new authority, materially expands the scope, or changes external state not already authorized is described first and started only on the user's approval: the turn ends by naming that next action and asking whether to take it, as one question carrying the choices the user has, never by declaring what will not be done; persistence never broadens the authorized scope. A refused escalation is answered the same way, with a safer alternative inside the boundary or the authorization the boundary asks for — never a workaround or an indirect execution.
-  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
+  - The closing brief scales to the change: one or two sentences plus the observed validation for a simple change, more only when the complexity earns it. Lead with the result or decision, in the user's words; omit abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the user owns, end with the next action offered as a question, and state what was left undone as the option it leaves open, never as a refusal. Required closing lines stay outside this scaling: the observed run summary, and any prepared-not-observed or unmerged work, are stated whatever the brief's length.
 - Completion checklist:
   - Baseline, workload, environment, and evaluator command are recorded before any edit is proposed.
   - Each accepted fix names the measured hot path, the reversible change, and its owner.
@@ -7079,7 +7079,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask how to triage GitHub PR, issue, review, webhook, or CI events into label, review, or fix-handoff actions without claiming GitHub mutation.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `github-event-ops` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `github-event-ops` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes receives or is asked to reason about GitHub PR, issue, review, or CI events and must choose review, triage, or fix-handoff without claiming a bot ran.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7136,7 +7136,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to coordinate multiple Hermes agents, subagents, roles, handoffs, blockers, heartbeats, or board-shaped collaboration without claiming other agents accepted or completed work.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `agent-board` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `agent-board` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when multiple Hermes profiles, agents, or targets need a board-shaped status contract for collaborative work.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7198,7 +7198,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user wants to add new project, product, or durable context memory through capture, review, and approval.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `memory-new` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `memory-new` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when the user wants to assess one new project, product, or context fact for OMH-local memory. Ask source class, target store, scope, retention class, then choose remember, refuse, or defer.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7259,7 +7259,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks to review stale, duplicate, conflicting, or unresolved (open) memory and skill context.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `memory-sync` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `memory-sync` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when existing Hermes USER.md, MEMORY.md, or accumulated skill memories need an English-canonical, claim-by-claim review. It prepares native write guidance only; no OMH surface invokes, applies, or observes a native write — a user-approved diff is applied by Hermes's own native memory tool. Do not use for new project or product candidates.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7321,7 +7321,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to route, notify, post, or package Discord, Slack, Telegram, webhook, thread, attachment, or silent/status-update gateway intent without claiming delivery.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `gateway-intent-card` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `gateway-intent-card` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes needs platform-neutral gateway policy for a chat session, thread, delivery target, attachment, or status update.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7378,7 +7378,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask whether Codex, Claude Code, Hermes coding, or another runtime has the tools, credentials, worktree posture, and handoff mode needed before dispatch.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `executor-runtime-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `executor-runtime-readiness` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when a user may choose Codex, Claude Code, Hermes coding, or another runtime and needs tool/credential gaps before handoff.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7437,7 +7437,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks for file deliverable packaging and attachment lifecycle status.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `deliverable-package` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `deliverable-package` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes should prepare, request generation, QA, and report attachment status for user-visible file deliverables.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7494,7 +7494,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when voice, mobile, dictated, or short commands need normalization, ambiguity checks, and safe confirmation before selecting a concrete workflow.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `voice-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `voice-operator` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes receives terse voice/mobile-style requests and should produce concise clarification, plan, or status UX.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7552,7 +7552,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to open URLs, click pages, log in, fill forms, capture blockers, or supervise browser interactions without claiming browser execution.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `browser-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `browser-operator` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes should prepare or supervise a browser/page interaction request such as opening a URL, clicking, logging in, filling forms, or capturing page blockers without claiming browser execution.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7625,7 +7625,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to list, search, organize, copy, move, rename, archive, or delete local files and folders without claiming filesystem mutation.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `workspace-file-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `workspace-file-operator` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes should prepare or supervise local workspace/file-system operations such as listing, searching, organizing, copying, moving, renaming, archiving, or deleting files without claiming the operation ran.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7689,7 +7689,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to prepare or supervise terminal, shell, CLI, package-manager, or test commands without claiming command execution.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `command-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `command-operator` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes should prepare or supervise terminal/CLI command execution without claiming the command ran or succeeded.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7754,7 +7754,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to prepare or supervise external app, SaaS, email, ticket, calendar, CRM, or connector actions without claiming provider execution.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `connector-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `connector-operator` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes should prepare or supervise a provider-backed external app action without claiming connector availability, credentials, API mutation, delivery, or success.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7820,7 +7820,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to prepare or supervise read-only weather, finance, sports, map, place, exchange-rate, or time-zone lookups without claiming live data retrieval.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `live-info-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `live-info-operator` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes should prepare or supervise read-only live information lookups without claiming provider availability, API access, freshness, retrieval, or result correctness.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7884,7 +7884,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask whether an external plugin, connector, API, multimodal route, or live-data tool is ready enough to adopt, route, or trial without claiming provider execution.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `external-connector-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `external-connector-readiness` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use before adopting, enabling, or routing an external plugin/connector/API when Hermes must compare capability, auth, cost, modality, freshness, safety, fallback, and observable trial evidence. Use it for an optional memory provider too, where enabling, switching, pausing, or removing it also needs identity scope, automatic hooks, retention, deletion, export, and switching answered before adoption.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -7976,7 +7976,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask whether external CLI-agent prompt files can be safely reviewed, normalized, and exposed as Hermes slash-command candidates without claiming prompt mutation.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `prompt-import-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `prompt-import-readiness` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use before importing, normalizing, or exposing external prompt files as Hermes slash commands so source trust, formats, argument interpolation, name collisions, review status, and dry-run evidence stay explicit.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8049,7 +8049,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use when physical device workflows need a safety envelope, gates, approval, dry-run, and observed-only trial boundary.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `physical-device-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `physical-device-readiness` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use before preparing or adopting a workflow that could move, heat, print, actuate, unlock, or otherwise affect physical devices so safety envelope, sensor/camera gates, dry-run policy, operator approval, emergency stop, and observation requirements are explicit.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8122,7 +8122,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask for publish-ready writing, rewriting, summarization, translation, release notes, newsletter, customer copy, or email-draft work with audience, tone, source, and review gates.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `content-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `content-operator` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes should prepare or supervise quality-controlled content creation or transformation without claiming source access, fact verification, stakeholder approval, publishing, sending, file export, or delivery.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8189,7 +8189,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to prepare or supervise audio/video transcription, YouTube/video summaries, OCR, screenshot text extraction, receipt image parsing, meeting recordings, timestamps, or clip summaries without claiming media access, transcript, OCR, or parsed-field evidence.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `media-input-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `media-input-operator` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes should prepare or supervise audio/video transcript, YouTube/video summary, OCR, screenshot text extraction, receipt image parsing, or timestamped media extraction work without claiming media access, download, transcription, OCR output, or factual summary evidence.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8257,7 +8257,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to analyze supplied CSV, JSON, logs, tables, or metric-like data with schema, method, and hallucination guards.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `data-analysis` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `data-analysis` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes should prepare supplied structured, unstructured, or mixed data analysis without unsupported numeric or causal claims.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8326,7 +8326,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask which plugins, MCP servers, CLIs, APIs, credentials, or external connectors a workflow needs before it can run.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `toolbelt-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `toolbelt-readiness` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when a workflow depends on MCP, CLI, API credentials, or connectors and Hermes must show installed, missing, optional, and unsafe tools.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8383,7 +8383,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when operators need a cross-harness session, MCP config, connector, wrapper, and worktree inventory with drift boundaries.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `harness-session-inventory` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `harness-session-inventory` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when operators need a cross-harness/session/MCP/worktree inventory and drift summary before claiming any host loaded, connector ran, or agent session progressed.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8449,7 +8449,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when operators need an evidence-bounded command-board for telemetry, supplied metric-provider payloads, and service-quality gaps.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `ops-observability-card` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `ops-observability-card` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when automation, loops, gateway work, executor handoffs, or service operations need a safe command-board for cost, latency, token, history, failure-mode, supplied metric-provider, and service-quality visibility.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8519,7 +8519,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks about unlocked hermes-achievements badges, tiers, recent unlocks, or badge progress.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `achievements` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `achievements` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when the user asks which achievements or badges they unlocked, badge progress or tiers, recent unlocks, or wants an achievements section prepared for a report.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8578,7 +8578,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when a manager wants quality, blockers, next actions, and throughput guidance for AI-agent work.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `agent-ops-review` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `agent-ops-review` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes should explain AI-agent work: quality gates, progress, blockers, next actions, and throughput.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8641,7 +8641,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when an agent run is stuck, looping, drifting, or failing repeatedly and needs evidence-bounded diagnosis plus contained recovery guidance.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `agent-debug` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `agent-debug` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when an agent run is stuck, looping on tools, burning tokens without progress, drifting from the objective, losing context, or failing on recoverable environment/tool assumptions.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8707,7 +8707,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when operators need to find swallowed errors, dangerous fallbacks, propagation gaps, and false-green claims before routing remediation.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `failure-signal-audit` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `failure-signal-audit` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes should audit code, frontend/browser behavior, agent traces, or runtime reports for failures that were swallowed, downgraded, hidden by fallbacks, or reported as green without enough evidence.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8782,7 +8782,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when repeated lessons should become reviewed, confidence-scored project or global instinct candidates without automatic hook-based learning or mutation.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `instinct-ledger` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `instinct-ledger` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when Hermes should review repeated observations, user corrections, workflow lessons, or failure patterns as atomic project-scoped or global instinct candidates with confidence, evidence, promotion, import, or export decisions.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8845,7 +8845,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill before creating, forking, installing, or adapting a skill so operators can compare candidates and risks first.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `skill-scout` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `skill-scout` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use before creating or adapting a skill so OMH can compare existing local, marketplace, GitHub, or web candidates without installing, copying, or trusting them by default.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8909,7 +8909,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when operators need a portfolio health dashboard for skills, generated surfaces, failure-pattern signals, pending amendments, and safe improvement actions.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `skill-health` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `skill-health` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use when operators need portfolio-level skill health without treating it as install repair, live execution success, or automatic skill mutation.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -8966,7 +8966,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user wants to learn from a workflow run, review an improvement candidate, create a regression case, or export a redacted review bundle.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `workflow-learning` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `workflow-learning` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use after a Hermes/OMH workflow attempt should become inspectable, evaluable, routed to memory/skill/wiki/failure-retrospective/automation review, persisted as a metadata-only store-route decision, queued for review, audited, replayable as a regression, converted to a patch handoff, exported, repaired after index drift, or captured as a missed-route signal without raw prompts. Store-route records are an auxiliary review lane surfaced by `learning review` and `learning store-routes`; they are not canonical learning index/export records until a reviewed destination produces its own artifact.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -9025,7 +9025,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill to recall scoped rejected alternatives without promoting them to approved memory or execution evidence.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `decision-recall` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `decision-recall` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use for scoped reviewed rejected-decision context; it is not approved memory or execution evidence.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -9082,7 +9082,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill to render bounded local run efficiency from supplied metadata and keep provider/host gaps visible.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `run-efficiency` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `run-efficiency` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use for a bounded local efficiency report from supplied metadata with provider and host gaps explicit.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
@@ -9140,7 +9140,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill to prepare provider/profile metadata without reading secrets, calling providers, or routing models.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
-- Why this exists: `provider-profile-posture` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Why this exists: `provider-profile-posture` exists so Hermes users can ask for this workflow in chat and get a structured, checkable answer instead of an improvised one.
 - Use when: Use for provider/profile capability and secret-presence preparation before connector or credential action.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.

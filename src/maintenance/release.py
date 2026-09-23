@@ -112,8 +112,16 @@ WORKFLOW_CONTEXT_MARKERS = (
 )
 ROLE_CONTEXT_MARKERS = ("OMH Role Context", "OMH workflow-layer responsibility context", "prepared guidance only")
 CONCEPTUAL_AWARENESS_SURFACES = ("request-to-handoff", "executor selection", "coding runtime handoff")
-AWARENESS_PRIMER_CONTEXT_CHAR_LIMIT = 900
-AWARENESS_PRIMER_MARKDOWN_CHAR_LIMIT = 3210
+# 900 -> 1050 and 3210 -> 3400: the primers gain one line about the reply
+# itself -- written in the user's words and the host's own voice, with these
+# lines and OMH's record vocabulary never quoted to the user. The compact
+# rail measured 897 and the markdown 3168 before the line; a model that
+# echoed the rail produced replies such as "this is an evidence-bounded
+# surface", and the persona belongs to the host's SOUL.md. Re-derived from
+# the producers (1044 and 3316 measured, after the review's carve-out for a
+# user who asks about a term) with standing headroom restored.
+AWARENESS_PRIMER_CONTEXT_CHAR_LIMIT = 1050
+AWARENESS_PRIMER_MARKDOWN_CHAR_LIMIT = 3400
 AWARENESS_WORKFLOW_CONTEXT_CHAR_LIMIT = 1500
 ROLE_CONTEXT_CHAR_LIMIT = 2600
 # 340000 -> 349637: three capability-skill sections were added by the domain
@@ -334,15 +342,20 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 # the ratchet working, not a regression. Re-derived from the producer.
 # 422474 -> 422755: the two executing-engine rules (follow-up authority,
 # closing brief) now say how a stop ends the turn -- the next action offered
-# as a question, never a statement of what will not be done -- and the seven
-# engines' capability rows carry the longer rules. Re-derived from the
-# producer.
+# as a question, never a statement of what will not be done -- and the one
+# capability row that carries an engine's quality bar (`ultraqa`) carries
+# the longer rules; the other six engines' bars do not reach this section.
+# Re-derived from the producer.
 # 422755 -> 422796: the Claude Opus 5.5 / GPT-6 Luna onboarding's capability
 # rows (model-setup, model-optimization, maestro) carry the new chain members
 # and rules. The branch fitted inside the slack the budget had before the
 # raise above; that raise left none, so rebasing past it surfaced the 41.
 # Re-derived from the producer.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 422796
+# 422796 -> 422817: the closing brief rule now says the result leads "in the
+# user's words"; the delta is that one clause in the one capability row
+# (`ultraqa`) that carries it. Re-derived from the producer after rebasing
+# past the onboarding raise.
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 422817
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -1354,7 +1367,17 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # add to 329, and the step is 329 because the raise above it left no unused
 # room. Re-derived from the full-profile skill_context_cost_payload() producer
 # after rebasing past that raise.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1000101
+# 1000101 -> 1029434: the tail sentence on every generated skill now also says
+# the reply is written in the user's own words and the host's own voice, with
+# OMH's record terms (surface, lane, wrapper, handoff, evidence boundary,
+# not_observed) kept to records and tool calls. Users were reading OMH's
+# internal vocabulary back in Hermes replies ("this is an evidence-bounded
+# surface"), and the host's SOUL.md, not a skill, owns the voice. The sentence
+# is read where the reply is written, so it stays in the always-loaded body;
+# the substitution table lives in the rail reference, outside this budget.
+# Re-derived from the full-profile producer after rebasing past the
+# onboarding raise.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1029434
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

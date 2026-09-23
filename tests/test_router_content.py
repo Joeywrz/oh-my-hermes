@@ -346,7 +346,9 @@ class RouterContentTests(unittest.TestCase):
         # joined the Progressive Disclosure and Recovery lists (2026-08); 13,000
         # keeps ~3.3% headroom while still forcing the router skill to stay a
         # compact index rather than a second catalog.
-        self.assertLess(len(router.content.encode("utf-8")), 13_000)
+        # 13,000 -> 13,300: the router tail carries the reply rule (user's
+        # words, host's voice, record terms stay in records); 13,047 measured.
+        self.assertLess(len(router.content.encode("utf-8")), 13_300)
         self.assertIn("best-effort Hermes prompt guidance", router.content)
         self.assertIn("does not override Hermes core routing", router.content)
         self.assertIn(router_keyword_summary(), router.content)
@@ -427,7 +429,9 @@ class RouterContentTests(unittest.TestCase):
         # joined the Progressive Disclosure and Recovery lists (2026-08); 13,000
         # keeps ~3.3% headroom while still forcing the router skill to stay a
         # compact index rather than a second catalog.
-        self.assertLess(len(router.content.encode("utf-8")), 13_000)
+        # 13,000 -> 13,300: the router tail carries the reply rule (user's
+        # words, host's voice, record terms stay in records); 13,047 measured.
+        self.assertLess(len(router.content.encode("utf-8")), 13_300)
         # 24,500 -> 25,300: workflow-registry.md carries one row per routable
         # workflow, so the `web-research` split and the `codebase-uml` row
         # together took it past the old ceiling; one row per new skill, and
@@ -1117,6 +1121,9 @@ class RouterContentTests(unittest.TestCase):
             # refusal; every skill carries the sentence because every skill
             # has a stop condition.
             "offer the next action as a question rather than declaring what will not be done",
+            # The reply is written in the user's words and the host's voice;
+            # OMH's record vocabulary stays in records and tool calls.
+            "the host's own voice",
         )
         templates = {template.name: template.content for template in builtin_skill_templates()}
         rendered_files = {
@@ -1132,6 +1139,14 @@ class RouterContentTests(unittest.TestCase):
                 }
                 missing = {name: fragments for name, fragments in missing.items() if fragments}
                 self.assertEqual(missing, {})
+                # The sentence a user once read back as "this is an
+                # evidence-bounded surface" came from a shared template;
+                # no body may carry it, or its vocabulary, as a purpose line.
+                leaking = sorted(
+                    name for name, content in contents.items()
+                    if "operating surface instead of ad hoc narration" in content
+                )
+                self.assertEqual(leaking, [])
         for name, content in sorted(templates.items()):
             if name != "oh-my-hermes":
                 self.assertIn("Preserve workflow intent and stop conditions", content, name)

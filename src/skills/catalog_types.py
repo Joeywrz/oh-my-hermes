@@ -459,7 +459,8 @@ ENGINE_FOLLOW_UP_AUTHORITY_RULE = (
 # boundary ends with the next action offered, not with a refusal.
 ENGINE_CLOSING_BRIEF_RULE = (
     "The closing brief scales to the change: one or two sentences plus the observed validation for a "
-    "simple change, more only when the complexity earns it. Lead with the result or decision; omit "
+    "simple change, more only when the complexity earns it. Lead with the result or decision, in the "
+    "user's words; omit "
     "abandoned approaches unless they explain a tradeoff the reader needs; narrate no internal "
     "bookkeeping (todo transitions, waits). When the work stops at a boundary or at a decision the "
     "user owns, end with the next action offered as a question, and state what was left undone as the "
@@ -1317,8 +1318,8 @@ def _feature_surface_skill(
             *extra_quality_bar,
         ),
         why_this_exists=(
-            f"`{name}` exists so Hermes users can ask for this workflow in chat and receive a structured, "
-            "evidence-bounded OMH operating surface instead of ad hoc narration."
+            f"`{name}` exists so Hermes users can ask for this workflow in chat and get a structured, "
+            "checkable answer instead of an improvised one."
         ),
         do_not_use_when=(
             "The request is already handled by a narrower explicit skill with stronger evidence.",

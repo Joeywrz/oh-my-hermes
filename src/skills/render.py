@@ -225,12 +225,16 @@ def _common_rail_sections(
 Use the current host's own tools and subagent/task mechanism when available;
 otherwise run the same lanes sequentially or name the unavailable capability.
 A prepared plan, handoff, checklist, or skill installation is not execution,
-review, CI, merge-readiness, or merge evidence. Report actual tool results or
-`not_observed` / `not_available`; never invent dispatch or host accounting.
+review, CI, merge-readiness, or merge evidence. Record actual tool results, or
+`not_observed` / `not_available`, in the record; never invent dispatch or host
+accounting.
 Treat supplied context as advisory, not proof of hidden memory reads or writes.
 State scope, constraints, verification, and the stop condition before work.
-When a stop condition or a decision the user owns ends the turn, offer the next
-action as a question rather than declaring what will not be done.
+Reply in the user's own words and the host's own voice: OMH's record terms
+(surface, lane, wrapper, handoff, evidence boundary, not_observed) stay in
+records and tool calls, never in the sentence the user reads unless they ask
+about one; and when a stop condition or a decision the user owns ends the turn,
+offer the next action as a question rather than declaring what will not be done.
 Supporting paths are relative to this skill directory; sibling skill paths are
 relative to its parent. Resolve them from the host-provided skill base directory
 (`{baseDir}` on hosts that provide it), never a hardcoded install location.
@@ -261,7 +265,7 @@ omh runtime record --skill {definition.name} --harness {primary_harness} --statu
 Prepared OMH routing is not execution, review, CI, merge-readiness, or merge evidence.
 {_memory_context_skill_contract_bullets(definition)}
 Preserve workflow intent and stop conditions; verify before claiming completion.
-When a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
+Reply in the user's own words and the host's own voice: OMH's record terms (surface, lane, wrapper, handoff, evidence boundary, not_observed) stay in records and tool calls, never in the sentence the user reads unless they ask about one; and when a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
 
 Use Hermes-native subagent/delegation features when available: native subagents -> Hermes delegation when available, otherwise sequential lanes.
 
@@ -756,6 +760,12 @@ multi-agent target topology, or the generic execution checklist is in play.
 
 - Preserve workflow intent and stop conditions; verify before claiming completion.
 - Use Hermes-native tools, file operations, and subagent/delegation features when available; do not require unavailable runtime tools, role prompts, or overlays.
+
+## Reply Language And Host Voice
+
+- The host's persona is the primary identity: `SOUL.md`, its tone, and its language belong to Hermes and the person who configured it. OMH changes what Hermes checks and records, never how it sounds; no OMH skill, card, or awareness line sets a voice, and a skill never justifies switching the user's language or register.
+- OMH's record vocabulary is for records and tool calls, not for the sentence the user reads: `surface`, `lane`, `wrapper`, `handoff`, `run record`, `evidence boundary`, `claim boundary`, `prepared_not_observed`, `not_observed`. In the reply say what was done, what was checked, what was not checked, and what happens next: "prepared, not run yet" for prepared_not_observed; "not checked" for not_observed; "handing the coding work to <owner>" for a handoff; "this shows X and does not show Y" for a boundary. A user who names a term gets it explained in the record's own words.
+- Awareness lines (`[OMH Awareness]`, `Boundary:`), route hints, and first-response shapes are instructions to Hermes, never sentences for the user: do not quote or paraphrase them into the reply.
 
 ## Turn Ending
 
@@ -1423,8 +1433,8 @@ Record only what is observed. A task card, route, plan, `coding_delegation.json`
   - question renderers -> one concise question in the current Hermes interface,
   - native subagents -> Hermes delegation when available, otherwise sequential lanes,
   - shell bridge commands -> optional bridge mode only.
-- Record observed delegation results when exposed. If unavailable, say `not_available` or `not_observed`.
-- When a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
+- Record observed delegation results when exposed. If unavailable, record `not_available` or `not_observed`.
+- Reply in the user's own words and the host's own voice: OMH's record terms (surface, lane, wrapper, handoff, evidence boundary, not_observed) stay in records and tool calls, never in the sentence the user reads unless they ask about one; and when a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
 
 ## Progressive Disclosure References
 
@@ -2642,7 +2652,7 @@ Contract: `references/full-contract.md`. Procedure: `references/procedure.md`.
 ## Completion Checklist
 
 - Preserve workflow intent and stop conditions; load the full contract before claiming completion.
-- When a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
+- Reply in the user's own words and the host's own voice: OMH's record terms (surface, lane, wrapper, handoff, evidence boundary, not_observed) stay in records and tool calls, never in the sentence the user reads unless they ask about one; and when a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
 - Record observed delegation results; otherwise return `not_available` or `not_observed`.
 - Use Hermes-native subagent/delegation features when available: native subagents -> Hermes delegation when available, otherwise sequential lanes.
 
@@ -5631,7 +5641,7 @@ before mutation unless that separate action is authorized.
 - Prepared OMH routing is not execution, review, CI, or merge evidence.
 - Preserve workflow intent and stop conditions; verify before claiming
   completion.
-- When a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
+- Reply in the user's own words and the host's own voice: OMH's record terms (surface, lane, wrapper, handoff, evidence boundary, not_observed) stay in records and tool calls, never in the sentence the user reads unless they ask about one; and when a stop condition or a decision the user owns ends the turn, offer the next action as a question rather than declaring what will not be done.
 - Use Hermes-native subagent/delegation features when available:
   native subagents -> Hermes delegation when available, otherwise sequential lanes.
 

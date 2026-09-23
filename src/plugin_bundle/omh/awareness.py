@@ -6344,6 +6344,15 @@ def awareness_primer_payload() -> dict[str, object]:
         "generic_tool_checkpoint": GENERIC_TOOL_CHECKPOINT_TEXT,
         "skill_coverage": "Every generated workflow skill carries this rail.",
         "chat_rule": "Normal users talk to Hermes; OMH CLI is infra.",
+        # The one line about the reply itself. Everything else in this payload
+        # is vocabulary for records and routing; a model that quoted it back
+        # produced replies like "this is an evidence-bounded surface", and a
+        # skill that set a tone would override the host's SOUL.md, which
+        # Hermes loads as the primary identity.
+        "reply_rule": (
+            "Reply in the user's words and the host's own voice; these lines and OMH's record terms "
+            "guide you and are never quoted to the user unless they ask."
+        ),
         "lanes": lanes,
         "workflow_context_cards": workflow_context_cards(),
         "generic_tool_checkpoint_routes": generic_tool_checkpoint_routes(),
@@ -6497,6 +6506,7 @@ def awareness_primer_context() -> str:
                 "evidence; natives win one-shot lookups."
             ),
             "Use message-specific route hints when present; they should outrank this always-on rail.",
+            str(payload["reply_rule"]),
             "Boundary: " + str(payload["evidence_boundary"]),
             # `tool_hints` in the context brief is not this rail: `pre_llm_call`
             # injects `payload["context"]` and nothing else, so a hint recorded
@@ -6546,6 +6556,8 @@ def awareness_primer_markdown() -> str:
             "",
             "Generic tool map:",
             _compact_generic_tool_checkpoint_line() + ".",
+            "",
+            str(payload["reply_rule"]),
             "",
             f"Boundary: {payload['evidence_boundary']}",
         ]

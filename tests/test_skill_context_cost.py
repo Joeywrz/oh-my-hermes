@@ -18,7 +18,12 @@ class SkillContextCostTests(unittest.TestCase):
             headings.get("Hermes Compatibility Contract", {"duplicate_bytes": 0})["duplicate_bytes"],
             0,
         )
-        self.assertLess(profile["repeated"]["bytes"], 100_000)
+        # 100,000 -> 104,000: the reply rule (the user's words, the host's
+        # voice, record terms stay in records, a stop offers the next action)
+        # is read at the moment the reply is written, so it rides every body's
+        # tail on purpose; the substitution table stays in the rail. Repeated
+        # bytes measure 101,024 with it. Warranted always-loaded growth.
+        self.assertLess(profile["repeated"]["bytes"], 104_000)
 
     def test_ulw_context_reports_bounded_static_body_and_progressive_references(self) -> None:
         payload = skill_context_cost_payload()

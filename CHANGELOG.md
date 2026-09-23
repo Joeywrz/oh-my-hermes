@@ -15,9 +15,11 @@ All notable changes will be documented here.
   split of `benchmarks/live-model-tools/v1`: 18 / 30 before and after, the
   same instances, and 2,641,559 harness tokens against 2,760,212 and
   2,955,008 for two runs of the old text. The per-instance delta against
-  their mean is −7,202, CI95 [−15,422, −47]. The composer block's two
-  sentences of the same kind are not changed, because the benchmark cannot
-  reach that path (#1836).
+  their mean is −7,202, CI95 [−15,422, −47]. The composer block loses its
+  two sentences of the same kind, "keep working while delegated units run"
+  and "If your closing paragraph is a dispatch you could run, run it before
+  closing"; that deletion is unmeasured, because the benchmark runs one agent
+  with no fanout and never reaches the composer path (#1836 tracks one).
 
 - **The Jev plugin posture follows the `hermes-jev` rename to `nerve`, and
   knows `jev-curator`.** An open upstream catalog change (hermes-agent #119045,

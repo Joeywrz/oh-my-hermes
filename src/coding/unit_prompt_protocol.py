@@ -260,9 +260,8 @@ MAIN_AGENT_COMPOSITION_CALIBRATIONS: Final[dict[str, str]] = {
         "whose only job is re-checking the split itself; a fresh-context review of a unit's deliverable "
         "against its criteria is a legitimate unit. Delegate a unit when it is independent of the work "
         "you keep and its completion can be judged from the evidence it returns; keep in line anything "
-        "that finishes in a handful of tool calls, and keep working while delegated units run. The "
-        "criteria you write are a closed checklist: state them once, completely, and freeze. If your "
-        "closing paragraph is a dispatch you could run, run it before closing. Your closing report is "
+        "that finishes in a handful of tool calls. The "
+        "criteria you write are a closed checklist: state them once, completely, and freeze. Your closing report is "
         "the reader's first look at the run — lead with the outcome in plain sentences, drop the "
         "working shorthand, and give the one or two things you need from them."
     ),

@@ -576,24 +576,28 @@ pairing so a benchmark claim can never mix in other prompt changes.
   pre-registered rule. A second revision that also rewrote the evidence
   sentence into a per-criterion report rule measured 18 / 30 at 2,904,402
   tokens; it was not shipped, since one of its clauses ("a next step described
-  instead of run is reported as not done") reads as the same push, and its
-  +5.2% sits inside the drift above. Tool and API calls come from Hermes'
-  session rows, outside the harness. Not measured: the composer block (no
-  fanout in this harness; #1836), and any claim beyond this corpus, route,
-  and effort. Archive (outside git, owner checkout):
+  instead of run is reported as not done") reads as the same push. Its total
+  (+5.2%, +4,806 per instance) sits inside the same-text drift, but on the
+  passing instances it measured +7,287 [+2,783, +11,775], above the same-text
+  passing drift of +4,525. Tool and API calls come from Hermes'
+  session rows, outside the harness. Not measured: the composer block's
+  deletion below (no fanout in this harness; #1836), and any claim beyond
+  this corpus, route, and effort. Archive (outside git, owner checkout):
   `.omc/research/claude-calibration-bench-2026-09-23/`, where
   `three_arm_analysis.py` and `paired_tokens.py` produce every number above.
 - **What OMH injects (composer):** split only what the goal requires, no
   speculative units, no unit whose only job is re-checking the split itself
   (a fresh-context review of a unit's deliverable is a legitimate unit);
   delegate what is independent and evidence-judgeable, keep in line what
-  finishes in a handful of tool calls, and keep working while units run;
-  state the criteria once and freeze; a closing paragraph that is a dispatch
-  gets run before closing; write the closing report as the reader's first
-  look (outcome first, plain sentences, no working shorthand). Two of these
-  ("keep working while units run", "gets run before closing") push the model
-  to keep working. They are still in the block because this benchmark cannot
-  reach the composer path; #1836 tracks them.
+  finishes in a handful of tool calls; state the criteria once and freeze;
+  write the closing report as the reader's first look (outcome first, plain
+  sentences, no working shorthand). Two clauses were removed on 2026-09-23
+  because they pushed the model to keep working: "keep working while
+  delegated units run" and "If your closing paragraph is a dispatch you could
+  run, run it before closing". The change is deletion-only and **unmeasured**:
+  `benchmarks/live-model-tools/v1` runs one agent with no fanout and never
+  calls `composition_calibration_for_model()`, so no arm can reach this block.
+  #1836 tracks a measurement path for it.
 - **What OMH injects (throughput overlay, advanced modes):** a delegated
   lane returns a distilled report — outcome, evidence pointers, open items —
   never its transcript; delegated transcripts are what floods a composer's

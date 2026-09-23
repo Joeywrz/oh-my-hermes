@@ -884,8 +884,8 @@ def check_installed_skill_context_weight(
     remediation = (
         "Installed skills add up-front context. `tools.tool_search.enabled` already "
         "defaults to auto (threshold_pct 10), so confirm it stays on rather than "
-        "enabling it anew. To trim always-loaded skills use `hermes skills config` "
-        "and `hermes skills opt-out`."
+        "enabling it anew. To trim installed skills (each adds an index line to "
+        "every request) use `hermes skills config` and `hermes skills opt-out`."
     )
     try:
         resolved_dirs = skills_dirs if skills_dirs is not None else _derive_skill_dirs(home)

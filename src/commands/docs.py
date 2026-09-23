@@ -496,7 +496,7 @@ def _add_docs_commands(sub) -> None:
 
     docs_skill_context_cost = docs_sub.add_parser(
         "skill-context-cost",
-        help="Report always-loaded skill-body size and cross-skill repetition for the core and full profiles.",
+        help="Report skill-body size (loaded per skill view) and cross-skill repetition for the core and full profiles.",
     )
     docs_skill_context_cost.add_argument(
         "--json",

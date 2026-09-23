@@ -2985,11 +2985,13 @@ omh setup --core     # lightweight footprint instead
 omh update --full    # widen an existing core install
 ```
 
-Every skill OMH installs is skill guidance that Hermes carries into its
-routing context on every turn, not just when that workflow is used. A `core`
-install keeps that per-turn context weight bounded to the essentials; a `full`
-install trades that weight for having every workflow's guidance available
-immediately, with no `full` -> `core` skill left unpresented. Choose `full`
+Every skill OMH installs adds one index line to every Hermes request -- its
+name and the first 57 characters of its description -- whether or not that
+workflow is used. Its body costs about 8k characters each time the model loads
+it, and a loaded body stays in the session's history until compaction. A `core`
+install keeps that context weight bounded to the essentials; a `full` install
+trades that weight for having every workflow's guidance available immediately,
+with no `full` -> `core` skill left unpresented. Choose `full`
 when a workspace already knows it will use the wider catalog (specialist
 review, research, or ops workflows beyond the messenger-first core); otherwise
 `core` is the smaller, faster default.
@@ -3007,8 +3009,8 @@ omh install --full --json | python3 -c 'import json,sys; print(json.load(sys.std
 ```
 
 The warning reports skill *counts*. To see the actual bytes behind them, run
-the context-cost report, which measures the always-loaded `SKILL.md` body for
-both profiles and shows how much of it is text repeated verbatim across skills
+the context-cost report, which measures the `SKILL.md` bodies (loaded per skill
+view) for both profiles and shows how much of it is text repeated verbatim across skills
 rather than guidance specific to one workflow:
 
 ```sh
@@ -3023,7 +3025,7 @@ skill lives once in `skills/omh-routing/references/skill-common-rail.md`
 (progressive disclosure, loaded on demand) rather than inside each body; that
 reference ships with the always-installed `oh-my-hermes` skill, so both
 profiles resolve it. Reference bytes are reported separately from the
-always-loaded total because they are not carried on every turn.
+skill-body total because they load only when a skill points a reader at them.
 
 A `core` install still passes `omh doctor` because the core profile installs
 a superset of the doctor health-floor skills.
@@ -3033,8 +3035,9 @@ a superset of the doctor health-floor skills.
 `omh setup`, `omh install`, and `omh update` are non-destructive: they never
 delete an installed skill directory, so reinstalling with the default `core`
 profile after a `--full` install leaves every full-only skill on disk. The
-recorded profile then says `core` while the effective per-turn context weight
-is still that of a `full` install.
+recorded profile then says `core` while the effective context weight -- index
+lines on every request, bodies on every load -- is still that of a `full`
+install.
 
 Two commands make that gap visible and fixable:
 

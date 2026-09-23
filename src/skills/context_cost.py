@@ -1,19 +1,23 @@
 """Deterministic prompt-context accounting for the generated skill pack.
 
 `omh docs skill-context-cost` renders this payload. It answers one question:
-how many bytes of always-loaded `SKILL.md` body does an install carry, and how
-much of that body is text repeated verbatim across skills rather than guidance
-specific to one workflow?
+how many bytes of `SKILL.md` body does an install carry, and how much of that
+body is text repeated verbatim across skills rather than guidance specific to
+one workflow?
 
-Two cost classes are tracked separately because they load differently:
+Three cost classes load differently, and this module measures two of them:
 
-- ``skill_body``: `skills/<name>/SKILL.md`. Loaded whenever Hermes puts the
-  skill in context, once per installed skill. This is the per-turn cost the
-  installer's context-cost warning is about.
+- the index line: one line per installed skill -- its name and a description
+  cut to 60 characters -- that Hermes sends on every request. That is the
+  per-turn cost, and `src/skills/skill_index.py` measures it, not this module.
+- ``skill_body``: `skills/<name>/SKILL.md`. Loaded when the model calls
+  `skill_view` (or the person types the skill's slash command): about 8k
+  chars per load, and a loaded body stays in history until compaction. The
+  total across a profile is the install footprint.
 - ``reference``: `skills/<name>/references/*.md`. Progressive disclosure --
   loaded only when a skill or the router explicitly points at it. Moving an
-  invariant section from a body into a reference removes it from every
-  installed skill's always-loaded weight and keeps exactly one copy on disk.
+  invariant section from a body into a reference removes it from every load of
+  that body and keeps exactly one copy on disk.
 
 Repetition is derived, never hand-classified: for each `##` heading, sections
 whose body text is byte-identical across skills are duplicates, and
@@ -267,7 +271,8 @@ def skill_context_cost_payload() -> SkillContextCostPayload:
             "Deterministic prompt-context accounting for generated skill bodies. Byte counts are exact; "
             "token counts are a chars/4 estimate for before/after comparison, not tokenizer output. "
             "Reference files are progressive-disclosure surfaces and are reported outside the "
-            "always-loaded skill-body total."
+            "skill-body total. A skill body loads when the model views the skill and stays in history "
+            "until compaction; only the skill's index line is sent on every request."
         ),
         "chars_per_token_estimate": CHARS_PER_TOKEN_ESTIMATE,
         "catalog_increment": {
@@ -297,7 +302,8 @@ def skill_context_cost_markdown() -> str:
                 f"## {profile['profile']} profile",
                 "",
                 f"- Installed skills: {profile['skill_count']}",
-                f"- Always-loaded skill body: {body['bytes']} bytes, {body['lines']} lines, "
+                f"- Skill body total (install footprint; each body loads per skill view): "
+                f"{body['bytes']} bytes, {body['lines']} lines, "
                 f"~{body['estimated_tokens']} tokens",
                 f"- Repeated across skills: {repeated['bytes']} bytes "
                 f"(~{repeated['estimated_tokens']} tokens, {repeated['share_percent']}%)",

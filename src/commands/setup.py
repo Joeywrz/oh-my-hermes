@@ -5567,9 +5567,10 @@ def _add_common_install_options(p: argparse.ArgumentParser) -> None:
         help=(
             "Install only the lightweight core profile (chat/plan/status/"
             "handoff essentials plus the doctor health floor) instead of the "
-            "full default. Every installed skill adds per-turn context weight; "
-            "core keeps that footprint minimal at the cost of the ULW engines "
-            "and most workflow skills."
+            "full default. Every installed skill adds an index line to every "
+            "request and about 8k chars per body load, which stays in history "
+            "until compaction; core keeps that footprint minimal at the cost "
+            "of the ULW engines and most workflow skills."
         ),
     )
 

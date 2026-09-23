@@ -54,16 +54,36 @@ bracketed line survives the cut; a message with inlined material records "not
 requested" outright, because it cannot be split. The sender prefix is removed before matching. Every step can only
 remove text, so a wrong cut fails closed.
 
+On a messaging platform only the FIRST line of that segment counts, and a
+turn that carries an attachment note (`[The user sent ...`) counts not at all.
+Hermes merges inbound messages from different senders into the first
+sender's event and keeps that sender's `user_id`: the text batcher appends
+each chunk after a newline (`_append_text`; its key is the session, and
+SimpleX keys it by chat, so a group's per-user session receives the others'
+text too), and the busy-session pending slot appends captions and text the
+same way (`merge_pending_message_event`, `gateway/platforms/base.py`, read at
+hermes-agent origin/main f63c388e1a). A captionless photo takes another
+sender's caption whole, so a media event's caption is nobody's certain words.
+The cost is that an owner's "ask jev" on a second line, or as a photo
+caption, is not consent on a messaging platform; a terminal surface has no
+such merge and keeps every line.
+
 In a shared multi-user session any participant can type "ask jev", so there
-consent needs the session's owner: the `sender_id` Hermes passed on the
-session's first turn (`is_first_turn`, "no prior history"), which is the
-participant whose message opened it. A turn from any other sender never sets
+consent needs the session's owner: the `sender_id` Hermes passed on the turn
+that opened the session. That turn is `is_first_turn` with a history holding
+nothing but its own message. A turn-start compaction rotation also arrives as
+`is_first_turn` on a new session id, but with the compacted history (the
+host's `parent_session_id` there is the delegation parent, not the rotation's
+parent, so ownership cannot be carried over); it records no owner, and a
+recorded owner is never replaced. A turn from any other sender never sets
 the marker, and a shared turn whose owner this process did not see -- a
-restart mid-session, an evicted record -- sets none either. A session is
-known to be shared when its text carries the sender prefix, or when a sender
-other than the recorded owner speaks. Residual: a shared session on a platform
-that supplies no display name, first seen by this process after a restart,
-cannot be told from a direct message.
+restart mid-session, a rotated child, an evicted record -- sets none either.
+A session is known to be shared when its text carries the sender prefix, or
+when a sender other than the recorded owner speaks. Residuals: a shared
+session on a platform that supplies no display name, first seen by this
+process after a restart, cannot be told from a direct message; and a
+participant who opens a fresh session with `/new` (open to every participant
+unless the host's `allow_admin_from` is set) owns that session's consent.
 
 The marker is bound to the turn that recorded it. `pre_llm_call` stores the
 turn's `turn_id`; OMH's `pre_tool_call` arms the session with the `turn_id` of
@@ -143,6 +163,9 @@ _HOST_BLOCK_OPENERS: Final = (
     "[Quoted message]",
 )
 _HOST_BLOCK_END: Final = "]\n\n"
+# Notes Hermes writes for an attachment; the pending slot merges any sender's
+# caption into such an event (`merge_pending_message_event`).
+_MEDIA_NOTES: Final = ("[The user sent", "[If you need a closer look")
 _BACKFILL_SEPARATOR: Final = "\n\n[New message]\n"
 # Inlined material with no closing boundary: the generic note that says a
 # file's content follows, every adapter's `[Content of <name>]:` header, and
@@ -240,8 +263,13 @@ def note_turn(
     turn_id: object = "",
     sender_id: object = "",
     is_first_turn: bool = False,
+    history: object = None,
 ) -> None:
-    """Record this turn's marker for the session, replacing the previous turn's."""
+    """Record this turn's marker for the session, replacing the previous turn's.
+
+    `history` is the hook's `conversation_history`; only a first turn whose
+    history is at most its own message opens the session and names its owner.
+    """
     key = str(session_id or "").strip()
     if not key:
         return
@@ -249,8 +277,9 @@ def note_turn(
     turn = str(turn_id or "").strip()
     sender = str(sender_id or "").strip()
     messaging = platform_id in MESSAGING_ATTENDED_PLATFORMS
+    opens_session = is_first_turn and isinstance(history, (list, tuple)) and len(history) <= 1
     with _lock:
-        if is_first_turn and sender:
+        if opens_session and sender and key not in _session_owners:
             _remember(_session_owners, key, sender)
         owner = _session_owners.get(key, "")
     requested = False
@@ -261,6 +290,13 @@ def note_turn(
             owner_speaks = bool(owner) and sender == owner
         else:
             owner_speaks = True
+        if messaging:
+            if any(note in str(request_message or "") for note in _MEDIA_NOTES):
+                # A media event's caption may be another sender's, merged whole.
+                text = ""
+            # Merged chunks from other senders follow a newline; only the
+            # first line is certainly the event sender's own.
+            text = text.split("\n", 1)[0]
         requested = owner_speaks and bool(_JEV_TOKEN.search(text))
     with _lock:
         _remember(_turn_markers, key, (turn, requested))

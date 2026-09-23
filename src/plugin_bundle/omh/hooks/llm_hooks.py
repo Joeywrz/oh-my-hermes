@@ -428,6 +428,7 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         turn_id=kwargs.get("turn_id"),
         sender_id=kwargs.get("sender_id"),
         is_first_turn=is_first_turn,
+        history=kwargs.get("conversation_history"),
     )
     message_matches_awareness = False
     degraded: list[tuple[str, str]] = []

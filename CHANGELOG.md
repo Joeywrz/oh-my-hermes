@@ -88,8 +88,12 @@ All notable changes will be documented here.
   description, an inlined attachment, or a file or page an `@`-reference
   pulled in, does not count; only an allowlisted
   platform a person types into can consent, never a webhook, API, cron,
-  subagent, batch, single-query, or kanban-worker turn; in a shared chat only
-  the participant who opened the session can; and the consent is bound to its
+  subagent, batch, single-query, or kanban-worker turn; on a messaging
+  platform only the first line of the message counts and a photo or file
+  caption does not, because Hermes merges other senders' text into the first
+  sender's message; in a shared chat only the participant who opened the
+  session can, and a session a compaction started names no owner; and the
+  consent is bound to its
   own turn, so a background fork of the session cannot spend it), only a
   `TYPESAFE_API_KEY` enables it by itself (the OpenRouter route also needs
   `{"openrouter_route": true}` in `<omh_home>/jev/settings.json`, a local-trust

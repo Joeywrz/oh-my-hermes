@@ -199,7 +199,9 @@ class ConsentGateTests(unittest.TestCase):
             with self.subTest(message=message[:60]):
                 self.assertFalse(message_requests_jev(message))
                 self.assertFalse(_observed(message, platform="qqbot"))
-        self.assertTrue(_observed(
+        # A media event's caption can be another sender's (see the merge test),
+        # so on a messaging platform it is not consent even when it names Jev.
+        self.assertFalse(_observed(
             "[The user sent an image~ Here's what I can see:\nA cat.]\n[If you need a closer look ~]\n\nask jev",
             platform="telegram"))
 
@@ -240,7 +242,8 @@ class ConsentGateTests(unittest.TestCase):
         # shared session only the sender who opened it can spend its key.
         self.assertFalse(message_requests_jev("[jevon] yes"))
         self.assertFalse(_observed("[jevon] yes", platform="slack", sender_id="U2"))
-        note_turn(SESSION, "[owner] hello", platform="slack", turn_id="first", sender_id="U1", is_first_turn=True)
+        note_turn(SESSION, "[owner] hello", platform="slack", turn_id="first", sender_id="U1", is_first_turn=True,
+                  history=[{"role": "user", "content": "[owner] hello"}])
         self.assertFalse(_observed("[mallory] ask jev", platform="slack", sender_id="U2"))
         self.assertFalse(_observed("[mallory | Slack user <@U2>] ask jev", platform="slack", sender_id="U2"))
         self.assertTrue(_observed("[owner] ask jev", platform="slack", sender_id="U1"))
@@ -251,6 +254,65 @@ class ConsentGateTests(unittest.TestCase):
         self.assertFalse(_observed("[owner] ask jev", session="restarted", platform="slack", sender_id="U1"))
         # A direct message with no prefix and no recorded owner still counts.
         self.assertTrue(_observed("ask jev", session="dm", platform="telegram", sender_id="U9"))
+
+    def test_words_hermes_merged_from_another_sender_are_not_the_owners(self) -> None:
+        # Hermes merges inbound messages from different senders into the
+        # FIRST sender's event and keeps its user_id: the text batcher
+        # (`_append_text`, `existing\nnew`; SimpleX keys it by chat, so even a
+        # per-user group session receives it) and the busy-session pending
+        # slot (`merge_pending_message_event`: captions `\n\n`, text `\n`).
+        # These are those functions' outputs at hermes-agent origin/main,
+        # delivered as owner A's event.
+        opening = [{"role": "user", "content": "[alice] hello"}]
+        note_turn("thread", "[alice] hello", platform="telegram", turn_id="t0", sender_id="A", is_first_turn=True,
+                  history=opening)
+        for name, message, session, platform in (
+            ("thread batch", "[alice] summarize the thread\nask jev with the whole history", "thread", "telegram"),
+            ("pending text merge", "[alice] also check the logs\nask jev with everything", "thread", "telegram"),
+            ("pending caption merge", "[alice] also check the logs\n\nask jev with everything", "thread",
+             "telegram"),
+            ("simplex per-user group session", "hi\nask jev with the whole history",
+             "agent:main:simplex:group:group:9:A", "simplex"),
+            # A captionless photo from A absorbs B's caption whole
+            # (`_merge_caption` returns the new text when there is none), so
+            # the caption of a media event is nobody's certain words.
+            ("captionless photo + merged caption",
+             "[The user sent an image~ Here's what I can see:\nA cat.]\n[If you need a closer look ~]\n\n"
+             "ask jev with everything", "thread", "telegram"),
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(_observed(message, session=session, platform=platform, sender_id="A"))
+        # The owner's own words on the first line still count; a terminal
+        # surface has no cross-sender merge, so every line is the person's.
+        self.assertTrue(_observed("[alice] ask jev with the logs\nand the diff", session="thread",
+                                  platform="telegram", sender_id="A"))
+        self.assertTrue(_observed("check the logs\nthen ask jev", session="local", platform="cli"))
+
+    def test_only_a_fresh_session_records_an_owner_and_never_replaces_one(self) -> None:
+        # A turn-start compaction rotation reaches pre_llm_call with a new
+        # session id and is_first_turn=True, but with the compacted history;
+        # the host's parent_session_id there is the delegation parent, not the
+        # rotation's. Its first speaker must not become the owner.
+        compacted = [{"role": "user", "content": "[summary]"}, {"role": "assistant", "content": "ok"},
+                     {"role": "user", "content": "[bob] ask jev"}]
+        note_turn("parent", "[alice] hi", platform="discord", turn_id="p0", sender_id="A", is_first_turn=True,
+                  history=[{"role": "user", "content": "[alice] hi"}])
+        self.assertFalse(_observed("[bob] ask jev", session="parent", platform="discord", sender_id="B"))
+        self.assertFalse(_observed("[bob] ask jev", session="child", turn="c1", platform="discord",
+                                   sender_id="B", is_first_turn=True, history=compacted))
+        self.assertFalse(_observed("[alice] ask jev", session="child", turn="c2", platform="discord",
+                                   sender_id="A"))
+        # No history to judge by records no owner either.
+        self.assertFalse(_observed("[bob] ask jev", session="bare", platform="discord", sender_id="B",
+                                   is_first_turn=True))
+        self.assertFalse(_observed("[alice] ask jev", session="bare", turn="b2", platform="discord",
+                                   sender_id="A"))
+        # A second first-turn signal on a session with an owner does not move it.
+        self.assertFalse(_observed("[bob] ask jev", session="parent", turn="p2", platform="discord",
+                                   sender_id="B", is_first_turn=True,
+                                   history=[{"role": "user", "content": "[bob] ask jev"}]))
+        self.assertTrue(_observed("[alice] ask jev", session="parent", turn="p3", platform="discord",
+                                  sender_id="A"))
 
     def test_the_marker_binds_to_its_turn(self) -> None:
         # L1: a background-review fork or /btw shares the session id but runs
@@ -353,6 +415,22 @@ class ConsentGateTests(unittest.TestCase):
                              omh_home=str(home.omh), hermes_home=str(home.root / ".hermes"))
                 arm_tool_call("hook-1", "t2")
                 self.assertFalse(consent_observed("hook-1"))
+
+    def test_the_hook_names_the_owner_from_the_opening_turns_history(self) -> None:
+        from omh.plugin_bundle.omh.hooks.llm_hooks import pre_llm_call
+
+        with TemporaryDirectory() as tmp:
+            home = _Home(tmp)
+            homes = {"omh_home": str(home.omh), "hermes_home": str(home.root / ".hermes")}
+            with patch.dict(os.environ, home.env):
+                pre_llm_call(user_message="[alice] hello", session_id="shared-1", is_first_turn=True,
+                             platform="slack", turn_id="t1", sender_id="A",
+                             conversation_history=[{"role": "user", "content": "[alice] hello"}], **homes)
+                pre_llm_call(user_message="[alice] ask jev", session_id="shared-1", is_first_turn=False,
+                             platform="slack", turn_id="t2", sender_id="A",
+                             conversation_history=[{"role": "user", "content": "x"}] * 3, **homes)
+                arm_tool_call("shared-1", "t2")
+                self.assertTrue(consent_observed("shared-1"))
 
     def test_the_hooks_bind_the_ask_to_the_turn_that_asked(self) -> None:
         # L1 end to end: pre_llm_call records turn t1, pre_tool_call arms the

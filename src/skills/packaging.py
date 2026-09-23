@@ -41,6 +41,7 @@ from .render import (
     deep_interview_reference_templates,
     file_ownership_reference_templates,
     plan_constitution_reference_templates,
+    jev_preset_reference_templates,
     prose_lexicon_reference_templates,
     requirement_coverage_reference_templates,
     requirements_quality_reference_templates,
@@ -147,6 +148,7 @@ def builtin_skill_reference_templates() -> list[SkillReferenceTemplate]:
         *requirements_quality_reference_templates(),
         *prose_lexicon_reference_templates(),
         *plan_constitution_reference_templates(),
+        *jev_preset_reference_templates(),
     ]
 
 

@@ -844,7 +844,9 @@ def _jev_sidekick_check(paths: OmhPaths) -> Check:
     """Which Jev-class plugins this Hermes home holds, and what they declare.
 
     Jev (TypeSafe System One) answers typed questions and cannot write code,
-    so OMH never routes it and never calls it. Community Hermes plugins do
+    so OMH never routes it as an executor and never calls a third-party Jev
+    plugin; its own `omh_jev_ask` tool is reported in the same check (route by
+    variable name, the ask ledger, and what the tool sends). Community Hermes plugins do
     call it, and several of them ask for hooks the OMH bridge also registers
     -- most sharply `pre_llm_call`, where OMH injects its route hint and a Jev
     skill router nominates a skill, so one message can reach the model
@@ -864,12 +866,14 @@ def _jev_sidekick_check(paths: OmhPaths) -> Check:
     """
     from ..workflows.jev_sidekick_posture import (
         build_jev_sidekick_posture,
+        omh_jev_ask_sentence,
         posture_overlaps,
         posture_unestablished_hook_overlap,
         posture_unknown_enablement,
     )
 
-    posture = build_jev_sidekick_posture(paths.hermes_home)
+    posture = build_jev_sidekick_posture(paths.hermes_home, paths.omh_home)
+    ask_sentence = omh_jev_ask_sentence(posture["omh_jev_ask"])
     env_path = paths.hermes_home / ".env"
     plugins = [entry for entry in posture["plugins"] if isinstance(entry, dict)]
     skipped = [entry for entry in posture["skipped"] if isinstance(entry, dict)]
@@ -877,7 +881,12 @@ def _jev_sidekick_check(paths: OmhPaths) -> Check:
     unestablished = posture_unestablished_hook_overlap(posture)
     unknown_enablement = posture_unknown_enablement(posture)
     if not plugins and not skipped:
-        return Check("plugin_jev_sidekick", True, "optional: no Jev-class plugin installed", detail=posture)
+        return Check(
+            "plugin_jev_sidekick",
+            True,
+            "optional: no Jev-class plugin installed | " + ask_sentence,
+            detail=posture,
+        )
     next_action = _jev_next_action(
         env_path,
         plugins=plugins,
@@ -895,7 +904,9 @@ def _jev_sidekick_check(paths: OmhPaths) -> Check:
             "plugin_jev_sidekick",
             True,
             "optional: no Jev-class plugin among the plugin directories OMH could read; "
-            + _jev_skipped_fragment(skipped),
+            + _jev_skipped_fragment(skipped)
+            + " | "
+            + ask_sentence,
             severity="warning",
             detail=posture,
             next_action=next_action,
@@ -907,6 +918,7 @@ def _jev_sidekick_check(paths: OmhPaths) -> Check:
     segments.extend(_jev_plugin_note(entry) for entry in plugins)
     if skipped:
         segments.append(_jev_skipped_fragment(skipped))
+    segments.append(ask_sentence)
     # Each note already joins its own fragments with "; ", so the notes are
     # separated by a separator no note uses -- the `provider_entitlements`
     # shape. The claim boundary closes the message because the notes quote a

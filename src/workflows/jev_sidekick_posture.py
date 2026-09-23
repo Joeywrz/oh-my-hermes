@@ -1,7 +1,7 @@
 """Which Jev-class plugins a Hermes home holds, read and never run.
 
-Jev is a non-generative decision model, so OMH cannot route it as an executor
-and never calls it. What an operator still needs to know is whether something
+Jev is a non-generative model, so OMH cannot route it as an executor, and it
+never calls a third-party Jev plugin. What an operator still needs to know is whether something
 on this machine calls it on their behalf, and whether that something declares
 a surface OMH also declares -- most sharply `pre_llm_call`, where OMH injects
 its route hint and a Jev skill router nominates a skill, so a message can reach
@@ -10,7 +10,9 @@ the model carrying two nominations.
 This builder answers that from three local reads and nothing else: the plugin
 directories under ``$HERMES_HOME/plugins``, Hermes' ``plugins.enabled`` list,
 and the NAMES (never the values) in ``$HERMES_HOME/.env``. It imports no
-plugin, spawns nothing, opens no socket, and writes nothing anywhere.
+plugin, spawns nothing, opens no socket, and writes nothing anywhere. The
+`omh_jev_ask` block beside it reports OMH's own opt-in Jev tool from names,
+the operator setting, and the local ask ledger, and it reads no value either.
 
 What the tiers mean, and what they do not. ``installed`` means a directory
 with a manifest exists. ``enabled`` means Hermes' config lists the name.
@@ -45,6 +47,14 @@ from pathlib import Path
 from typing import Any, Final
 
 from ..install.config_adapter import plugin_enablement_is_readable, plugin_is_enabled
+from ..plugin_bundle.omh.jev_ask_store import (
+    OPENROUTER_SETTING_KEY,
+    ROUTE_NONE,
+    ledger_summary,
+    openrouter_route_enabled,
+    route_available_by_names,
+    settings_path,
+)
 from ..plugin_bundle.omh.jev_sidekick import JEV_CREDENTIAL_ENV_NAMES, classify_plugin
 from ..plugin_bundle.omh.provider_detection import env_key_names
 from ..plugin_bundle.omh.todo_store import strip_control_characters
@@ -96,11 +106,56 @@ MAX_PLUGIN_NAME_CHARS: Final = 128
 # in the surface an operator actually sees.
 CLAIM_BOUNDARY: Final = (
     "Presence of a plugin directory, an enabled name, or a credential NAME is not evidence that Jev is "
-    "served, that the plugin ran, or that any request left the machine; OMH never reads credential values."
+    "served, that the plugin ran, or that any request left the machine; this check never reads credential values."
 )
 
 
-def build_jev_sidekick_posture(hermes_home: Path) -> dict[str, Any]:
+OMH_JEV_ASK_DISCLOSURE: Final = (
+    "omh_jev_ask sends `state` and the question text to the route's host, billed to the user's account, "
+    "only when the user asks for Jev in that turn; whatever a skill puts in `state` (commands, a working "
+    "directory, file paths, source diffs, test or error output, file contents) is sent, and a configured HTTPS "
+    "proxy sees the destination host."
+)
+
+
+def omh_jev_ask_posture(
+    hermes_home: Path, omh_home: Path, environ: Any = None
+) -> dict[str, Any]:
+    """OMH's own Jev tool, read from variable NAMES, the operator setting, and the ask ledger.
+
+    Kept beside, not inside, the third-party posture rule above: a
+    `TYPESAFE_API_KEY` exists only for Jev, so its name is read whether or
+    not a plugin was detected, while an OpenRouter key counts only when the
+    operator setting turned that route on. No value is read.
+    """
+    names = set(env_key_names(Path(hermes_home), environ, allowed=JEV_CREDENTIAL_ENV_NAMES))
+    route = route_available_by_names(Path(omh_home), names)
+    return {
+        "route_available": route,
+        "openrouter_setting": openrouter_route_enabled(Path(omh_home)),
+        "setting_path": str(settings_path(Path(omh_home))),
+        "setting_key": OPENROUTER_SETTING_KEY,
+        **ledger_summary(Path(omh_home)),
+        "disclosure": OMH_JEV_ASK_DISCLOSURE,
+    }
+
+
+def omh_jev_ask_sentence(block: dict[str, Any]) -> str:
+    """One line for the doctor message: the route, the ledger tier, and what is sent."""
+    route = str(block.get("route_available", ROUTE_NONE))
+    if route == ROUTE_NONE:
+        head = (
+            "omh_jev_ask: no route (set TYPESAFE_API_KEY, or OPENROUTER_API_KEY plus "
+            f"{{\"{OPENROUTER_SETTING_KEY}\": true}} in {block.get('setting_path', '')})"
+        )
+    else:
+        head = f"omh_jev_ask: route {route} by variable name"
+    calls = int(block.get("ledger_calls", 0) or 0)
+    tier = f"{calls} ask(s) recorded, last status {block.get('last_status')}" if calls else "no ask recorded"
+    return f"{head}; {tier}; {OMH_JEV_ASK_DISCLOSURE.rstrip('.')}"
+
+
+def build_jev_sidekick_posture(hermes_home: Path, omh_home: Path | None = None) -> dict[str, Any]:
     """Read the Jev-class plugin posture of one Hermes home.
 
     Read-only by construction: every path below is opened for reading and the
@@ -123,7 +178,7 @@ def build_jev_sidekick_posture(hermes_home: Path) -> dict[str, Any]:
         # on its own is an OpenRouter account, not a Jev signal, and reporting
         # it as one would make every OpenRouter user look like a Jev user.
         credential_names = env_key_names(home, allowed=JEV_CREDENTIAL_ENV_NAMES)
-    return {
+    posture: dict[str, Any] = {
         "schema_version": JEV_SIDEKICK_POSTURE_SCHEMA_VERSION,
         "status": _status(plugins, credential_names),
         "plugins": plugins,
@@ -131,6 +186,11 @@ def build_jev_sidekick_posture(hermes_home: Path) -> dict[str, Any]:
         "skipped": skipped,
         "claim_boundary": CLAIM_BOUNDARY,
     }
+    if omh_home is not None:
+        import os
+
+        posture["omh_jev_ask"] = omh_jev_ask_posture(home, Path(omh_home), os.environ)
+    return posture
 
 
 def posture_overlaps(posture: dict[str, Any]) -> list[str]:

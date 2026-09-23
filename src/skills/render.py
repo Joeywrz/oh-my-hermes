@@ -415,8 +415,16 @@ def _frontmatter(
         f"  hermes:\n    tags: [workflow, oh-my-hermes, {category}]\n"
         f"    category: {category}\n    phase: {phase}\n"
         f"    role: {definition.hermes_role if definition else 'guide'}\n"
-        f"    quality_tier: {definition.quality_tier if definition else 'evidence-gated'}\n---\n"
+        f"    quality_tier: {definition.quality_tier if definition else 'evidence-gated'}\n"
+        f"{_requires_tools_line(definition, target)}---\n"
     )
+
+
+def _requires_tools_line(definition: SkillDefinition | None, target: str) -> str:
+    """Hermes `requires_tools`: hides the index line when a listed tool is absent. Hermes-only."""
+    if definition is None or target != "hermes" or not definition.host_requires_tools:
+        return ""
+    return f"    requires_tools: [{', '.join(definition.host_requires_tools)}]\n"
 
 
 def _trigger_table(definitions: list[SkillDefinition]) -> str:
@@ -710,7 +718,23 @@ def _router_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
             _router_structural_code_search_reference(),
         ),
         SkillReferenceTemplate("oh-my-hermes", "references/workflow-artifacts.md", _router_workflow_artifacts_reference()),
+        SkillReferenceTemplate("oh-my-hermes", "references/jev-rail.md", _router_jev_rail_reference()),
     )
+
+
+def _router_jev_rail_reference() -> str:
+    from .jev_skills import jev_rail_reference
+
+    return jev_rail_reference()
+
+
+def jev_preset_reference_templates() -> list[SkillReferenceTemplate]:
+    from .jev_skills import JEV_PRESET_BY_SKILL, JEV_PRESET_REFERENCE_PATH, jev_preset_reference
+
+    return [
+        SkillReferenceTemplate(name, JEV_PRESET_REFERENCE_PATH, jev_preset_reference(name))
+        for name in JEV_PRESET_BY_SKILL
+    ]
 
 
 def _router_workflow_artifacts_reference() -> str:
@@ -2691,11 +2715,16 @@ def workflow_skill_from_definition(
     target: Literal["hermes", "agent-skills"] = "hermes",
 ) -> SkillTemplate:
     """Render one workflow skill from an explicit definition."""
-    body = (
-        _progressive_workflow_body(definition, name)
-        if definition.progressive_disclosure and target == "hermes"
-        else _workflow_full_body(definition, name, target)
-    )
+    from .jev_skills import JEV_SKILL_NAMES, jev_skill_body
+
+    if definition.progressive_disclosure and target == "hermes" and name in JEV_SKILL_NAMES:
+        body = jev_skill_body(definition, name)
+    else:
+        body = (
+            _progressive_workflow_body(definition, name)
+            if definition.progressive_disclosure and target == "hermes"
+            else _workflow_full_body(definition, name, target)
+        )
     return SkillTemplate(name, _frontmatter(name, definition.description, target) + "\n" + body)
 
 

@@ -36,6 +36,9 @@ from ..omh_roles import extract_role_marker, role_context_payload
 from ..dispatch_outcomes import unacknowledged_outcomes
 from ..runtime_reader import read_omh_activity, read_omh_hud, read_omh_status, read_omh_todo
 from .session_attendance import note_session_platform
+from .nudge_budget import session_is_delegated
+from ..jev_consent import clear_turn as clear_jev_turn
+from ..jev_consent import note_turn as note_jev_turn
 from ..todo_reconciliation import (
     answer_first_turn,
     continuation_claim_without_resume,
@@ -359,6 +362,10 @@ def _tracker_event_is_present(kwargs: dict) -> bool:
 
 def pre_llm_call(**kwargs) -> dict[str, object] | None:
     """Inject bounded OMH role/status context without storing prompts."""
+    # First, before anything can return early or raise: this turn has not
+    # asked for Jev until its own request is read below. A marker left from
+    # the previous turn must never survive a degraded turn.
+    clear_jev_turn(kwargs.get("session_id"))
     # Bind before any observer or awareness I/O. A failed root must not reach
     # downstream defaults as None, or fail before the status classifier runs.
     try:
@@ -408,6 +415,23 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     # role marker, the first-turn primer -- because a completion notice is
     # exactly the turn on which those matter.
     request_message = "" if host_synthesized_turn(turn_display_kind) else user_message
+    # `omh_jev_ask` sends data off the machine only when THIS turn's own
+    # request names Jev. A notice, a tracker event, a delegated child, a turn
+    # on a platform nobody types into, and another participant of a shared
+    # session record "not requested"; the marker is bound to this turn's id
+    # (`jev_consent`).
+    # The raw message, not `request_message`'s `str()`: a native-vision turn
+    # is a content list whose image parts are what mark it a media turn.
+    note_jev_turn(
+        session_id,
+        kwargs.get("user_message") if request_message else "",
+        delegated=session_is_delegated(session_id, omh_home=omh_home),
+        platform=kwargs.get("platform"),
+        turn_id=kwargs.get("turn_id"),
+        sender_id=kwargs.get("sender_id"),
+        is_first_turn=is_first_turn,
+        history=kwargs.get("conversation_history"),
+    )
     message_matches_awareness = False
     degraded: list[tuple[str, str]] = []
     if include_awareness:

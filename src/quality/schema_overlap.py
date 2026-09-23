@@ -192,11 +192,18 @@ REVIEWED_OVERLAP_DECISIONS: dict[str, str] = {
         "line applied to this description."
     ),
     "omh_route_answer.answered_by:OVERLAP_ENUM_RESTATED": (
-        "keep — the two members are the enum, and the sentence carries what neither the "
+        "keep — the three members are the enum, and the sentence carries what neither the "
         "member names nor the schema can: which one makes the recorded confidence "
-        "self-reported, that naming the plugin records a number OMH did not observe, and "
-        "that OMH never calls it. A caller reading only the member list would read "
-        "jev_plugin as an instruction to reach for one."
+        "self-reported, that naming the third-party plugin records a number OMH did not "
+        "observe and that OMH never calls it, and that omh_jev_ask is refused without an "
+        "answered ledger row for the same digest. A caller reading only the member list "
+        "would read jev_plugin as an instruction to reach for one."
+    ),
+    "omh_jev_ask.route:OVERLAP_ENUM_RESTATED": (
+        "keep — member semantics the enum cannot carry: auto's preference for the first-party "
+        "route, that openrouter needs the operator setting and is not enabled by a key alone, "
+        "and that a forced route never falls back. A caller reading only the members would "
+        "read openrouter as available whenever an OpenRouter key exists."
     ),
     "omh_role.action:OVERLAP_ENUM_RESTATED": (
         "prune candidate — 'List available roles or read one role context.' restates list/read "

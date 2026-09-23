@@ -12,6 +12,7 @@ from .executor_cues import (
 )
 from .intent import classify_omh_quality_intent
 from .reference_regions import executable_routing_text
+from .jev_addressing import jev_addressed_skill
 from .localization import normalized_phrase, routing_tokens
 from .materials_cues import OFFICE_FILE_MATERIAL_PHRASES
 from .missed_route import has_normalized_missed_omh_workflow_context
@@ -5578,6 +5579,21 @@ def explicit_skill_invocation(message: str, names: set[str]) -> str | None:
     stripped = executable_routing_text(message).strip()
     if not stripped:
         return None
+    # An explicit invocation of a named non-Jev skill wins: "/omh-code-review
+    # this PR; we can ask jev later" names its owner. A message that addresses
+    # Jev displaces only the generic `ask` opening -- "ask jev ..." starts with
+    # the `ask` skill's name, and the Jev skill is the more specific owner
+    # (`routing/jev_addressing.py`) -- or a message with no explicit form.
+    ordinary = _ordinary_explicit_skill_invocation(stripped, names)
+    if ordinary is not None and ordinary != "ask" and not ordinary.startswith("jev-"):
+        return ordinary
+    jev_skill = jev_addressed_skill(stripped, names)
+    if jev_skill is not None:
+        return jev_skill
+    return ordinary
+
+
+def _ordinary_explicit_skill_invocation(stripped: str, names: set[str]) -> str | None:
     words = [word.strip(":,").lower() for word in stripped.split()]
     if len(words) >= 3 and words[0] == "use" and words[1] in {
         "omh",

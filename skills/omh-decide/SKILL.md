@@ -22,6 +22,7 @@ This is a Hermes-native `strategy-brief` workflow skill.
 
 - The strategic question is whether an early idea's customer problem and segment are real, and no validated discovery receipt exists yet; use `product-discovery-validation`.
 - The question is how to run a hiring process — scorecards, interview loops, candidate comparison — rather than whether to hire at all; use `people-ops`.
+- The user wants Jev's typed probabilities for a yes/no, pick-one, or scored question over supplied text rather than tradeoffs and a recommendation; use `jev-ask`.
 
 ## Examples
 

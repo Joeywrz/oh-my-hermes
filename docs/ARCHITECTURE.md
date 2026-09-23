@@ -2747,6 +2747,22 @@ only the operator's own starred list. The contract names that call, and the
 enforcement suite pins its exact argv, so changing it fails a test rather than
 quietly widening what the sentence covers.
 
+The plugin tool `omh_jev_ask` is the second place, and the only network client
+in `src/`: `plugin_bundle/omh/jev_ask_client.py` POSTs typed questions to Jev
+over one of two fixed HTTPS hosts (`api.typesafe.ai` with `TYPESAFE_API_KEY`,
+or `openrouter.ai` only when the operator also set `openrouter_route` in
+`<omh_home>/jev/settings.json`), refuses every redirect, bounds both bodies and
+the whole call by a deadline, and retries only 429, 503, and 529. It opens no
+socket unless the person's own message for that turn names Jev: `pre_llm_call`
+records a consent marker bound to the turn's id (`jev_consent.py`), only an
+allowlisted attended platform can set it, a shared chat's other participants
+cannot, and host-added quoted, backfilled, described, or inlined text is not
+read. INVARIANT 2
+in `tests/test_handoff_safety_contract_enforcement.py` pins the exception to
+that one file through `NETWORK_CLIENT_BRIDGES`, fails on a stale entry, and
+fails when any module other than the tool imports the bridge. The coding
+delegation lane is unchanged by it.
+
 Declared and not enforced, each naming what must land first: **workspace** —
 `workspace_binding_guard/v1` now refuses a second workspace-bound handoff on a
 reserved workspace or branch before one is enabled, but `allowed_targets` is

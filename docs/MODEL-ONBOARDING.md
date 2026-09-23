@@ -8,7 +8,9 @@ chat; this file tells the executor working on the repo which files move, in
 which order, and what proves each step. `MODEL_OPTI.md` is the reader's map
 of the calibration surface and stays the source of provenance.
 
-Boundary first: OMH never calls a model. Everything below is prepared text,
+Boundary first: onboarding never calls a model; OMH's one model call is the
+user-requested `omh_jev_ask` tool, which no step below uses.
+Everything below is prepared text,
 prepared configuration, or documentation. Nothing here is execution, review,
 CI, or merge evidence, and a routed model is never proof that a provider
 serves it.
@@ -137,8 +139,10 @@ there is nothing generated to shape, compare, or place:
   per candidate) with the router's own answer beside each, `score` reads any
   answer set against them with every rate carrying its denominator, and the
   deterministic arm is always the baseline. The external arm takes an
-  operator-supplied answers file, so a decision model is scored without OMH
-  calling it.
+  operator-supplied answers file, so a Jev-class model is scored without OMH
+  calling it. OMH's own `omh_jev_ask` tool is a separate, user-requested path:
+  its answers can be recorded with `answered_by: omh_jev_ask` and scored as one
+  more arm.
 
 What does apply, and what this step therefore produces:
 
@@ -178,6 +182,15 @@ What does apply, and what this step therefore produces:
   value, and it never says what a plugin does at runtime, because OMH did not
   observe that. `omh doctor --json` carries the full `jev_sidekick_posture/v1`
   payload under the check's `detail`.
+- OMH's own route to the model, where one exists. For Jev that is the opt-in
+  `omh_jev_ask` plugin tool and the six default-installed `omh-jev-*` skills
+  that call it (`omh-jev-ask`, `omh-jev-route`, `omh-jev-failure-triage`,
+  `omh-jev-review-gate`, `omh-jev-action-check`, `omh-jev-done-check`). The
+  tool sends only after the user names Jev in that turn, only with the user's
+  own key, and records one metadata-only ledger row per ask; the same
+  `plugin_jev_sidekick` check reports its route by variable name, its ledger,
+  and what it sends. A preset's thresholds are written against the pinned
+  version, so a new generation re-reads them before the pin moves.
 
 The next subsection's rule applies with one twist worth stating before you
 reach it. A model served through a Hermes plugin rather than a provider route

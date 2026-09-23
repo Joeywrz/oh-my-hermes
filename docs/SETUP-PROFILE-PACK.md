@@ -21,8 +21,8 @@ omh setup-profile apply --from profile-pack.json --apply
 Export writes a local file. Apply reads a local file. Getting the file from one
 machine to the other is your own git repository, `scp`, or file copy.
 
-OMH makes no network calls, and a pack that fetched or pushed itself would
-cross that line. There is deliberately no `--from <url>`.
+The pack path makes no network calls, and a pack that fetched or pushed itself
+would cross that line. There is deliberately no `--from <url>`.
 
 ## What the pack carries
 

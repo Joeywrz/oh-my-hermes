@@ -903,6 +903,7 @@ print(json.dumps(observed, ensure_ascii=False))
                     "omh_gather_evidence",
                     "omh_hud",
                     "omh_interact",
+                    "omh_jev_ask",
                     "omh_loop",
                     "omh_memory",
                     "omh_probe",

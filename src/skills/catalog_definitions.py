@@ -43,6 +43,7 @@ from ..source_finder import (
 )
 
 from .decision_prototype_skill import DEFINITION as DECISION_PROTOTYPE_DEFINITION
+from .jev_skills import JEV_DEFINITIONS
 from .lifecycle_growth_skill import DEFINITION as LIFECYCLE_GROWTH_DEFINITION
 from .llm_app_references import LLM_APP_DEV_CONDITIONAL_CONTRACTS, LLM_APP_DEV_STATEFUL_CONTRACTS_REFERENCE_PATH
 from .product_discovery_skill import DEFINITION as PRODUCT_DISCOVERY_DEFINITION
@@ -1926,6 +1927,7 @@ _DEFINITIONS = [
         do_not_use_when=(
             "The strategic question is whether an early idea's customer problem and segment are real, and no validated discovery receipt exists yet; use `product-discovery-validation`.",
             "The question is how to run a hiring process — scorecards, interview loops, candidate comparison — rather than whether to hire at all; use `people-ops`.",
+            "The user wants Jev's typed probabilities for a yes/no, pick-one, or scored question over supplied text rather than tradeoffs and a recommendation; use `jev-ask`.",
         ),
     ),
     SkillDefinition(
@@ -6934,6 +6936,11 @@ _DEFINITIONS = [
             "Treat advisor output as evidence to evaluate, not authority.",
             "Do not send secrets or private prompts without explicit opt-in.",
         ),
+        do_not_use_when=(
+            "The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.",
+            "The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.",
+            "The user wants typed yes/no, pick-one, or scored probabilities from Jev over supplied text; use `jev-ask`.",
+        ),
     ),
     SkillDefinition(
         "cancel",
@@ -8211,5 +8218,6 @@ _DEFINITIONS.extend(
         LIFECYCLE_GROWTH_DEFINITION,
         PRODUCT_DISCOVERY_DEFINITION,
         SALES_PIPELINE_DEFINITION,
+        *JEV_DEFINITIONS,
     )
 )

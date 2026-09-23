@@ -518,7 +518,7 @@ class RouteAnswerHandlerTests(unittest.TestCase):
             return real_import(name, *rest)
 
         with patch.object(builtins, "__import__", missing_submodule):
-            verified, verification, mismatch = module._verify_digest(
+            verified, verification, mismatch, _question = module._verify_digest(
                 {"message": UNDECIDABLE_MESSAGE, "question_digest": "ab" * 32}
             )
 

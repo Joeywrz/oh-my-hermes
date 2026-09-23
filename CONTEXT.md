@@ -13,7 +13,9 @@ operating contract lives in `AGENTS.md`. This file is a glossary only.
 **OMH (oh-my-hermes)**:
 This repo — a deterministic wrapper orchestration layer installed next to
 Hermes Agent: skill catalog, router, prepared-handoff generator, and
-metadata-only status surfaces. Makes no LLM, API, or network calls.
+metadata-only status surfaces. Makes no LLM, API, or network calls, with one
+scoped exception: the opt-in `omh_jev_ask` tool sends typed questions to Jev
+with the user's own key when the user names Jev in that turn.
 _Avoid_: Hermes plugin (that is one distribution surface, not the product),
 coding executor, Hermes patch
 

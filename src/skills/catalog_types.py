@@ -876,6 +876,11 @@ class SkillDefinition:
     # detail would otherwise make every installed prompt carry it. The compact
     # body retains routing, inputs, outputs, authority, and completion cues.
     progressive_disclosure: bool = False
+    # Host tools the skill cannot work without. Rendered as Hermes
+    # `metadata.hermes.requires_tools`, which hides the skill's index line
+    # when a listed tool is not registered for the profile; the portable
+    # projection never emits it.
+    host_requires_tools: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "description", omh_description(self.description))

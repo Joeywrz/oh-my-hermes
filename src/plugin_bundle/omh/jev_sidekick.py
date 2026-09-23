@@ -1,6 +1,6 @@
 """What a Jev-class Hermes plugin DECLARES, and nothing about what it does.
 
-Jev (TypeSafe System One) is a non-generative decision model: it answers typed
+Jev (TypeSafe System One) is a non-generative model: it answers typed
 questions and cannot write code. Several community Hermes plugins call it, and
 some of them ask for the same hooks the OMH bridge registers. An operator
 deciding whether that matters needs two things, which is all this module
@@ -28,8 +28,11 @@ name, and a credential name OMH made up would be reported as a machine fact.
 route, and the posture builder only consults it once a Jev-class plugin is
 detected -- on its own it is an OpenRouter account, not a Jev signal.
 
-OMH never calls Jev, never reads a credential value, and never imports a
-plugin. This module is a table plus one classifier over it, with no I/O.
+OMH never calls a third-party Jev plugin, this module reads no credential
+value, and it never imports a plugin. It is a table plus one classifier over
+it, with no I/O. OMH's own opt-in path to Jev is the `omh_jev_ask` tool, whose
+name deliberately falls outside `is_jev_tool_name`: its calls are OMH's, not a
+third-party plugin's, and never promote a `jev_plugin` rung.
 """
 from __future__ import annotations
 

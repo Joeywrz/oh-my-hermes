@@ -304,7 +304,10 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # transaction. Only these two -- the lane shipped no chat trigger
             # of its own, so it contributed no positive cases and no
             # `story` negatives.
-            expected=282,
+            # The Jev skills add seven: sentences that name Jev as a model, a
+            # setting, or among options, or talk about its docs, pricing page,
+            # or question format, none of which addresses Jev.
+            expected=289,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -363,7 +366,12 @@ def count_metrics() -> tuple[CountMetric, ...]:
             # function), plus a real page operation, because the guard
             # ordering that stops `browser-operator` pre-empting an incident
             # must not cost it its own lane.
-            expected=429,
+            # The Jev skills add forty-five: each skill's phrase and a
+            # paraphrase, the partner swap, free-form questions that stay on
+            # jev-ask, and sentences about Jev (descriptive, negated,
+            # configuration, a maintainer's mention of a skill name, an
+            # explicit non-Jev invocation) that keep their ordinary owner.
+            expected=474,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -376,7 +384,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             describe="Installable workflow skills quoted in reference surfaces",
             live=_installable_skill_count,
             # The current workflow additions are part of the installable catalog.
-            expected=124,
+            expected=130,
             sites=(
                 "docs/README.md",
                 # The docs index quotes the count in prose and

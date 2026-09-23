@@ -22,7 +22,7 @@
     "omh-application-threat-model/SKILL.md": "5438e0bf5e21a7960853a779be1664cd5e7c2bc3d718396f632b457a45cd6c8a",
     "omh-application-threat-model/references/threat-model-method.md": "ed3819fecf9c8d7208a49fbbebc5863dcc9df009a663e0d012431bc3296e5e8e",
     "omh-apps/SKILL.md": "9363fcc5edc4eed137d3d00b4c047b0c0041ec5737351f9c08316cd1c5ca8d9e",
-    "omh-ask/SKILL.md": "83c9509a158fbe17f296a8cdb83bf40ea14477a74f8c6839ad9fe7d67ceb1579",
+    "omh-ask/SKILL.md": "dcd26966b2e818b0f93628ed585f91ab44eb39a7c9ce949d59f5baf6d43c65a8",
     "omh-award-bar-score/SKILL.md": "bc138edb798d567b1c1b69991c1f6e5b921310ec7f788e645ab87d54e94d9231",
     "omh-award-bar-score/references/award-judging-model.md": "3eb04c94402da5efaa2d3bc18bb66acd1121b234a8b82a47a878c5d01725be50",
     "omh-backend/SKILL.md": "b8800e59de781e97bf7b203b1521866cbddbcf2772e2c1e4db49ed40adb1855f",
@@ -46,7 +46,7 @@
     "omh-curriculum-design/SKILL.md": "ad0c67442ac9057ae505f34696f3d62174f0ddb2ec544dc68423ebb7700ca19f",
     "omh-curriculum-design/references/procedure.md": "5078d35c8cd9cae8257fd14fa8ab7466bff5287500f160787633ec2930d1da1b",
     "omh-data-analysis/SKILL.md": "7a2cc113187b675030e9e47b42310ed292fa131839a1f716d0c47ef56d5d0fb0",
-    "omh-decide/SKILL.md": "ff60581c9e3ca1cfdf5a7f09278c255005e139f7a1032de89ff36a7a9ac703ed",
+    "omh-decide/SKILL.md": "02daa0c598e221c2345d047900a77489c5e9c6d7a9e1f10cf6626d17a478d94b",
     "omh-decide/references/capacity-planning.md": "5f017b357b0bfb37279918098b9992c3c793ac8ad4056969bf3e2c0e6d5bb9ae",
     "omh-decide/references/decision-records.md": "4da873d3351a8d7ab96d44860c62d7d18130147abb7aa390078eee6dbe2d4d2d",
     "omh-decision-prototype/SKILL.md": "9d28916045f5907703294f0dd21d8008722fee58f5fa55e2a392e757c920ffec",
@@ -278,7 +278,7 @@
     "ulw-work"
   ],
   "source": "agent-skills",
-  "source_digest": "0ccbc95a4868e7e573d6884e799151813f3b73be2d3ff382d192ff8ee2a13eee",
+  "source_digest": "fb35c2b2187660154fb3c2592fbf6d956bf02206e1dd2ec43593004412dd4701",
   "targets": {
     "repo": ".agents/skills",
     "user": ".agents/skills"

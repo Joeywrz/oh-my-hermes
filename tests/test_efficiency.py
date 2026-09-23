@@ -286,7 +286,11 @@ class EfficiencyContractTests(unittest.TestCase):
         # tail took the full profile to 1,025,878; the ceiling restores the
         # ~13k standing headroom, and the exact value stays ratcheted in
         # `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
-        self.assertLess(full["skill_body"]["bytes"], 1_040_000)
+        # 1,040,000 -> 1,057,000: the six default-installed `jev-*` skills
+        # took the full profile to 1,043,882; the ceiling restores the ~13k
+        # standing headroom, and the exact value stays ratcheted in
+        # `FULL_PROFILE_SKILL_BODY_CHAR_LIMIT`.
+        self.assertLess(full["skill_body"]["bytes"], 1_057_000)
         self.assertLess(full["repeated"]["share_percent"], 38.0)
 
         # References are progressive disclosure, counted outside the always-loaded body.

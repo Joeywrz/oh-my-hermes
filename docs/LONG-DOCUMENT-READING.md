@@ -67,8 +67,8 @@ skill locates the directory with `skills_list` or `search_files` first.
 
 ### What does the skill do with that?
 
-It is a procedure and a ledger, not a parser. OMH makes no network calls and
-carries no extraction dependency, so it cannot open the PDF; it tells Hermes
+It is a procedure and a ledger, not a parser. The skill makes no network calls
+and OMH carries no extraction dependency, so it cannot open the PDF; it tells Hermes
 which tool to run in which order and records what each run covered.
 
 1. Confirm the reading goal. One clause lookup is a search over extracted

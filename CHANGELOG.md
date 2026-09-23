@@ -72,6 +72,67 @@ All notable changes will be documented here.
   The `gpt_sol_codex_handoff` overlay keeps applying to GPT-6 Sol as a Codex
   main agent, now pinned by a test that names it.
 
+- **OMH can ask Jev itself, when the user asks for it (#1795).** A new
+  `omh_jev_ask` plugin tool sends typed questions (yes/no, pick-one, scored) to
+  Jev with the user's own key and returns probabilities, and six
+  default-installed skills use it: `omh-jev-ask`, `omh-jev-route` (answers an
+  undecidable route question and records it as `answered_by: omh_jev_ask`),
+  `omh-jev-failure-triage`, `omh-jev-review-gate`, `omh-jev-action-check`, and
+  `omh-jev-done-check`. The last four call versioned presets whose rule ladders
+  run in OMH code and can only add a hold, a flag, or an objection; a failed
+  ask is labelled `not_answered:<status>` and never reads as Jev's answer. This
+  is the second scoped exception to "OMH makes no network calls", and it is
+  narrow on purpose: the tool opens no socket unless the person's own message
+  for that turn names Jev (`consent_not_observed` otherwise; text the host adds,
+  such as a quoted reply to the bot's own offer, channel history, an image
+  description, an inlined attachment, or a file or page an `@`-reference
+  pulled in, does not count, and a reply or channel-history turn that also
+  carries an `@`-reference expansion does not consent at all, since a quote
+  can spell the expansion's header line; only an allowlisted
+  platform a person types into can consent, never a webhook, API, cron,
+  subagent, batch, single-query, or kanban-worker turn; on a messaging
+  platform only the first line of the message counts and a photo or file
+  caption or a voice message does not, because Hermes merges other senders'
+  text and clips into the first sender's message -- a native-vision turn, which reaches the hook as a
+  content list with image parts, counts as a media turn by its parts; in a
+  shared chat only the participant who opened the session can, and a session
+  a compaction started names no owner; and the consent is bound to its own
+  turn, so a background fork of the session cannot spend it, and while a
+  fork's call overlaps the main turn's, neither is sent). A forwarded
+  message, a WeCom quote, or a forwarded voice transcript reads as the
+  forwarding user's own words, since no chat app marks a forward, and after
+  `/new` or a `/stop` whoever speaks first owns the next session's consent;
+  both are documented in the skills' rail. The gate cannot tell a bot from a
+  person, since the host's bot flag never reaches `pre_llm_call`, so on a
+  profile that admits bot messages a bot's words consent like a person's;
+  that residual is documented too. A credential in a field name or a
+  question id is refused like one in a value, and so is any 8-character piece
+  of either configured route key, in any case and with whitespace removed. Only a
+  `TYPESAFE_API_KEY` enables it by itself (the OpenRouter route also needs
+  `{"openrouter_route": true}` in `<omh_home>/jev/settings.json`, a local-trust
+  opt-in), the route table is two fixed HTTPS hosts, redirects are refused,
+  only 429, 503, and 529 are retried (any other 5xx and every timeout, a
+  gateway's 504 or 524 included, may have been billed and are reported), the
+  deadline bounds each read as well as the connect, and no key, `state`,
+  question text, or reply is stored; any 8-character piece of a key echoed
+  back by the server, in any case or JSON-escaped, is scrubbed from every path,
+  and an echo that spaces the key's characters apart blanks the whole excerpt.
+  An `answered_by: omh_jev_ask` record is accepted only for an ask this OMH
+  process itself sent and Jev answered, never on a ledger row alone, and only
+  with the request text, from which the question is re-derived: the ask must
+  have sent exactly that question, and a verified digest refuses a Choice
+  outside its options whoever answered. The skills
+  declare `requires_tools: [omh_jev_ask]`, so Hermes leaves them out of the
+  skill index where the tool is not registered (code-read, not observed live),
+  for callers that pass a tool set; a caller that passes none shows them.
+  Routing reaches a Jev skill only when a message addresses Jev ("ask jev",
+  "use jev", "have jev", a skill name in its invocation form); sentences that
+  only mention Jev, decline it, name it among options, or explicitly invoke a
+  different OMH skill keep their owner, pinned by new corpus cases. `omh doctor`'s `plugin_jev_sidekick`
+  line now also reports the tool's route by variable name, its ledger, and what
+  it sends. No live Jev call was made; every wire fact is documented, not
+  observed.
+
 - **The Claude subagent calibration no longer tells the model to keep
   working.** The high-effort `claude` block said "No one is watching this
   unit in real time: proceed on every reversible action inside the boundary

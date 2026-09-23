@@ -12,10 +12,18 @@ reasoning about anything that touches Hermes Agent.
 oh-my-hermes (OMH) is a Hermes-native wrapper orchestration layer: a
 deterministic skill catalog, router, and prepared-handoff generator installed
 next to Hermes Agent. Core `omh` code makes no LLM, API, or network calls and
-never patches Hermes. Pure Python 3.11+, zero runtime dependencies. One scoped
-exception: `omh coding fanout dispatch` (explicit opt-in) spawns local agent
+never patches Hermes. Pure Python 3.11+, zero runtime dependencies. Two scoped
+exceptions. `omh coding fanout dispatch` (explicit opt-in) spawns local agent
 CLIs as subprocesses — those CLIs make their own network calls; omh itself
-still makes none, and nothing executes without that explicit command.
+makes none there, and nothing executes without that explicit command. The
+`omh_jev_ask` plugin tool is the one place OMH itself opens a connection: it
+POSTs typed questions to Jev (TypeSafe, or OpenRouter only with the operator
+setting in `<omh_home>/jev/settings.json`) with the user's own key, only when
+the user named Jev in that turn and a key resolves. Stdlib only, HTTPS only, a
+fixed two-host route table, redirects refused;
+`src/plugin_bundle/omh/jev_ask_client.py` is the only network client in
+`src/`, pinned by INVARIANT 2's `NETWORK_CLIENT_BRIDGES`. Third-party Jev
+plugins are still never called.
 
 ## Build & Test
 

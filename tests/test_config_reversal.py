@@ -292,6 +292,44 @@ class GuardParityTests(unittest.TestCase):
                 self.assertEqual(change.text, before)
                 self.assertEqual(by_key["plugins.enabled"].status, "kept")
 
+    def test_a_flow_mapping_plugins_node_is_reported_kept_and_not_absent(self) -> None:
+        """#1814: the reader walked past `plugins: {enabled: [omh]}`, so the
+        uninstall report said OMH's own entry was absent from a file that
+        names it, with the refusal beside it saying the node was left alone.
+        The remover still declines the shape; the row now agrees with it."""
+        before = "plugins: {enabled: [omh, other]}\n"
+
+        change, rows = reverse_managed_config(before, {}, config_path=CONFIG_PATH)
+        by_key = {row.key: row for row in rows}
+
+        self.assertEqual(change.text, before)
+        self.assertEqual(by_key["plugins.enabled"].status, "kept")
+        self.assertIn("noncanonical plugins configuration", by_key["plugins.enabled"].detail)
+
+    def test_a_plugins_node_that_was_not_read_is_never_reported_absent(self) -> None:
+        """An unread node cannot support "nothing is left here". Every entry
+        here is valid YAML Hermes loads `omh` from, measured with the PyYAML
+        in Hermes' own venv, so `absent` would be a false statement about a
+        file the person still has to clean up by hand."""
+        for before in (
+            "base: &plugins\n  enabled: [omh]\nplugins: *plugins\n",
+            "plugins: &p\n  enabled:\n    - omh\n",
+        ):
+            with self.subTest(before=before):
+                change, rows = reverse_managed_config(before, {}, config_path=CONFIG_PATH)
+                by_key = {row.key: row for row in rows}
+
+                self.assertEqual(change.text, before)
+                self.assertEqual(by_key["plugins.enabled"].status, "kept")
+
+    def test_a_document_with_no_plugins_key_is_still_reported_absent(self) -> None:
+        # The negative control for the two above: "unread" must not become a
+        # blanket "kept" that hides a file with nothing left in it.
+        change, rows = reverse_managed_config("display:\n  skin: omh\n", {}, config_path=CONFIG_PATH)
+        by_key = {row.key: row for row in rows}
+
+        self.assertEqual(by_key["plugins.enabled"].status, "absent")
+
     def test_an_unquoted_inline_list_still_reverses(self) -> None:
         change = remove_plugin_enabled("plugins:\n  enabled: [other, omh]\n", "omh")
 

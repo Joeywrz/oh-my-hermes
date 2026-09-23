@@ -55,6 +55,7 @@ from .config_adapter import (
     external_dirs,
     memory_provider_selection,
     plugin_enablement,
+    plugin_enablement_is_readable,
     references_mapping_key,
     childless_containers,
     remove_childless_containers,
@@ -523,6 +524,14 @@ def config_names_key(config_text: str, key: str, *, name: str = "") -> bool:
     is the whole point of the uninstall report.
     """
     if key == PLUGINS_ENABLED_KEY:
+        if not plugin_enablement_is_readable(config_text):
+            # The one answer this row must not give over a node OMH did not
+            # read. `absent` says nothing is left here, and a `plugins` node
+            # written in a form the reader walks past leaves the same empty
+            # list a config enabling nothing leaves, so the row said the
+            # person's own entry was gone while the message beside it said
+            # the node was left alone (#1814).
+            return True
         return (name or PLUGIN_NAME) in plugin_enablement(config_text)["enabled"]
     if key == COMPRESSION_FALLBACK_KEY:
         return bool(compression_settings(config_text).get("has_fallback_chain"))

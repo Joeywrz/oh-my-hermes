@@ -400,10 +400,15 @@ class AnswererLadderTests(unittest.TestCase):
     def test_an_inline_plugins_mapping_reads_as_installed_rather_than_enabled(self) -> None:
         """The documented under-read, measured rather than asserted in prose.
 
-        The block reader cannot follow `plugins: {enabled: [...]}`, and the
-        safe direction is to report the plugin one tier lower than it sits. A
-        test is what tells a later reader the form was considered, instead of
-        leaving them unable to distinguish that from its being missed.
+        The ladder's own block reader lives in the plugin bundle, which cannot
+        import core's `config_adapter`, so it still cannot follow
+        `plugins: {enabled: [...]}` -- core's reader has followed it since
+        #1814, and this tier has not. The safe direction is to report the
+        plugin one tier lower than it sits, and the tier is a routing hint
+        rather than a statement about enablement, so it costs itself and
+        nothing else. A test is what tells a later reader the form was
+        considered, instead of leaving them unable to distinguish that from
+        its being missed.
         """
         with TemporaryDirectory() as tmp:
             hermes, omh = self._homes(Path(tmp).resolve())

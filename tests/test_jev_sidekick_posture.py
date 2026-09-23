@@ -761,14 +761,15 @@ class PostureTests(unittest.TestCase):
             self.assertIn("manifest exceeds", posture["skipped"][0]["reason"])
 
     def test_a_plugins_node_the_reader_walks_past_leaves_enablement_unknown(self) -> None:
-        # Valid YAML Hermes loads, and a form the block reader's entry
-        # condition (`stripped == "plugins:"`) rejects, so it reports the same
-        # empty lists a config that enables nothing reports. "Nothing enables
-        # it" and "nobody read it" are different facts about a machine.
+        # Valid YAML Hermes loads -- measured with the PyYAML in Hermes' own
+        # venv, this loads as `{'plugins': {'enabled': ['jev']}}` -- and a
+        # node the reader does not follow, so it reports the same empty lists
+        # a config that enables nothing reports. "Nothing enables it" and
+        # "nobody read it" are different facts about a machine.
         with TemporaryDirectory() as tmp:
             paths = _paths(Path(tmp))
             _install_plugin(paths, "jev", "name: jev\nprovides_tools:\n  - jev_evaluate\nprovides_hooks:\n")
-            _write(paths.hermes_config_path, "plugins: {enabled: [jev]}\n")
+            _write(paths.hermes_config_path, "base: &plugins\n  enabled: [jev]\nplugins: *plugins\n")
 
             posture = build_jev_sidekick_posture(paths.hermes_home)
             _checks, check = _doctor_check(paths)
@@ -780,6 +781,27 @@ class PostureTests(unittest.TestCase):
             self.assertEqual(posture["status"], "installed")
             self.assertNotIn("not enabled", check.message)
             self.assertIn("enablement not established", check.message)
+
+    def test_a_flow_mapping_plugins_node_reads_as_enabled(self) -> None:
+        # The other half of the pair above, and the #1814 report: the flow
+        # form is the node OMH used to walk past, so the posture said the
+        # enablement was not established for a plugin Hermes loads. It is a
+        # read now, and an unknown here would be the old false answer wearing
+        # the new label.
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _install_plugin(paths, "jev", "name: jev\nprovides_tools:\n  - jev_evaluate\nprovides_hooks:\n")
+            _write(paths.hermes_config_path, "plugins: {enabled: [jev]}\n")
+
+            posture = build_jev_sidekick_posture(paths.hermes_home)
+            _checks, check = _doctor_check(paths)
+
+            entry = posture["plugins"][0]
+            self.assertEqual(entry["enablement"], ENABLEMENT_ENABLED)
+            self.assertEqual(entry["enablement_reason"], "")
+            self.assertEqual(posture_unknown_enablement(posture), [])
+            self.assertEqual(posture["status"], "enabled")
+            self.assertNotIn("enablement not established", check.message)
 
     def test_a_config_that_cannot_be_read_whole_leaves_enablement_unknown(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -1040,7 +1062,7 @@ class DoctorCheckTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = _paths(Path(tmp))
             _install_plugin(paths, "jev", "name: jev\nprovides_tools:\n  - jev_evaluate\nprovides_hooks:\n")
-            _write(paths.hermes_config_path, "plugins: {enabled: [jev]}\n")
+            _write(paths.hermes_config_path, "base: &plugins\n  enabled: [jev]\nplugins: *plugins\n")
             _write(paths.hermes_home / ".env", f"TYPESAFE_API_KEY={SECRET_VALUE}\n")
 
             _checks, check = _doctor_check(paths)

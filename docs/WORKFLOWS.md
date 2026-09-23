@@ -1275,6 +1275,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Do not use when:
   - The strategic question is whether an early idea's customer problem and segment are real, and no validated discovery receipt exists yet; use `product-discovery-validation`.
   - The question is how to run a hiring process — scorecards, interview loops, candidate comparison — rather than whether to hire at all; use `people-ops`.
+  - The user wants Jev's typed probabilities for a yes/no, pick-one, or scored question over supplied text rather than tradeoffs and a recommendation; use `jev-ask`.
 - Strong routing signals: `strategy-brief`, `strategy brief`, `strategy memo`, `product strategy`, `strategic options`, `decision note`, `leadership strategy`, `next strategy`, `capacity planning`, `hire or outsource`, `outsource or hire`, `cut scope`, `headcount plan`, `demand versus capacity`, `다음 전략`, `전략 정리`, `전략 메모`, `전략 옵션`, `의사결정`, `리더십 회의`
 - Good example:
   - Prompt: strategy-brief: decide whether our onboarding should prioritize solo founders or enterprise buyers.
@@ -5423,6 +5424,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Do not use when:
   - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
   - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+  - The user wants typed yes/no, pick-one, or scored probabilities from Jev over supplied text; use `jev-ask`.
 - Strong routing signals: `ask`, `$ask`, `external advisor`, `ask claude`, `ask gemini`, `consult claude`, `consult gemini`, `opinion from claude`, `opinion from gemini`, `second opinion`, `claude 의견`, `gemini 의견`
 - Good example:
   - Prompt: ask: ask Claude as an external advisor to critique this plugin bridge plan before implementation.
@@ -7062,6 +7064,349 @@ These surfaces are generated command references, not installed Hermes workflow s
     - Output refs: `sales_pipeline_handoff/v1`
     - Check IDs: `sales_pipeline_scope_check`, `sales_pipeline_health_check`, `sales_forecast_state_check`, `sales_pipeline_handoff_check`
     - Instruction: Select account follow-ups with owner, due date, exit criterion, and evidence reference, list proposed CRM object/field/value corrections with evidence, owner, and approval state, name the sibling route for discovery, feedback, calculation, or finance work, and return the review disposition with mutation, storage, sync, alert, and communication left to the connector boundary.
+
+### jev-ask
+
+[omh] Jev ask: typed yes/no, pick-one, or scored questions to Jev with your own key; returns probabilities, never prose.
+
+- Category: `gateway`
+- Phase: `jev-ask`
+- Hermes role: `guide`
+- Quality tier: `evidence-gated`
+- Reasoning demand: `light`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Lifecycle stage: `canonical`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Run in Hermes: build the ask, call `omh_jev_ask`, and report the numbers. Nothing is delegated; the partner workflow keeps its own verdict and Jev's answers are one more input to it.
+- Why this exists: `jev-ask` exists so a typed judgment about supplied text comes back as numbers the user can threshold, instead of a paragraph from a generative model, with one explicit call the user asked for.
+- Use when: Use when the user asks Jev a typed question about supplied text -- whether it does something, which of named options fits, or how it rates on an ordered scale -- or wants help writing such questions.
+- Do not use when:
+  - The user wants a generative second opinion from Claude, Gemini, or another advisor; use `ask`.
+  - The user is choosing between strategic options and wants tradeoffs and a recommendation; use `strategy-brief`.
+  - The user wants Jev as a chat or coding model; that is a model setting, and Jev writes no text; use `model-setup`.
+  - The user is writing application code that calls TypeSafe; point at the vendor's own SDK documentation rather than calling the tool.
+- Strong routing signals: `jev-ask`, `ask jev`, `jev question`, `jev score`
+- Good example:
+  - Prompt: ask jev whether this README section covers installation
+  - Expected behavior: Say the section text leaves the machine, send one Noul with the section as `state`, and report the probability, served model, and cost.
+  - Why: One atomic yes/no question over supplied text is what a typed ask answers.
+- Bad example:
+  - Prompt: ask jev to write a better README
+  - Expected behavior: Explain that Jev returns probabilities and writes no text; offer a typed question instead or continue as main_model.
+  - Why: Generation is outside what the tool can return.
+- Quality bar:
+  - Each question is atomic, self-contained, and independent of the others; a Choice carries an `unknown` option.
+  - `state` holds only the evidence the questions need.
+  - The report quotes numbers verbatim with the served model, attempts, and cost source.
+- Completion checklist:
+  - The user asked for Jev in this turn and was told what `state` carries.
+  - The reported numbers match the tool result, with the served model and cost source.
+  - A non-answer was reported as its status, not as an answer.
+- Recovery notes:
+  - If `omh_jev_ask` is not in the tool list, say Jev is unavailable, point at the `plugin_jev_sidekick` line of `omh doctor`, and continue as main_model through the partner workflow.
+  - If the tool returns `consent_not_observed`, nothing was sent; offer the ask in one line naming what would be sent and wait for the user to reply `ask jev`.
+  - If the tool refuses `credential_like_content`, remove the secret-looking text from `state` rather than redacting it silently, and tell the user what was removed.
+- Required inputs:
+  - the text to judge
+  - one or more independent questions
+- Expected outputs:
+  - Jev's probabilities per question
+  - served model, attempts, and cost
+  - the non-answer status when there is no answer
+- Artifact expectations:
+  - one metadata-only `omh_jev_ask_record/v1` ledger row per ask under `<omh_home>/jev/asks.jsonl`: hashes, counts, status, usage, cost; never the key, `state`, or question text
+- Safety rules:
+  - Call `omh_jev_ask` only after the user asked for Jev in this turn; a skill loaded from the index is not a request.
+  - Before the first ask, tell the user in one line what `state` will carry and that it leaves the machine.
+  - A non-answer status is never an answer: report it and continue without Jev.
+  - Never ask Jev what code can compute: counts, dates, arithmetic, or string checks.
+  - Report a probability between 0.4 and 0.6 as uncertain, never as yes or no.
+
+### jev-route
+
+[omh] Jev route pick: answer an OMH route question about which workflow fits, recorded without re-routing.
+
+- Category: `gateway`
+- Phase: `jev-route`
+- Hermes role: `guide`
+- Quality tier: `evidence-gated`
+- Reasoning demand: `light`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Lifecycle stage: `canonical`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Run in Hermes: build the ask, call `omh_jev_ask`, and report the numbers. Nothing is delegated; the partner workflow keeps its own verdict and Jev's answers are one more input to it.
+- Why this exists: `jev-route` exists so an undecidable route can get a typed answer from Jev that OMH observed itself and can score later, without letting that answer re-route anything.
+- Use when: Use when an OMH route came back undecidable with a `route_question` block, the answerer ladder lists `omh_jev_ask`, and the user asks Jev to pick the workflow.
+- Do not use when:
+  - The route was already decided; there is no route question to answer.
+  - The user is choosing a model or provider rather than a workflow; use `model-setup`.
+  - The host model is recording its own pick; recording a main_model answer needs no ask.
+- Strong routing signals: `jev-route`, `ask jev which workflow`, `jev pick the workflow`
+- Good example:
+  - Prompt: ask jev which workflow fits this request
+  - Expected behavior: Send the route_question block with the message as `state`, show Jev's ranked pick as a question to the user, and record it with the ask_id.
+  - Why: The route was undecidable and the user asked Jev to pick.
+- Bad example:
+  - Prompt: use jev as my router model
+  - Expected behavior: Route to model setup: this is a configuration request, and Jev cannot be a chat model.
+  - Why: Choosing a model is not answering a route question.
+- Quality bar:
+  - `state` is the user's message, and the user was told it leaves the machine.
+  - The answer is recorded with the `ask_id` the tool returned.
+  - `none` winning is reported as no workflow fitting, not as an error.
+- Completion checklist:
+  - The block was sent unchanged and its digest matches the recorded answer.
+  - No workflow was dispatched on Jev's answer alone.
+- Recovery notes:
+  - If `omh_jev_ask` is not in the tool list, say Jev is unavailable, point at the `plugin_jev_sidekick` line of `omh doctor`, and continue as main_model through the partner workflow.
+  - If the tool returns `consent_not_observed`, nothing was sent; offer the ask in one line naming what would be sent and wait for the user to reply `ask jev`.
+  - If the tool refuses `credential_like_content`, remove the secret-looking text from `state` rather than redacting it silently, and tell the user what was removed.
+- Required inputs:
+  - the `route_question` block
+  - the user's message
+- Expected outputs:
+  - Jev's Choice and fit probabilities
+  - an `omh_route_answer` record with `answered_by: omh_jev_ask`
+  - a clarification offered to the user
+- Artifact expectations:
+  - one metadata-only `omh_jev_ask_record/v1` ledger row per ask under `<omh_home>/jev/asks.jsonl`: hashes, counts, status, usage, cost; never the key, `state`, or question text
+- Safety rules:
+  - Call `omh_jev_ask` only after the user asked for Jev in this turn; a skill loaded from the index is not a request.
+  - Before the first ask, tell the user in one line what `state` will carry and that it leaves the machine.
+  - A non-answer status is never an answer: report it and continue without Jev.
+  - The deterministic route stays in force: present Jev's pick as a clarification and dispatch nothing without the user.
+  - Pass the block unchanged; editing a question changes its digest and breaks the record join.
+
+### jev-failure-triage
+
+[omh] Jev failure triage: retry, fix a dependency, ask for access, or change approach on a failing run.
+
+- Category: `review`
+- Phase: `jev-failure-triage`
+- Hermes role: `reviewer`
+- Quality tier: `evidence-gated`
+- Reasoning demand: `standard`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Lifecycle stage: `canonical`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Run in Hermes: build the ask, call `omh_jev_ask`, and report the numbers. Nothing is delegated; the partner workflow keeps its own verdict and Jev's answers are one more input to it.
+- Why this exists: `jev-failure-triage` exists so a failing run gets a fixed-rule next move from typed answers, computed by OMH code rather than by the model eyeballing numbers.
+- Use when: Use when a command, test, or build failed or keeps failing, the user asked Jev, and a quick typed signal should pick the next move before the ordinary triage prepares a fix.
+- Do not use when:
+  - The user wants the root cause of a failing build and a fix; use `build-failure-triage`.
+  - The agent itself is looping or misbehaving and needs a diagnosis; use `agent-debug`.
+  - Production is down; use `live-incident-response`.
+- Strong routing signals: `jev-failure-triage`, `jev failure triage`, `ask jev if this failure is transient`
+- Good example:
+  - Prompt: use jev to triage this failing test
+  - Expected behavior: Say the command and error excerpt leave the machine, call the `failure_triage/v1` preset with `attempts_so_far`, and report the outcome and rule.
+  - Why: The user addressed Jev about a failing run.
+- Bad example:
+  - Prompt: triage this failing build
+  - Expected behavior: Route to `build-failure-triage`; the user did not ask for Jev.
+  - Why: Mentioning a failure is not asking Jev.
+- Quality bar:
+  - `state` holds the command and an error excerpt, not the whole log.
+  - A non-answer is reported as `not_observed`, never as `no_signal`.
+- Completion checklist:
+  - The preset outcome and its rule are reported beside the raw answers.
+  - `build-failure-triage` or `agent-debug` still owns the fix.
+- Recovery notes:
+  - If `omh_jev_ask` is not in the tool list, say Jev is unavailable, point at the `plugin_jev_sidekick` line of `omh doctor`, and continue as main_model through the partner workflow.
+  - If the tool returns `consent_not_observed`, nothing was sent; offer the ask in one line naming what would be sent and wait for the user to reply `ask jev`.
+  - If the tool refuses `credential_like_content`, remove the secret-looking text from `state` rather than redacting it silently, and tell the user what was removed.
+- Required inputs:
+  - the failing command
+  - an excerpt of its error output
+  - how many times it was already retried
+- Expected outputs:
+  - the `failure_triage/v1` policy result
+  - the next move with the rule that fired
+- Artifact expectations:
+  - one metadata-only `omh_jev_ask_record/v1` ledger row per ask under `<omh_home>/jev/asks.jsonl`: hashes, counts, status, usage, cost; never the key, `state`, or question text
+- Safety rules:
+  - Call `omh_jev_ask` only after the user asked for Jev in this turn; a skill loaded from the index is not a request.
+  - Before the first ask, tell the user in one line what `state` will carry and that it leaves the machine.
+  - A non-answer status is never an answer: report it and continue without Jev.
+  - `retry_once_suggested` is a suggestion: the host's own approval still applies to the rerun.
+  - You supply `attempts_so_far`; never ask Jev to count attempts.
+
+### jev-review-gate
+
+[omh] Jev review flags for a diff: auth, tests, migration risk, severity; flags only, never approves a merge.
+
+- Category: `review`
+- Phase: `jev-review-gate`
+- Hermes role: `reviewer`
+- Quality tier: `evidence-gated`
+- Reasoning demand: `standard`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Lifecycle stage: `canonical`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Run in Hermes: build the ask, call `omh_jev_ask`, and report the numbers. Nothing is delegated; the partner workflow keeps its own verdict and Jev's answers are one more input to it.
+- Why this exists: `jev-review-gate` exists so a reviewer can add Jev's typed flags to a review without handing it any authority to approve.
+- Use when: Use when a diff is under review and the user asks Jev for typed flags as an extra reviewer signal.
+- Do not use when:
+  - The user wants the review itself and its verdict; use `code-review`.
+  - The user wants release evidence gathered before shipping; use `verification-gate`.
+  - The user wants the agent's own tool and permission surface audited; use `security-safety-review`.
+- Strong routing signals: `jev-review-gate`, `jev review gate`, `ask jev to review this diff`
+- Good example:
+  - Prompt: ask jev to review this diff
+  - Expected behavior: Say the diff leaves the machine and the cost, call `review_flags/v1` once per file, and report the flags beside the ordinary review.
+  - Why: The user addressed Jev about a diff.
+- Bad example:
+  - Prompt: review the jev plugin PR before merge
+  - Expected behavior: Route to `code-review`: the PR is about Jev, and nobody asked Jev anything.
+  - Why: Talking about Jev is not addressing it.
+- Quality bar:
+  - Each ask carries one file's diff; the union of flags is reported per file.
+  - A non-answer is `not_observed`, never `no_flags`.
+- Completion checklist:
+  - Every file sent was named to the user first.
+  - `code-review` still owns the verdict.
+- Recovery notes:
+  - If `omh_jev_ask` is not in the tool list, say Jev is unavailable, point at the `plugin_jev_sidekick` line of `omh doctor`, and continue as main_model through the partner workflow.
+  - If the tool returns `consent_not_observed`, nothing was sent; offer the ask in one line naming what would be sent and wait for the user to reply `ask jev`.
+  - If the tool refuses `credential_like_content`, remove the secret-looking text from `state` rather than redacting it silently, and tell the user what was removed.
+- Required inputs:
+  - the diff, one file per ask
+  - the review the flags feed
+- Expected outputs:
+  - `review_flags/v1` flags per file
+  - the union of flags and the highest severity across files
+- Artifact expectations:
+  - one metadata-only `omh_jev_ask_record/v1` ledger row per ask under `<omh_home>/jev/asks.jsonl`: hashes, counts, status, usage, cost; never the key, `state`, or question text
+- Safety rules:
+  - Call `omh_jev_ask` only after the user asked for Jev in this turn; a skill loaded from the index is not a request.
+  - Before the first ask, tell the user in one line what `state` will carry and that it leaves the machine.
+  - A non-answer status is never an answer: report it and continue without Jev.
+  - Send at most 8 files per review and state the cost before the first ask; source code leaves the machine.
+  - Flags are advisory evidence: `no_flags` never approves a merge and never satisfies a review item.
+
+### jev-action-check
+
+[omh] Jev action check before a risky command: secrets, outbound sends, blast radius; can only add a hold.
+
+- Category: `review`
+- Phase: `jev-action-check`
+- Hermes role: `reviewer`
+- Quality tier: `evidence-gated`
+- Reasoning demand: `standard`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Lifecycle stage: `canonical`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Run in Hermes: build the ask, call `omh_jev_ask`, and report the numbers. Nothing is delegated; the partner workflow keeps its own verdict and Jev's answers are one more input to it.
+- Why this exists: `jev-action-check` exists so a risky command can get an extra, fail-closed screen from typed answers without Jev ever gaining the power to approve anything.
+- Use when: Use before running a command or write the user asked Jev to screen, especially under a permissive approval mode.
+- Do not use when:
+  - The user wants approval or permission policy written; use `security-safety-review`.
+  - The user wants a command explained, prepared, or run; use `command-operator`.
+- Strong routing signals: `jev-action-check`, `jev action check`, `ask jev if this command is safe`, `jev risk check`
+- Good example:
+  - Prompt: ask jev if this rm -rf command is safe
+  - Expected behavior: Say the command, working directory, and task leave the machine, call `action_check/v1`, and report hold or no_extra_hold with the rule before anything runs.
+  - Why: The user addressed Jev about one command.
+- Bad example:
+  - Prompt: is this command risky to run?
+  - Expected behavior: Route to `command-operator`; the user did not ask for Jev.
+  - Why: A risk question without Jev is the ordinary command lane.
+- Quality bar:
+  - `state` holds the command, the working directory path, and the stated task; the user was told all three leave the machine.
+  - The outcome and rule are reported before the command runs.
+- Completion checklist:
+  - The outcome was one of hold, refuse_recommended, or no_extra_hold, with its rule.
+  - Nothing was run on the strength of `no_extra_hold` alone.
+- Recovery notes:
+  - If `omh_jev_ask` is not in the tool list, say Jev is unavailable, point at the `plugin_jev_sidekick` line of `omh doctor`, and continue as main_model through the partner workflow.
+  - If the tool returns `consent_not_observed`, nothing was sent; offer the ask in one line naming what would be sent and wait for the user to reply `ask jev`.
+  - If the tool refuses `credential_like_content`, remove the secret-looking text from `state` rather than redacting it silently, and tell the user what was removed.
+- Required inputs:
+  - the command or write
+  - the working directory
+  - the task the user stated
+- Expected outputs:
+  - the `action_check/v1` outcome: hold, refuse_recommended, or no_extra_hold
+  - the rule that fired
+- Artifact expectations:
+  - one metadata-only `omh_jev_ask_record/v1` ledger row per ask under `<omh_home>/jev/asks.jsonl`: hashes, counts, status, usage, cost; never the key, `state`, or question text
+- Safety rules:
+  - Call `omh_jev_ask` only after the user asked for Jev in this turn; a skill loaded from the index is not a request.
+  - Before the first ask, tell the user in one line what `state` will carry and that it leaves the machine.
+  - A non-answer status is never an answer: report it and continue without Jev.
+  - The check can only add a hold: `no_extra_hold` means the host's normal approval still applies, never that the command is approved.
+  - Every non-answer is a hold labelled `not_answered:<status>`, so the user can see it came from a failure and not from Jev.
+
+### jev-done-check
+
+[omh] Jev done check: does the gathered evidence support the completion claim? It can only object.
+
+- Category: `review`
+- Phase: `jev-done-check`
+- Hermes role: `reviewer`
+- Quality tier: `evidence-gated`
+- Reasoning demand: `standard`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Lifecycle stage: `canonical`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Run in Hermes: build the ask, call `omh_jev_ask`, and report the numbers. Nothing is delegated; the partner workflow keeps its own verdict and Jev's answers are one more input to it.
+- Why this exists: `jev-done-check` exists so a completion claim can meet a typed objection from observed evidence before it is reported, without Jev ever declaring anything done.
+- Use when: Use before claiming a task complete, when the user asks Jev to test each completion claim against observed output rather than the agent's own summary.
+- Do not use when:
+  - The user wants release evidence collected and recorded; use `verification-gate`.
+  - A loop is deciding whether to stop; stop rules read record fields and belong to `loop`.
+- Strong routing signals: `jev-done-check`, `jev done check`, `ask jev if this is done`, `jev evidence check`
+- Good example:
+  - Prompt: ask jev if this task is done given the test output
+  - Expected behavior: Say the claim and test excerpt leave the machine, call `done_check/v1` per claim, and report objections before claiming completion.
+  - Why: The user addressed Jev about a completion claim.
+- Bad example:
+  - Prompt: verify before merge
+  - Expected behavior: Route to `verification-gate`; nobody asked Jev.
+  - Why: Verification without Jev is the ordinary gate.
+- Quality bar:
+  - Every objection names its claim and rule.
+  - A non-answer is `not_observed`, never `no_objection`.
+- Completion checklist:
+  - Each claim has its own outcome and rule.
+  - No claim was reported done on `no_objection` alone.
+- Recovery notes:
+  - If `omh_jev_ask` is not in the tool list, say Jev is unavailable, point at the `plugin_jev_sidekick` line of `omh doctor`, and continue as main_model through the partner workflow.
+  - If the tool returns `consent_not_observed`, nothing was sent; offer the ask in one line naming what would be sent and wait for the user to reply `ask jev`.
+  - If the tool refuses `credential_like_content`, remove the secret-looking text from `state` rather than redacting it silently, and tell the user what was removed.
+- Required inputs:
+  - each completion claim
+  - an excerpt of the observed evidence
+  - the goal
+- Expected outputs:
+  - one `done_check/v1` outcome per claim
+  - the objections, if any
+- Artifact expectations:
+  - one metadata-only `omh_jev_ask_record/v1` ledger row per ask under `<omh_home>/jev/asks.jsonl`: hashes, counts, status, usage, cost; never the key, `state`, or question text
+- Safety rules:
+  - Call `omh_jev_ask` only after the user asked for Jev in this turn; a skill loaded from the index is not a request.
+  - Before the first ask, tell the user in one line what `state` will carry and that it leaves the machine.
+  - A non-answer status is never an answer: report it and continue without Jev.
+  - One ask per claim, at most 6 claims; the evidence excerpt is observed output, never the agent's summary.
+  - `no_objection` never satisfies a verification item and never stops a loop; stop criteria read record fields.
 
 ### github-event-ops
 

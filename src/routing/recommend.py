@@ -1528,6 +1528,40 @@ _SKILL_POLICIES.update(
             evidence_boundary="A sales development brief is not observed company research, prospect contact, CRM mutation, opportunity creation, meeting booking, revenue, or progress evidence.",
             wrapper_guidance="Prepare account and buyer hypotheses, evidence gaps, qualification questions, value and objection framing, outreach-draft outline, and an owned non-executing next-step plan.",
         ),
+        # The Jev skills. No action id carries `jev_`: these names reach the
+        # injected route hint, and `tests/test_route_question_surfaces.py`
+        # forbids that prefix in every injected byte (it names third-party
+        # Jev tools).
+        "jev-ask": RecommendationPolicy(
+            next_action="prepare_typed_ask",
+            evidence_boundary="Jev's probabilities are typed answers to the questions sent, not review, verification, approval, or execution evidence; a non-answer status is never an answer.",
+            wrapper_guidance="Confirm the user asked for Jev this turn, say what state will carry, send independent typed questions, and report the numbers with the served model and cost.",
+        ),
+        "jev-route": RecommendationPolicy(
+            next_action="prepare_route_question_answer",
+            evidence_boundary="A recorded route answer changes no route and dispatches nothing; the deterministic route stays in force.",
+            wrapper_guidance="Send the route_question block unchanged with the message as state, offer the pick as a clarification, and record it with the returned ask_id.",
+        ),
+        "jev-failure-triage": RecommendationPolicy(
+            next_action="prepare_failure_next_move",
+            evidence_boundary="A failure_triage/v1 outcome is an advisory next move from typed answers, not a root cause, a fix, or an approval to rerun.",
+            wrapper_guidance="Send the command and an error excerpt with the retry count, report the outcome and rule, and hand the fix to the ordinary triage workflow.",
+        ),
+        "jev-review-gate": RecommendationPolicy(
+            next_action="prepare_review_flags",
+            evidence_boundary="Review flags are advisory evidence; no_flags never approves a merge or satisfies a review item.",
+            wrapper_guidance="Name the files and cost first, send one file's diff per ask, and add the flags to the ordinary review as advisory lines.",
+        ),
+        "jev-action-check": RecommendationPolicy(
+            next_action="prepare_action_hold_check",
+            evidence_boundary="An action_check/v1 outcome can only add a hold; no_extra_hold is not an approval and the host's normal approval still applies.",
+            wrapper_guidance="Send the command, working directory, and stated task before anything runs, and report hold, refuse_recommended, or no_extra_hold with the rule.",
+        ),
+        "jev-done-check": RecommendationPolicy(
+            next_action="prepare_completion_objection_check",
+            evidence_boundary="A done_check/v1 outcome can only object; no_objection never satisfies a verification item or stops a loop.",
+            wrapper_guidance="Send one claim with an observed evidence excerpt and the goal per ask, and fix or withdraw every objected claim before reporting completion.",
+        ),
         "decision-prototype": RecommendationPolicy(
             next_action="prepare_decision_prototype",
             evidence_boundary="A decision prototype is a prepared bounded experiment, not implementation, observed execution, product validation, review, CI, or merge evidence.",
@@ -1936,6 +1970,32 @@ def scored_field_winner_without_explicit_invocation(query: str, candidate: str =
     return field[0].skill if field else ""
 
 
+def confident_scored_field_winner(query: str) -> str:
+    """The unbiased field's top skill when it scores `high`, else "".
+
+    The Jev partner swap (`routing/jev_addressing.py`) hands a message to a
+    Jev sibling only when the ordinary route had a confident owner; a
+    low-confidence top ("jev, is this README clear?" scoring `code-review`
+    at `low`) is no partner at all.
+    """
+    routing_query = scrub_diagnostic_status_text(executable_routing_text(query))
+    routing_text = prepare_routing_text(_strip_path_like_fragments(routing_query))
+    normalized_query = normalized_phrase(routing_text.scoring_text)
+    prepared_definitions = _prepared_routable_definitions()
+    field = _scored_field(
+        query,
+        routing_query=routing_query,
+        routing_text=routing_text,
+        normalized_query=normalized_query,
+        query_tokens=_tokens(normalized_query),
+        prepared_definitions=prepared_definitions,
+        definitions=[prepared.definition for prepared in prepared_definitions],
+        explicit_skill=None,
+        apply_guardrails=True,
+    )
+    return field[0].skill if field and field[0].confidence == "high" else ""
+
+
 def _scored_field(
     query: str,
     *,
@@ -1972,6 +2032,16 @@ def _scored_field(
         if recommendation is not None:
             scored.append(replace(recommendation, suggested_prompt=_suggested_prompt(recommendation.skill, query)))
     scored = [recommendation for recommendation in scored if recommendation.skill not in excluded_domain_skills]
+    # A `jev-*` skill is reached only through `routing/jev_addressing.py`, as
+    # the explicit skill. Its whole-phrase triggers and its name would still
+    # score a sentence that merely mentions it ("review the
+    # omh-jev-action-check SKILL.md diff", "the jev question format docs"),
+    # and a Jev skill sends data off the machine, so it never wins on score.
+    scored = [
+        recommendation
+        for recommendation in scored
+        if not recommendation.skill.startswith("jev-") or recommendation.skill == explicit_skill
+    ]
     if explicit_skill != "automation-blueprint" and is_explicit_one_off_request(normalized_query, query_tokens):
         scored = [recommendation for recommendation in scored if recommendation.skill != "automation-blueprint"]
     matches = scored
@@ -2033,6 +2103,16 @@ _SIBLING_POINTER_METADATA_TOKENS = {
 # phrases. Crediting them separately made unrelated sentences containing
 # `models` and `work` look like observed-work inventory requests.
 _WHOLE_PHRASE_ONLY_TRIGGER_TOKENS = {
+    # The Jev skills are reached through `routing/jev_addressing.py` only:
+    # every word their triggers are built from is held back, `jev` included,
+    # so a sentence that merely mentions Jev or a review, a failure, or a
+    # command never scores one of them.
+    "jev-ask": frozenset({"jev", "ask", "question", "score"}),
+    "jev-route": frozenset({"jev", "route", "ask", "which", "workflow", "pick"}),
+    "jev-failure-triage": frozenset({"jev", "failure", "triage", "ask", "transient"}),
+    "jev-review-gate": frozenset({"jev", "review", "gate", "ask", "diff"}),
+    "jev-action-check": frozenset({"jev", "action", "check", "ask", "command", "safe", "risk"}),
+    "jev-done-check": frozenset({"jev", "done", "check", "ask", "evidence"}),
     "running-work-board": frozenset({"board", "models", "running", "units", "what", "which", "work"}),
     # `plan` gained "make a plan" and "write a plan"/"write the plan", the
     # phrasings that carried its own intervention cases once the bare `plan`

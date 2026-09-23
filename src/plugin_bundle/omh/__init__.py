@@ -140,6 +140,7 @@ def register(ctx: _PluginContext) -> None:
     from .tools.document_plan_tool import OMH_DOCUMENT_PLAN_SCHEMA, omh_document_plan_handler
     from .tools.evidence_tool import OMH_EVIDENCE_SCHEMA, omh_evidence_handler
     from .tools.hud_tool import OMH_HUD_SCHEMA, omh_hud_handler
+    from .tools.jev_ask_tool import OMH_JEV_ASK_SCHEMA, jev_ask_available, omh_jev_ask_handler
     from .tools.loop_tool import OMH_LOOP_SCHEMA, omh_loop_handler
     from .tools.memory_tool import OMH_MEMORY_SCHEMA, omh_memory_handler
     from .tools.probe_tool import OMH_PROBE_SCHEMA, omh_probe_handler
@@ -206,6 +207,20 @@ def register(ctx: _PluginContext) -> None:
         OMH_HUD_SCHEMA,
         omh_hud_handler,
         description=OMH_HUD_SCHEMA["description"],
+    )
+    # The one tool that sends data off the machine. `check_fn` keeps its
+    # schema out of every turn unless a route resolves (a TypeSafe key, or an
+    # OpenRouter key plus the operator setting), and `requires_env` is the
+    # host's informational listing only -- it is never in `plugin.yaml`, where
+    # Hermes would prompt every OMH install for a TypeSafe key.
+    _ = ctx.register_tool(
+        "omh_jev_ask",
+        _TOOLSET,
+        OMH_JEV_ASK_SCHEMA,
+        omh_jev_ask_handler,
+        check_fn=jev_ask_available,
+        requires_env=["TYPESAFE_API_KEY"],
+        description=OMH_JEV_ASK_SCHEMA["description"],
     )
     _ = ctx.register_tool(
         "omh_interact",

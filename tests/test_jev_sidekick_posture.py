@@ -18,6 +18,7 @@ that did not run.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -912,9 +913,39 @@ class DoctorCheckTests(unittest.TestCase):
 
             self.assertTrue(check.ok)
             self.assertEqual(check.severity, "ok")
-            self.assertEqual(check.message, "optional: no Jev-class plugin installed")
+            self.assertTrue(check.message.startswith("optional: no Jev-class plugin installed | omh_jev_ask: "))
             self.assertEqual(check.detail["status"], "absent")
             self.assertEqual(doctor_ok(checks), doctor_ok(_without_jev(checks)))
+
+    def test_omh_jev_ask_is_reported_in_the_same_check_from_names_only(self) -> None:
+        # F8: one home. OMH's own tool rides the existing check; the key is a
+        # planted sentinel and must never reach the message or the detail.
+        sentinel = "sk-omh-jev-sentinel-9f8e7d6c5b4a"
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            with patch.dict(os.environ, {"TYPESAFE_API_KEY": sentinel}):
+                _checks, check = _doctor_check(paths)
+            self.assertIn("omh_jev_ask: route typesafe by variable name", check.message)
+            self.assertIn("no ask recorded", check.message)
+            self.assertIn("HTTPS proxy", check.message)
+            self.assertNotIn(sentinel, check.message)
+            self.assertNotIn(sentinel, json.dumps(check.detail))
+            self.assertEqual(check.detail["omh_jev_ask"]["route_available"], "typesafe")
+            self.assertEqual(check.detail["credential_names_present"], [])
+
+    def test_an_openrouter_key_alone_is_not_an_omh_jev_ask_route(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            env = {"OPENROUTER_API_KEY": "or-key"}
+            with patch.dict(os.environ, env):
+                os.environ.pop("TYPESAFE_API_KEY", None)
+                _checks, check = _doctor_check(paths)
+                self.assertEqual(check.detail["omh_jev_ask"]["route_available"], "none")
+                setting = paths.omh_home / "jev" / "settings.json"
+                setting.parent.mkdir(parents=True, exist_ok=True)
+                setting.write_text('{"openrouter_route": true}', encoding="utf-8")
+                _checks, check = _doctor_check(paths)
+                self.assertEqual(check.detail["omh_jev_ask"]["route_available"], "openrouter")
 
     def test_a_configured_plugin_with_no_overlap_stays_quiet(self) -> None:
         with TemporaryDirectory() as tmp:

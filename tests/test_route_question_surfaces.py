@@ -37,6 +37,7 @@ from omh.plugin_bundle.omh.route_answerers import (  # noqa: E402
 )
 from omh.plugin_bundle.omh.tool_bursts import jev_tool_observed_at, record_tool_call  # noqa: E402
 from omh.plugin_bundle.omh.tools.chat_tool import omh_interact_handler  # noqa: E402
+from omh.quality.routing_precision import ROUTING_INTERVENTION_CASES, ROUTING_PRECISION_CASES  # noqa: E402
 from omh.routing.chat import (  # noqa: E402
     public_chat_route_payload,
     route_chat_message,
@@ -269,7 +270,33 @@ class InjectedTextIsUnchangedTests(unittest.TestCase):
     recommending the egress `omh doctor` exists to disclose.
     """
 
-    MESSAGES = (UNDECIDABLE_MESSAGE, DECIDABLE_MESSAGE, "PR 리뷰 좀 해줘")
+    # Every Jev-skill intervention case joins the subject (critic C3): a route
+    # hint for a message that addresses Jev is exactly where a `jev_`-shaped
+    # action id or tool name would leak into injected text.
+    MESSAGES = (
+        UNDECIDABLE_MESSAGE,
+        DECIDABLE_MESSAGE,
+        "PR 리뷰 좀 해줘",
+        *(case.message for case in ROUTING_INTERVENTION_CASES if case.expected_workflow.startswith("jev-")),
+    )
+    # The no-`jev_` check reads every corpus sentence that names Jev, in both
+    # corpora, so the sentences that keep their ordinary owner are measured
+    # too. The prompt-context equality check keeps `MESSAGES`: "install the jev
+    # skill from the catalog" already has a wrapper hint and an empty
+    # awareness hint on origin/main, a divergence this PR did not introduce.
+    JEV_CORPUS_MESSAGES = tuple(
+        dict.fromkeys(
+            case.message
+            for case in (*ROUTING_INTERVENTION_CASES, *ROUTING_PRECISION_CASES)
+            if "jev" in case.message.casefold()
+        )
+    )
+
+    def test_the_subject_covers_every_jev_skill(self) -> None:
+        from omh.routing.jev_addressing import JEV_SKILL_NAMES
+
+        covered = {case.expected_workflow for case in ROUTING_INTERVENTION_CASES if case.message in self.MESSAGES}
+        self.assertEqual(covered & set(JEV_SKILL_NAMES), set(JEV_SKILL_NAMES))
 
     def test_the_prompt_context_is_the_awareness_text_and_nothing_else(self) -> None:
         for message in self.MESSAGES:
@@ -284,7 +311,7 @@ class InjectedTextIsUnchangedTests(unittest.TestCase):
                 self.assertEqual(payload["prompt_context"], expected)
 
     def test_no_injected_text_names_a_jev_tool_or_the_new_keys(self) -> None:
-        for message in self.MESSAGES:
+        for message in (*self.MESSAGES, *self.JEV_CORPUS_MESSAGES):
             with self.subTest(message=message):
                 context = awareness_route_hint_context_from_payload(
                     awareness_route_hint(message, max_hints=2)

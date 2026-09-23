@@ -182,9 +182,18 @@ NON_SKILL_BACKTICKS = frozenset(
 # folded into `web-research`; and `inference-serving`, `model-optimization`,
 # and `ultraperf` keep their statements with one destination each instead of
 # two. Six cases, eight pairs, two owners.
-EXPECTED_DEFERENCE_CASES = 247
-EXPECTED_DEFERENCE_PAIRS = 258
-EXPECTED_DEFERRING_OWNERS = 71
+# The six `jev-*` skills each defer to the ordinary owner of their partner
+# lane (`jev-ask` to `ask`, `strategy-brief`, and `model-setup`; `jev-route`
+# to `model-setup`; the four preset skills to `build-failure-triage`,
+# `agent-debug`, `live-incident-response`, `code-review`,
+# `verification-gate`, `security-safety-review`, `command-operator`, and
+# `loop`): fourteen cases, fourteen pairs, six new owners. `ask` gains its
+# first statement, handing typed Jev probabilities to `jev-ask` (a new
+# owner), and `strategy-brief` gains the same hand-off (no new owner). Sixteen
+# cases, sixteen pairs, seven owners.
+EXPECTED_DEFERENCE_CASES = 263
+EXPECTED_DEFERENCE_PAIRS = 274
+EXPECTED_DEFERRING_OWNERS = 78
 
 # The ratchet. Recording a new inversion must be a visible edit to this number,
 # not one more dict line with a plausible sentence attached.

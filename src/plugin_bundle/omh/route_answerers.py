@@ -8,6 +8,10 @@ of a rung is never a reason to prefer it.
 
 The rungs, most specific first:
 
+* ``omh_jev_ask`` -- OMH's own opt-in Jev tool could answer here: a route
+  resolves (a ``TYPESAFE_API_KEY``, or an OpenRouter key plus the operator
+  setting). It appears only then, with status ``available``. The tool itself
+  still refuses unless the person asked for Jev in the current turn.
 * ``jev_plugin`` -- a Jev-class plugin is on this machine. It appears only
   when one was detected, and its ``status`` is the strongest tier OMH can
   prove: ``installed`` (a manifest declares a Jev-class tool, or the plugin
@@ -36,11 +40,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .jev_ask_store import ROUTE_NONE, route_available
 from .jev_sidekick import classify_plugin
 from .runtime_reader import _yaml_list_values, installed_plugin_advertised_tools
 from .todo_store import strip_control_characters
 from .tool_bursts import jev_tool_observed_at
 
+OMH_JEV_ASK_ANSWERER = "omh_jev_ask"
 JEV_PLUGIN_ANSWERER = "jev_plugin"
 MAIN_MODEL_ANSWERER = "main_model"
 NO_ANSWERER = "none"
@@ -75,7 +81,13 @@ MAX_CONFIG_BYTES = 256 * 1024
 _JEV_CLAIM_BOUNDARY = (
     "A plugin name, an enabled name, or one observed tool call is what this "
     "machine declares, not evidence that Jev was served, that the plugin "
-    "answered anything, or that OMH called it. OMH never calls it."
+    "answered anything, or that OMH called it. OMH never calls a third-party "
+    "plugin."
+)
+_OMH_JEV_ASK_CLAIM_BOUNDARY = (
+    "Available means a route resolves here, not that Jev was served. The ask "
+    "runs only after the user asks for Jev in this turn, and it sends the "
+    "user's message off the machine."
 )
 _MAIN_MODEL_CLAIM_BOUNDARY = (
     "An answer from the model reading this payload is a routing judgment it "
@@ -95,6 +107,9 @@ def answerer_ladder(hermes_home: object = "", omh_home: object = "") -> list[dic
     observed; each absence costs its own tier and never the whole ladder.
     """
     rungs: list[dict[str, Any]] = []
+    ask_rung = _omh_jev_ask_rung(omh_home)
+    if ask_rung is not None:
+        rungs.append(ask_rung)
     jev_rung = _jev_plugin_rung(hermes_home, omh_home)
     if jev_rung is not None:
         rungs.append(jev_rung)
@@ -113,6 +128,22 @@ def answerer_ladder(hermes_home: object = "", omh_home: object = "") -> list[dic
         }
     )
     return rungs
+
+
+def _omh_jev_ask_rung(omh_home: object) -> dict[str, Any] | None:
+    """The `omh_jev_ask` rung, or None when no route resolves or no OMH home was named."""
+    home = str(omh_home or "").strip()
+    if not home:
+        return None
+    route = route_available(Path(home))
+    if route == ROUTE_NONE:
+        return None
+    return {
+        "answerer": OMH_JEV_ASK_ANSWERER,
+        "status": STATUS_AVAILABLE,
+        "route": route,
+        "claim_boundary": _OMH_JEV_ASK_CLAIM_BOUNDARY,
+    }
 
 
 def _jev_plugin_rung(hermes_home: object, omh_home: object) -> dict[str, Any] | None:
@@ -282,6 +313,7 @@ __all__ = [
     "MAX_LADDER_ITEMS",
     "MAX_LADDER_ITEM_CHARS",
     "NO_ANSWERER",
+    "OMH_JEV_ASK_ANSWERER",
     "STATUS_AVAILABLE",
     "STATUS_ENABLED",
     "STATUS_INSTALLED",

@@ -556,8 +556,8 @@ Source evidence is opt-in and local. When `--source-ref` names an absolute
 path to a readable local file, capture records the file's SHA-256 alongside it.
 Every later freshness check re-reads that file and compares. A ref that is not
 an absolute path, a file that is gone or unreadable, and a file past the
-digest budget all read as `unknown` — never as `fresh`. OMH makes no network
-call to check anything, and never rewrites or deletes a record because its
+digest budget all read as `unknown` — never as `fresh`. The freshness check
+makes no network call, and never rewrites or deletes a record because its
 source moved.
 
 Both `stale` and `unknown` are ineligible for default recall, exactly like

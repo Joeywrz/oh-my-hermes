@@ -760,6 +760,43 @@ PARSING_ONLY_URLLIB_REQUEST_FILES: dict[str, str] = {
 }
 
 
+# The one opt-in network client in `src/`. Its whole surface is these names:
+# a request object, an opener, the HTTPS handler, and the redirect handler it
+# subclasses to refuse every 3xx. Each entry must still import from
+# `urllib.request` (stale check), and only its named importer may import it.
+NETWORK_CLIENT_BRIDGES: dict[str, str] = {
+    "src/plugin_bundle/omh/jev_ask_client.py": (
+        "omh_jev_ask -- the one opt-in bridge that POSTs typed questions to Jev with the user's own "
+        "key; reached only from an explicit tool call, after the user named Jev in that turn and a "
+        "route resolved; fixed two-host HTTPS route table, redirects refused, bounded both ways; "
+        "documented as a scoped exception in CLAUDE.md and AGENTS.md."
+    ),
+}
+NETWORK_CLIENT_BRIDGE_URLLIB_NAMES = frozenset({"Request", "build_opener", "HTTPSHandler", "HTTPRedirectHandler"})
+NETWORK_CLIENT_BRIDGE_IMPORTERS: dict[str, frozenset[str]] = {
+    "src/plugin_bundle/omh/jev_ask_client.py": frozenset({"src/plugin_bundle/omh/tools/jev_ask_tool.py"}),
+}
+
+
+def _module_stem(relative_path: str) -> str:
+    return relative_path.rsplit("/", 1)[-1].removesuffix(".py")
+
+
+def _imports_module_named(tree: ast.Module, stem: str) -> bool:
+    """Whether a tree imports a module whose last dotted part is *stem*, at any scope and level."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(alias.name.split(".")[-1] == stem for alias in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if module.split(".")[-1] == stem:
+                return True
+            if any(alias.name == stem for alias in node.names):
+                return True
+    return False
+
+
 class NoNetworkClientInSource(unittest.TestCase):
     """INVARIANT 2 (GENUINE NEW COVERAGE): core omh cannot open a connection.
 
@@ -798,6 +835,16 @@ class NoNetworkClientInSource(unittest.TestCase):
         for relative_path, tree in _source_modules():
             for module, names, lineno in _imported_modules(tree):
                 if module != "urllib.request" and not module.startswith("urllib.request."):
+                    continue
+                if relative_path in NETWORK_CLIENT_BRIDGES:
+                    extra = sorted(set(names) - NETWORK_CLIENT_BRIDGE_URLLIB_NAMES)
+                    self.assertTrue(names, f"{relative_path} line {lineno} binds the whole `urllib.request` module")
+                    self.assertEqual(
+                        extra,
+                        [],
+                        f"INVARIANT 2: the network client bridge {relative_path} imports {extra} from "
+                        f"`urllib.request`; its surface is {sorted(NETWORK_CLIENT_BRIDGE_URLLIB_NAMES)}.",
+                    )
                     continue
                 self.assertTrue(
                     names,
@@ -839,6 +886,45 @@ class NoNetworkClientInSource(unittest.TestCase):
             f"Delete the entries from PARSING_ONLY_URLLIB_REQUEST_FILES in {THIS_TEST} rather than "
             f"leaving standing permission behind.",
         )
+
+
+    def test_the_network_client_bridge_list_is_not_stale(self) -> None:
+        importing = {
+            relative_path
+            for relative_path, tree in _source_modules()
+            for module, _names, _lineno in _imported_modules(tree)
+            if module == "urllib.request"
+        }
+        stale = sorted(set(NETWORK_CLIENT_BRIDGES) - importing)
+        self.assertEqual(
+            stale,
+            [],
+            f"INVARIANT 2: {stale} are listed in NETWORK_CLIENT_BRIDGES in {THIS_TEST} but no longer "
+            f"import a client. Delete the entries rather than leaving standing permission behind.",
+        )
+        self.assertEqual(set(NETWORK_CLIENT_BRIDGES), set(NETWORK_CLIENT_BRIDGE_IMPORTERS))
+
+    def test_a_network_client_bridge_has_only_its_named_importer(self) -> None:
+        for bridge, allowed in NETWORK_CLIENT_BRIDGE_IMPORTERS.items():
+            stem = _module_stem(bridge)
+            importers = {
+                relative_path
+                for relative_path, tree in _source_modules()
+                if relative_path != bridge and _imports_module_named(tree, stem)
+            }
+            self.assertEqual(
+                importers,
+                set(allowed),
+                f"INVARIANT 2: {bridge} is the opt-in network client and may be imported only by "
+                f"{sorted(allowed)}; found {sorted(importers)}. Route the new caller through that tool.",
+            )
+
+    def test_the_bridge_imports_no_lower_level_client(self) -> None:
+        for relative_path, tree in _source_modules():
+            if relative_path not in NETWORK_CLIENT_BRIDGES:
+                continue
+            tops = {module.split(".")[0] for module, _names, _lineno in _imported_modules(tree) if module}
+            self.assertEqual(tops & {"http", "socket", "ssl"}, set(), relative_path)
 
 
 # --------------------------------------------------------------------------

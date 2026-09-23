@@ -68,6 +68,28 @@ class ClassifiedSite(NamedTuple):
 
 CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
     ClassifiedSite(
+        "src/plugin_bundle/omh/jev_ask_client.py",
+        "send_ask",
+        INTENTIONAL,
+        "A transport failure urllib does not name (an http.client error the bridge may not import) "
+        "becomes the named network_error status with ok false and answers null; it is never an "
+        "answer, and the caller sees retryable true.",
+    ),
+    ClassifiedSite(
+        "src/plugin_bundle/omh/jev_ask_store.py",
+        "route_available",
+        INTENTIONAL,
+        "The check_fn availability probe fails closed to route none, which hides omh_jev_ask; a host "
+        "reader error can only remove the tool, never enable a send.",
+    ),
+    ClassifiedSite(
+        "src/plugin_bundle/omh/tools/jev_ask_tool.py",
+        "jev_ask_available",
+        INTENTIONAL,
+        "An unbound OMH home at check time hides omh_jev_ask rather than failing the host's tool "
+        "registry probe; the tool stays unavailable, which is the safe side.",
+    ),
+    ClassifiedSite(
         "src/plugin_bundle/omh/engagement_nudges.py",
         "observe_engagement_outcome",
         INTENTIONAL,
@@ -408,8 +430,8 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
 # function. `_write_candidate_batch`, `_is_catalog_question`, `pre_llm_call`,
 # `_resume_unlocked`, and `_execute_cell` each hold two handlers, so the handler
 # count is five above the anchor count.
-EXPECTED_HANDLER_COUNT = 42
-EXPECTED_ANCHOR_COUNT = 37
+EXPECTED_HANDLER_COUNT = 45
+EXPECTED_ANCHOR_COUNT = 40
 
 
 class DerivedSite(NamedTuple):

@@ -51,13 +51,20 @@ ROUTE_ANSWER_DIRNAME = "route-questions"
 
 ANSWERED_BY_JEV_PLUGIN = "jev_plugin"
 ANSWERED_BY_MAIN_MODEL = "main_model"
-ANSWERED_BY_VALUES = (ANSWERED_BY_JEV_PLUGIN, ANSWERED_BY_MAIN_MODEL)
+# OMH's own `omh_jev_ask` call. Accepted only with an `ask_id` whose ledger row
+# is `answered` and carries the same question digest, so the host model cannot
+# claim Jev provenance for its own guess.
+ANSWERED_BY_OMH_JEV_ASK = "omh_jev_ask"
+ANSWERED_BY_VALUES = (ANSWERED_BY_JEV_PLUGIN, ANSWERED_BY_MAIN_MODEL, ANSWERED_BY_OMH_JEV_ASK)
 
 # Who said the numbers, never how good they are. `calibrated` is not a value
 # OMH can write: it never sees the request, the response, or whether a plugin
 # called anything at all.
 CONFIDENCE_SELF_REPORTED = "self_reported"
 CONFIDENCE_ANSWERER_DECLARED = "answerer_declared"
+# A number OMH received itself, in the reply to its own ask. Still not
+# `calibrated`: it says who produced the number, not how good it is.
+CONFIDENCE_OBSERVED_FROM_RESPONSE = "observed_from_response"
 
 DISPATCH_ACTION = "dispatch"
 CLARIFY_ACTION = "clarify"
@@ -100,7 +107,8 @@ CLAIM_BOUNDARY = (
     "A recorded answer is a routing judgment declared by the caller, not "
     "execution, review, CI, or merge evidence, and it does not change the "
     "route. A main_model confidence is self-reported; an answerer_declared "
-    "confidence was not observed by OMH."
+    "confidence was not observed by OMH; an observed_from_response confidence "
+    "is the number Jev returned to OMH's own omh_jev_ask call."
 )
 
 _RECORD_NAME = re.compile(r"(?:[A-Za-z0-9_-]{1,48}-)?[0-9a-f]{16}\.json")
@@ -128,11 +136,11 @@ def confidence_source_for(answered_by: str) -> str:
     confidence source could name `calibrated`, and the whole point of the
     field is that OMH says who spoke, not how good the number is.
     """
-    return (
-        CONFIDENCE_ANSWERER_DECLARED
-        if answered_by == ANSWERED_BY_JEV_PLUGIN
-        else CONFIDENCE_SELF_REPORTED
-    )
+    if answered_by == ANSWERED_BY_JEV_PLUGIN:
+        return CONFIDENCE_ANSWERER_DECLARED
+    if answered_by == ANSWERED_BY_OMH_JEV_ASK:
+        return CONFIDENCE_OBSERVED_FROM_RESPONSE
+    return CONFIDENCE_SELF_REPORTED
 
 
 def resolve_action(
@@ -175,6 +183,7 @@ def build_route_answer_record(
     message_sha256: object = "",
     digest_verified: bool = False,
     recorded_at: str = "",
+    ask_id: object = "",
 ) -> dict[str, Any]:
     """Validate one answer and return the record to write.
 
@@ -234,6 +243,11 @@ def build_route_answer_record(
     validated_note = _validated_note(note)
     if validated_note:
         record["note"] = validated_note
+    validated_ask_id = strip_control_characters(ask_id)[:32]
+    if answerer == ANSWERED_BY_OMH_JEV_ASK and not validated_ask_id:
+        raise RouteAnswerValidationError("answered_by omh_jev_ask needs the ask_id omh_jev_ask returned")
+    if validated_ask_id:
+        record["ask_id"] = validated_ask_id
     encoded = json.dumps(record, sort_keys=True)
     if len(encoded.encode("utf-8")) > MAX_ROUTE_ANSWER_RECORD_BYTES:
         raise RouteAnswerValidationError(
@@ -553,11 +567,13 @@ def _utc_now() -> str:
 __all__ = [
     "ANSWERED_BY_JEV_PLUGIN",
     "ANSWERED_BY_MAIN_MODEL",
+    "ANSWERED_BY_OMH_JEV_ASK",
     "ANSWERED_BY_VALUES",
     "ANSWER_ROW_SCHEMA_VERSION",
     "CLAIM_BOUNDARY",
     "CLARIFY_ACTION",
     "CONFIDENCE_ANSWERER_DECLARED",
+    "CONFIDENCE_OBSERVED_FROM_RESPONSE",
     "CONFIDENCE_SELF_REPORTED",
     "DISPATCH_ACTION",
     "FITS_CLARIFY_THRESHOLD",

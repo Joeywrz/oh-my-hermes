@@ -23,7 +23,11 @@ class SkillContextCostTests(unittest.TestCase):
         # is read at the moment the reply is written, so it rides every body's
         # tail on purpose; the substitution table stays in the rail. Repeated
         # bytes measure 101,024 with it. Warranted always-loaded growth.
-        self.assertLess(profile["repeated"]["bytes"], 104_000)
+        # 104,000 -> 107,000: the six `jev-*` bodies each carry the lines
+        # every workflow body must (the reply rule, completion checklist,
+        # fallback contract, lane footer), taking repeated bytes to 104,214;
+        # their shared Jev rules live once in `jev-rail.md` instead.
+        self.assertLess(profile["repeated"]["bytes"], 107_000)
 
     def test_ulw_context_reports_bounded_static_body_and_progressive_references(self) -> None:
         payload = skill_context_cost_payload()

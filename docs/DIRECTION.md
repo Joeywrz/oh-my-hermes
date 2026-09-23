@@ -180,7 +180,11 @@ The policy:
   OMH names who answered rather than how good the answer was.
 
 This keeps the "not an LLM router" boundary above intact: the selection happens
-in Hermes, and core `omh` still makes no LLM, API, or network call.
+in Hermes, and core `omh` still makes no LLM, API, or network call on its own.
+The one scoped exception is the opt-in `omh_jev_ask` tool: when the user names
+Jev in a turn and a key resolves, it sends that turn's typed questions to Jev
+and returns probabilities. It re-routes nothing; its answer can be recorded
+with `answered_by: omh_jev_ask` only against an answered ledger row.
 
 ## Project Terms Authority
 

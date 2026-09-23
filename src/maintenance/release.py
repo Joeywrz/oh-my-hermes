@@ -132,12 +132,19 @@ ROLE_CONTEXT_CHAR_LIMIT = 2600
 #
 # The full-profile `<available_skills>` lines, rendered with Hermes's 60-char
 # description rule (`src/skills/skill_index.py`): 124 skill lines and 9
-# category headers, joined by newlines.
-SKILL_INDEX_CHAR_LIMIT = 10894
+# category headers, joined by newlines, when the budget landed (130 lines
+# with the Jev skills).
+# 10894 -> 11411: the six default-installed `jev-*` skills add six index
+# lines. They declare `requires_tools: [omh_jev_ask]`, so a Hermes caller that
+# passes a tool set drops them where the tool is not registered (code-read);
+# this producer renders the full profile and counts them. Re-derived from the
+# producer.
+SKILL_INDEX_CHAR_LIMIT = 11411
 # The longest single skill line in that index. Every description is already cut
 # to 60 characters, so what moves this is a longer skill name.
 SKILL_INDEX_LINE_CHAR_LIMIT = 100
-# The plugin bundle's registered tool schemas, 19 tools serialized as JSON with
+# The plugin bundle's registered tool schemas, 19 tools when the budget landed
+# (20 with `omh_jev_ask`), serialized as JSON with
 # sorted keys (`src/maintenance/per_turn_context.py`); `omh_todo` and `omh_loop`
 # are the largest. This is the eager ceiling: all of it rides every request only
 # when Hermes's `tools.tool_search.enabled` is `off`, or on a host without the
@@ -151,7 +158,12 @@ SKILL_INDEX_LINE_CHAR_LIMIT = 100
 # `omh_capabilities` (1433 -> 1590) now says its default is `summary`
 # (`export` when only a section is given) and which actions read `section`.
 # Producer-measured after the change.
-PLUGIN_TOOL_SCHEMA_CHAR_LIMIT = 55468
+# 55468 -> 59259: the `omh_jev_ask` schema (its description carries the
+# consent rule and the egress disclosure the model reads before calling) and
+# `omh_route_answer`'s `ask_id` field and `omh_jev_ask` provenance wording.
+# Hermes exposes `omh_jev_ask` only where a route resolves (`check_fn`), so a
+# keyless install does not pay its share. Re-derived from the producer.
+PLUGIN_TOOL_SCHEMA_CHAR_LIMIT = 59259
 # The largest fenced `pre_llm_call` context over the named scenario set in
 # `src/maintenance/per_turn_context.py` (the `all_surfaces` scenario). Hermes
 # replays each turn's injection from `api_content` on every later turn, so this
@@ -398,7 +410,10 @@ PRE_LLM_CALL_CONTEXT_CHAR_LIMIT = 6260
 # meanings travel with the declaration, so a surface quoting it cannot quote a
 # name without its definition. 91 of the body's 298 reach this section.
 # Re-derived from the producer.
-FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 422908
+# 422908 -> 438876: the six default-installed `jev-*` skills add their
+# capability rows. Re-derived from the producer after rebasing past the
+# observed_check_results declaration (#1788).
+FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 438876
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # 100000 -> 102070: the same three domain workflows each add one standalone
 # capability row, again measured on the merged tree; warranted growth for three
@@ -447,7 +462,9 @@ FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 # demand and is counted outside this budget. Re-derived from the producer.
 # 120089 -> 117254: the same three standalone capability rows leave with the
 # skills retired by #1691. Re-derived from the producer.
-STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 117254
+# 117254 -> 122889: the same six `jev-*` rows in the standalone section.
+# Re-derived from the producer.
+STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 122889
 STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # ULW fold context ceiling (issue #954, PR D). The limit is the pre-D measured
 # value of the full profile's `skill_body` chars on `main` @ acb9a060, in the
@@ -1449,7 +1466,15 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # request (`SKILL_INDEX_CHAR_LIMIT` above) and its body only when the model
 # loads it -- about 8k chars per load, and a loaded body stays in history
 # until compaction.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1029724
+# 1029724 -> 1044180: six compact `jev-*` bodies (the contract, preset
+# tables, and shared rail are references outside this budget), one deference
+# line each on `ask` and `strategy-brief` (installed as `omh-decide`), and the
+# lane-mate "+N more" counts the six moved. Each Jev body carries the reply
+# rule every workflow body carries. Re-derived from the full-profile
+# skill_context_cost_payload() producer after rebasing past the GPT-6 Sol
+# onboarding, the per-turn budget split (#1843), and the
+# observed_check_results declaration (#1788).
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1044180
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

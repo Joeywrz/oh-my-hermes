@@ -72,6 +72,37 @@ All notable changes will be documented here.
   The `gpt_sol_codex_handoff` overlay keeps applying to GPT-6 Sol as a Codex
   main agent, now pinned by a test that names it.
 
+- **OMH can ask Jev itself, when the user asks for it (#1795).** A new
+  `omh_jev_ask` plugin tool sends typed questions (yes/no, pick-one, scored) to
+  Jev with the user's own key and returns probabilities, and six
+  default-installed skills use it: `omh-jev-ask`, `omh-jev-route` (answers an
+  undecidable route question and records it as `answered_by: omh_jev_ask`),
+  `omh-jev-failure-triage`, `omh-jev-review-gate`, `omh-jev-action-check`, and
+  `omh-jev-done-check`. The last four call versioned presets whose rule ladders
+  run in OMH code and can only add a hold, a flag, or an objection; a failed
+  ask is labelled `not_answered:<status>` and never reads as Jev's answer. This
+  is the second scoped exception to "OMH makes no network calls", and it is
+  narrow on purpose: the tool opens no socket unless the person's own message
+  for that turn names Jev (`consent_not_observed` otherwise; text the host adds,
+  such as a quoted reply to the bot's own offer or an inlined attachment, does
+  not count, and cron, subagent, and kanban-worker turns never do), only a
+  `TYPESAFE_API_KEY` enables it by itself (the OpenRouter route also needs
+  `{"openrouter_route": true}` in `<omh_home>/jev/settings.json`), the route
+  table is two fixed HTTPS hosts, redirects are refused, a timeout (a
+  gateway's 504 or 524 included) is never retried, the deadline bounds the
+  read as well as the connect, and no key, `state`, question text, or reply is
+  stored; a key echoed back by the server is scrubbed from every path. The skills
+  declare `requires_tools: [omh_jev_ask]`, so Hermes leaves them out of the
+  skill index where the tool is not registered (code-read, not observed live),
+  for callers that pass a tool set; a caller that passes none shows them.
+  Routing reaches a Jev skill only when a message addresses Jev ("ask jev",
+  "use jev", "have jev", a skill name in its invocation form); sentences that
+  only mention Jev, decline it, name it among options, or explicitly invoke a
+  different OMH skill keep their owner, pinned by new corpus cases. `omh doctor`'s `plugin_jev_sidekick`
+  line now also reports the tool's route by variable name, its ledger, and what
+  it sends. No live Jev call was made; every wire fact is documented, not
+  observed.
+
 - **The Claude subagent calibration no longer tells the model to keep
   working.** The high-effort `claude` block said "No one is watching this
   unit in real time: proceed on every reversible action inside the boundary

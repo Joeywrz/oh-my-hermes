@@ -89,6 +89,116 @@
       "reviewed_on": "2026-09-19",
       "rationale": "Adopted stable FR-/SC- ids, the requirement-to-task-to-evidence map, six separate passes, four-level severity, and the capped read-only report with its metrics block.",
       "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-23-jev-ask-skills",
+      "candidate_key": "jev-ask@github.com/typesafe-ai/skills",
+      "prior_checkpoint": null,
+      "next_checkpoint": "65a39f393687675ce170e6094757de20370365b9",
+      "disposition": "adopted",
+      "decision_ref": "#1795",
+      "reviewed_on": "2026-09-23",
+      "rationale": "Adopted independent typed questions over one state, a no-match option, and confidence-is-not-permission as OMH-worded rules; app-code guidance stays a pointer.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-23-jev-ask-hermes-jev-plugin",
+      "candidate_key": "jev-ask@github.com/ajensenwaud/hermes-jev-plugin",
+      "prior_checkpoint": null,
+      "next_checkpoint": "b3d29f71770a3447ad0b3db00658f64a8edc7dd3",
+      "disposition": "adopted",
+      "decision_ref": "#1795",
+      "reviewed_on": "2026-09-23",
+      "rationale": "Adopted atomic questions, state as evidence, and code-side combination; every instruction string was rewritten in OMH wording.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-23-jev-ask-hermes-jev",
+      "candidate_key": "jev-ask@github.com/ourines/hermes-jev",
+      "prior_checkpoint": null,
+      "next_checkpoint": "de6f674a99ea03e11cfb1830dd1527ae208e3fea",
+      "disposition": "adopted",
+      "decision_ref": "#1795",
+      "reviewed_on": "2026-09-23",
+      "rationale": "Adopted advisory-only use and failure-is-never-an-answer as the tool's status contract; upstream wording and its sidekick framing rejected.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-23-jev-route-typesafe-skill-router",
+      "candidate_key": "jev-route@github.com/decrux9812/typesafe-skill-router",
+      "prior_checkpoint": null,
+      "next_checkpoint": "94fe114b3c53b3d6b81ba72890eb6db596cbaa12",
+      "disposition": "adopted",
+      "decision_ref": "#1795",
+      "reviewed_on": "2026-09-23",
+      "rationale": "Adopted the Choice-plus-fits shape and one ledger row per ask through route_question/v1; per-turn injection rejected.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-23-jev-route-jev-agent-router",
+      "candidate_key": "jev-route@github.com/pinutss/jev-agent-router",
+      "prior_checkpoint": null,
+      "next_checkpoint": "8cb6d67a81d4545502750c4599b427d98acf3120",
+      "disposition": "adopted",
+      "decision_ref": "#1795",
+      "reviewed_on": "2026-09-23",
+      "rationale": "Adopted abstain-as-a-legal-answer; the router's non-TypeSafe wire shape and model routing rejected.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-23-jev-failure-triage-hermes-jev",
+      "candidate_key": "jev-failure-triage@github.com/ourines/hermes-jev",
+      "prior_checkpoint": null,
+      "next_checkpoint": "de6f674a99ea03e11cfb1830dd1527ae208e3fea",
+      "disposition": "adopted",
+      "decision_ref": "#1795",
+      "reviewed_on": "2026-09-23",
+      "rationale": "Adopted repeat detection and an access exit as Nouls under an OMH rule ladder; the next-move Choice itself was dropped because no rule reads it.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-23-jev-failure-triage-hermes-jev-plugin",
+      "candidate_key": "jev-failure-triage@github.com/ajensenwaud/hermes-jev-plugin",
+      "prior_checkpoint": null,
+      "next_checkpoint": "b3d29f71770a3447ad0b3db00658f64a8edc7dd3",
+      "disposition": "adopted",
+      "decision_ref": "#1795",
+      "reviewed_on": "2026-09-23",
+      "rationale": "Adopted transient, missing-dependency, and access Nouls, rewritten in OMH wording with a fixed code ladder.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-23-jev-review-gate-hermes-jev-plugin",
+      "candidate_key": "jev-review-gate@github.com/ajensenwaud/hermes-jev-plugin",
+      "prior_checkpoint": null,
+      "next_checkpoint": "b3d29f71770a3447ad0b3db00658f64a8edc7dd3",
+      "disposition": "adopted",
+      "decision_ref": "#1795",
+      "reviewed_on": "2026-09-23",
+      "rationale": "Adopted per-file Nouls plus a severity Score combined in code as additive flags; no outcome can approve a merge.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-23-jev-action-check-hermes-jev-approvals",
+      "candidate_key": "jev-action-check@github.com/anpicasso/hermes-jev-approvals",
+      "prior_checkpoint": null,
+      "next_checkpoint": "530fdb006f1637f9771ccf24049bf6588485c871",
+      "disposition": "adopted",
+      "decision_ref": "#1795",
+      "reviewed_on": "2026-09-23",
+      "rationale": "Adopted six questions and an ordered fail-closed ladder resembling jev-approval-rules/1; thresholds unmeasured, approve branch rejected, questions rewritten.",
+      "supersedes": null
+    },
+    {
+      "receipt_id": "ssc-2026-09-23-jev-done-check-hermes-jev",
+      "candidate_key": "jev-done-check@github.com/keeltrace/hermes-jev",
+      "prior_checkpoint": null,
+      "next_checkpoint": "375f17872bb59c2de1e7102e9bc7471774150c62",
+      "disposition": "adopted",
+      "decision_ref": "#1795",
+      "reviewed_on": "2026-09-23",
+      "rationale": "Adopted evidence-over-self-report as an objection-only preset; the PASS verdict and any authority increase rejected.",
+      "supersedes": null
     }
   ]
 }

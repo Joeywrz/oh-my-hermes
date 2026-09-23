@@ -584,7 +584,12 @@ always present. A `jev_plugin` rung appears only when a Jev-class plugin was
 detected, at the strongest tier OMH can prove: `installed` when a manifest
 declares a `jev_` tool, `enabled` when Hermes' config also lists the plugin, and
 `observed` when such a tool call has reached dispatch here at least once. OMH
-never calls it, and no text OMH injects into a turn names a third-party tool.
+never calls a third-party plugin, and no text OMH injects into a turn names a
+third-party tool. An `omh_jev_ask` rung comes first when OMH's own opt-in Jev
+tool has a route on this machine (a `TYPESAFE_API_KEY`, or an OpenRouter key
+plus the operator setting); the `omh-jev-route` skill uses it, and only after
+the user asks Jev in that turn, because the ask sends the user's message off the
+machine.
 
 An answer is recorded with the `omh_route_answer` plugin tool and changes
 nothing: the deterministic route stays in force whether the question is answered
@@ -593,8 +598,11 @@ or not. The record is written so the answerer can be measured: it embeds the
 <dir>` reads, so a second opinion is scored against OMH's own routing corpora.
 `confidence_source` names who spoke, never how good the number is:
 `self_reported` when the host model answered about itself, `answerer_declared`
-when a plugin reported a number OMH did not observe. An answer whose digest
-names a question the message cannot produce is refused rather than recorded.
+when a plugin reported a number OMH did not observe, and `observed_from_response`
+when OMH's own `omh_jev_ask` call received it. `answered_by: omh_jev_ask` is
+refused unless its `ask_id` names an answered ledger row for the same digest. An
+answer whose digest names a question the message cannot produce is refused
+rather than recorded.
 
 The record also carries `message_sha256`, the sha256 of the raw request, and
 repeats it on the embedded row. That is what a scorer joins on, because the

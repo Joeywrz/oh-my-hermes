@@ -158,12 +158,12 @@ SKILL_INDEX_LINE_CHAR_LIMIT = 100
 # `omh_capabilities` (1433 -> 1590) now says its default is `summary`
 # (`export` when only a section is given) and which actions read `section`.
 # Producer-measured after the change.
-# 55468 -> 59259: the `omh_jev_ask` schema (its description carries the
+# 55468 -> 59258: the `omh_jev_ask` schema (its description carries the
 # consent rule and the egress disclosure the model reads before calling) and
 # `omh_route_answer`'s `ask_id` field and `omh_jev_ask` provenance wording.
 # Hermes exposes `omh_jev_ask` only where a route resolves (`check_fn`), so a
 # keyless install does not pay its share. Re-derived from the producer.
-PLUGIN_TOOL_SCHEMA_CHAR_LIMIT = 59259
+PLUGIN_TOOL_SCHEMA_CHAR_LIMIT = 59258
 # The largest fenced `pre_llm_call` context over the named scenario set in
 # `src/maintenance/per_turn_context.py` (the `all_surfaces` scenario). Hermes
 # replays each turn's injection from `api_content` on every later turn, so this

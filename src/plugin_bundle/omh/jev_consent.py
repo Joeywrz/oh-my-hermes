@@ -37,13 +37,21 @@ from host material and the person's words (`gateway/run_inbound.py`,
 * in a shared multi-user session, a `[<display name>] ` sender prefix on the
   text itself;
 * adapter-inlined material with no closing boundary: `[Content of <name>]:`
-  file text and QQ's `[Quoted message]:` block.
+  file text and QQ's `[Quoted message]:` block;
+* `@`-reference expansion, appended AFTER the person's text: Hermes runs
+  `preprocess_context_references` over the whole assembled message, backfill
+  included, and adds `--- Context Warnings ---` (a line per reference, each
+  naming the reference) and `--- Attached Context ---` (fetched file, folder,
+  git, or page content) on their own lines (`agent/context_references.py`,
+  read at hermes-agent origin/main 6b6c7f4a99; the CLI and TUI turns run the
+  same expansion). A backfilled `@file:jev...` from an unverified sender, or a
+  page the person linked that says "call omh_jev_ask", lands there.
 
-So the person's segment is found by cutting after the last backfill separator
-or, without one, after the last `]` plus blank line, and it counts only if no
-host-block opener and no other bracketed line survives the cut; a message with
-inlined material records "not requested" outright, because it cannot be
-split. The sender prefix is removed before matching. Every step can only
+So the person's segment is found by cutting at the first expansion header
+line, then after the last backfill separator or, without one, after the last
+`]` plus blank line, and it counts only if no host-block opener and no other
+bracketed line survives the cut; a message with inlined material records "not
+requested" outright, because it cannot be split. The sender prefix is removed before matching. Every step can only
 remove text, so a wrong cut fails closed.
 
 In a shared multi-user session any participant can type "ask jev", so there
@@ -144,6 +152,9 @@ _UNSPLITTABLE_MARKERS: Final = (
     "[Content of ",
     "[Quoted message]",
 )
+# Headers `agent/context_references.py` appends after the whole assembled
+# message when it expands `@file:`/`@url:`/`@folder:`/git references.
+_EXPANSION_HEADERS: Final = ("--- Context Warnings ---", "--- Attached Context ---")
 # `[<display name>] ` at the start of the person's text in a shared session.
 _SENDER_PREFIX: Final = re.compile(r"\[[^\]\n]*\] ")
 
@@ -153,6 +164,15 @@ def _person_segment(message: object, *, messaging: bool) -> tuple[str, bool]:
     text = str(message or "")
     if any(marker in text for marker in _UNSPLITTABLE_MARKERS):
         return "", False
+    # Everything from the first `@`-reference expansion header on is host
+    # material: warnings and fetched file or page content. Cut before any
+    # other search, so a separator or block end inside fetched text is never
+    # taken for the host's.
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        if line.strip() in _EXPANSION_HEADERS:
+            text = "\n".join(lines[:index])
+            break
     if _BACKFILL_SEPARATOR in text:
         text = text.rsplit(_BACKFILL_SEPARATOR, 1)[1]
         # A separator spelled inside a quoted block is not the host's: cut

@@ -85,7 +85,8 @@ All notable changes will be documented here.
   narrow on purpose: the tool opens no socket unless the person's own message
   for that turn names Jev (`consent_not_observed` otherwise; text the host adds,
   such as a quoted reply to the bot's own offer, channel history, an image
-  description, or an inlined attachment, does not count; only an allowlisted
+  description, an inlined attachment, or a file or page an `@`-reference
+  pulled in, does not count; only an allowlisted
   platform a person types into can consent, never a webhook, API, cron,
   subagent, batch, single-query, or kanban-worker turn; in a shared chat only
   the participant who opened the session can; and the consent is bound to its

@@ -11,11 +11,13 @@ load_local_package()
 from omh.config_adapter import (
     ensure_plugin_enabled,
     plugin_enablement,
+    plugin_enablement_is_readable,
     plugin_enablement_shape_error,
     plugin_is_enabled,
     plugins_enabled_extension_error,
     remove_plugin_enabled,
 )
+from omh.maintenance import doctor as doctor_module
 from omh.maintenance.doctor import run_doctor
 from omh.paths import resolve_paths
 from omh.plugin_pack import PLUGIN_NAME
@@ -34,6 +36,45 @@ plugins:
 """
 
 DISABLED_CONFIG = ENABLED_CONFIG.replace("  enabled:\n    - omh\n", "  enabled:\n")
+
+# One corpus, answered by every caller below. Each pair is a `plugins` node
+# OMH reads and whether it enables `omh`; each expectation is the answer
+# Hermes' own loader gives that text, measured with the PyYAML in the Hermes
+# venv rather than reasoned about here. The block form, the single-line flow
+# mapping and a `plugins:` line carrying only a comment are all forms Hermes
+# loads, so all three have to reach the same answer (#1814).
+READABLE_PLUGINS_NODES: tuple[tuple[str, bool], ...] = (
+    ("plugins:\n  enabled:\n    - omh\n", True),
+    ("plugins: {enabled: [omh]}\n", True),
+    ("plugins: {enabled: [omh], disabled: [browser]}\n", True),
+    ("plugins: {enabled: [omh]} # third-party\n", True),
+    ("plugins:   {  enabled : [ omh , other ] }\n", True),
+    ("plugins:  # third-party\n  enabled:\n    - omh\n", True),
+    ("plugins: {enabled: ['omh']}\n", True),
+    ("plugins:\n  enabled: []\n", False),
+    ("plugins: {}\n", False),
+    ("plugins: {enabled: [browser]}\n", False),
+    ("plugins: {enabled: [omh], disabled: [omh]}\n", False),
+    ("plugins: {disabled: [omh]}\n", False),
+    ("plugins: {enabled: null}\n", False),
+    ("plugins:  # none yet\n  enabled: []\n", False),
+)
+
+# Nodes outside what the reader follows. The first two and the fifth are valid
+# YAML that enables `omh` -- an alias, an anchored block, a repeated key whose
+# last value wins -- so an empty answer over them would be the exact false
+# negative this corpus exists to keep out. The fourth and the last are files
+# Hermes refuses to parse at all. None of them may render as "not enabled".
+UNREADABLE_PLUGINS_NODES: tuple[str, ...] = (
+    "base: &plugins\n  enabled: [omh]\nplugins: *plugins\n",
+    "plugins: &p\n  enabled:\n    - omh\n",
+    "plugins: {enabled: {omh: true}}\n",
+    "plugins: {enabled: [omh}\n",
+    "plugins: {enabled: [a], enabled: [omh]}\n",
+    'plugins: {enabled: ["om\\"h"]}\n',
+    "plugins: browser\n",
+    "plugins: {enabled [omh]}\n",
+)
 
 
 class PluginEnablementReaderTests(unittest.TestCase):
@@ -81,6 +122,148 @@ class PluginEnablementReaderTests(unittest.TestCase):
     def test_items_under_an_untracked_key_are_ignored(self) -> None:
         text = "plugins:\n  order:\n  - omh\n  enabled: []\n"
         self.assertEqual(plugin_enablement(text), {"enabled": [], "disabled": []})
+
+
+class PluginsNodeCorpusTests(unittest.TestCase):
+    """Every caller answers the same corpus, and none of them invents a negative.
+
+    The #1814 report: `plugins: {enabled: [hermes-jev]}` is valid YAML Hermes
+    loads the plugin from, and the reader's entry condition was the exact text
+    `plugins:`, so it returned the empty lists a config enabling nothing
+    returns and every caller said "not enabled" about a plugin the host had
+    on. The corpus above is what keeps the two answers apart: a node OMH reads
+    answers like the block form, a node it does not read answers "unknown"
+    everywhere, and neither ever reads as a negative.
+    """
+
+    def test_every_readable_node_answers_what_hermes_answers(self) -> None:
+        for text, enabled in READABLE_PLUGINS_NODES:
+            with self.subTest(text=text):
+                self.assertTrue(plugin_enablement_is_readable(text), text)
+                self.assertEqual(plugin_is_enabled(text, PLUGIN_NAME), enabled)
+
+    def test_the_flow_form_and_the_block_form_read_the_same_lists(self) -> None:
+        # The success criterion stated as one comparison rather than as two
+        # separate expectations that could drift apart.
+        flow = plugin_enablement("plugins: {enabled: [omh, other], disabled: [browser]}\n")
+        block = plugin_enablement(
+            "plugins:\n  enabled:\n    - omh\n    - other\n  disabled:\n    - browser\n"
+        )
+        self.assertEqual(flow, block)
+        self.assertEqual(flow, {"enabled": ["omh", "other"], "disabled": ["browser"]})
+
+    def test_every_unreadable_node_is_reported_unread_and_not_as_empty(self) -> None:
+        for text in UNREADABLE_PLUGINS_NODES:
+            with self.subTest(text=text):
+                self.assertFalse(plugin_enablement_is_readable(text), text)
+                self.assertEqual(plugin_enablement(text), {"enabled": [], "disabled": []})
+                self.assertFalse(plugin_is_enabled(text, PLUGIN_NAME))
+
+    def test_the_reader_enters_only_the_top_level_plugins_key(self) -> None:
+        # The classifier matches on the key rather than on the exact line, so
+        # the negative control is a key that merely starts the same way and a
+        # `plugins` mapping nested under something else.
+        for text in (
+            "plugins_extra: {enabled: [omh]}\n",
+            "hermes:\n  plugins: {enabled: [omh]}\n",
+            "other: {plugins: {enabled: [omh]}}\n",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(plugin_enablement(text), {"enabled": [], "disabled": []})
+                self.assertTrue(plugin_enablement_is_readable(text))
+
+    def test_the_writer_refuses_every_node_it_cannot_take_an_item_back_out_of(self) -> None:
+        # `remove_plugin_enabled` goes through `section_edit_guard`, which
+        # refuses every `plugins` node that is not the plain block. Before
+        # this, the writer found no `plugins:` line under a flow mapping and
+        # appended a second top-level `plugins:` block; measured with the
+        # PyYAML in Hermes' own venv, a duplicate top-level key resolves to
+        # its last value, so the person's own list was dropped silently.
+        for text in [entry for entry, _ in READABLE_PLUGINS_NODES] + list(UNREADABLE_PLUGINS_NODES):
+            listed = plugin_enablement(text)
+            if text.splitlines()[0].strip() == "plugins:":
+                continue
+            if PLUGIN_NAME in listed["enabled"] or PLUGIN_NAME in listed["disabled"]:
+                # No write is needed, so there is nothing to refuse; those
+                # nodes are the subject of the test below.
+                continue
+            with self.subTest(text=text):
+                refusal = plugins_enabled_extension_error(text, PLUGIN_NAME)
+                self.assertIn("setup extends a plain `plugins:` block", refusal)
+                with self.assertRaises(ValueError) as caught:
+                    ensure_plugin_enabled(text, PLUGIN_NAME)
+                self.assertEqual(str(caught.exception), refusal)
+                self.assertFalse(remove_plugin_enabled(text, PLUGIN_NAME).changed)
+
+    def test_the_writer_is_silent_over_a_node_it_would_not_write_to(self) -> None:
+        # A flow config that already enables the bridge needs no write, so
+        # setup answers "already enabled" and doctor reports no fault.
+        for text in ("plugins: {enabled: [omh]}\n", "plugins: {disabled: [omh]}\n"):
+            with self.subTest(text=text):
+                self.assertEqual(plugins_enabled_extension_error(text, PLUGIN_NAME), "")
+                change = ensure_plugin_enabled(text, PLUGIN_NAME)
+                self.assertFalse(change.changed)
+                self.assertEqual(change.text, text)
+
+
+class PluginsNodeDoctorTests(unittest.TestCase):
+    """`plugin_enabled_in_hermes` over the same corpus.
+
+    The corpus goes through the check function, and one entry per answer also
+    goes through `run_doctor`, which is what proves the check is wired into
+    the report rather than only callable. Running the whole corpus that way
+    costs a doctor sweep per entry and proves the same thing twenty-two times.
+    """
+
+    def _check_for(self, config_text: str):
+        self.hermes_home.mkdir(parents=True, exist_ok=True)
+        (self.hermes_home / "config.yaml").write_text(config_text, encoding="utf-8")
+        paths = resolve_paths(self.root / ".omh", self.hermes_home)
+        return doctor_module._plugin_enabled_check(paths)
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.hermes_home = self.root / ".hermes"
+
+    def test_doctor_reports_the_answer_the_node_carries(self) -> None:
+        for text, enabled in READABLE_PLUGINS_NODES:
+            with self.subTest(text=text):
+                check = self._check_for(text)
+                self.assertEqual(check.ok, enabled, check.message)
+                self.assertTrue(check.observed)
+
+    def test_doctor_reports_an_unread_node_as_unread_and_never_as_disabled(self) -> None:
+        for text in UNREADABLE_PLUGINS_NODES:
+            with self.subTest(text=text):
+                check = self._check_for(text)
+                self.assertFalse(check.observed, check.message)
+                self.assertEqual(check.severity, "warning")
+                self.assertIn("form OMH does not read", check.message)
+                self.assertIn("was not established", check.message)
+                self.assertNotIn("not in plugins.enabled", check.message)
+                self.assertNotIn("will not load it", check.message)
+
+    def test_the_report_carries_both_answers_end_to_end(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hermes_home = root / ".hermes"
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(hermes_home)]
+            status, _stdout, stderr = run_cli(base + ["setup"])
+            self.assertEqual(status, 0, stderr)
+            config_path = hermes_home / "config.yaml"
+            paths = resolve_paths(root / ".omh", hermes_home)
+
+            config_path.write_text("plugins: {enabled: [omh]}\n", encoding="utf-8")
+            check = next(c for c in run_doctor(paths) if c.name == "plugin_enabled_in_hermes")
+            self.assertTrue(check.ok, check.message)
+            self.assertIn("is enabled in", check.message)
+
+            config_path.write_text("plugins: *missing\n", encoding="utf-8")
+            check = next(c for c in run_doctor(paths) if c.name == "plugin_enabled_in_hermes")
+            self.assertFalse(check.observed, check.message)
+            self.assertIn("form OMH does not read", check.message)
 
 
 class EnsurePluginEnabledMatchesTheFilesIndentTests(unittest.TestCase):

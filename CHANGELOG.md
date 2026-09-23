@@ -255,6 +255,28 @@ All notable changes will be documented here.
   3,210 -> 3,400, the per-skill ceiling 26,500 -> 26,800, and the full-profile
   ratchets re-derived from their producers.
 
+- **A `plugins` node written on its key line no longer reads as "nothing is
+  enabled".** `plugin_enablement` entered Hermes' `plugins` node on one
+  condition, a top-level line whose text was exactly `plugins:`, so the flow
+  mapping `plugins: {enabled: [hermes-jev]}` and a `plugins:` line carrying a
+  comment both left the same empty lists a config enabling nothing leaves.
+  Every caller then stated "not enabled" about a plugin the host loads. One
+  classifier now answers for that node and the reader follows both forms
+  Hermes loads; a corpus of fourteen readable nodes is pinned against the
+  answers Hermes' own PyYAML gives them. A node outside those forms -- an
+  alias, an anchored block, a repeated key, a file YAML refuses -- reports
+  unread rather than empty: `omh doctor` returns `plugin_enabled_in_hermes`
+  as an unobserved warning naming the node instead of telling the operator to
+  enable a plugin that is already on, and the uninstall report says
+  `plugins.enabled` was kept rather than absent. Setup gains one refusal to
+  match the remover, which already declines every `plugins` node that is not
+  the plain block: it used to find no `plugins:` line under a flow mapping and
+  append a second top-level `plugins:` block, and a duplicate top-level key
+  resolves to its last value, so the operator's own list was dropped with no
+  error anywhere. The plugin bundle's routing-tier reader is unchanged and
+  still under-reads the flow form by one tier; it cannot import the core
+  reader, and it states no enablement.
+
 ## 2.0.5 - 2026-09-22
 
 - **The cut now asks for the site rebuild its own push cannot start.** A cut

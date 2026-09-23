@@ -15,6 +15,7 @@ from ..config_adapter import (
     external_dirs,
     memory_provider_selection,
     plugin_enablement,
+    plugin_enablement_is_readable,
     plugin_enablement_shape_error,
     plugin_is_enabled,
     plugins_enabled_extension_error,
@@ -1966,6 +1967,26 @@ def _plugin_enabled_check(paths: OmhPaths) -> Check:
             next_action=(
                 f"Edit {config_path} so `plugins.enabled` is a YAML block list, "
                 "then rerun `omh doctor`."
+            ),
+        )
+    # "Not enabled" is a claim about Hermes' config, and this check may state
+    # it only over a node it read. A `plugins` node outside the two forms the
+    # reader follows leaves the same empty lists a config enabling nothing
+    # leaves, and reporting the second as the first told operators to enable a
+    # plugin their host already loads (#1814).
+    if not plugin_enablement_is_readable(config_text):
+        return Check(
+            "plugin_enabled_in_hermes",
+            True,
+            (
+                f"{config_path} writes `plugins` in a form OMH does not read, so whether "
+                f"`{PLUGIN_NAME}` is enabled was not established"
+            ),
+            severity="warning",
+            observed=False,
+            next_action=(
+                f"Rewrite `plugins` in {config_path} as a `plugins:` block with "
+                f"`  enabled:` under it, then rerun `omh doctor`."
             ),
         )
     if plugin_is_enabled(config_text, PLUGIN_NAME):

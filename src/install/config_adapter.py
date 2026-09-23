@@ -86,19 +86,156 @@ def _plugins_list_shape(rest: str) -> tuple[str, list[str]]:
     return "scalar", []
 
 
-def _split_trailing_comment(value: str) -> tuple[str, str]:
+def _split_trailing_comment(value: str, closers: str = "]") -> tuple[str, str]:
     """`[omh] # keep` -> (`[omh]`, ` # keep`); anything else -> (`value`, "").
 
-    The split is taken only when what precedes ` #` closes a flow sequence,
-    so `['a #b', omh]` stays one value and a quoted scalar keeps its comment
-    as part of the text it is refused with. YAML reads the comment as
-    nothing; the writers carry it onto the key line so the person's note
-    survives the rewrite.
+    The split is taken only when what precedes ` #` closes a flow node, so
+    `['a #b', omh]` stays one value and a quoted scalar keeps its comment as
+    part of the text it is refused with. YAML reads the comment as nothing;
+    the writers carry it onto the key line so the person's note survives the
+    rewrite.
+
+    `closers` is which flow node may end the value: a sequence for the
+    `enabled:` / `disabled:` key lines, a sequence or a mapping for the
+    `plugins:` node line, which is the one place a flow mapping is read.
     """
     head, sep, tail = value.partition(" #")
-    if sep and head.rstrip().endswith("]"):
+    if sep and head.rstrip().endswith(tuple(closers)):
         return head.rstrip(), f" #{tail}"
     return value, ""
+
+
+_PLUGINS_NODE_BLOCK = "block"
+_PLUGINS_NODE_FLOW = "flow"
+_PLUGINS_NODE_UNREADABLE = "unreadable"
+
+
+def _split_flow_items(inner: str) -> list[str] | None:
+    """Split a flow node's body on the commas that separate its members.
+
+    A comma inside a nested flow node or inside quotes belongs to the member,
+    not to the node above it, so a plain `split(",")` reads
+    `{enabled: [a, b]}` as two pairs and neither of them as a key. `None` for
+    a bracket or a quote that never closes: Hermes refuses that file outright,
+    and this reader must not answer for a document its own loader rejects.
+    """
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    quote = ""
+    for char in inner:
+        if quote:
+            current.append(char)
+            if char == quote:
+                quote = ""
+            continue
+        if char in "'\"":
+            quote = char
+        elif char in "[{":
+            depth += 1
+        elif char in "]}":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif char == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    if depth or quote:
+        return None
+    parts.append("".join(current))
+    return parts
+
+
+def _plugins_flow_mapping(inner: str) -> dict[str, list[str]] | None:
+    """Read `enabled` / `disabled` out of a `plugins:` flow mapping body, or None.
+
+    Bounded on purpose, and `None` means "this reader did not read the node",
+    never "nothing is enabled" -- the difference the whole predicate below
+    exists to keep. Refused: a backslash, which is a double-quoted escape the
+    splitter above does not model; a member with no colon; a repeated
+    `enabled` or `disabled` key, since YAML keeps the last and reading either
+    would be a guess; and a member whose value is itself a flow mapping,
+    which Hermes hands its plugin loader as a mapping and not as a list of
+    names. A key OMH does not model is skipped, the way the block reader
+    skips a key that is neither `enabled` nor `disabled`.
+
+    Members go through `_parse_inline_list`, so a flow mapping reads exactly
+    what the same sequence reads on its own key line and the two forms cannot
+    give different answers.
+    """
+    if "\\" in inner:
+        return None
+    parts = _split_flow_items(inner)
+    if parts is None:
+        return None
+    lists: dict[str, list[str]] = {"enabled": [], "disabled": []}
+    seen: set[str] = set()
+    for part in parts:
+        member = part.strip()
+        if not member:
+            continue
+        key, sep, raw = member.partition(":")
+        if not sep:
+            return None
+        key = key.strip().strip("\"'")
+        if key not in lists:
+            continue
+        if key in seen:
+            return None
+        seen.add(key)
+        value = raw.strip()
+        if value.startswith("{"):
+            return None
+        parsed = _parse_inline_list(value)
+        if parsed is not None:
+            lists[key] = parsed
+        # Any other scalar here (a null, the quoted `[]`, a bare name) carries
+        # no list member, so Hermes loads no plugin from it and the empty list
+        # this leaves in place is the answer, not a gap.
+    return lists
+
+
+def _plugins_node_shape(rest: str) -> tuple[str, dict[str, list[str]]]:
+    """Classify the text after a top-level `plugins:`, and read a flow mapping.
+
+    `block`: nothing or only a comment follows the colon, so `enabled` and
+    `disabled` are the lines below -- what Hermes writes and what every writer
+    here edits. `flow`: a single-line flow mapping, which Hermes loads exactly
+    as it loads the block form; measured with the PyYAML in Hermes' own venv,
+    `plugins: {enabled: [hermes-jev]}` loads as
+    `{'plugins': {'enabled': ['hermes-jev']}}`. `unreadable`: everything else,
+    including an anchor or a tag on the node. An anchored `plugins: &p` is a
+    block node a `*p` alias elsewhere resolves to, and the writers here must
+    not edit under it, so the reader does not claim it either.
+
+    One classifier for the reader, the readability predicate and the writers,
+    so no caller can disagree with another about which node it is looking at.
+    """
+    value = _split_trailing_comment(rest.strip(), closers="]}")[0].strip()
+    if not value or value.startswith("#"):
+        return _PLUGINS_NODE_BLOCK, {}
+    if not (value.startswith("{") and value.endswith("}")):
+        return _PLUGINS_NODE_UNREADABLE, {}
+    lists = _plugins_flow_mapping(value[1:-1])
+    if lists is None:
+        return _PLUGINS_NODE_UNREADABLE, {}
+    return _PLUGINS_NODE_FLOW, lists
+
+
+def _plugins_node_line_shape(line: str) -> tuple[str, dict[str, list[str]]] | None:
+    """`line`'s `plugins` node shape, or None when this is not that key line.
+
+    By key rather than by the exact text `plugins:`, so `plugins:  # third-party`
+    is the node it is rather than a node nobody found.
+    """
+    if line.startswith(" ") or not line.strip():
+        return None
+    key, sep, rest = line.strip().partition(":")
+    if not sep or key.strip() != "plugins":
+        return None
+    return _plugins_node_shape(rest)
 
 
 def _only_node_properties(value: str) -> bool:
@@ -215,6 +352,15 @@ def plugin_enablement(config_text: str) -> dict[str, list[str]]:
     `omh doctor` reported `Hermes registration: ok (4/4)` against exactly that
     state, so every OMH tool was unreachable in chat while the install looked
     healthy.
+
+    Both forms Hermes loads are read: the block node, whose keys are the lines
+    below, and the flow mapping `plugins: {enabled: [omh]}`, whose keys are on
+    the key line. The entry condition used to be the exact text `plugins:`, so
+    the flow form returned the empty lists a config enabling nothing returns
+    and every caller reported a plugin the host had enabled as disabled
+    (#1814). A node outside both forms leaves the lists empty and
+    `plugin_enablement_is_readable` False, which is what keeps that answer
+    from being read as a negative.
     """
     lists: dict[str, list[str]] = {"enabled": [], "disabled": []}
     in_plugins = False
@@ -222,8 +368,12 @@ def plugin_enablement(config_text: str) -> dict[str, list[str]]:
     for line in config_text.splitlines():
         stripped = line.strip()
         if not line.startswith(" ") and stripped:
-            in_plugins = stripped == "plugins:"
             current = ""
+            node = _plugins_node_line_shape(line)
+            in_plugins = node is not None and node[0] == _PLUGINS_NODE_BLOCK
+            if node is not None and node[0] == _PLUGINS_NODE_FLOW:
+                for key, values in node[1].items():
+                    lists[key] = list(values)
             continue
         if not in_plugins or not stripped:
             continue
@@ -286,25 +436,22 @@ def plugin_is_enabled(config_text: str, name: str) -> bool:
 def plugin_enablement_is_readable(config_text: str) -> bool:
     """Whether `plugin_enablement` read the `plugins:` node or walked past it.
 
-    That reader enters the node on one condition -- a top-level line whose
-    stripped text is exactly `plugins:` -- so `plugins: {enabled: [x]}` and
-    `plugins:  # third-party` are both valid YAML Hermes loads and both leave
-    the reader with empty lists. Empty lists are also what a config that
-    enables nothing produces, and the two are different facts: one is "nothing
-    is enabled", the other is "nobody read it". A caller that reports the
-    second as the first states a machine fact it does not hold.
+    That reader follows two forms, the block node and the single-line flow
+    mapping, and returns empty lists for anything else -- an alias, a scalar,
+    an anchored node. Empty lists are also what a config that enables nothing
+    produces, and the two are different facts: one is "nothing is enabled",
+    the other is "nobody read it". A caller that reports the second as the
+    first states a machine fact it does not hold.
 
-    This predicate is derived from the reader's own entry condition rather
-    than from a second opinion about YAML, so it cannot drift from what the
-    reader does. It is not a claim that every other form is modelled -- it
-    answers only for the node this key names, which is the one `plugins.enabled`
+    This predicate is derived from the reader's own classifier rather than
+    from a second opinion about YAML, so it cannot drift from what the reader
+    does. It is not a claim that every other form is modelled -- it answers
+    only for the node this key names, which is the one `plugins.enabled`
     lives in.
     """
     for line in config_text.splitlines():
-        if line.startswith(" "):
-            continue
-        stripped = line.strip()
-        if stripped.startswith("plugins:") and stripped != "plugins:":
+        node = _plugins_node_line_shape(line)
+        if node is not None and node[0] == _PLUGINS_NODE_UNREADABLE:
             return False
     return True
 
@@ -327,7 +474,8 @@ def plugin_enablement_shape_error(config_text: str) -> str:
     for line in config_text.splitlines():
         stripped = line.strip()
         if not line.startswith(" ") and stripped:
-            in_plugins = stripped == "plugins:"
+            node = _plugins_node_line_shape(line)
+            in_plugins = node is not None and node[0] == _PLUGINS_NODE_BLOCK
             scalar_key = ""
             continue
         if not in_plugins or not stripped or stripped.startswith("#"):
@@ -365,6 +513,62 @@ def _unsupported_enabled_shape_message(value: str, name: str) -> str:
     )
 
 
+def _unextendable_plugins_node_message(line: str, name: str) -> str:
+    return (
+        f"setup extends a plain `plugins:` block and this file writes the node as "
+        f"`{line}`; OMH does not add an item under a node its uninstall cannot take "
+        f"it back out of. Rewrite it as `plugins:` over `  enabled:`, or run "
+        f"`hermes plugins enable {name}`"
+    )
+
+
+def _plugins_node_extension_error(config_text: str, name: str) -> str:
+    """Why setup cannot add `name` under this `plugins` node, or "".
+
+    `ensure_plugin_enabled` looked for the exact text `plugins:`, found
+    nothing under a flow mapping or an alias, and appended a second top-level
+    `plugins:` block; measured with the PyYAML in Hermes' own venv, a
+    duplicate top-level key resolves to its last value, so
+    `plugins: {enabled: [hermes-jev]}` plus that appended block loads as
+    `{'plugins': {'enabled': ['omh']}}` -- the person's own plugin dropped,
+    with no error anywhere (#1814).
+
+    The bar is the remover's, not the reader's: `remove_plugin_enabled` goes
+    through `section_edit_guard`, which refuses every `plugins` node that is
+    not the plain block, so a node the reader now follows is still one setup
+    must not write into. Adding an item OMH could never take back out is the
+    one outcome worse than refusing. The refusal names Hermes' own writer
+    instead.
+
+    Silent when no write is needed. A name already enabled, or deliberately
+    disabled, is an answer `ensure_plugin_enabled` gives without touching the
+    file, so a flow-form config that already enables the bridge is not
+    reported as a fault.
+    """
+    for line in config_text.splitlines():
+        if _plugins_node_line_shape(line) is None or line.strip() == "plugins:":
+            continue
+        listed = plugin_enablement(config_text)
+        if name in listed["enabled"] or name in listed["disabled"]:
+            return ""
+        return _unextendable_plugins_node_message(line.strip(), name)
+    return ""
+
+
+def _plugins_block_index(lines: list[str]) -> int | None:
+    """The index of the plain top-level `plugins:` this module's writers edit.
+
+    The exact text, matching the guard `remove_plugin_enabled` already runs.
+    `_plugins_node_extension_error` has refused every other node shape before
+    a writer reaches this, so a miss here means the document names no
+    `plugins` key at all.
+    """
+    for index, line in enumerate(lines):
+        if line.strip() == "plugins:" and not line.startswith(" "):
+            return index
+    return None
+
+
 def plugins_enabled_extension_error(config_text: str, name: str) -> str:
     """Why `ensure_plugin_enabled` would refuse `config_text`, or "".
 
@@ -376,12 +580,16 @@ def plugins_enabled_extension_error(config_text: str, name: str) -> str:
     shape_error = plugin_enablement_shape_error(config_text)
     if shape_error:
         return shape_error
+    node_error = _plugins_node_extension_error(config_text, name)
+    if node_error:
+        return node_error
     in_plugins = False
     enabled_keys = 0
     for line in config_text.splitlines():
         stripped = line.strip()
         if not line.startswith(" ") and stripped:
-            in_plugins = stripped == "plugins:"
+            node = _plugins_node_line_shape(line)
+            in_plugins = node is not None and node[0] == _PLUGINS_NODE_BLOCK
             continue
         if not in_plugins or not stripped or stripped.startswith("- "):
             continue
@@ -420,11 +628,12 @@ def ensure_plugin_enabled(config_text: str, name: str) -> ConfigChange:
         return ConfigChange(False, "plugin already enabled", config_text)
 
     lines = config_text.splitlines()
-    plugins_index = next(
-        (idx for idx, line in enumerate(lines) if line.strip() == "plugins:" and not line.startswith(" ")),
-        None,
-    )
+    plugins_index = _plugins_block_index(lines)
     if plugins_index is None:
+        # Only reachable when the document names no `plugins` key at all:
+        # `_plugins_node_extension_error` above has already refused every node
+        # this writer cannot extend, so appending here can no longer shadow a
+        # node that is there.
         text = (config_text.rstrip() + f"\n\nplugins:\n  enabled:\n    - {name}\n").lstrip("\n")
         return ConfigChange(True, "appended plugins.enabled", text)
 

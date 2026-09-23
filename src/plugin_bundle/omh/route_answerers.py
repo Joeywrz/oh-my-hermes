@@ -206,7 +206,12 @@ def _enabled_plugin_names(hermes_home: object) -> frozenset[str]:
     not allowed to cost the payload it rides on.
 
     A shape this reader cannot follow (an inline `plugins: {enabled: [omh]}`,
-    an anchor) reads as absent for the same reason.
+    an anchor) reads as absent for the same reason. Core's `config_adapter`
+    has followed the flow mapping since #1814 and this reader has not, because
+    the bundle cannot import it and a second scanner for one tier is the wrong
+    trade. The divergence costs a routing tier and never a report: this answer
+    picks which hint to offer, and nothing on this path states whether Hermes
+    enables a plugin.
     """
     home = _home_path(hermes_home)
     if home is None:

@@ -378,7 +378,13 @@ All notable changes will be documented here.
   Wrapper-facing text produced elsewhere -- the operating-brief cards and
   inline headlines in `omh.wrapper.contract`, the session ladder in
   `omh.wrapper.sessions` -- is outside this change and still carries the
-  shapes the new rule rejects.
+  shapes the new rule rejects. The routing-inertness fixture is re-pinned
+  with the rewritten headlines: 103 of its 237 pinned rows move and
+  `observed.plain_headline` is the only field that differs on any of them,
+  so `observed_digest` moves for the first time without a verdict moving.
+  That corrects a claim beside it -- the projection was described as carrying
+  only the router's output, and it also carries the card's headline and
+  boundary, which a card picks after the route.
 
 ## 2.0.5 - 2026-09-22
 

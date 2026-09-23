@@ -412,7 +412,13 @@ class RoutingInertnessTests(unittest.TestCase):
         this one: this digest answers "did any pinned row change", the narrow
         one answers "did the router change", and only the second question can
         be answered without re-deriving it by hand every time a field is
-        added."""
+        added.
+
+        Re-pinned again for the card-copy voice rewrite (#1839), which moved
+        `observed.plain_headline` on 103 of the 237 pinned rows and nothing
+        else on any of them. That belongs here by construction -- this digest
+        hashes the whole row -- and the fixture carries the per-field row diff
+        that says so."""
         fixture = json.loads(
             (FIXTURES / "routing_precision_subset_at_c.json").read_text(encoding="utf-8")
         )
@@ -451,12 +457,20 @@ class RoutingInertnessTests(unittest.TestCase):
         - a case dataclass gains a field: `digest` moves, this one does not;
         - a pinned case's message is reworded and still routes the same:
           `digest` moves (the row carries `message_sha256`), this one does not;
-        - a pinned case's message reaches a different route: both move.
+        - a pinned case's message reaches a different route: both move;
+        - a pinned card's headline is reworded and the route is unchanged:
+          both move (#1839). `observed` carries `plain_headline` and
+          `claim_boundary`, and a card picks those after the route rather than
+          the router returning them, so this pin is narrower than the row and
+          not narrower than the card.
 
-        So `digest` alone moving says no verdict changed and the row shape or
-        an input did; both moving says routing did. Never re-pin this one to
-        make a build green -- it moving is a behaviour change, and it belongs
-        in the PR body with the rows named."""
+        So `digest` alone moving says no card output changed and the row shape
+        or an input did. Both moving says a pinned row's card output changed,
+        which is either a route or the text on it -- the two are told apart by
+        a per-field row diff against the pre-change tree, never by this
+        digest's value. Never re-pin this one to make a build green: a re-pin
+        carries that diff, and it belongs in the PR body with the field that
+        moved named."""
         fixture = json.loads(
             (FIXTURES / "routing_precision_subset_at_c.json").read_text(encoding="utf-8")
         )

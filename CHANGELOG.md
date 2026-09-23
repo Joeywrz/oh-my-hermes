@@ -4,6 +4,19 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- **Setup no longer writes a `plugins.enabled` Hermes cannot read.** A config
+  carrying `enabled: '[]'` is a string to YAML and no plugins to Hermes, and
+  setup inserted `    - omh` under it, which YAML refuses (`did not find
+  expected key`); the same insert under `enabled: null` or a plain word folds
+  the item into the string, so Hermes loaded nothing and said nothing. Setup
+  now classifies the value first: a null or a quoted `[]` carries no member and
+  is normalized to a block list, an inline list is expanded as before, and any
+  other scalar stops setup with the file untouched and `hermes plugins enable
+  omh` named as the repair. The line reader stops attributing items under a
+  scalar to the key, and `omh doctor` reports a file already in that state as
+  the file it is rather than as an enabled plugin (#1825).
+
+
 - **A board readback is now measured after it is serialized, and is no longer
   run through diff padding.** The ceiling that keeps `kanban_show`,
   `kanban_list` and `kanban_attachments` inside the context budget was applied

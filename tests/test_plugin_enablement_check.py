@@ -8,7 +8,12 @@ from _cli_harness import run_cli
 from _local_package import load_local_package
 
 load_local_package()
-from omh.config_adapter import ensure_plugin_enabled, plugin_enablement, plugin_is_enabled
+from omh.config_adapter import (
+    ensure_plugin_enabled,
+    plugin_enablement,
+    plugin_enablement_shape_error,
+    plugin_is_enabled,
+)
 from omh.maintenance.doctor import run_doctor
 from omh.paths import resolve_paths
 from omh.plugin_pack import PLUGIN_NAME
@@ -221,6 +226,152 @@ class SetupEnablesThePluginTests(unittest.TestCase):
                 plugin_is_enabled(config_path.read_text(encoding="utf-8"), PLUGIN_NAME),
                 "setup must not override an explicit opt-out",
             )
+
+
+# What setup wrote for `enabled: '[]'` before #1825. YAML refuses children
+# under a closed value, so Hermes fails the file ("did not find expected key").
+BROKEN_CONFIG = "plugins:\n  enabled: '[]'\n    - omh\n"
+# Valid YAML: the items fold into the string `browser - omh`, so Hermes
+# reads no list and loads no plugin, and nothing reports it.
+FOLDED_CONFIG = "plugins:\n  enabled: browser\n    - omh\n"
+
+
+class ScalarEnabledValueTests(unittest.TestCase):
+    """`enabled: '[]'` is a string to YAML and no plugins to Hermes (#1825)."""
+
+    def test_reader_treats_every_scalar_as_no_plugins(self) -> None:
+        for value in ("'[]'", '"[]"', "null", "~", "browser", "'[browser]'"):
+            with self.subTest(value=value):
+                listed = plugin_enablement(f"plugins:\n  enabled: {value}\n  disabled: []\n")
+                self.assertEqual(listed, {"enabled": [], "disabled": []})
+
+    def test_reader_keeps_members_under_node_properties(self) -> None:
+        # `&plist` / `!!seq` are properties of the list below, not a scalar:
+        # every `*plist` alias in the file resolves to that list.
+        for value in ("&plist", "!!seq", "&plist !!seq", "&plist  # shared"):
+            with self.subTest(value=value):
+                text = f"plugins:\n  enabled: {value}\n    - omh\n"
+                self.assertEqual(plugin_enablement(text)["enabled"], ["omh"])
+                self.assertEqual(plugin_enablement_shape_error(text), "")
+
+    def test_reader_does_not_attribute_items_under_a_scalar(self) -> None:
+        self.assertFalse(plugin_is_enabled(BROKEN_CONFIG, PLUGIN_NAME))
+        self.assertFalse(plugin_is_enabled(FOLDED_CONFIG, PLUGIN_NAME))
+        self.assertEqual(plugin_enablement(BROKEN_CONFIG), {"enabled": [], "disabled": []})
+
+    def test_shape_error_names_what_hermes_does_with_the_file(self) -> None:
+        self.assertIn("cannot parse", plugin_enablement_shape_error(BROKEN_CONFIG))
+        self.assertIn("plugins.enabled is the scalar `'[]'`", plugin_enablement_shape_error(BROKEN_CONFIG))
+        self.assertIn("folds", plugin_enablement_shape_error(FOLDED_CONFIG))
+        self.assertIn(
+            "plugins.disabled",
+            plugin_enablement_shape_error("plugins:\n  disabled: '[]'\n  - omh\n"),
+        )
+
+    def test_shape_error_is_silent_for_every_shape_hermes_reads(self) -> None:
+        cases = (
+            ENABLED_CONFIG,
+            DISABLED_CONFIG,
+            "plugins:\n  enabled: '[]'\n",
+            "plugins:\n  enabled: []\n",
+            "plugins:\n  enabled: null\n  disabled:\n    - browser\n",
+            "plugins:\n  enabled: browser\n  entries:\n    omh:\n      allow_tool_override: false\n",
+            "plugins:\n  enabled:  # none yet\n    - omh\n",
+            "skills:\n  external_dirs:\n    - x\n",
+        )
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(plugin_enablement_shape_error(text), "")
+
+    def test_writer_normalizes_an_empty_scalar_to_a_block_list(self) -> None:
+        for value in ("'[]'", '"[]"', "null", "~"):
+            with self.subTest(value=value):
+                change = ensure_plugin_enabled(f"plugins:\n  enabled: {value}\n  disabled: []\n", PLUGIN_NAME)
+                self.assertTrue(change.changed)
+                self.assertEqual(change.message, "normalized empty plugins.enabled to a block list")
+                self.assertEqual(change.text, "plugins:\n  enabled:\n    - omh\n  disabled: []\n")
+                self.assertTrue(plugin_is_enabled(change.text, PLUGIN_NAME))
+                self.assertEqual(plugin_enablement_shape_error(change.text), "")
+
+    def test_writer_follows_the_sibling_indent_when_normalizing(self) -> None:
+        change = ensure_plugin_enabled("plugins:\n  enabled: '[]'\n  disabled:\n  - browser\n", PLUGIN_NAME)
+        self.assertEqual(change.text, "plugins:\n  enabled:\n  - omh\n  disabled:\n  - browser\n")
+
+    def test_writer_refuses_any_other_scalar_and_names_the_hermes_writer(self) -> None:
+        for value in ("browser", "'[browser]'", "[] # trailing comment", "'omh'"):
+            text = f"plugins:\n  enabled: {value}\n"
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError) as caught:
+                    ensure_plugin_enabled(text, PLUGIN_NAME)
+                self.assertIn("unsupported plugins.enabled shape", str(caught.exception))
+                self.assertIn(f"hermes plugins enable {PLUGIN_NAME}", str(caught.exception))
+
+    def test_writer_refuses_a_file_hermes_cannot_read_as_a_list(self) -> None:
+        for text in (BROKEN_CONFIG, FOLDED_CONFIG):
+            with self.subTest(text=text):
+                with self.assertRaises(ValueError) as caught:
+                    ensure_plugin_enabled(text, PLUGIN_NAME)
+                self.assertEqual(str(caught.exception), plugin_enablement_shape_error(text))
+
+
+class SetupWithScalarEnabledTests(unittest.TestCase):
+    """The #1825 reproduction, end to end through `omh setup` and `omh doctor`."""
+
+    def test_setup_normalizes_a_quoted_empty_list_and_doctor_stays_clean(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hermes_home = root / ".hermes"
+            hermes_home.mkdir()
+            config_path = hermes_home / "config.yaml"
+            config_path.write_text("plugins:\n  enabled: '[]'\n", encoding="utf-8")
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(hermes_home)]
+
+            status, _stdout, stderr = run_cli(base + ["setup"])
+            self.assertEqual(status, 0, stderr)
+
+            config_text = config_path.read_text(encoding="utf-8")
+            self.assertNotIn("'[]'", config_text)
+            self.assertIn("  enabled:\n    - omh\n", config_text)
+            self.assertEqual(plugin_enablement_shape_error(config_text), "")
+            self.assertTrue(plugin_is_enabled(config_text, PLUGIN_NAME), config_text)
+
+            paths = resolve_paths(root / ".omh", hermes_home)
+            check = next((c for c in run_doctor(paths) if c.name == "plugin_enabled_in_hermes"), None)
+            self.assertIsNotNone(check)
+            self.assertTrue(check.ok, check.message)
+
+    def test_setup_fails_closed_on_a_scalar_it_cannot_extend(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hermes_home = root / ".hermes"
+            hermes_home.mkdir()
+            config_path = hermes_home / "config.yaml"
+            before = "plugins:\n  enabled: browser\n"
+            config_path.write_text(before, encoding="utf-8")
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(hermes_home)]
+
+            status, _stdout, stderr = run_cli(base + ["setup"])
+            self.assertNotEqual(status, 0)
+            self.assertIn("unsupported plugins.enabled shape", stderr)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), before)
+
+    def test_doctor_reports_the_file_setup_used_to_write(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hermes_home = root / ".hermes"
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(hermes_home)]
+            status, _stdout, stderr = run_cli(base + ["setup"])
+            self.assertEqual(status, 0, stderr)
+
+            config_path = hermes_home / "config.yaml"
+            config_path.write_text(BROKEN_CONFIG, encoding="utf-8")
+
+            paths = resolve_paths(root / ".omh", hermes_home)
+            check = next((c for c in run_doctor(paths) if c.name == "plugin_enabled_in_hermes"), None)
+            self.assertIsNotNone(check)
+            self.assertFalse(check.ok)
+            self.assertIn("cannot parse", check.message)
+            self.assertIn("YAML block list", check.next_action or "")
 
 
 if __name__ == "__main__":

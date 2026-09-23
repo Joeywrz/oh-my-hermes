@@ -15,6 +15,7 @@ from ..config_adapter import (
     external_dirs,
     memory_provider_selection,
     plugin_enablement,
+    plugin_enablement_shape_error,
     plugin_is_enabled,
     read_config,
 )
@@ -1942,6 +1943,24 @@ def _plugin_enabled_check(paths: OmhPaths) -> Check:
             severity="warning",
             observed=False,
             next_action="Make the Hermes config readable, then rerun `omh doctor`.",
+        )
+    # A file Hermes cannot read as a list is reported before the switch is:
+    # the line reader used to attribute items under `enabled: '[]'` to the
+    # key and this check passed over a config Hermes refused (#1825).
+    shape_error = plugin_enablement_shape_error(config_text)
+    if shape_error:
+        return Check(
+            "plugin_enabled_in_hermes",
+            False,
+            f"{config_path}: {shape_error}",
+            remediation=(
+                f"Edit {config_path} so `plugins.enabled` is a YAML block list "
+                f"with `- {PLUGIN_NAME}` under it."
+            ),
+            next_action=(
+                f"Edit {config_path} so `plugins.enabled` is a YAML block list, "
+                "then rerun `omh doctor`."
+            ),
         )
     if plugin_is_enabled(config_text, PLUGIN_NAME):
         return Check(

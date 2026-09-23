@@ -14,6 +14,7 @@ from omh.config_adapter import (
     plugin_enablement_shape_error,
     plugin_is_enabled,
     plugins_enabled_extension_error,
+    remove_plugin_enabled,
 )
 from omh.maintenance.doctor import run_doctor
 from omh.paths import resolve_paths
@@ -298,8 +299,35 @@ class ScalarEnabledValueTests(unittest.TestCase):
         change = ensure_plugin_enabled("plugins:\n  enabled: '[]'\n  disabled:\n  - browser\n", PLUGIN_NAME)
         self.assertEqual(change.text, "plugins:\n  enabled:\n  - omh\n  disabled:\n  - browser\n")
 
+    def test_a_trailing_comment_does_not_hide_an_inline_list(self) -> None:
+        # YAML reads `[omh] # keep` as the list; the comment rides the key line
+        # through the rewrite instead of turning the value into a refusal.
+        self.assertEqual(plugin_enablement("plugins:\n  enabled: [omh] # keep\n")["enabled"], ["omh"])
+        self.assertEqual(plugin_enablement_shape_error("plugins:\n  enabled: [omh] # keep\n"), "")
+        change = ensure_plugin_enabled("plugins:\n  enabled: [] # none yet\n", PLUGIN_NAME)
+        self.assertEqual(change.text, "plugins:\n  enabled: # none yet\n    - omh\n")
+        self.assertTrue(plugin_is_enabled(change.text, PLUGIN_NAME))
+        removed = remove_plugin_enabled("plugins:\n  enabled: [omh, browser] # c\n", PLUGIN_NAME)
+        self.assertEqual(removed.text, "plugins:\n  enabled: [browser] # c\n")
+        # A quoted item that contains ` #` is not a comment.
+        self.assertEqual(plugin_enablement("plugins:\n  enabled: ['a #b', omh]\n")["enabled"], ["a #b", "omh"])
+
+    def test_a_level_item_under_a_plain_scalar_is_a_parse_error(self) -> None:
+        # `  - omh` at the key's own indent ends the scalar; YAML refuses it
+        # (measured), unlike a deeper item, which folds into the string.
+        self.assertIn("cannot parse", plugin_enablement_shape_error("plugins:\n  enabled: browser\n  - omh\n"))
+        self.assertIn("folds", plugin_enablement_shape_error(FOLDED_CONFIG))
+
+    def test_duplicate_enabled_keys_are_refused(self) -> None:
+        # YAML keeps the last key and the writer would edit the first.
+        text = "plugins:\n  enabled:\n    - browser\n  enabled: '[]'\n"
+        self.assertIn("duplicate plugins.enabled keys", plugins_enabled_extension_error(text, PLUGIN_NAME))
+        with self.assertRaises(ValueError) as caught:
+            ensure_plugin_enabled(text, PLUGIN_NAME)
+        self.assertEqual(str(caught.exception), plugins_enabled_extension_error(text, PLUGIN_NAME))
+
     def test_writer_refuses_any_other_scalar_and_names_the_hermes_writer(self) -> None:
-        for value in ("browser", "'[browser]'", "[] # trailing comment", "'omh'"):
+        for value in ("browser", "'[browser]'", "'[]' # quoted keeps its comment", "'omh'"):
             text = f"plugins:\n  enabled: {value}\n"
             with self.subTest(value=value):
                 with self.assertRaises(ValueError) as caught:

@@ -163,10 +163,8 @@ HIGH_EFFORT_CALIBRATIONS: Final[dict[str, str]] = {
         "checks out of the repository, and commit tests only where a criterion asks for them or the repo "
         "already keeps tests for this kind of change, sized like their neighbors. Add no helpers, "
         "fallbacks, validation, flags, or shims beyond what the criteria name; when you can just change "
-        "the code, change it. No one is watching this unit in real time: proceed on "
-        "every reversible action inside the boundary without asking, and if your last paragraph is a "
-        "plan, a question, or a promise, do that work now. Every progress claim points at a tool result "
-        "from this run — a failed check is reported with its output, a skipped step as skipped."
+        "the code, change it. Every progress claim points at a tool result from this run — a failed "
+        "check is reported with its output, a skipped step as skipped."
     ),
     "gemini": (
         "High-effort calibration: a claim without the tool output that proves it is not evidence — "
@@ -262,9 +260,8 @@ MAIN_AGENT_COMPOSITION_CALIBRATIONS: Final[dict[str, str]] = {
         "whose only job is re-checking the split itself; a fresh-context review of a unit's deliverable "
         "against its criteria is a legitimate unit. Delegate a unit when it is independent of the work "
         "you keep and its completion can be judged from the evidence it returns; keep in line anything "
-        "that finishes in a handful of tool calls, and keep working while delegated units run. The "
-        "criteria you write are a closed checklist: state them once, completely, and freeze. If your "
-        "closing paragraph is a dispatch you could run, run it before closing. Your closing report is "
+        "that finishes in a handful of tool calls. The "
+        "criteria you write are a closed checklist: state them once, completely, and freeze. Your closing report is "
         "the reader's first look at the run — lead with the outcome in plain sentences, drop the "
         "working shorthand, and give the one or two things you need from them."
     ),

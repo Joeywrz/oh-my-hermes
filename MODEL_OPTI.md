@@ -543,21 +543,65 @@ pairing so a benchmark claim can never mix in other prompt changes.
   only what the criteria name and report adjacent findings; keep scratch
   checks out of the repo and commit tests only where a criterion or the
   repo's own convention asks for them; add no helpers, fallbacks,
-  validation, flags, or shims beyond what the criteria name; no one is
-  watching in real time, so proceed on reversible actions and finish
-  a last paragraph that is a plan or a promise instead of ending on it;
-  every progress claim points at a tool result, a failed check is reported
-  with its output, a skipped step as skipped. The block sits exactly on the
+  validation, flags, or shims beyond what the criteria name; every progress
+  claim points at a tool result, a failed check is reported with its output,
+  a skipped step as skipped. The block sits exactly on the
   `BLOCK_MAX_CONSTRAINTS` ceiling; the 5.1 additions were phrased as
-  descriptions rather than modal directives to stay there.
+  descriptions rather than modal directives to stay there. It no longer
+  counters the 5.1 "early stopping" trait: the sentence that did ("no one is
+  watching ... proceed on every reversible action ... do that work now")
+  pushed the model to keep working, which `docs/MODEL-ONBOARDING.md` §2
+  forbids, and was removed on the measurement below.
+- **Measured (2026-09-23, subagent block):** three arms on
+  `benchmarks/live-model-tools/v1`, evaluation split (30 instances),
+  `hermes_current_session` path, `og` / `anthropic/claude-fable-5-1` at
+  `xhigh` (the `architect` chain head, which puts the route in the
+  high-effort tier), condition `optimized`, one arm at a time, same UTC day.
+  `current` is the old block (sha256 `78dc1ff9…`), run twice; `deletion` is
+  the block above, identical except that the push sentence is removed
+  (sha256 `7a237a14…`).
+
+  | arm | window (UTC) | pass | harness tokens | tool calls | API calls |
+  |---|---|---|---|---|---|
+  | current | 06:20–06:45 | 18 / 30 | 2,760,212 | 317 | 206 |
+  | deletion | 07:20–07:44 | 18 / 30 | 2,641,559 | 302 | 201 |
+  | current (repeat) | 07:45–08:12 | 18 / 30 | 2,955,008 | 324 | 219 |
+
+  All three passed the same 18 instances (McNemar p = 1.0), so pass rate
+  decided nothing. Paired per-instance token deltas, bootstrap CI95: running
+  the same text twice moved +6,493 [−1,882, +17,224] (+7.1% in total);
+  deletion against the mean of the two current runs is −7,202 [−15,422, −47],
+  and +1 [−6,854, +6,254] on the 18 passing instances. So the deletion costs
+  no more than the text it replaced, within same-text drift, which was the
+  pre-registered rule. A second revision that also rewrote the evidence
+  sentence into a per-criterion report rule measured 18 / 30 at 2,904,402
+  tokens; it was not shipped, since one of its clauses ("a next step described
+  instead of run is reported as not done") reads as the same push. Its total
+  (+5.2%, +4,806 per instance against the first current run) sits inside the
+  same-text drift, but on the
+  passing instances it measured +7,287 [+2,783, +11,775], above the same-text
+  passing drift of +4,525. Tool and API calls come from Hermes'
+  session rows, outside the harness. Not measured: the composer block's
+  deletion below (no fanout in this harness; #1836), and any claim beyond
+  this corpus, route, and effort. Archive (outside git, owner checkout):
+  `.omc/research/claude-calibration-bench-2026-09-23/`, where
+  `three_arm_analysis.py` and `paired_tokens.py` produce every number above.
 - **What OMH injects (composer):** split only what the goal requires, no
   speculative units, no unit whose only job is re-checking the split itself
   (a fresh-context review of a unit's deliverable is a legitimate unit);
   delegate what is independent and evidence-judgeable, keep in line what
-  finishes in a handful of tool calls, and keep working while units run;
-  state the criteria once and freeze; a closing paragraph that is a dispatch
-  gets run before closing; write the closing report as the reader's first
-  look (outcome first, plain sentences, no working shorthand).
+  finishes in a handful of tool calls; state the criteria once and freeze;
+  write the closing report as the reader's first look (outcome first, plain
+  sentences, no working shorthand). Two clauses were removed on 2026-09-23
+  because they pushed the model to keep working: "keep working while
+  delegated units run" and "If your closing paragraph is a dispatch you could
+  run, run it before closing". The second was the composer-side counter to
+  the 5.1 trait of announcing a next step instead of running it, so that
+  trait is no longer countered here, as in the subagent block. The change is
+  deletion-only and **unmeasured**:
+  `benchmarks/live-model-tools/v1` runs one agent with no fanout and never
+  calls `composition_calibration_for_model()`, so no arm can reach this block.
+  #1836 tracks a measurement path for it.
 - **What OMH injects (throughput overlay, advanced modes):** a delegated
   lane returns a distilled report — outcome, evidence pointers, open items —
   never its transcript; delegated transcripts are what floods a composer's
@@ -593,9 +637,10 @@ pairing so a benchmark claim can never mix in other prompt changes.
   Claude Fable 5.1 migration guide's prompt-tunable behavioral shifts
   (official label; the "let it delegate", "act when you have enough",
   "targeted edits", "scope and test coverage", "batch independent tool
-  calls", "ground progress claims", and "early stopping" entries). Not yet
-  measured on 5.1 in this repo — the Fable 5 vs 5.1 benchmark pair is the
-  named follow-up.
+  calls", "ground progress claims", and "early stopping" entries). Only the
+  2026-09-23 push-sentence removal above is measured on 5.1 in this repo. The
+  block as a whole is not measured against no calibration, and the Fable 5 vs
+  5.1 benchmark pair is still the named follow-up.
 
 ### `gemini` (Gemini 3.1 Pro)
 

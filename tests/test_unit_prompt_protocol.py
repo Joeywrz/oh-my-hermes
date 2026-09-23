@@ -332,6 +332,37 @@ class CalibrationSelectionTests(unittest.TestCase):
         self.assertIn("prices cached prefixes", MAIN_AGENT_COMPOSITION_CALIBRATIONS["deepseek"])
         self.assertIn("interleaved", HIGH_EFFORT_CALIBRATIONS["glm"])
 
+    def test_claude_subagent_block_drops_the_removed_push_sentence(self) -> None:
+        # MODEL-ONBOARDING §2: no calibration sentence may push the model to
+        # keep working. The removed sentence was measured on 2026-09-23 (og /
+        # anthropic/claude-fable-5-1 at xhigh, 18/30 either way, cost within
+        # same-text drift); the evidence sentence beside it is kept.
+        block = HIGH_EFFORT_CALIBRATIONS["claude"]
+        for clause in (
+            "No one is watching",
+            "proceed on every reversible action",
+            "do that work now",
+        ):
+            self.assertNotIn(clause, block)
+        self.assertIn(
+            "Every progress claim points at a tool result from this run — a failed "
+            "check is reported with its output, a skipped step as skipped.",
+            block,
+        )
+
+    def test_claude_composer_block_drops_the_removed_push_clauses(self) -> None:
+        # Pins the two clauses removed on 2026-09-23 by their wording; it does
+        # not judge whether new wording pushes. Deletion-only and unmeasured:
+        # the live benchmark has no fanout and never reaches this block (#1836).
+        block = MAIN_AGENT_COMPOSITION_CALIBRATIONS["claude"]
+        for clause in (
+            "keep working while delegated units run",
+            "run it before closing",
+        ):
+            self.assertNotIn(clause, block.lower())
+        self.assertIn("state them once, completely, and freeze", block)
+        self.assertIn("keep in line anything that finishes in a handful of tool calls.", block)
+
     def test_no_route_means_no_calibration(self) -> None:
         self.assertEqual(calibration_for_route(None), "")
 

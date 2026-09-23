@@ -7,7 +7,6 @@ import importlib.util
 import json
 from pathlib import Path
 import shlex
-from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 from typing import TYPE_CHECKING, TypeGuard
@@ -112,9 +111,9 @@ class SessionsFoundation(unittest.TestCase):
             with patch('subprocess.Popen', side_effect=AssertionError('must not launch')):
                 projection = api.project_session_resume(receipt.to_dict(), binding=self.binding(),
                     workspace=self.workspace(receipt), platform='posix')
-            expected = ([receipt.capability.binary_identity.launch_path, 'exec', 'resume', SID, '-']
+            expected = ([receipt.capability.binary_identity.resolved_path, 'exec', 'resume', SID, '-']
                         if executor == 'codex' else
-                        [receipt.capability.binary_identity.launch_path, '--resume=' + SID])
+                        [receipt.capability.binary_identity.resolved_path, '--resume=' + SID])
             self.assertTrue(projection['available'])
             self.assertEqual(projection['argv'], expected)
             shell_command = projection['shell_command']
@@ -304,30 +303,6 @@ class SessionsFoundation(unittest.TestCase):
         _ = api.read_session_receipt(summary['executor_session'])
         self.assertEqual(json.dumps(summary), before)
 
-    def test_persisted_v1_receipt_normalizes_launch_path_for_resume(self):
-        api = self.api()
-        persisted = self.receipt().to_dict()
-        persisted['schema_version'] = 'fanout_executor_session/v1'
-        identity = persisted['binary_identity']
-        assert isinstance(identity, dict)
-        identity.pop('launch_path')
-
-        read = api.read_session_receipt(persisted)
-
-        self.assertIsNotNone(read.receipt)
-        assert read.receipt is not None
-        self.assertEqual(
-            read.receipt.capability.binary_identity.launch_path,
-            read.receipt.capability.binary_identity.resolved_path,
-        )
-        projection = api.project_session_resume(
-            persisted,
-            binding=self.binding(),
-            workspace=self.workspace(read.receipt),
-        )
-        self.assertTrue(projection['available'])
-        self.assertEqual(projection['argv'][0], read.receipt.capability.binary_identity.resolved_path)
-
     def test_s6_strict_closed_receipt_validation(self):
         api = self.api()
         good = self.receipt().to_dict()
@@ -388,22 +363,6 @@ class SessionsFoundation(unittest.TestCase):
             data, reason = bounded_session_probe([sys.executable, '-c', program])
             self.assertIsNone(data)
             self.assertEqual(reason, expected)
-
-    def test_windows_pinned_script_probe_uses_the_verified_copy_through_python(self):
-        import sys
-        from omh.coding.fanout_executor_sessions import _session_probe_launch
-
-        with TemporaryDirectory() as temporary:
-            pinned = Path(temporary) / "codex.exe"
-            pinned.write_bytes(b"#!python\nprint('trusted')\n")
-            argv, executable = _session_probe_launch(
-                [r"C:\\tools\\codex.exe", "exec", "--help"],
-                str(pinned),
-                windows=True,
-            )
-
-        self.assertEqual(argv, [sys.executable, str(pinned), "exec", "--help"])
-        self.assertIsNone(executable)
 
     def test_s5_native_telemetry_never_recurses_or_borrows_identity(self):
         from omh.coding.unit_telemetry import native_unit_telemetry

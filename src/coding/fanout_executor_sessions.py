@@ -21,13 +21,11 @@ import subprocess
 from uuid import NAMESPACE_URL, uuid5
 import re
 import shlex
-import sys
 
 from ._hermes_child_process import MAX_CAPTURE_BYTES
 from typing import Literal, TypeGuard, TypedDict
 
-SCHEMA_VERSION = 'fanout_executor_session/v2'
-LEGACY_SCHEMA_VERSION = 'fanout_executor_session/v1'
+SCHEMA_VERSION = 'fanout_executor_session/v1'
 MAX_EVENTS = 65536
 _PROTOCOLS = {'codex': 'codex_exec_json', 'claude-code': 'claude_stream_json'}
 _UUID = re.compile(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}')
@@ -41,11 +39,6 @@ State = Literal['observed', 'not_observed', 'not_available']
 class BinaryIdentity:
     resolved_path: str
     sha256: str
-    launch_path: str = ""
-
-    def __post_init__(self) -> None:
-        if not self.launch_path:
-            object.__setattr__(self, "launch_path", self.resolved_path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,8 +115,7 @@ class SessionReceipt:
                 'incarnation_id': incarnation.incarnation_id, 'common_dir': incarnation.common_dir,
                 'branch': incarnation.branch, 'device': incarnation.device, 'inode': incarnation.inode},
             'base_sha': binding.base_sha, 'launch_head': binding.launch_head, 'end_head': self.end_head,
-            'binary_identity': {'launch_path': capability.binary_identity.launch_path,
-                                'resolved_path': capability.binary_identity.resolved_path,
+            'binary_identity': {'resolved_path': capability.binary_identity.resolved_path,
                                 'sha256': capability.binary_identity.sha256},
             'version': capability.version, 'predecessor_attempt_id': binding.predecessor_attempt_id,
         }
@@ -276,26 +268,15 @@ def read_session_receipt(value: object) -> SessionRead:
         return SessionRead(None, 'legacy_missing')
     if not _is_mapping(value):
         return SessionRead(None, 'invalid_receipt')
-    schema_version = value.get('schema_version')
-    if schema_version not in (LEGACY_SCHEMA_VERSION, SCHEMA_VERSION):
+    if value.get('schema_version') != SCHEMA_VERSION:
         return SessionRead(None, 'unknown_schema')
     try:
         record = _object(value, _FIELDS)
-        binary_keys = (
-            ('resolved_path', 'sha256')
-            if schema_version == LEGACY_SCHEMA_VERSION
-            else ('launch_path', 'resolved_path', 'sha256')
-        )
-        binary = _object(record['binary_identity'], binary_keys)
-        resolved_path = _path(binary['resolved_path'])
+        binary = _object(record['binary_identity'], ('resolved_path', 'sha256'))
         capability = SessionCapability(
             _match(record['executor'], _TOKEN),
             None if record['protocol'] is None else _match(record['protocol'], _TOKEN),
-            BinaryIdentity(
-                resolved_path,
-                _match(binary['sha256'], _DIGEST),
-                resolved_path if schema_version == LEGACY_SCHEMA_VERSION else _path(binary['launch_path']),
-            ),
+            BinaryIdentity(_path(binary['resolved_path']), _match(binary['sha256'], _DIGEST)),
             None if record['version'] is None else _text(record['version']))
         incarnation = _object(record['worktree_incarnation'],
                               ('incarnation_id', 'common_dir', 'branch', 'device', 'inode'))
@@ -378,24 +359,10 @@ def bound_session_fields(record: Mapping[str, object], *, fanout_id: str,
 SESSION_HELP_PROBE_BYTES: Final[int] = 262_144
 
 
-def _session_probe_launch(
-    argv: list[str], executable: str | None, *, windows: bool | None = None
-) -> tuple[list[str], str | None]:
-    """Launch a pinned script explicitly on Windows; PE executables stay native."""
-    if windows is None:
-        windows = os.name == "nt"
-    if windows and executable is not None:
-        with Path(executable).open("rb") as stream:
-            if stream.read(2) == b"#!":
-                return [sys.executable, executable, *argv[1:]], None
-    return argv, executable
-
-
 def bounded_session_probe(argv: list[str], *, cwd: str | None = None,
                           env: Mapping[str, str] | None = None,
                           limit_bytes: int = MAX_CAPTURE_BYTES,
-                          keep_partial: bool = False,
-                          executable: str | None = None) -> tuple[bytes | None, str]:
+                          keep_partial: bool = False) -> tuple[bytes | None, str]:
     """Read at most `limit_bytes` per pipe; a failed/partial probe authorizes nothing.
 
     `keep_partial` hands back the bytes that WERE read alongside the
@@ -408,9 +375,7 @@ def bounded_session_probe(argv: list[str], *, cwd: str | None = None,
     from ._hermes_child_process import start_pipe_drainers, terminate_process_group
 
     try:
-        launch_argv, launch_executable = _session_probe_launch(argv, executable)
-        process = subprocess.Popen(launch_argv, cwd=cwd, env=dict(env) if env is not None else None,
-                                   executable=launch_executable,
+        process = subprocess.Popen(argv, cwd=cwd, env=dict(env) if env is not None else None,
                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, start_new_session=os.name != 'nt')
     except OSError:
@@ -571,7 +536,7 @@ def project_session_resume(
     else:
         # read_session_receipt established the canonical UUID and supported pair.
         reference = _match(receipt.reference, _UUID)
-        binary = receipt.capability.binary_identity.launch_path
+        binary = receipt.capability.binary_identity.resolved_path
         argv = ([binary, 'exec', 'resume', reference, '-'] if receipt.capability.executor == 'codex'
                 else [binary, '--resume=' + reference])
         result.update(available=True, reason='copy_only', argv=argv, cwd=binding.worktree_path)

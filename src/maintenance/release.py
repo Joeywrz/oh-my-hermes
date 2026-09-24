@@ -1509,7 +1509,12 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # and `tests/test_efficiency.py` holds it as a floor: the test fails when the
 # producer reads below it, so an inflated measurement is visible and a change
 # that shrinks the pack re-measures and re-derives in the same commit.
-FULL_PROFILE_SKILL_BODY_MEASURED_CHARS = 1044180
+# 1044180 -> 1044170 (measured; the ceiling stays 1150000): the setup and
+# execution guidance rewrite (#1842) shortens five bodies -- maestro,
+# morning-brief, parallel-tools, ultrawork, websearch-setup -- by ten chars
+# net. The floor moves with the producer so later growth is measured from
+# here rather than from a number the pack no longer reaches.
+FULL_PROFILE_SKILL_BODY_MEASURED_CHARS = 1044170
 FULL_PROFILE_SKILL_BODY_HEADROOM_PERCENT = 10
 FULL_PROFILE_SKILL_BODY_CEILING_STEP_CHARS = 50000
 FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 1150000
